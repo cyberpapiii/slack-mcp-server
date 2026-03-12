@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -297,6 +298,52 @@ func TestShouldAddTool_WriteTool_Attachment(t *testing.T) {
 
 		result := shouldAddTool(ToolAttachmentGetData, []string{ToolAttachmentGetData}, "SLACK_MCP_ATTACHMENT_TOOL")
 		assert.True(t, result, "attachment_get_data should be registered when explicitly in enabledTools")
+	})
+}
+
+func TestRegisterCacheDependentTools(t *testing.T) {
+	newTestServer := func(enabledTools []string) *MCPServer {
+		base := server.NewMCPServer(
+			"test-server",
+			"1.0.0",
+			server.WithToolCapabilities(true),
+			server.WithResourceCapabilities(true, true),
+		)
+
+		return &MCPServer{
+			server:       base,
+			logger:       zap.NewNop(),
+			workspace:    "test-workspace",
+			provider:     &provider.ApiProvider{},
+			enabledTools: enabledTools,
+		}
+	}
+
+	t.Run("registers cache-dependent read-only tools after warmup", func(t *testing.T) {
+		srv := newTestServer(nil)
+
+		assert.Nil(t, srv.server.ListTools(), "expected no cache-dependent tools before registration")
+
+		srv.RegisterCacheDependentTools()
+
+		tools := srv.server.ListTools()
+		require.NotNil(t, tools)
+		assert.Contains(t, tools, ToolChannelsList)
+		assert.Contains(t, tools, ToolConversationsUnreads)
+		assert.NotContains(t, tools, ToolUsersSearch, "users_search is registered during initial server setup, not delayed warmup")
+	})
+
+	t.Run("honors enabled-tools filter during delayed registration", func(t *testing.T) {
+		srv := newTestServer([]string{ToolChannelsList})
+
+		srv.RegisterCacheDependentTools()
+
+		tools := srv.server.ListTools()
+		require.NotNil(t, tools)
+		assert.Contains(t, tools, ToolChannelsList)
+		assert.NotContains(t, tools, ToolConversationsUnreads)
+		assert.NotContains(t, tools, ToolConversationsAddMessage)
+		assert.Len(t, tools, 1)
 	})
 }
 
