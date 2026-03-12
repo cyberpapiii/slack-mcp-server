@@ -217,19 +217,21 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		s.AddTool(conversationsSearchTool, conversationsHandler.ConversationsSearchHandler)
 	}
 
-	s.AddTool(mcp.NewTool(ToolUsersSearch,
-		mcp.WithDescription("Search for users by name, email, or display name. Returns user details and DM channel ID if available."),
-		mcp.WithTitleAnnotation("Search Users"),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("query",
-			mcp.Required(),
-			mcp.Description("Search query - matches against real name, display name, username, or email."),
-		),
-		mcp.WithNumber("limit",
-			mcp.DefaultNumber(10),
-			mcp.Description("Maximum number of results to return (1-100). Default is 10."),
-		),
-	), conversationsHandler.UsersSearchHandler)
+	if shouldAddTool(ToolUsersSearch, enabledTools, "") {
+		s.AddTool(mcp.NewTool(ToolUsersSearch,
+			mcp.WithDescription("Search for users by name, email, or display name. Returns user details and DM channel ID if available."),
+			mcp.WithTitleAnnotation("Search Users"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithString("query",
+				mcp.Required(),
+				mcp.Description("Search query - matches against real name, display name, username, or email."),
+			),
+			mcp.WithNumber("limit",
+				mcp.DefaultNumber(10),
+				mcp.Description("Maximum number of results to return (1-100). Default is 10."),
+			),
+		), conversationsHandler.UsersSearchHandler)
+	}
 
 	// Register mark tool - marks a channel as read
 	if shouldAddTool(ToolConversationsMark, enabledTools, "") {

@@ -24,6 +24,7 @@ func TestShouldAddTool_ReadOnly_EmptyEnabledTools(t *testing.T) {
 			ToolConversationsReplies,
 			ToolConversationsSearchMessages,
 			ToolChannelsList,
+			ToolUsersSearch,
 		}
 		for _, tool := range readOnlyTools {
 			result := shouldAddTool(tool, []string{}, "")
