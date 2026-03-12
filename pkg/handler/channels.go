@@ -15,13 +15,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// Channel is the output type for channels tools, used for both structured output and CSV.
 type Channel struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Topic       string `json:"topic"`
-	Purpose     string `json:"purpose"`
-	MemberCount int    `json:"memberCount"`
-	Cursor      string `json:"cursor"`
+	ID          string `csv:"id" json:"id" jsonschema_description:"Channel ID"`
+	Name        string `csv:"name" json:"name" jsonschema_description:"Channel name"`
+	Topic       string `csv:"topic" json:"topic,omitempty" jsonschema_description:"Channel topic"`
+	Purpose     string `csv:"purpose" json:"purpose,omitempty" jsonschema_description:"Channel purpose"`
+	MemberCount int    `csv:"member_count" json:"member_count" jsonschema_description:"Number of members"`
+	Cursor      string `csv:"cursor" json:"cursor,omitempty" jsonschema_description:"Pagination cursor"`
+}
+
+// ChannelList wraps a slice of Channel for structured output.
+type ChannelList struct {
+	Channels []Channel `json:"channels" jsonschema_description:"List of channels"`
 }
 
 type ChannelsHandler struct {
@@ -52,8 +58,6 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 		return nil, err
 	}
 
-	var channelList []Channel
-
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
 		return nil, err
@@ -77,6 +81,7 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 	channels := ch.apiProvider.ProvideChannelsMaps().Channels
 	ch.logger.Debug("Retrieved channels from provider", zap.Int("count", len(channels)))
 
+	channelList := make([]Channel, 0, len(channels))
 	for _, channel := range channels {
 		channelList = append(channelList, Channel{
 			ID:          channel.ID,
@@ -151,38 +156,28 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		limit = 999
 	}
 
-	var (
-		nextcur     string
-		channelList []Channel
-	)
-
 	allChannels := ch.apiProvider.ProvideChannelsMaps().Channels
 	ch.logger.Debug("Total channels available", zap.Int("count", len(allChannels)))
 
 	channels := filterChannelsByTypes(allChannels, channelTypes)
 	ch.logger.Debug("Channels after filtering by type", zap.Int("count", len(channels)))
 
-	var chans []provider.Channel
-
-	chans, nextcur = paginateChannels(
-		channels,
-		cursor,
-		limit,
-	)
+	chans, nextcur := paginateChannels(channels, cursor, limit)
 
 	ch.logger.Debug("Pagination results",
 		zap.Int("returned_count", len(chans)),
 		zap.Bool("has_next_page", nextcur != ""),
 	)
 
-	for _, channel := range chans {
-		channelList = append(channelList, Channel{
+	channelList := make([]Channel, len(chans))
+	for i, channel := range chans {
+		channelList[i] = Channel{
 			ID:          channel.ID,
 			Name:        channel.Name,
 			Topic:       channel.Topic,
 			Purpose:     channel.Purpose,
 			MemberCount: channel.MemberCount,
-		})
+		}
 	}
 
 	switch sortType {
@@ -206,13 +201,16 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		return nil, err
 	}
 
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	return mcp.NewToolResultStructured(
+		ChannelList{Channels: channelList},
+		string(csvBytes),
+	), nil
 }
 
 func filterChannelsByTypes(channels map[string]provider.Channel, types []string) []provider.Channel {
 	logger := zap.L()
 
-	var result []provider.Channel
+	result := make([]provider.Channel, 0, len(channels))
 	typeSet := make(map[string]bool)
 
 	for _, t := range types {
@@ -225,21 +223,19 @@ func filterChannelsByTypes(channels map[string]provider.Channel, types []string)
 	mpimCount := 0
 
 	for _, ch := range channels {
-		if typeSet["public_channel"] && !ch.IsPrivate && !ch.IsIM && !ch.IsMpIM {
-			result = append(result, ch)
-			publicCount++
-		}
-		if typeSet["private_channel"] && ch.IsPrivate && !ch.IsIM && !ch.IsMpIM {
-			result = append(result, ch)
-			privateCount++
-		}
-		if typeSet["im"] && ch.IsIM {
+		switch {
+		case ch.IsIM && typeSet[provider.IMChanType]:
 			result = append(result, ch)
 			imCount++
-		}
-		if typeSet["mpim"] && ch.IsMpIM {
+		case ch.IsMpIM && typeSet[provider.MpIMChanType]:
 			result = append(result, ch)
 			mpimCount++
+		case ch.IsPrivate && !ch.IsIM && !ch.IsMpIM && typeSet[provider.PrivateChanType]:
+			result = append(result, ch)
+			privateCount++
+		case !ch.IsPrivate && !ch.IsIM && !ch.IsMpIM && typeSet[provider.PubChanType]:
+			result = append(result, ch)
+			publicCount++
 		}
 	}
 
@@ -258,6 +254,7 @@ func filterChannelsByTypes(channels map[string]provider.Channel, types []string)
 func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]provider.Channel, string) {
 	logger := zap.L()
 
+	// Always sort by ID for stable cursor-based pagination
 	sort.Slice(channels, func(i, j int) bool {
 		return channels[i].ID < channels[j].ID
 	})
@@ -266,12 +263,10 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 	if cursor != "" {
 		if decoded, err := base64.StdEncoding.DecodeString(cursor); err == nil {
 			lastID := string(decoded)
-			for i, ch := range channels {
-				if ch.ID > lastID {
-					startIndex = i
-					break
-				}
-			}
+			// Binary search for the first channel with ID > lastID
+			startIndex = sort.Search(len(channels), func(i int) bool {
+				return channels[i].ID > lastID
+			})
 			logger.Debug("Decoded cursor",
 				zap.String("cursor", cursor),
 				zap.String("decoded_id", lastID),

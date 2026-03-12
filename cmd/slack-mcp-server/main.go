@@ -74,6 +74,16 @@ func main() {
 
 		newUsersWatcher(p, &once, logger)()
 		newChannelsWatcher(p, &once, logger)()
+
+		// Register cache-dependent tools now that caches are warm.
+		// This triggers tools/list_changed notification to connected clients.
+		if ready, err := p.IsReady(); ready {
+			s.RegisterCacheDependentTools()
+		} else {
+			logger.Error("Cache warm-up completed but provider not ready, cache-dependent tools will not be available",
+				zap.Error(err),
+			)
+		}
 	}()
 
 	switch transport {

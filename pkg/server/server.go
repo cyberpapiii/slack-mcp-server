@@ -20,8 +20,11 @@ import (
 )
 
 type MCPServer struct {
-	server *server.MCPServer
-	logger *zap.Logger
+	server       *server.MCPServer
+	logger       *zap.Logger
+	workspace    string
+	provider     *provider.ApiProvider
+	enabledTools []string
 }
 
 const (
@@ -40,6 +43,7 @@ const (
 	ToolUsergroupsCreate            = "usergroups_create"
 	ToolUsergroupsUpdate            = "usergroups_update"
 	ToolUsergroupsUsersUpdate       = "usergroups_users_update"
+	ToolUsersSearch                 = "users_search"
 )
 
 var ValidToolNames = []string{
@@ -58,6 +62,7 @@ var ValidToolNames = []string{
 	ToolUsergroupsCreate,
 	ToolUsergroupsUpdate,
 	ToolUsergroupsUsersUpdate,
+	ToolUsersSearch,
 }
 
 func ValidateEnabledTools(tools []string) error {
@@ -105,6 +110,8 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		version.Version,
 		server.WithLogging(),
 		server.WithRecovery(),
+		server.WithToolCapabilities(true),
+		server.WithResourceCapabilities(true, true),
 		server.WithToolHandlerMiddleware(buildErrorRecoveryMiddleware(logger)),
 		server.WithToolHandlerMiddleware(buildLoggerMiddleware(logger)),
 		server.WithToolHandlerMiddleware(auth.BuildMiddleware(provider.ServerTransport(), logger)),
@@ -162,78 +169,6 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), conversationsHandler.ConversationsRepliesHandler)
 	}
 
-	if shouldAddTool(ToolConversationsAddMessage, enabledTools, "SLACK_MCP_ADD_MESSAGE_TOOL") {
-		s.AddTool(mcp.NewTool(ToolConversationsAddMessage,
-			mcp.WithDescription("Add a message to a public channel, private channel, or direct message (DM, or IM) conversation by channel_id and thread_ts."),
-			mcp.WithTitleAnnotation("Send Message"),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithString("channel_id",
-				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
-			),
-			mcp.WithString("thread_ts",
-				mcp.Description("Unique identifier of either a thread's parent message or a message in the thread_ts must be the timestamp in format 1234567890.123456 of an existing message with 0 or more replies. Optional, if not provided the message will be added to the channel itself, otherwise it will be added to the thread."),
-			),
-			mcp.WithString("text",
-				mcp.Description("Message text in specified content_type format. Example: 'Hello, world!' for text/plain or '# Hello, world!' for text/markdown."),
-			),
-			mcp.WithString("content_type",
-				mcp.DefaultString("text/markdown"),
-				mcp.Description("Content type of the message. Default is 'text/markdown'. Allowed values: 'text/markdown', 'text/plain'."),
-			),
-		), conversationsHandler.ConversationsAddMessageHandler)
-	}
-
-	if shouldAddTool(ToolReactionsAdd, enabledTools, "SLACK_MCP_REACTION_TOOL") {
-		s.AddTool(mcp.NewTool(ToolReactionsAdd,
-			mcp.WithDescription("Add an emoji reaction to a message in a public channel, private channel, or direct message (DM, or IM) conversation."),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithString("channel_id",
-				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
-			),
-			mcp.WithString("timestamp",
-				mcp.Required(),
-				mcp.Description("Timestamp of the message to add reaction to, in format 1234567890.123456."),
-			),
-			mcp.WithString("emoji",
-				mcp.Required(),
-				mcp.Description("The name of the emoji to add as a reaction (without colons). Example: 'thumbsup', 'heart', 'rocket'."),
-			),
-		), conversationsHandler.ReactionsAddHandler)
-	}
-
-	if shouldAddTool(ToolReactionsRemove, enabledTools, "SLACK_MCP_REACTION_TOOL") {
-		s.AddTool(mcp.NewTool(ToolReactionsRemove,
-			mcp.WithDescription("Remove an emoji reaction from a message in a public channel, private channel, or direct message (DM, or IM) conversation."),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithString("channel_id",
-				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
-			),
-			mcp.WithString("timestamp",
-				mcp.Required(),
-				mcp.Description("Timestamp of the message to remove reaction from, in format 1234567890.123456."),
-			),
-			mcp.WithString("emoji",
-				mcp.Required(),
-				mcp.Description("The name of the emoji to remove as a reaction (without colons). Example: 'thumbsup', 'heart', 'rocket'."),
-			),
-		), conversationsHandler.ReactionsRemoveHandler)
-	}
-
-	if shouldAddTool(ToolAttachmentGetData, enabledTools, "SLACK_MCP_ATTACHMENT_TOOL") {
-		s.AddTool(mcp.NewTool(ToolAttachmentGetData,
-			mcp.WithDescription("Download an attachment's content by file ID. Returns file metadata and content (text files as-is, binary files as base64). Maximum file size is 5MB."),
-			mcp.WithTitleAnnotation("Get Attachment Data"),
-			mcp.WithReadOnlyHintAnnotation(true),
-			mcp.WithString("file_id",
-				mcp.Required(),
-				mcp.Description("The ID of the attachment to download, in format Fxxxxxxxxxx. Attachment IDs can be found in message metadata when HasMedia is true or AttachmentCount > 0."),
-			),
-		), conversationsHandler.FilesGetHandler)
-	}
-
 	conversationsSearchTool := mcp.NewTool(ToolConversationsSearchMessages,
 		mcp.WithDescription("Search messages in a public channel, private channel, or direct message (DM, or IM) conversation using filters. All filters are optional, if not provided then search_query is required."),
 		mcp.WithTitleAnnotation("Search Messages"),
@@ -282,7 +217,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		s.AddTool(conversationsSearchTool, conversationsHandler.ConversationsSearchHandler)
 	}
 
-	s.AddTool(mcp.NewTool("users_search",
+	s.AddTool(mcp.NewTool(ToolUsersSearch,
 		mcp.WithDescription("Search for users by name, email, or display name. Returns user details and DM channel ID if available."),
 		mcp.WithTitleAnnotation("Search Users"),
 		mcp.WithReadOnlyHintAnnotation(true),
@@ -295,40 +230,6 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.Description("Maximum number of results to return (1-100). Default is 10."),
 		),
 	), conversationsHandler.UsersSearchHandler)
-
-	// Register unreads tool - gets all unread messages across channels efficiently.
-	// Bot tokens (xoxb) don't support unread tracking, so exclude them (same pattern as search tool).
-	if !provider.IsBotToken() && shouldAddTool(ToolConversationsUnreads, enabledTools, "") {
-		s.AddTool(mcp.NewTool(ToolConversationsUnreads,
-			mcp.WithDescription("Get unread messages across all channels. With browser session tokens (xoxc/xoxd), uses a single API call for complete results. With OAuth user tokens (xoxp), scans a subset of channels per type (limited by max_channels) — results may be partial on large workspaces. Results are prioritized: DMs > group DMs > partner channels > internal channels."),
-			mcp.WithTitleAnnotation("Get Unread Messages"),
-			mcp.WithReadOnlyHintAnnotation(true),
-			mcp.WithBoolean("include_messages",
-				mcp.Description("If true (default), returns the actual unread messages. If false, returns only a summary of channels with unreads."),
-				mcp.DefaultBool(true),
-			),
-			mcp.WithString("channel_types",
-				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-* channels), 'internal' (other channels)."),
-				mcp.DefaultString("all"),
-			),
-			mcp.WithNumber("max_channels",
-				mcp.Description("Maximum number of channels to fetch unreads from. Default is 50."),
-				mcp.DefaultNumber(50),
-			),
-			mcp.WithNumber("max_messages_per_channel",
-				mcp.Description("Maximum messages to fetch per channel. Default is 10."),
-				mcp.DefaultNumber(10),
-			),
-			mcp.WithBoolean("mentions_only",
-				mcp.Description("If true, only returns channels where you have @mentions. Default is false."),
-				mcp.DefaultBool(false),
-			),
-			mcp.WithBoolean("include_muted",
-				mcp.Description("If true, includes muted channels in results. Default is false (muted channels are excluded, matching Slack app behavior)."),
-				mcp.DefaultBool(false),
-			),
-		), conversationsHandler.ConversationsUnreadsHandler)
-	}
 
 	// Register mark tool - marks a channel as read
 	if shouldAddTool(ToolConversationsMark, enabledTools, "") {
@@ -345,30 +246,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 		), conversationsHandler.ConversationsMarkHandler)
 	}
-	channelsHandler := handler.NewChannelsHandler(provider, logger)
 	usergroupsHandler := handler.NewUsergroupsHandler(provider, logger)
-
-	if shouldAddTool(ToolChannelsList, enabledTools, "") {
-		s.AddTool(mcp.NewTool(ToolChannelsList,
-			mcp.WithDescription("Get list of channels"),
-			mcp.WithTitleAnnotation("List Channels"),
-			mcp.WithReadOnlyHintAnnotation(true),
-			mcp.WithString("channel_types",
-				mcp.Required(),
-				mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Example: 'public_channel,private_channel,im'"),
-			),
-			mcp.WithString("sort",
-				mcp.Description("Type of sorting. Allowed values: 'popularity' - sort by number of members/participants in each channel."),
-			),
-			mcp.WithNumber("limit",
-				mcp.DefaultNumber(100),
-				mcp.Description("The maximum number of items to return. Must be an integer between 1 and 1000 (maximum 999)."), // context fix for cursor: https://github.com/korotovsky/slack-mcp-server/issues/7
-			),
-			mcp.WithString("cursor",
-				mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
-			),
-		), channelsHandler.ChannelsHandler)
-	}
 
 	// User groups tools
 	if shouldAddTool(ToolUsergroupsList, enabledTools, "") {
@@ -494,24 +372,170 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		)
 	}
 
-	s.AddResource(mcp.NewResource(
-		"slack://"+ws+"/channels",
+	return &MCPServer{
+		server:       s,
+		logger:       logger,
+		workspace:    ws,
+		provider:     provider,
+		enabledTools: enabledTools,
+	}
+}
+
+// RegisterCacheDependentTools registers tools and resources that require the cache to be ready.
+// Called after cache warm-up completes. The mcp-go server automatically sends
+// notifications/tools/list_changed to connected clients when AddTool is called.
+func (s *MCPServer) RegisterCacheDependentTools() {
+	provider := s.provider
+	logger := s.logger
+	enabledTools := s.enabledTools
+
+	conversationsHandler := handler.NewConversationsHandler(provider, logger)
+	channelsHandler := handler.NewChannelsHandler(provider, logger)
+
+	if shouldAddTool(ToolChannelsList, enabledTools, "") {
+		s.server.AddTool(mcp.NewTool(ToolChannelsList,
+			mcp.WithDescription("Get list of channels"),
+			mcp.WithTitleAnnotation("List Channels"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithString("channel_types",
+				mcp.Required(),
+				mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Example: 'public_channel,private_channel,im'"),
+			),
+			mcp.WithString("sort",
+				mcp.Description("Type of sorting. Allowed values: 'popularity' - sort by number of members/participants in each channel."),
+			),
+			mcp.WithNumber("limit",
+				mcp.DefaultNumber(100),
+				mcp.Description("The maximum number of items to return. Must be an integer between 1 and 1000 (maximum 999)."),
+			),
+			mcp.WithString("cursor",
+				mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
+			),
+		), channelsHandler.ChannelsHandler)
+	}
+
+	if shouldAddTool(ToolConversationsAddMessage, enabledTools, "SLACK_MCP_ADD_MESSAGE_TOOL") {
+		s.server.AddTool(mcp.NewTool(ToolConversationsAddMessage,
+			mcp.WithDescription("Add a message to a public channel, private channel, or direct message (DM, or IM) conversation by channel_id and thread_ts."),
+			mcp.WithTitleAnnotation("Send Message"),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithString("channel_id",
+				mcp.Required(),
+				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+			),
+			mcp.WithString("thread_ts",
+				mcp.Description("Unique identifier of either a thread's parent message or a message in the thread_ts must be the timestamp in format 1234567890.123456 of an existing message with 0 or more replies. Optional, if not provided the message will be added to the channel itself, otherwise it will be added to the thread."),
+			),
+			mcp.WithString("text",
+				mcp.Description("Message text in specified content_type format. Example: 'Hello, world!' for text/plain or '# Hello, world!' for text/markdown."),
+			),
+			mcp.WithString("content_type",
+				mcp.DefaultString("text/markdown"),
+				mcp.Description("Content type of the message. Default is 'text/markdown'. Allowed values: 'text/markdown', 'text/plain'."),
+			),
+		), conversationsHandler.ConversationsAddMessageHandler)
+	}
+
+	if shouldAddTool(ToolReactionsAdd, enabledTools, "SLACK_MCP_REACTION_TOOL") {
+		s.server.AddTool(mcp.NewTool(ToolReactionsAdd,
+			mcp.WithDescription("Add an emoji reaction to a message in a public channel, private channel, or direct message (DM, or IM) conversation."),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithString("channel_id",
+				mcp.Required(),
+				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+			),
+			mcp.WithString("timestamp",
+				mcp.Required(),
+				mcp.Description("Timestamp of the message to add reaction to, in format 1234567890.123456."),
+			),
+			mcp.WithString("emoji",
+				mcp.Required(),
+				mcp.Description("The name of the emoji to add as a reaction (without colons). Example: 'thumbsup', 'heart', 'rocket'."),
+			),
+		), conversationsHandler.ReactionsAddHandler)
+	}
+
+	if shouldAddTool(ToolReactionsRemove, enabledTools, "SLACK_MCP_REACTION_TOOL") {
+		s.server.AddTool(mcp.NewTool(ToolReactionsRemove,
+			mcp.WithDescription("Remove an emoji reaction from a message in a public channel, private channel, or direct message (DM, or IM) conversation."),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithString("channel_id",
+				mcp.Required(),
+				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+			),
+			mcp.WithString("timestamp",
+				mcp.Required(),
+				mcp.Description("Timestamp of the message to remove reaction from, in format 1234567890.123456."),
+			),
+			mcp.WithString("emoji",
+				mcp.Required(),
+				mcp.Description("The name of the emoji to remove as a reaction (without colons). Example: 'thumbsup', 'heart', 'rocket'."),
+			),
+		), conversationsHandler.ReactionsRemoveHandler)
+	}
+
+	if shouldAddTool(ToolAttachmentGetData, enabledTools, "SLACK_MCP_ATTACHMENT_TOOL") {
+		s.server.AddTool(mcp.NewTool(ToolAttachmentGetData,
+			mcp.WithDescription("Download an attachment's content by file ID. Returns file metadata and content (text files as-is, binary files as base64). Maximum file size is 5MB."),
+			mcp.WithTitleAnnotation("Get Attachment Data"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithString("file_id",
+				mcp.Required(),
+				mcp.Description("The ID of the attachment to download, in format Fxxxxxxxxxx. Attachment IDs can be found in message metadata when HasMedia is true or AttachmentCount > 0."),
+			),
+		), conversationsHandler.FilesGetHandler)
+	}
+
+	if !provider.IsBotToken() && shouldAddTool(ToolConversationsUnreads, enabledTools, "") {
+		s.server.AddTool(mcp.NewTool(ToolConversationsUnreads,
+			mcp.WithDescription("Get unread messages across all channels. With browser session tokens (xoxc/xoxd), uses a single API call for complete results. With OAuth user tokens (xoxp), scans a subset of channels per type (limited by max_channels) — results may be partial on large workspaces. Results are prioritized: DMs > group DMs > partner channels > internal channels."),
+			mcp.WithTitleAnnotation("Get Unread Messages"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithBoolean("include_messages",
+				mcp.Description("If true (default), returns the actual unread messages. If false, returns only a summary of channels with unreads."),
+				mcp.DefaultBool(true),
+			),
+			mcp.WithString("channel_types",
+				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-* channels), 'internal' (other channels)."),
+				mcp.DefaultString("all"),
+			),
+			mcp.WithNumber("max_channels",
+				mcp.Description("Maximum number of channels to fetch unreads from. Default is 50."),
+				mcp.DefaultNumber(50),
+			),
+			mcp.WithNumber("max_messages_per_channel",
+				mcp.Description("Maximum messages to fetch per channel. Default is 10."),
+				mcp.DefaultNumber(10),
+			),
+			mcp.WithBoolean("mentions_only",
+				mcp.Description("If true, only returns channels where you have @mentions. Default is false."),
+				mcp.DefaultBool(false),
+			),
+			mcp.WithBoolean("include_muted",
+				mcp.Description("If true, includes muted channels in results. Default is false (muted channels are excluded, matching Slack app behavior)."),
+				mcp.DefaultBool(false),
+			),
+		), conversationsHandler.ConversationsUnreadsHandler)
+	}
+
+	// Register resources (depend on cache for channel/user data)
+	s.server.AddResource(mcp.NewResource(
+		"slack://"+s.workspace+"/channels",
 		"Directory of Slack channels",
 		mcp.WithResourceDescription("This resource provides a directory of Slack channels."),
 		mcp.WithMIMEType("text/csv"),
 	), channelsHandler.ChannelsResource)
 
-	s.AddResource(mcp.NewResource(
-		"slack://"+ws+"/users",
+	s.server.AddResource(mcp.NewResource(
+		"slack://"+s.workspace+"/users",
 		"Directory of Slack users",
 		mcp.WithResourceDescription("This resource provides a directory of Slack users."),
 		mcp.WithMIMEType("text/csv"),
 	), conversationsHandler.UsersResource)
 
-	return &MCPServer{
-		server: s,
-		logger: logger,
-	}
+	logger.Info("Cache-dependent tools and resources registered",
+		zap.String("context", "console"),
+	)
 }
 
 func (s *MCPServer) ServeSSE(addr string) *server.SSEServer {

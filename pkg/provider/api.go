@@ -20,7 +20,6 @@ import (
 	"github.com/rusq/slackdump/v3/auth"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 const usersNotReadyMsg = "users cache is not ready yet, sync process is still running... please wait"
@@ -29,9 +28,14 @@ const defaultUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/5
 const defaultCacheTTL = 1 * time.Hour
 const defaultMinRefreshInterval = 30 * time.Second
 
-var AllChanTypes = []string{"mpim", "im", "public_channel", "private_channel"}
-var PrivateChanType = "private_channel"
-var PubChanType = "public_channel"
+var AllChanTypes = []string{MpIMChanType, IMChanType, PubChanType, PrivateChanType}
+
+const (
+	IMChanType      = "im"
+	MpIMChanType    = "mpim"
+	PubChanType     = "public_channel"
+	PrivateChanType = "private_channel"
+)
 
 var ErrUsersNotReady = errors.New(usersNotReadyMsg)
 var ErrChannelsNotReady = errors.New(channelsNotReadyMsg)
@@ -239,7 +243,6 @@ type ApiProvider struct {
 	client    SlackAPI
 	logger    *zap.Logger
 
-	rateLimiter        *rate.Limiter
 	cacheTTL           time.Duration
 	minRefreshInterval time.Duration
 
@@ -608,7 +611,6 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		client:    client,
 		logger:    logger,
 
-		rateLimiter:        limiter.Tier2.Limiter(),
 		cacheTTL:           getCacheTTL(),
 		minRefreshInterval: getMinRefreshInterval(),
 
@@ -668,7 +670,6 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		client:    client,
 		logger:    logger,
 
-		rateLimiter:        limiter.Tier2.Limiter(),
 		cacheTTL:           getCacheTTL(),
 		minRefreshInterval: getMinRefreshInterval(),
 
@@ -1001,8 +1002,11 @@ func (ap *ApiProvider) GetChannelsType(ctx context.Context, channelType string) 
 		err     error
 	)
 
+	usersMap := ap.ProvideUsersMap().Users
+	lim := limiter.Tier2boost.Limiter()
+
 	for {
-		if err := ap.rateLimiter.Wait(ctx); err != nil {
+		if err := lim.Wait(ctx); err != nil {
 			ap.logger.Error("Rate limiter wait failed", zap.Error(err))
 			return nil
 		}
@@ -1031,7 +1035,7 @@ func (ap *ApiProvider) GetChannelsType(ctx context.Context, channelType string) 
 				channel.IsMpIM,
 				channel.IsPrivate,
 				channel.IsExtShared,
-				ap.ProvideUsersMap().Users,
+				usersMap,
 			)
 			chans = append(chans, ch)
 		}
@@ -1051,7 +1055,7 @@ func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) [
 	}
 
 	var chans []Channel
-	for _, t := range AllChanTypes {
+	for _, t := range channelTypes {
 		var typeChannels = ap.GetChannelsType(ctx, t)
 		chans = append(chans, typeChannels...)
 	}
@@ -1067,26 +1071,7 @@ func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) [
 	}
 	ap.channelsSnapshot.Store(newSnapshot)
 
-	// Filter by requested channel types
-	var res []Channel
-	for _, t := range channelTypes {
-		for _, channel := range newSnapshot.Channels {
-			if t == "public_channel" && !channel.IsPrivate && !channel.IsIM && !channel.IsMpIM {
-				res = append(res, channel)
-			}
-			if t == "private_channel" && channel.IsPrivate && !channel.IsIM && !channel.IsMpIM {
-				res = append(res, channel)
-			}
-			if t == "im" && channel.IsIM {
-				res = append(res, channel)
-			}
-			if t == "mpim" && channel.IsMpIM {
-				res = append(res, channel)
-			}
-		}
-	}
-
-	return res
+	return chans
 }
 
 func (ap *ApiProvider) ProvideUsersMap() *UsersCache {

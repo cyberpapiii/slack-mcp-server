@@ -21,6 +21,7 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/slack-go/slack"
 	slackGoUtil "github.com/takara2314/slack-go-util"
 	"go.uber.org/zap"
@@ -138,6 +139,24 @@ func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logg
 		apiProvider: apiProvider,
 		logger:      logger,
 	}
+}
+
+// sendProgress sends an MCP progress notification if a progress token is present in the request.
+func sendProgress(ctx context.Context, request mcp.CallToolRequest, current, total int, message string) {
+	if request.Params.Meta == nil || request.Params.Meta.ProgressToken == nil {
+		return
+	}
+	srv := server.ServerFromContext(ctx)
+	if srv == nil {
+		return
+	}
+	totalF := float64(total)
+	srv.SendNotificationToClient(ctx, "notifications/progress", map[string]any{
+		"progressToken": request.Params.Meta.ProgressToken,
+		"progress":      float64(current),
+		"total":         totalF,
+		"message":       message,
+	})
 }
 
 // UsersResource streams a CSV of all users
@@ -663,7 +682,7 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 			)
 		}
 		ch.logger.Info("OAuth token detected, using conversations.info fallback for unreads")
-		return ch.getUnreadsViaConversationsInfo(ctx, params)
+		return ch.getUnreadsViaConversationsInfo(ctx, request, params)
 	}
 
 	counts, err := ch.apiProvider.Slack().ClientCounts(ctx)
@@ -672,10 +691,10 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 		return nil, fmt.Errorf("failed to get client counts: %v", err)
 	}
 
-	return ch.processClientCountsResponse(ctx, params, counts)
+	return ch.processClientCountsResponse(ctx, request, params, counts)
 }
 
-func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context, params *unreadsParams, counts edge.ClientCountsResponse) (*mcp.CallToolResult, error) {
+func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, counts edge.ClientCountsResponse) (*mcp.CallToolResult, error) {
 	ch.logger.Debug("Got counts data",
 		zap.Int("channels", len(counts.Channels)),
 		zap.Int("mpims", len(counts.MPIMs)),
@@ -836,6 +855,13 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	const backfillLimit = 20
 	backfilled := 0
 	for i := range unreadChannels {
+		select {
+		case <-ctx.Done():
+			return mcp.NewToolResultError("cancelled"), nil
+		default:
+		}
+		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Backfilling unread counts: channel %d of %d", i+1, len(unreadChannels)))
+
 		if unreadChannels[i].UnreadCount > 0 {
 			continue // MentionCount was positive, good enough
 		}
@@ -878,6 +904,13 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	var allMessages []Message
 
 	for i := range unreadChannels {
+		select {
+		case <-ctx.Done():
+			return mcp.NewToolResultError("cancelled"), nil
+		default:
+		}
+		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Fetching messages: channel %d of %d", i+1, len(unreadChannels)))
+
 		historyParams := slack.GetConversationHistoryParameters{
 			ChannelID: unreadChannels[i].ChannelID,
 			Oldest:    unreadChannels[i].LastRead,
@@ -906,7 +939,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	return marshalMessagesToCSV(allMessages)
 }
 
-func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Context, params *unreadsParams) (*mcp.CallToolResult, error) {
+func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams) (*mcp.CallToolResult, error) {
 	usersMap := ch.apiProvider.ProvideUsersMap()
 
 	// Define channel type groups in priority order.
@@ -937,7 +970,14 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	totalScanned := 0
 	totalRateLimited := 0
 
-	for _, group := range groups {
+	for gi, group := range groups {
+		select {
+		case <-ctx.Done():
+			return mcp.NewToolResultError("cancelled"), nil
+		default:
+		}
+		sendProgress(ctx, request, gi+1, len(groups), fmt.Sprintf("Scanning channel type group %d of %d", gi+1, len(groups)))
+
 		// Apply channel_types filter: skip groups that don't match the requested filter.
 		if params.channelTypes != "all" {
 			match := false
@@ -1005,7 +1045,14 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	// Fetch actual unread messages for each discovered channel
 	rl := limiter.Tier3.Limiter()
 	var allMessages []Message
-	for _, uc := range unreadChannels {
+	for i, uc := range unreadChannels {
+		select {
+		case <-ctx.Done():
+			return mcp.NewToolResultError("cancelled"), nil
+		default:
+		}
+		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Fetching messages: channel %d of %d", i+1, len(unreadChannels)))
+
 		historyParams := slack.GetConversationHistoryParameters{
 			ChannelID: uc.ChannelID,
 			Oldest:    uc.LastRead,
@@ -1141,6 +1188,12 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 		}
 
 		for _, channel := range channels {
+			select {
+			case <-ctx.Done():
+				return unreadChannels, apiCalls, scanned, rateLimited
+			default:
+			}
+
 			if len(unreadChannels) >= budget {
 				break
 			}
