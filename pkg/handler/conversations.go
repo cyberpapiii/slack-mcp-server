@@ -53,6 +53,7 @@ type Message struct {
 	ThreadTs      string `json:"ThreadTs"`
 	Text          string `json:"text"`
 	Time          string `json:"time"`
+	Permalink     string `json:"permalink,omitempty"`
 	Reactions     string `json:"reactions,omitempty"`
 	BotName       string `json:"botName,omitempty"`
 	FileCount     int    `json:"fileCount,omitempty"`
@@ -1914,9 +1915,10 @@ func (ch *ConversationsHandler) convertMessagesFromSearch(slackMessages []slack.
 			UserName:  userName,
 			RealName:  realName,
 			Text:      text.ProcessText(msgText),
-			Channel:   fmt.Sprintf("#%s", msg.Channel.Name),
+			Channel:   fmt.Sprintf("%s (#%s)", msg.Channel.ID, msg.Channel.Name),
 			ThreadTs:  threadTs,
 			Time:      timestamp,
+			Permalink: msg.Permalink,
 			Reactions: "",
 			HasMedia:  hasMedia,
 		})
