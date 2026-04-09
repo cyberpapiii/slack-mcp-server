@@ -218,10 +218,10 @@ func (cl *Client) ActivityFeed(ctx context.Context, limit int) (ActivityFeedResp
 	defer task.End()
 
 	form := activityFeedForm{
-		BaseRequest: BaseRequest{Token: cl.token},
-		Limit:       limit,
-		Types:       "thread_v2,at_user,at_user_group,at_channel,at_everyone",
-		Mode:        "priority_unreads_v1",
+		BaseRequest:     BaseRequest{Token: cl.token},
+		Limit:           limit,
+		Types:           "thread_v2,at_user,at_user_group,at_channel,at_everyone",
+		Mode:            "priority_unreads_v1",
 		WebClientFields: webclientReason("fetchActivityFeed"),
 	}
 
@@ -243,9 +243,9 @@ func (cl *Client) ActivityFeed(ctx context.Context, limit int) (ActivityFeedResp
 
 type activityMarkReadForm struct {
 	BaseRequest
-	Type    string `json:"type"`
-	FeedTs  string `json:"feed_ts"`
-	Key     string `json:"key"`
+	Type   string `json:"type"`
+	FeedTs string `json:"feed_ts"`
+	Key    string `json:"key"`
 	WebClientFields
 }
 
@@ -254,10 +254,10 @@ func (cl *Client) ActivityMarkRead(ctx context.Context, itemType, feedTs, key st
 	defer task.End()
 
 	form := activityMarkReadForm{
-		BaseRequest: BaseRequest{Token: cl.token},
-		Type:        itemType,
-		FeedTs:      feedTs,
-		Key:         key,
+		BaseRequest:     BaseRequest{Token: cl.token},
+		Type:            itemType,
+		FeedTs:          feedTs,
+		Key:             key,
 		WebClientFields: webclientReason("mark-as-read-v2"),
 	}
 

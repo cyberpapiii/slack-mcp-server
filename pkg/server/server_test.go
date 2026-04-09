@@ -107,6 +107,7 @@ func TestValidToolNames(t *testing.T) {
 			ToolConversationsSearchMessages: true,
 			ToolConversationsUnreads:        true,
 			ToolConversationsMark:           true,
+			ToolConversationsOpen:           true,
 			ToolChannelsList:                true,
 			ToolChannelsStarred:             true,
 			ToolUsergroupsList:              true,
@@ -120,6 +121,7 @@ func TestValidToolNames(t *testing.T) {
 			ToolSavedList:                   true,
 			ToolSavedUpdate:                 true,
 			ToolSavedClearCompleted:         true,
+			ToolFilesList:                   true,
 		}
 
 		assert.Equal(t, len(expectedTools), len(ValidToolNames), "ValidToolNames should have %d tools", len(expectedTools))
@@ -141,6 +143,7 @@ func TestValidToolNames(t *testing.T) {
 		assert.Equal(t, "conversations_search_messages", ToolConversationsSearchMessages)
 		assert.Equal(t, "conversations_unreads", ToolConversationsUnreads)
 		assert.Equal(t, "conversations_mark", ToolConversationsMark)
+		assert.Equal(t, "conversations_open", ToolConversationsOpen)
 		assert.Equal(t, "channels_list", ToolChannelsList)
 		assert.Equal(t, "channels_starred", ToolChannelsStarred)
 		assert.Equal(t, "usergroups_list", ToolUsergroupsList)
@@ -154,6 +157,7 @@ func TestValidToolNames(t *testing.T) {
 		assert.Equal(t, "saved_list", ToolSavedList)
 		assert.Equal(t, "saved_update", ToolSavedUpdate)
 		assert.Equal(t, "saved_clear_completed", ToolSavedClearCompleted)
+		assert.Equal(t, "files_list", ToolFilesList)
 	})
 }
 

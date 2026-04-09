@@ -69,8 +69,8 @@ func TestAttachmentToText(t *testing.T) {
 		{
 			name: "fields_with_all_parts",
 			att: slack.Attachment{
-				Title:  "Alert",
-				Text:   "Failed workflow",
+				Title: "Alert",
+				Text:  "Failed workflow",
 				Fields: []slack.AttachmentField{
 					{Title: "Env", Value: "prod"},
 					{Title: "Version", Value: "v1.9.0"},

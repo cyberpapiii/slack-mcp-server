@@ -166,7 +166,6 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	channels := filterChannelsByTypes(allChannels, channelTypes)
 	ch.logger.Debug("Channels after filtering by type", zap.Int("count", len(channels)))
 
-	chans, nextcur := paginateChannels(channels, cursor, limit)
 	if query != "" {
 		validTargets := map[string]bool{"name": true, "topic": true, "purpose": true}
 		targetSet := make(map[string]bool)
@@ -187,7 +186,10 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		ch.logger.Debug("Channels after keyword filter", zap.Int("count", len(channels)))
 	}
 
-	var chans []provider.Channel
+	var (
+		chans   []provider.Channel
+		nextcur string
+	)
 
 	chans, nextcur = paginateChannels(
 		channels,

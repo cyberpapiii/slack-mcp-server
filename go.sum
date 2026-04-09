@@ -144,8 +144,8 @@ github.com/rusq/slackdump/v3 v3.1.13 h1:azHq0LvGlRdYMteElTOx8XkG1XeoAs91aneMYh8c
 github.com/rusq/slackdump/v3 v3.1.13/go.mod h1:9VS4fYclG/NiSv2zwBhPfHbXX/kVl+PpeUz9nTa4uMo=
 github.com/rusq/tagops v0.1.1 h1:R5MHPR822lSg3LFr0RS3DFS0CapRiqtuHVD5NlOMOvY=
 github.com/rusq/tagops v0.1.1/go.mod h1:mUJ5WoHxrSv9wreCrHQkAeMevt5aXFadlOdLM6UsoHc=
-github.com/slack-go/slack v0.20.0 h1:gbDdbee8+Z2o+DWx05Spq3GzbrLLleiRwHUKs+hZLSU=
-github.com/slack-go/slack v0.20.0/go.mod h1:K81UmCivcYd/5Jmz8vLBfuyoZ3B4rQC2GHVXHteXiAE=
+github.com/slack-go/slack v0.19.0 h1:J8lL/nGTsIUX53HU8YxZeI3PDkA+sxZsFrI2Dew7h44=
+github.com/slack-go/slack v0.19.0/go.mod h1:K81UmCivcYd/5Jmz8vLBfuyoZ3B4rQC2GHVXHteXiAE=
 github.com/spf13/cast v1.7.1 h1:cuNEagBQEHWN1FnbGEjCXL2szYEXqfJPbP2HNUaca9Y=
 github.com/spf13/cast v1.7.1/go.mod h1:ancEpBxwJDODSW/UG4rDrAqiKolqNNh2DX3mk86cAdo=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
