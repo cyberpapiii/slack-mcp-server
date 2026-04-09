@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -151,13 +152,15 @@ func getMinRefreshInterval() time.Duration {
 // This ensures tokens are valid before proceeding and enables cache namespacing
 // to prevent cache contamination when using multiple Slack workspaces.
 // Returns an error if authentication fails - the server should not start with invalid credentials.
-func validateAuthAndGetTeamID(authProvider auth.Provider, logger *zap.Logger) (string, error) {
+func validateAuthAndGetTeamID(authProvider auth.Provider, logger *zap.Logger) (string, *slack.AuthTestResponse, error) {
 	xoxpToken := os.Getenv("SLACK_MCP_XOXP_TOKEN")
 	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
 	xoxdToken := os.Getenv("SLACK_MCP_XOXD_TOKEN")
 	if xoxpToken == "demo" || (xoxcToken == "demo" && xoxdToken == "demo") {
-		return "demo", nil
+		return "demo", nil, nil
 	}
+
+	startupJitter(logger)
 
 	httpClient := transport.ProvideHTTPClient(authProvider.Cookies(), logger)
 	slackOpts := []slack.Option{slack.OptionHTTPClient(httpClient)}
@@ -168,7 +171,7 @@ func validateAuthAndGetTeamID(authProvider auth.Provider, logger *zap.Logger) (s
 
 	authResp, err := slackClient.AuthTest()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	logger.Info("Authenticated to Slack",
@@ -176,7 +179,7 @@ func validateAuthAndGetTeamID(authProvider auth.Provider, logger *zap.Logger) (s
 		zap.String("team_id", authResp.TeamID),
 		zap.String("user", authResp.User))
 
-	return authResp.TeamID, nil
+	return authResp.TeamID, authResp, nil
 }
 
 // getCachePathWithTeamID returns a cache file path prefixed with TeamID for workspace isolation.
@@ -187,6 +190,39 @@ func getCachePathWithTeamID(teamID, filename string) string {
 		return filepath.Join(cacheDir, teamID+"_"+filename)
 	}
 	return filepath.Join(cacheDir, filename)
+}
+
+// atomicWriteFile writes data to a temp file in the same directory, then renames
+// it to the target path. This prevents concurrent readers from seeing partial writes.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// startupJitter sleeps for a random 0-3s to stagger concurrent instance API calls.
+func startupJitter(logger *zap.Logger) {
+	jitter := time.Duration(rand.Intn(3000)) * time.Millisecond
+	logger.Info("Startup jitter", zap.Duration("delay", jitter))
+	time.Sleep(jitter)
 }
 
 type UsersCache struct {
@@ -308,7 +344,7 @@ type ApiProvider struct {
 	fetchChannelsMu           sync.Mutex   // serializes fetchAndStoreChannels calls
 }
 
-func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger) (*MCPSlackClient, error) {
+func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAuth *slack.AuthTestResponse) (*MCPSlackClient, error) {
 	httpClient := transport.ProvideHTTPClient(authProvider.Cookies(), logger)
 
 	slackOpts := []slack.Option{slack.OptionHTTPClient(httpClient)}
@@ -317,9 +353,15 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger) (*MCPSlac
 	}
 	slackClient := slack.New(authProvider.SlackToken(), slackOpts...)
 
-	authResp, err := slackClient.AuthTest()
-	if err != nil {
-		return nil, err
+	var authResp *slack.AuthTestResponse
+	if cachedAuth != nil {
+		authResp = cachedAuth
+	} else {
+		var err error
+		authResp, err = slackClient.AuthTest()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	authResponse := &slack.AuthTestResponse{
@@ -734,7 +776,7 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		err    error
 	)
 
-	teamID, err := validateAuthAndGetTeamID(authProvider, logger)
+	teamID, cachedAuth, err := validateAuthAndGetTeamID(authProvider, logger)
 	if err != nil {
 		logger.Fatal("Authentication failed - check your Slack tokens", zap.Error(err))
 	}
@@ -752,7 +794,7 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 	if os.Getenv("SLACK_MCP_XOXP_TOKEN") == "demo" || (os.Getenv("SLACK_MCP_XOXC_TOKEN") == "demo" && os.Getenv("SLACK_MCP_XOXD_TOKEN") == "demo") {
 		logger.Info("Demo credentials are set, skip.")
 	} else {
-		client, err = NewMCPSlackClient(authProvider, logger)
+		client, err = NewMCPSlackClient(authProvider, logger, cachedAuth)
 		if err != nil {
 			logger.Fatal("Failed to create MCP Slack client", zap.Error(err))
 		}
@@ -793,7 +835,7 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		err    error
 	)
 
-	teamID, err := validateAuthAndGetTeamID(authProvider, logger)
+	teamID, cachedAuth, err := validateAuthAndGetTeamID(authProvider, logger)
 	if err != nil {
 		logger.Fatal("Authentication failed - check your Slack tokens", zap.Error(err))
 	}
@@ -811,7 +853,7 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 	if os.Getenv("SLACK_MCP_XOXP_TOKEN") == "demo" || (os.Getenv("SLACK_MCP_XOXC_TOKEN") == "demo" && os.Getenv("SLACK_MCP_XOXD_TOKEN") == "demo") {
 		logger.Info("Demo credentials are set, skip.")
 	} else {
-		client, err = NewMCPSlackClient(authProvider, logger)
+		client, err = NewMCPSlackClient(authProvider, logger, cachedAuth)
 		if err != nil {
 			logger.Fatal("Failed to create MCP Slack client", zap.Error(err))
 		}
