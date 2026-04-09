@@ -99,6 +99,7 @@ func TestValidToolNames(t *testing.T) {
 			ToolConversationsHistory:        true,
 			ToolConversationsReplies:        true,
 			ToolConversationsAddMessage:     true,
+			ToolConversationsDraftMessage:   true,
 			ToolReactionsAdd:                true,
 			ToolReactionsRemove:             true,
 			ToolReactionsGet:                true,
@@ -132,6 +133,7 @@ func TestValidToolNames(t *testing.T) {
 		assert.Equal(t, "conversations_history", ToolConversationsHistory)
 		assert.Equal(t, "conversations_replies", ToolConversationsReplies)
 		assert.Equal(t, "conversations_add_message", ToolConversationsAddMessage)
+		assert.Equal(t, "conversations_draft_message", ToolConversationsDraftMessage)
 		assert.Equal(t, "reactions_add", ToolReactionsAdd)
 		assert.Equal(t, "reactions_remove", ToolReactionsRemove)
 		assert.Equal(t, "reactions_get", ToolReactionsGet)
@@ -359,6 +361,25 @@ func TestRegisterCacheDependentTools(t *testing.T) {
 		assert.NotContains(t, tools, ToolConversationsUnreads)
 		assert.NotContains(t, tools, ToolConversationsAddMessage)
 		assert.Len(t, tools, 1)
+	})
+}
+
+func TestShouldAddTool_DraftMessage(t *testing.T) {
+	// conversations_draft_message is read-only (no env var gate), same as conversations_history.
+	// It follows the read-only tool pattern: registered by default, filtered only via enabledTools.
+	t.Run("empty enabledTools - registered by default", func(t *testing.T) {
+		result := shouldAddTool(ToolConversationsDraftMessage, []string{}, "")
+		assert.True(t, result, "read-only draft tool should be registered by default")
+	})
+
+	t.Run("explicit enabledTools includes tool - registered", func(t *testing.T) {
+		result := shouldAddTool(ToolConversationsDraftMessage, []string{ToolConversationsDraftMessage}, "")
+		assert.True(t, result, "draft tool should be registered when in enabledTools")
+	})
+
+	t.Run("explicit enabledTools excludes tool - not registered", func(t *testing.T) {
+		result := shouldAddTool(ToolConversationsDraftMessage, []string{ToolConversationsHistory}, "")
+		assert.False(t, result, "draft tool should NOT be registered when not in enabledTools list")
 	})
 }
 
