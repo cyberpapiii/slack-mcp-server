@@ -252,6 +252,9 @@ type SlackAPI interface {
 	ActivityFeed(ctx context.Context, limit int) (edge.ActivityFeedResponse, error)
 	ActivityMarkRead(ctx context.Context, itemType, feedTs, key string) error
 	GetMutedChannels(ctx context.Context) (map[string]bool, error)
+	SavedList(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error)
+	SavedUpdate(ctx context.Context, itemType, itemID, ts, mark string, dateDue int64) error
+	SavedClearCompleted(ctx context.Context) error
 
 	// Stars API methods
 	GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error)
@@ -602,6 +605,18 @@ func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([
 		}
 	}
 	return channelIDs, nil
+}
+
+func (c *MCPSlackClient) SavedList(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error) {
+	return c.edgeClient.SavedList(ctx, filter, limit, cursor)
+}
+
+func (c *MCPSlackClient) SavedUpdate(ctx context.Context, itemType, itemID, ts, mark string, dateDue int64) error {
+	return c.edgeClient.SavedUpdate(ctx, itemType, itemID, ts, mark, dateDue)
+}
+
+func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
+	return c.edgeClient.SavedClearCompleted(ctx)
 }
 
 func (c *MCPSlackClient) GetUserGroupsContext(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error) {
