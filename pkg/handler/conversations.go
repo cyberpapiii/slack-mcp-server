@@ -964,6 +964,10 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 
 	counts, err := ch.apiProvider.Slack().ClientCounts(ctx)
 	if err != nil {
+		if errors.Is(err, provider.ErrBrowserSessionUnavailable) {
+			ch.logger.Warn("Browser session unavailable for client.counts, falling back to OAuth-compatible unread scan", zap.Error(err))
+			return ch.getUnreadsViaConversationsInfo(ctx, request, params)
+		}
 		ch.logger.Error("ClientCounts failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to get client counts: %v", err)
 	}

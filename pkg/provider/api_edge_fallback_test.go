@@ -1,10 +1,34 @@
 package provider
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 )
+
+func TestIsBrowserSessionAuthError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"invalid_auth", errors.New("invalid_auth"), true},
+		{"not_authed", errors.New("not_authed"), true},
+		{"invalid auth token", errors.New("AUTH_FAILED: invalid auth token"), true},
+		{"session expired", errors.New("session expired"), true},
+		{"generic error", errors.New("timeout"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isBrowserSessionAuthError(tt.err))
+		})
+	}
+}
 
 // TestEdgeFallbackFlag verifies that MCPSlackClient remembers edge API failures
 // and skips straight to the standard API on subsequent calls.
@@ -85,4 +109,38 @@ func TestEdgeFailedPreventsRetry(t *testing.T) {
 		assert.False(t, wouldTryEdge,
 			"call %d: should not try edge after it failed", i+1)
 	}
+}
+
+func TestBrowserDegradationState(t *testing.T) {
+	origWriter := browserStatusWriter
+	origNotifier := browserDegradationNotifier
+	defer func() {
+		browserStatusWriter = origWriter
+		browserDegradationNotifier = origNotifier
+	}()
+
+	writes := 0
+	notifies := 0
+	browserStatusWriter = func(state, reason string, logger *zap.Logger) {
+		writes++
+	}
+	browserDegradationNotifier = func(reason string, logger *zap.Logger) {
+		notifies++
+	}
+
+	c := &MCPSlackClient{}
+	c.logger = zap.NewNop()
+	c.initBrowserState()
+	assert.True(t, c.browserFeaturesAvailable())
+	assert.False(t, c.IsOAuth())
+
+	c.fallbackSlackClient = &slack.Client{}
+	c.degradeBrowserSession(errors.New("invalid_auth"))
+	assert.False(t, c.browserFeaturesAvailable())
+	assert.True(t, c.IsOAuth())
+	assert.Equal(t, "invalid_auth", c.browserDegradedReason())
+
+	c.degradeBrowserSession(errors.New("invalid_auth"))
+	assert.Equal(t, 2, writes, "one write for active, one for degraded")
+	assert.Equal(t, 1, notifies, "degradation should only notify once")
 }

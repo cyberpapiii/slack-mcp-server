@@ -36,6 +36,13 @@ func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, c
 
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.logger.Debug("ActivityUnreadsHandler called", zap.Any("params", request.Params))
+	if !h.apiProvider.BrowserFeaturesAvailable() {
+		reason := h.apiProvider.BrowserDegradedReason()
+		if reason == "" {
+			reason = "browser-session Slack auth is unavailable"
+		}
+		return nil, fmt.Errorf("browser-session Slack auth is no longer valid; stable Slack tools remain available; refresh browser tokens to restore Activity tools (%s)", reason)
+	}
 
 	includeMessages := request.GetBool("include_messages", true)
 	maxMsgsPerThread := request.GetInt("max_messages_per_thread", 10)
@@ -183,6 +190,13 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.logger.Debug("ActivityMarkReadHandler called", zap.Any("params", request.Params))
+	if !h.apiProvider.BrowserFeaturesAvailable() {
+		reason := h.apiProvider.BrowserDegradedReason()
+		if reason == "" {
+			reason = "browser-session Slack auth is unavailable"
+		}
+		return nil, fmt.Errorf("browser-session Slack auth is no longer valid; stable Slack tools remain available; refresh browser tokens to restore Activity tools (%s)", reason)
+	}
 
 	key := request.GetString("key", "")
 	feedTs := request.GetString("feed_ts", "")

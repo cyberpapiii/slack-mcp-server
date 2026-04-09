@@ -35,6 +35,13 @@ func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, conv
 
 func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.logger.Debug("SavedListHandler called", zap.Any("params", request.Params))
+	if !h.apiProvider.BrowserFeaturesAvailable() {
+		reason := h.apiProvider.BrowserDegradedReason()
+		if reason == "" {
+			reason = "browser-session Slack auth is unavailable"
+		}
+		return nil, fmt.Errorf("browser-session Slack auth is no longer valid; stable Slack tools remain available; refresh browser tokens to restore Saved tools (%s)", reason)
+	}
 
 	filter := request.GetString("filter", "saved")
 	limit := request.GetInt("limit", 50)
@@ -178,6 +185,13 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.logger.Debug("SavedUpdateHandler called", zap.Any("params", request.Params))
+	if !h.apiProvider.BrowserFeaturesAvailable() {
+		reason := h.apiProvider.BrowserDegradedReason()
+		if reason == "" {
+			reason = "browser-session Slack auth is unavailable"
+		}
+		return nil, fmt.Errorf("browser-session Slack auth is no longer valid; stable Slack tools remain available; refresh browser tokens to restore Saved tools (%s)", reason)
+	}
 
 	itemID := request.GetString("item_id", "")
 	ts := request.GetString("ts", "")
@@ -216,6 +230,13 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.logger.Debug("SavedClearCompletedHandler called", zap.Any("params", request.Params))
+	if !h.apiProvider.BrowserFeaturesAvailable() {
+		reason := h.apiProvider.BrowserDegradedReason()
+		if reason == "" {
+			reason = "browser-session Slack auth is unavailable"
+		}
+		return nil, fmt.Errorf("browser-session Slack auth is no longer valid; stable Slack tools remain available; refresh browser tokens to restore Saved tools (%s)", reason)
+	}
 
 	err := h.apiProvider.Slack().SavedClearCompleted(ctx)
 	if err != nil {

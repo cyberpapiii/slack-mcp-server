@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -18,7 +19,7 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
-	"github.com/korotovsky/slack-mcp-server/pkg/transport"
+	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/rusq/slackdump/v3/auth"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -42,6 +43,24 @@ const (
 var ErrUsersNotReady = errors.New(usersNotReadyMsg)
 var ErrChannelsNotReady = errors.New(channelsNotReadyMsg)
 var ErrRefreshRateLimited = errors.New("refresh skipped due to rate limiting")
+var ErrBrowserSessionUnavailable = errors.New("browser-session Slack auth is unavailable; refresh browser tokens to restore browser-only Slack tools")
+
+type browserRuntimeState int32
+
+const (
+	browserStateOAuthOnly browserRuntimeState = iota
+	browserStateActive
+	browserStateDegraded
+)
+
+type browserRuntimeStatus struct {
+	Timestamp string `json:"timestamp"`
+	State     string `json:"state"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+var browserStatusWriter = writeBrowserRuntimeStatus
+var browserDegradationNotifier = notifyBrowserDegradation
 
 // atomicWriteFile writes data to a file atomically using a temp file and rename.
 // Uses os.CreateTemp for unpredictable temp file names (prevents symlink attacks)
@@ -162,7 +181,7 @@ func validateAuthAndGetTeamID(authProvider auth.Provider, logger *zap.Logger) (s
 
 	startupJitter(logger)
 
-	httpClient := transport.ProvideHTTPClient(authProvider.Cookies(), logger)
+	httpClient := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 	slackOpts := []slack.Option{slack.OptionHTTPClient(httpClient)}
 	if os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
 		slackOpts = append(slackOpts, slack.OptionAPIURL("https://slack-gov.com/api/"))
@@ -197,6 +216,57 @@ func startupJitter(logger *zap.Logger) {
 	jitter := time.Duration(rand.Intn(3000)) * time.Millisecond
 	logger.Info("Startup jitter", zap.Duration("delay", jitter))
 	time.Sleep(jitter)
+}
+
+func browserRuntimeStatePath() string {
+	return filepath.Join(getCacheDir(), "browser_auth_runtime.json")
+}
+
+func writeBrowserRuntimeStatus(state, reason string, logger *zap.Logger) {
+	status := browserRuntimeStatus{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		State:     state,
+		Reason:    reason,
+	}
+	data, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		logger.Warn("Failed to marshal browser runtime status", zap.Error(err))
+		return
+	}
+	if err := atomicWriteFile(browserRuntimeStatePath(), data, 0600); err != nil {
+		logger.Warn("Failed to write browser runtime status", zap.Error(err))
+	}
+}
+
+func notifyBrowserDegradation(reason string, logger *zap.Logger) {
+	if err := exec.Command("osascript", "-e", fmt.Sprintf(`display notification "%s" with title "Slack MCP fallback active"`,
+		strings.ReplaceAll(reason, `"`, `\"`),
+	)).Run(); err != nil {
+		logger.Debug("Failed to emit browser degradation notification", zap.Error(err))
+	}
+}
+
+func isBrowserSessionAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	needles := []string{
+		"invalid_auth",
+		"not_authed",
+		"token_revoked",
+		"auth failed",
+		"invalid auth token",
+		"login",
+		"cookie",
+		"session",
+	}
+	for _, needle := range needles {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 type UsersCache struct {
@@ -284,12 +354,18 @@ type MCPSlackClient struct {
 
 	authResponse *slack.AuthTestResponse
 	authProvider auth.Provider
+	logger       *zap.Logger
 
 	isEnterprise bool
 	isOAuth      bool
 	isBotToken   bool
 	edgeFailed   bool // set when edge API fails; subsequent calls skip straight to standard API
 	teamEndpoint string
+
+	fallbackSlackClient *slack.Client
+	browserState        atomic.Int32
+	browserReason       atomic.Value
+	browserNotifyOnce   sync.Once
 }
 
 type ApiProvider struct {
@@ -320,7 +396,7 @@ type ApiProvider struct {
 }
 
 func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAuth *slack.AuthTestResponse) (*MCPSlackClient, error) {
-	httpClient := transport.ProvideHTTPClient(authProvider.Cookies(), logger)
+	httpClient := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 
 	slackOpts := []slack.Option{slack.OptionHTTPClient(httpClient)}
 	if os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
@@ -375,11 +451,82 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAut
 		edgeClient:   edgeClient,
 		authResponse: authResponse,
 		authProvider: authProvider,
+		logger:       logger,
 		isEnterprise: isEnterprise,
 		isOAuth:      isOAuth,
 		isBotToken:   isBotToken,
 		teamEndpoint: authResp.URL,
 	}, nil
+}
+
+func (c *MCPSlackClient) standardSlackClient() *slack.Client {
+	if c.hasOAuthFallback() && !c.browserFeaturesAvailable() {
+		return c.fallbackSlackClient
+	}
+	return c.slackClient
+}
+
+func (c *MCPSlackClient) hasOAuthFallback() bool {
+	return c.fallbackSlackClient != nil
+}
+
+func (c *MCPSlackClient) browserFeaturesAvailable() bool {
+	if c.isOAuth {
+		return false
+	}
+	return browserRuntimeState(c.browserState.Load()) == browserStateActive
+}
+
+func (c *MCPSlackClient) browserDegradedReason() string {
+	if reason, ok := c.browserReason.Load().(string); ok {
+		return reason
+	}
+	return ""
+}
+
+func (c *MCPSlackClient) effectiveOAuth() bool {
+	return c.isOAuth || (c.hasOAuthFallback() && !c.browserFeaturesAvailable())
+}
+
+func (c *MCPSlackClient) initBrowserState() {
+	if c.isOAuth {
+		c.browserState.Store(int32(browserStateOAuthOnly))
+		browserStatusWriter("oauth_only", "", c.logger)
+		return
+	}
+	c.browserState.Store(int32(browserStateActive))
+	browserStatusWriter("browser_active", "", c.logger)
+}
+
+func (c *MCPSlackClient) degradeBrowserSession(reason error) {
+	if c.isOAuth {
+		return
+	}
+	if browserRuntimeState(c.browserState.Load()) == browserStateDegraded {
+		return
+	}
+	reasonText := "browser-session Slack auth failed"
+	if reason != nil {
+		reasonText = reason.Error()
+	}
+	c.browserReason.Store(reasonText)
+	c.browserState.Store(int32(browserStateDegraded))
+	browserStatusWriter("browser_degraded", reasonText, c.logger)
+	c.logger.Warn("Browser-session Slack auth degraded", zap.String("reason", reasonText), zap.Bool("oauth_fallback", c.hasOAuthFallback()))
+	c.browserNotifyOnce.Do(func() {
+		browserDegradationNotifier(reasonText, c.logger)
+	})
+}
+
+func (c *MCPSlackClient) ensureBrowserFeature(feature string) error {
+	if c.browserFeaturesAvailable() {
+		return nil
+	}
+	reason := c.browserDegradedReason()
+	if reason == "" {
+		reason = "browser-session Slack auth is unavailable"
+	}
+	return fmt.Errorf("%w: %s (%s)", ErrBrowserSessionUnavailable, reason, feature)
 }
 
 func (c *MCPSlackClient) AuthTest() (*slack.AuthTestResponse, error) {
@@ -403,19 +550,19 @@ func (c *MCPSlackClient) AuthTest() (*slack.AuthTestResponse, error) {
 }
 
 func (c *MCPSlackClient) AuthTestContext(ctx context.Context) (*slack.AuthTestResponse, error) {
-	return c.slackClient.AuthTestContext(ctx)
+	return c.standardSlackClient().AuthTestContext(ctx)
 }
 
 func (c *MCPSlackClient) GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error) {
-	return c.slackClient.GetUsersContext(ctx, options...)
+	return c.standardSlackClient().GetUsersContext(ctx, options...)
 }
 
 func (c *MCPSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
-	return c.slackClient.GetUsersInfo(users...)
+	return c.standardSlackClient().GetUsersInfo(users...)
 }
 
 func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, ts string) error {
-	return c.slackClient.MarkConversationContext(ctx, channel, ts)
+	return c.standardSlackClient().MarkConversationContext(ctx, channel, ts)
 }
 
 func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
@@ -520,85 +667,128 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 }
 
 func (c *MCPSlackClient) GetConversationsForUserContext(ctx context.Context, params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error) {
-	return c.slackClient.GetConversationsForUserContext(ctx, params)
+	return c.standardSlackClient().GetConversationsForUserContext(ctx, params)
 }
 
 func (c *MCPSlackClient) GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-	return c.slackClient.GetConversationHistoryContext(ctx, params)
+	return c.standardSlackClient().GetConversationHistoryContext(ctx, params)
 }
 
 func (c *MCPSlackClient) GetConversationRepliesContext(ctx context.Context, params *slack.GetConversationRepliesParameters) (msgs []slack.Message, hasMore bool, nextCursor string, err error) {
-	return c.slackClient.GetConversationRepliesContext(ctx, params)
+	return c.standardSlackClient().GetConversationRepliesContext(ctx, params)
 }
 
 func (c *MCPSlackClient) SearchContext(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, *slack.SearchFiles, error) {
-	return c.slackClient.SearchContext(ctx, query, params)
+	return c.standardSlackClient().SearchContext(ctx, query, params)
 }
 
 func (c *MCPSlackClient) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
-	return c.slackClient.PostMessageContext(ctx, channelID, options...)
+	return c.standardSlackClient().PostMessageContext(ctx, channelID, options...)
 }
 
 func (c *MCPSlackClient) OpenConversationContext(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error) {
-	return c.slackClient.OpenConversationContext(ctx, params)
+	return c.standardSlackClient().OpenConversationContext(ctx, params)
 }
 
 func (c *MCPSlackClient) AddReactionContext(ctx context.Context, name string, item slack.ItemRef) error {
-	return c.slackClient.AddReactionContext(ctx, name, item)
+	return c.standardSlackClient().AddReactionContext(ctx, name, item)
 }
 
 func (c *MCPSlackClient) RemoveReactionContext(ctx context.Context, name string, item slack.ItemRef) error {
-	return c.slackClient.RemoveReactionContext(ctx, name, item)
+	return c.standardSlackClient().RemoveReactionContext(ctx, name, item)
 }
 
 func (c *MCPSlackClient) GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error) {
-	return c.slackClient.GetFileInfoContext(ctx, fileID, count, page)
+	return c.standardSlackClient().GetFileInfoContext(ctx, fileID, count, page)
 }
 
 func (c *MCPSlackClient) GetFileContext(ctx context.Context, downloadURL string, writer io.Writer) error {
-	return c.slackClient.GetFileContext(ctx, downloadURL, writer)
+	return c.standardSlackClient().GetFileContext(ctx, downloadURL, writer)
 }
 
 func (c *MCPSlackClient) ListFilesContext(ctx context.Context, params slack.ListFilesParameters) ([]slack.File, *slack.ListFilesParameters, error) {
-	return c.slackClient.ListFilesContext(ctx, params)
+	return c.standardSlackClient().ListFilesContext(ctx, params)
 }
 
 func (c *MCPSlackClient) GetConversationInfoContext(ctx context.Context, input *slack.GetConversationInfoInput) (*slack.Channel, error) {
-	return c.slackClient.GetConversationInfoContext(ctx, input)
+	return c.standardSlackClient().GetConversationInfoContext(ctx, input)
 }
 
 func (c *MCPSlackClient) ClientUserBoot(ctx context.Context) (*edge.ClientUserBootResponse, error) {
+	if err := c.ensureBrowserFeature("client.userBoot"); err != nil {
+		return nil, err
+	}
 	return c.edgeClient.ClientUserBoot(ctx)
 }
 
 func (c *MCPSlackClient) UsersSearch(ctx context.Context, query string, count int) ([]slack.User, error) {
-	return c.edgeClient.UsersSearch(ctx, query, count)
+	if err := c.ensureBrowserFeature("users/search"); err != nil {
+		return nil, err
+	}
+	users, err := c.edgeClient.UsersSearch(ctx, query, count)
+	if isBrowserSessionAuthError(err) {
+		c.degradeBrowserSession(err)
+		return nil, ErrBrowserSessionUnavailable
+	}
+	return users, err
 }
 
 func (c *MCPSlackClient) ClientCounts(ctx context.Context) (edge.ClientCountsResponse, error) {
-	return c.edgeClient.ClientCounts(ctx)
+	if err := c.ensureBrowserFeature("client.counts"); err != nil {
+		return edge.ClientCountsResponse{}, err
+	}
+	resp, err := c.edgeClient.ClientCounts(ctx)
+	if isBrowserSessionAuthError(err) {
+		c.degradeBrowserSession(err)
+		return edge.ClientCountsResponse{}, ErrBrowserSessionUnavailable
+	}
+	return resp, err
 }
 
 func (c *MCPSlackClient) ActivityFeed(ctx context.Context, limit int) (edge.ActivityFeedResponse, error) {
-	return c.edgeClient.ActivityFeed(ctx, limit)
+	if err := c.ensureBrowserFeature("activity.feed"); err != nil {
+		return edge.ActivityFeedResponse{}, err
+	}
+	resp, err := c.edgeClient.ActivityFeed(ctx, limit)
+	if isBrowserSessionAuthError(err) {
+		c.degradeBrowserSession(err)
+		return edge.ActivityFeedResponse{}, ErrBrowserSessionUnavailable
+	}
+	return resp, err
 }
 
 func (c *MCPSlackClient) ActivityMarkRead(ctx context.Context, itemType, feedTs, key string) error {
-	return c.edgeClient.ActivityMarkRead(ctx, itemType, feedTs, key)
+	if err := c.ensureBrowserFeature("activity.markRead"); err != nil {
+		return err
+	}
+	err := c.edgeClient.ActivityMarkRead(ctx, itemType, feedTs, key)
+	if isBrowserSessionAuthError(err) {
+		c.degradeBrowserSession(err)
+		return ErrBrowserSessionUnavailable
+	}
+	return err
 }
 
 func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool, error) {
-	return c.edgeClient.GetMutedChannels(ctx)
+	if !c.browserFeaturesAvailable() {
+		return nil, ErrBrowserSessionUnavailable
+	}
+	resp, err := c.edgeClient.GetMutedChannels(ctx)
+	if isBrowserSessionAuthError(err) {
+		c.degradeBrowserSession(err)
+		return nil, ErrBrowserSessionUnavailable
+	}
+	return resp, err
 }
 
 func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error) {
-	if c.isOAuth {
+	if c.effectiveOAuth() {
 		// xoxp tokens: use stars.list standard API and filter for channel-like items
 		params := slack.StarsParameters{
 			Count: limit,
 			Page:  1,
 		}
-		items, _, err := c.slackClient.ListStarsContext(ctx, params)
+		items, _, err := c.standardSlackClient().ListStarsContext(ctx, params)
 		if err != nil {
 			return nil, err
 		}
@@ -617,6 +807,13 @@ func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([
 	// xoxc/xoxd tokens: use client.userBoot which returns starred channel IDs
 	ub, err := c.edgeClient.ClientUserBoot(ctx)
 	if err != nil {
+		if isBrowserSessionAuthError(err) {
+			c.degradeBrowserSession(err)
+			if c.hasOAuthFallback() {
+				return c.GetStarredChannelIDs(ctx, limit)
+			}
+			return nil, ErrBrowserSessionUnavailable
+		}
 		return nil, err
 	}
 	var channelIDs []string
@@ -629,35 +826,59 @@ func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([
 }
 
 func (c *MCPSlackClient) SavedList(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error) {
-	return c.edgeClient.SavedList(ctx, filter, limit, cursor)
+	if err := c.ensureBrowserFeature("saved.list"); err != nil {
+		return edge.SavedListResponse{}, err
+	}
+	resp, err := c.edgeClient.SavedList(ctx, filter, limit, cursor)
+	if isBrowserSessionAuthError(err) {
+		c.degradeBrowserSession(err)
+		return edge.SavedListResponse{}, ErrBrowserSessionUnavailable
+	}
+	return resp, err
 }
 
 func (c *MCPSlackClient) SavedUpdate(ctx context.Context, itemType, itemID, ts, mark string, dateDue int64) error {
-	return c.edgeClient.SavedUpdate(ctx, itemType, itemID, ts, mark, dateDue)
+	if err := c.ensureBrowserFeature("saved.update"); err != nil {
+		return err
+	}
+	err := c.edgeClient.SavedUpdate(ctx, itemType, itemID, ts, mark, dateDue)
+	if isBrowserSessionAuthError(err) {
+		c.degradeBrowserSession(err)
+		return ErrBrowserSessionUnavailable
+	}
+	return err
 }
 
 func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
-	return c.edgeClient.SavedClearCompleted(ctx)
+	if err := c.ensureBrowserFeature("saved.clearCompleted"); err != nil {
+		return err
+	}
+	err := c.edgeClient.SavedClearCompleted(ctx)
+	if isBrowserSessionAuthError(err) {
+		c.degradeBrowserSession(err)
+		return ErrBrowserSessionUnavailable
+	}
+	return err
 }
 
 func (c *MCPSlackClient) GetUserGroupsContext(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error) {
-	return c.slackClient.GetUserGroupsContext(ctx, options...)
+	return c.standardSlackClient().GetUserGroupsContext(ctx, options...)
 }
 
 func (c *MCPSlackClient) GetUserGroupMembersContext(ctx context.Context, userGroup string, options ...slack.GetUserGroupMembersOption) ([]string, error) {
-	return c.slackClient.GetUserGroupMembersContext(ctx, userGroup, options...)
+	return c.standardSlackClient().GetUserGroupMembersContext(ctx, userGroup, options...)
 }
 
 func (c *MCPSlackClient) CreateUserGroupContext(ctx context.Context, userGroup slack.UserGroup, options ...slack.CreateUserGroupOption) (slack.UserGroup, error) {
-	return c.slackClient.CreateUserGroupContext(ctx, userGroup, options...)
+	return c.standardSlackClient().CreateUserGroupContext(ctx, userGroup, options...)
 }
 
 func (c *MCPSlackClient) UpdateUserGroupContext(ctx context.Context, userGroupID string, options ...slack.UpdateUserGroupsOption) (slack.UserGroup, error) {
-	return c.slackClient.UpdateUserGroupContext(ctx, userGroupID, options...)
+	return c.standardSlackClient().UpdateUserGroupContext(ctx, userGroupID, options...)
 }
 
 func (c *MCPSlackClient) UpdateUserGroupMembersContext(ctx context.Context, userGroup string, members string, options ...slack.UpdateUserGroupMembersOption) (slack.UserGroup, error) {
-	return c.slackClient.UpdateUserGroupMembersContext(ctx, userGroup, members, options...)
+	return c.standardSlackClient().UpdateUserGroupMembersContext(ctx, userGroup, members, options...)
 }
 
 func (c *MCPSlackClient) IsEnterprise() bool {
@@ -673,7 +894,7 @@ func (c *MCPSlackClient) IsBotToken() bool {
 }
 
 func (c *MCPSlackClient) IsOAuth() bool {
-	return c.isOAuth
+	return c.effectiveOAuth()
 }
 
 func (c *MCPSlackClient) Raw() struct {
@@ -700,6 +921,30 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 	xoxbToken := os.Getenv("SLACK_MCP_XOXB_TOKEN")
 	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
 	xoxdToken := os.Getenv("SLACK_MCP_XOXD_TOKEN")
+
+	// Prefer browser-session auth when present so browser-only tools can be
+	// registered, but keep user OAuth as a runtime fallback when available.
+	if xoxcToken != "" && xoxdToken != "" {
+		authProvider, err = auth.NewValueAuth(xoxcToken, xoxdToken)
+		if err != nil {
+			logger.Fatal("Failed to create auth provider with XOXC/XOXD tokens", zap.Error(err))
+		}
+		ap, startupErr := newWithXOXC(transport, authProvider, xoxpToken, logger)
+		if startupErr == nil {
+			return ap
+		}
+		if xoxpToken != "" {
+			logger.Warn("Browser-session auth failed at startup, using OAuth fallback", zap.Error(startupErr))
+			writeBrowserRuntimeStatus("browser_degraded", startupErr.Error(), logger)
+			notifyBrowserDegradation(startupErr.Error(), logger)
+			authProvider, err = auth.NewValueAuth(xoxpToken, "")
+			if err != nil {
+				logger.Fatal("Failed to create auth provider with XOXP token", zap.Error(err))
+			}
+			return newWithXOXP(transport, authProvider, logger)
+		}
+		logger.Fatal("Authentication failed - browser-session tokens are invalid and no OAuth fallback is configured", zap.Error(startupErr))
+	}
 
 	// Warn if both user and bot tokens are set
 	if xoxpToken != "" && xoxbToken != "" {
@@ -746,7 +991,11 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 		logger.Fatal("Failed to create auth provider with XOXC/XOXD tokens", zap.Error(err))
 	}
 
-	return newWithXOXC(transport, authProvider, logger)
+	ap, startupErr := newWithXOXC(transport, authProvider, "", logger)
+	if startupErr != nil {
+		logger.Fatal("Authentication failed - check your browser-session Slack tokens", zap.Error(startupErr))
+	}
+	return ap
 }
 
 func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logger) *ApiProvider {
@@ -777,6 +1026,7 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		if err != nil {
 			logger.Fatal("Failed to create MCP Slack client", zap.Error(err))
 		}
+		client.initBrowserState()
 	}
 
 	ap := &ApiProvider{
@@ -808,7 +1058,7 @@ func newWithXOXB(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 	return newWithXOXP(transport, authProvider, logger)
 }
 
-func newWithXOXC(transport string, authProvider auth.ValueAuth, logger *zap.Logger) *ApiProvider {
+func newWithXOXC(transport string, authProvider auth.ValueAuth, oauthFallbackToken string, logger *zap.Logger) (*ApiProvider, error) {
 	var (
 		client *MCPSlackClient
 		err    error
@@ -816,7 +1066,7 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 
 	teamID, cachedAuth, err := validateAuthAndGetTeamID(authProvider, logger)
 	if err != nil {
-		logger.Fatal("Authentication failed - check your Slack tokens", zap.Error(err))
+		return nil, err
 	}
 
 	usersCache := os.Getenv("SLACK_MCP_USERS_CACHE")
@@ -834,7 +1084,21 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 	} else {
 		client, err = NewMCPSlackClient(authProvider, logger, cachedAuth)
 		if err != nil {
-			logger.Fatal("Failed to create MCP Slack client", zap.Error(err))
+			return nil, err
+		}
+		client.initBrowserState()
+		if oauthFallbackToken != "" {
+			fallbackAuth, fallbackErr := auth.NewValueAuth(oauthFallbackToken, "")
+			if fallbackErr != nil {
+				logger.Warn("Failed to create OAuth fallback auth provider", zap.Error(fallbackErr))
+			} else {
+				httpClient := transportpkg.ProvideHTTPClient(fallbackAuth.Cookies(), logger)
+				client.fallbackSlackClient = slack.New(
+					fallbackAuth.SlackToken(),
+					slack.OptionHTTPClient(httpClient),
+					slack.OptionAPIURL(cachedAuth.URL+"api/"),
+				)
+			}
 		}
 	}
 
@@ -858,7 +1122,7 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		Channels:    make(map[string]Channel),
 		ChannelsInv: make(map[string]string),
 	})
-	return ap
+	return ap, nil
 }
 
 func (ap *ApiProvider) RefreshUsers(ctx context.Context) error {
@@ -1379,6 +1643,19 @@ func (ap *ApiProvider) IsOAuth() bool {
 	return ok && client != nil && client.IsOAuth()
 }
 
+func (ap *ApiProvider) BrowserFeaturesAvailable() bool {
+	client, ok := ap.client.(*MCPSlackClient)
+	return ok && client != nil && client.browserFeaturesAvailable()
+}
+
+func (ap *ApiProvider) BrowserDegradedReason() string {
+	client, ok := ap.client.(*MCPSlackClient)
+	if !ok || client == nil {
+		return ""
+	}
+	return client.browserDegradedReason()
+}
+
 // slackUserIDPattern matches Slack user IDs (e.g., U07VCEPP4N5, W0123456789).
 var slackUserIDPattern = regexp.MustCompile(`^[UW][A-Z0-9]{2,}$`)
 
@@ -1403,7 +1680,11 @@ func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int)
 		return ap.searchUsersInCache(query, limit)
 	}
 
-	return ap.client.UsersSearch(ctx, query, limit)
+	users, err := ap.client.UsersSearch(ctx, query, limit)
+	if errors.Is(err, ErrBrowserSessionUnavailable) && ap.IsOAuth() {
+		return ap.searchUsersInCache(query, limit)
+	}
+	return users, err
 }
 
 // searchUsersInCache performs a case-insensitive regex search on cached users.

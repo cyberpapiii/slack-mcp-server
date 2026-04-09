@@ -1,14 +1,18 @@
 package handler
 
 import (
+	"context"
 	"encoding/csv"
 	"strings"
 	"testing"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestUnitActivityItemCSVFormat(t *testing.T) {
@@ -104,11 +108,11 @@ func TestUnitActivityFeedItemFiltering(t *testing.T) {
 		}
 
 		supported := map[string]bool{
-			"thread_v2":      true,
-			"at_user":        true,
-			"at_user_group":  true,
-			"at_channel":     true,
-			"at_everyone":    true,
+			"thread_v2":     true,
+			"at_user":       true,
+			"at_user_group": true,
+			"at_channel":    true,
+			"at_everyone":   true,
 		}
 
 		var processed int
@@ -208,4 +212,25 @@ func TestUnitActivityMarkReadParams(t *testing.T) {
 				"key %q should start with type prefix %q", k.key, k.itemType)
 		}
 	})
+}
+
+func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
+	h := NewActivityHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
+	ctx := context.Background()
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"limit": 10}
+	_, err := h.ActivityUnreadsHandler(ctx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refresh browser tokens")
+
+	req = mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"key":     "thread_v2-C1-1.0",
+		"feed_ts": "1.0",
+		"type":    "thread_v2",
+	}
+	_, err = h.ActivityMarkReadHandler(ctx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refresh browser tokens")
 }

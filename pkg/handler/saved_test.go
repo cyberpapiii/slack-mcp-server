@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestUnitSavedItemCSVFormat(t *testing.T) {
@@ -162,4 +166,26 @@ func TestUnitSavedListResponseParsing(t *testing.T) {
 
 	second := resp.SavedItems[1]
 	assert.Equal(t, int64(0), second.DateDue)
+}
+
+func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
+	h := NewSavedHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
+	ctx := context.Background()
+
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"filter": "saved"}
+	_, err := h.SavedListHandler(ctx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refresh browser tokens")
+
+	req = mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"item_id": "C1", "ts": "1.0", "mark": "completed"}
+	_, err = h.SavedUpdateHandler(ctx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refresh browser tokens")
+
+	req = mcp.CallToolRequest{}
+	_, err = h.SavedClearCompletedHandler(ctx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refresh browser tokens")
 }
