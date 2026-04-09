@@ -39,6 +39,7 @@ const (
 	ToolConversationsMark           = "conversations_mark"
 	ToolConversationsOpen           = "conversations_open"
 	ToolChannelsList                = "channels_list"
+	ToolChannelsStarred             = "channels_starred"
 	ToolUsergroupsList              = "usergroups_list"
 	ToolUsergroupsMe                = "usergroups_me"
 	ToolUsergroupsCreate            = "usergroups_create"
@@ -61,6 +62,7 @@ var ValidToolNames = []string{
 	ToolConversationsMark,
 	ToolConversationsOpen,
 	ToolChannelsList,
+	ToolChannelsStarred,
 	ToolUsergroupsList,
 	ToolUsergroupsMe,
 	ToolUsergroupsCreate,
@@ -431,6 +433,22 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 				mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
 			),
 		), channelsHandler.ChannelsHandler)
+	}
+
+	if !provider.IsBotToken() && shouldAddTool(ToolChannelsStarred, enabledTools, "") {
+		s.server.AddTool(mcp.NewTool(ToolChannelsStarred,
+			mcp.WithDescription("List channels and DMs that the user has starred (saved/bookmarked). Returns a curated subset of all channels — useful for focused workflows that only care about high-priority channels."),
+			mcp.WithTitleAnnotation("List Starred Channels"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithString("channel_types",
+				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-shared channels), 'internal' (regular workspace channels)."),
+				mcp.DefaultString("all"),
+			),
+			mcp.WithNumber("limit",
+				mcp.DefaultNumber(100),
+				mcp.Description("Maximum number of starred channels to return (1-1000). Default is 100."),
+			),
+		), channelsHandler.ChannelsStarredHandler)
 	}
 
 	if shouldAddTool(ToolConversationsAddMessage, enabledTools, "SLACK_MCP_ADD_MESSAGE_TOOL") {
