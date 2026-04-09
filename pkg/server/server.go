@@ -45,6 +45,8 @@ const (
 	ToolUsergroupsUpdate            = "usergroups_update"
 	ToolUsergroupsUsersUpdate       = "usergroups_users_update"
 	ToolUsersSearch                 = "users_search"
+	ToolActivityUnreads             = "activity_unreads"
+	ToolActivityMarkRead            = "activity_mark_read"
 )
 
 var ValidToolNames = []string{
@@ -65,6 +67,8 @@ var ValidToolNames = []string{
 	ToolUsergroupsUpdate,
 	ToolUsergroupsUsersUpdate,
 	ToolUsersSearch,
+	ToolActivityUnreads,
+	ToolActivityMarkRead,
 }
 
 func ValidateEnabledTools(tools []string) error {
@@ -531,6 +535,48 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 				mcp.DefaultBool(false),
 			),
 		), conversationsHandler.ConversationsUnreadsHandler)
+	}
+
+	// Activity tools use the same underlying session/cache state, so register
+	// them alongside the other cache-dependent tools after warm-up completes.
+	if !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolActivityUnreads, enabledTools, "") {
+		activityHandler := handler.NewActivityHandler(provider, logger, conversationsHandler)
+		s.server.AddTool(mcp.NewTool(ToolActivityUnreads,
+			mcp.WithDescription("Get unread Activity items (thread replies and @mentions). Returns the same data as Slack's Activity panel Unreads tab. Requires browser session tokens (xoxc/xoxd)."),
+			mcp.WithTitleAnnotation("Get Activity Unreads"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithBoolean("include_messages",
+				mcp.Description("If true (default), fetches unread reply messages per thread. If false, returns summary only."),
+				mcp.DefaultBool(true),
+			),
+			mcp.WithNumber("max_messages_per_thread",
+				mcp.Description("Max messages to fetch per thread when include_messages is true. Default is 10."),
+				mcp.DefaultNumber(10),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("Max Activity items to return. Default is 30."),
+				mcp.DefaultNumber(30),
+			),
+		), activityHandler.ActivityUnreadsHandler)
+
+		if shouldAddTool(ToolActivityMarkRead, enabledTools, "") {
+			s.server.AddTool(mcp.NewTool(ToolActivityMarkRead,
+				mcp.WithDescription("Mark an Activity item as read. Use the key, feed_ts, and type values from activity_unreads output."),
+				mcp.WithTitleAnnotation("Mark Activity Read"),
+				mcp.WithString("key",
+					mcp.Description("Activity item key from activity_unreads output, e.g. 'thread_v2-C092WJP9Z38-1772545632.256259'."),
+					mcp.Required(),
+				),
+				mcp.WithString("feed_ts",
+					mcp.Description("Feed timestamp from activity_unreads output."),
+					mcp.Required(),
+				),
+				mcp.WithString("type",
+					mcp.Description("Item type from activity_unreads output: thread_v2, at_user, at_user_group, at_channel, at_everyone."),
+					mcp.Required(),
+				),
+			), activityHandler.ActivityMarkReadHandler)
+		}
 	}
 
 	// Register resources (depend on cache for channel/user data)
