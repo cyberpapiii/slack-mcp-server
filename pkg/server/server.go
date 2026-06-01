@@ -40,8 +40,11 @@ const (
 	ToolConversationsUnreads        = "conversations_unreads"
 	ToolConversationsMark           = "conversations_mark"
 	ToolConversationsOpen           = "conversations_open"
+	ToolConversationsLeave          = "conversations_leave"
+	ToolConversationsJoin           = "conversations_join"
 	ToolChannelsList                = "channels_list"
 	ToolChannelsStarred             = "channels_starred"
+	ToolChannelsMe                  = "channels_me"
 	ToolUsergroupsList              = "usergroups_list"
 	ToolUsergroupsMe                = "usergroups_me"
 	ToolUsergroupsCreate            = "usergroups_create"
@@ -69,8 +72,11 @@ var ValidToolNames = []string{
 	ToolConversationsUnreads,
 	ToolConversationsMark,
 	ToolConversationsOpen,
+	ToolConversationsLeave,
+	ToolConversationsJoin,
 	ToolChannelsList,
 	ToolChannelsStarred,
+	ToolChannelsMe,
 	ToolUsergroupsList,
 	ToolUsergroupsMe,
 	ToolUsergroupsCreate,
@@ -233,7 +239,10 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("content_type",
 				mcp.DefaultString("text/markdown"),
-				mcp.Description("Content type of the message. Default is 'text/markdown'. Allowed values: 'text/markdown', 'text/plain'."),
+				mcp.Description("Content type of the message. Default is 'text/markdown'. Allowed values: 'text/markdown', 'text/plain'. Ignored when blocks is provided."),
+			),
+			mcp.WithString("blocks",
+				mcp.Description("Raw Slack Block Kit JSON array for rich message formatting (rich_text lists, code blocks, etc.). When provided, this takes precedence over text/content_type for rendering. The text parameter becomes the notification fallback text."),
 			),
 		), conversationsHandler.ConversationsAddMessageHandler)
 	}
@@ -307,7 +316,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("file_id",
 				mcp.Required(),
-				mcp.Description("The ID of the attachment to download, in format Fxxxxxxxxxx. Attachment IDs can be found in message metadata when HasMedia is true or AttachmentCount > 0."),
+				mcp.Description("The ID of the attachment to download, in format Fxxxxxxxxxx. Attachment IDs (with filenames) can be found in the AttachmentIDs field of message metadata when FileCount > 0."),
 			),
 		), conversationsHandler.FilesGetHandler)
 	}
@@ -414,6 +423,31 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 		), conversationsHandler.ConversationsMarkHandler)
 	}
+
+	if shouldAddTool(ToolConversationsLeave, enabledTools, "") {
+		s.AddTool(mcp.NewTool(ToolConversationsLeave,
+			mcp.WithDescription("Leave a channel, group conversation, or DM. Cannot leave the #general channel."),
+			mcp.WithTitleAnnotation("Leave Channel"),
+			mcp.WithDestructiveHintAnnotation(true),
+			mcp.WithString("channel_id",
+				mcp.Required(),
+				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... (e.g., #general, @username)."),
+			),
+		), conversationsHandler.ConversationsLeaveHandler)
+	}
+
+	if shouldAddTool(ToolConversationsJoin, enabledTools, "") {
+		s.AddTool(mcp.NewTool(ToolConversationsJoin,
+			mcp.WithDescription("Join a public channel. Use channels_list or channels_me to find channel IDs."),
+			mcp.WithTitleAnnotation("Join Channel"),
+			mcp.WithIdempotentHintAnnotation(true),
+			mcp.WithString("channel_id",
+				mcp.Required(),
+				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... (e.g., #general)."),
+			),
+		), conversationsHandler.ConversationsJoinHandler)
+	}
+
 	usergroupsHandler := handler.NewUsergroupsHandler(provider, logger)
 
 	// User groups tools
@@ -644,6 +678,24 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 				mcp.Description("Comma-separated list of fields to match the query against. Allowed values: 'name', 'topic', 'purpose'. Example: 'name,topic,purpose' to search all fields. Default is 'name'."),
 			),
 		), channelsHandler.ChannelsHandler)
+	}
+
+	if shouldAddTool(ToolChannelsMe, enabledTools, "") {
+		s.server.AddTool(mcp.NewTool(ToolChannelsMe,
+			mcp.WithDescription("List channels you are a member of. Unlike channels_list which returns all workspace channels, this returns only channels you have joined. Useful on large workspaces where channels_list returns thousands of results."),
+			mcp.WithTitleAnnotation("My Channels"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithString("channel_types",
+				mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Default: 'public_channel,private_channel'."),
+			),
+			mcp.WithNumber("limit",
+				mcp.DefaultNumber(100),
+				mcp.Description("Maximum number of items to return (1-999)."),
+			),
+			mcp.WithString("cursor",
+				mcp.Description("Cursor for pagination."),
+			),
+		), channelsHandler.ChannelsMeHandler)
 	}
 
 	if !provider.IsBotToken() && shouldAddTool(ToolChannelsStarred, enabledTools, "") {

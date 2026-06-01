@@ -304,6 +304,8 @@ type SlackAPI interface {
 	OpenConversationContext(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error)
 	AddReactionContext(ctx context.Context, name string, item slack.ItemRef) error
 	RemoveReactionContext(ctx context.Context, name string, item slack.ItemRef) error
+	LeaveConversationContext(ctx context.Context, channelID string) (bool, error)
+	JoinConversationContext(ctx context.Context, channelID string) (*slack.Channel, string, []string, error)
 
 	// Used to get messages
 	GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
@@ -443,8 +445,9 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAut
 	// Token type detection
 	// isOAuth: Official OAuth tokens (xoxp or xoxb) - uses Standard API
 	// isBotToken: Bot token - determines feature availability (e.g., search)
-	isOAuth := strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxb-")
-	isBotToken := strings.HasPrefix(token, "xoxb-")
+	// xoxe.xoxp- and xoxe.xoxb- are token-rotation variants of xoxp/xoxb (same scopes, 12h expiry)
+	isOAuth := strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxp-") || strings.HasPrefix(token, "xoxe.xoxb-")
+	isBotToken := strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxb-")
 
 	return &MCPSlackClient{
 		slackClient:  slackClient,
@@ -563,6 +566,23 @@ func (c *MCPSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
 
 func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, ts string) error {
 	return c.standardSlackClient().MarkConversationContext(ctx, channel, ts)
+}
+
+func (c *MCPSlackClient) LeaveConversationContext(ctx context.Context, channelID string) (bool, error) {
+	if c.isEnterprise && !c.isOAuth {
+		// Enterprise Grid + session tokens: use edge API which goes through
+		// the webclient endpoint and bypasses enterprise_is_restricted.
+		notInChannel, err := c.edgeClient.LeaveConversation(ctx, channelID)
+		if err == nil {
+			return notInChannel, nil
+		}
+		// Fall back to standard API if edge fails.
+	}
+	return c.slackClient.LeaveConversationContext(ctx, channelID)
+}
+
+func (c *MCPSlackClient) JoinConversationContext(ctx context.Context, channelID string) (*slack.Channel, string, []string, error) {
+	return c.slackClient.JoinConversationContext(ctx, channelID)
 }
 
 func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
@@ -1153,6 +1173,45 @@ func (ap *ApiProvider) ForceRefreshUsers(ctx context.Context) error {
 	return ap.refreshUsersInternal(ctx, true)
 }
 
+// PatchUser fetches a single user by ID from the Slack API and adds them to
+// the in-memory users snapshot. This is much cheaper than a full cache rebuild
+// for a single cache miss (O(1) API call vs O(all users)).
+// Disk persistence is skipped — the next full refresh will persist the entry.
+func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.User, error) {
+	usersInfo, err := ap.client.GetUsersInfo(userID)
+	if err != nil {
+		ap.logger.Warn("Failed to fetch user for cache patch", zap.String("user_id", userID), zap.Error(err))
+		return nil, err
+	}
+	if usersInfo == nil || len(*usersInfo) == 0 {
+		ap.logger.Debug("User not found via API", zap.String("user_id", userID))
+		return nil, errors.New("user not found")
+	}
+
+	user := (*usersInfo)[0]
+	current := ap.usersSnapshot.Load()
+
+	newSnapshot := &UsersCache{
+		Users:    make(map[string]slack.User, len(current.Users)+1),
+		UsersInv: make(map[string]string, len(current.UsersInv)+1),
+	}
+	for k, v := range current.Users {
+		newSnapshot.Users[k] = v
+	}
+	for k, v := range current.UsersInv {
+		newSnapshot.UsersInv[k] = v
+	}
+	newSnapshot.Users[user.ID] = user
+	newSnapshot.UsersInv[user.Name] = user.ID
+
+	ap.usersSnapshot.Store(newSnapshot)
+	ap.logger.Debug("Patched user into cache",
+		zap.String("user_id", user.ID),
+		zap.String("user_name", user.Name))
+
+	return &user, nil
+}
+
 func (ap *ApiProvider) refreshUsersInternal(ctx context.Context, force bool) error {
 	ap.usersMu.Lock()
 
@@ -1625,6 +1684,14 @@ func (ap *ApiProvider) IsReady() (bool, error) {
 	return true, nil
 }
 
+// SkipCache marks both users and channels caches as ready without loading
+// any data. Lookups by #channel-name or @username will not work; callers
+// must use channel/user IDs instead.
+func (ap *ApiProvider) SkipCache() {
+	ap.usersReady.Store(true)
+	ap.channelsReady.Store(true)
+}
+
 func (ap *ApiProvider) ServerTransport() string {
 	return ap.transport
 }
@@ -1793,4 +1860,15 @@ func mapChannel(
 		User:        userID,
 		Members:     members,
 	}
+}
+
+// MapChannelFromSlack converts a slack.Channel to our internal Channel type.
+func MapChannelFromSlack(c slack.Channel, usersMap map[string]slack.User) Channel {
+	return mapChannel(
+		c.ID, c.Name, c.NameNormalized,
+		c.Topic.Value, c.Purpose.Value,
+		c.User, c.Members, c.NumMembers,
+		c.IsIM, c.IsMpIM, c.IsPrivate, c.IsExtShared,
+		usersMap,
+	)
 }

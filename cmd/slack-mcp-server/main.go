@@ -22,10 +22,12 @@ var defaultSsePort = 13080
 func main() {
 	var transport string
 	var enabledToolsFlag string
+	var noCache bool
 	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio, sse or http)")
 	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio, sse or http)")
 	flag.StringVar(&enabledToolsFlag, "e", "", "Comma-separated list of enabled tools (empty = all tools)")
 	flag.StringVar(&enabledToolsFlag, "enabled-tools", "", "Comma-separated list of enabled tools (empty = all tools)")
+	flag.BoolVar(&noCache, "no-cache", false, "Skip user/channel cache loading on startup for faster initialization. Lookups by #channel-name or @username will not work; use channel/user IDs instead.")
 	flag.Parse()
 
 	if enabledToolsFlag == "" {
@@ -68,22 +70,29 @@ func main() {
 	p := provider.New(transport, logger)
 	s := server.NewMCPServer(p, logger, enabledTools)
 
-	go func() {
-		var once sync.Once
+	if noCache {
+		p.SkipCache()
+		logger.Info("Cache loading disabled via --no-cache flag",
+			zap.String("context", "console"),
+		)
+	} else {
+		go func() {
+			var once sync.Once
 
-		newUsersWatcher(p, &once, logger)()
-		newChannelsWatcher(p, &once, logger)()
+			newUsersWatcher(p, &once, logger)()
+			newChannelsWatcher(p, &once, logger)()
 
-		// Register cache-dependent tools now that caches are warm.
-		// This triggers tools/list_changed notification to connected clients.
-		if ready, err := p.IsReady(); ready {
-			s.RegisterCacheDependentTools()
-		} else {
-			logger.Error("Cache warm-up completed but provider not ready, cache-dependent tools will not be available",
-				zap.Error(err),
-			)
-		}
-	}()
+			// Register cache-dependent tools now that caches are warm.
+			// This triggers tools/list_changed notification to connected clients.
+			if ready, err := p.IsReady(); ready {
+				s.RegisterCacheDependentTools()
+			} else {
+				logger.Error("Cache warm-up completed but provider not ready, cache-dependent tools will not be available",
+					zap.Error(err),
+				)
+			}
+		}()
+	}
 
 	switch transport {
 	case "stdio":

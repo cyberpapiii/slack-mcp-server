@@ -134,12 +134,12 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 						}
 						replies, _, _, err := h.apiProvider.Slack().GetConversationRepliesContext(ctx, repliesParams)
 						if err == nil && len(replies) > 0 {
-							msgs := h.convHandler.convertMessagesFromHistory(replies, item.ItemID, false)
+							msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false)
 							allMessages = append(allMessages, msgs...)
 							continue
 						}
 					}
-					msgs := h.convHandler.convertMessagesFromHistory(histResp.Messages, item.ItemID, false)
+					msgs := h.convHandler.convertMessagesFromHistory(ctx, histResp.Messages, item.ItemID, false)
 					allMessages = append(allMessages, msgs...)
 				} else {
 					repliesParams := &slack.GetConversationRepliesParameters{
@@ -152,7 +152,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 					}
 					replies, _, _, err := h.apiProvider.Slack().GetConversationRepliesContext(ctx, repliesParams)
 					if err == nil && len(replies) > 0 {
-						msgs := h.convHandler.convertMessagesFromHistory(replies, item.ItemID, false)
+						msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false)
 						allMessages = append(allMessages, msgs...)
 					} else {
 						allMessages = append(allMessages, Message{

@@ -160,7 +160,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			continue
 		}
 
-		msgs := h.convHandler.convertMessagesFromHistory(replies, t.ChannelID, false)
+		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, t.ChannelID, false)
 
 		// Annotate with channel name
 		channelName := t.ChannelID
