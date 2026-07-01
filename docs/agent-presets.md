@@ -6,8 +6,38 @@ These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[se
 
 | Variable | Recommended | Purpose |
 |----------|-------------|---------|
-| `SLACK_MCP_COMPACT_OUTPUT` | default **on** (unset = on) | Agent CSV: readable columns + MsgID/ThreadTs/attachments; compact link previews. Set `false` for legacy verbose output. |
+| `SLACK_MCP_COMPACT_OUTPUT` | default **on** (unset = on) | Server-wide default output mode. Set `false` for legacy verbose output. Agents can override per call with the `detail` parameter (below), which is usually the better lever. |
 | `slack_auth_status` | in allowlist | Check cache + browser auth before activity/saved tools |
+
+## Output format (standard mode)
+
+Message-returning tools (`conversations_history`, `conversations_replies`,
+`conversations_search_messages`, `conversations_unreads`, `activity_unreads`,
+`saved_list`) accept a per-call `detail` parameter: `standard` (default,
+compact agent CSV) or `full` (verbose CSV with all columns, including
+`UserID` and `Permalink` where available).
+
+Standard-mode output may begin with legend comment lines before the CSV
+header:
+
+```
+#users: U03BMAR2R50=robdezendorf|rob dezendorf, U045MM2AJCQ=konopackimarie|Marie Konopacki
+#link_template: https://<workspace>.slack.com/archives/{CHANNEL_ID}/p{MsgID with "." removed}
+User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor
+```
+
+- `#users:` maps each distinct human speaker to `UserID=username|Real Name`
+  (bots excluded; emitted only for responses with 3+ messages).
+- `#link_template:` lets you construct a message permalink from the Channel
+  and MsgID columns — the search tool's Channel column is `ID (#name)`, use
+  the leading ID. Example: MsgID `1782935556.396379` in `C041QQ9FNAJ` →
+  `.../archives/C041QQ9FNAJ/p1782935556396379`.
+- `Files` is a count of attached files; `AttachmentIDs` carries their
+  downloadable IDs.
+- Long bot/link-unfurl attachments render up to a 300-char budget. When cut,
+  the row ends with `…[attachment truncated — re-fetch this message with
+  detail: "full"]` — attachments have no ID-addressable fetch path, so the
+  `detail: full` re-fetch is the lossless recovery route.
 
 Write tools still require explicit opt-in:
 
