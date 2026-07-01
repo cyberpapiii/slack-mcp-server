@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -114,8 +115,14 @@ func attachmentToCompactText(att slack.Attachment) string {
 		}
 
 		if i == 0 {
-			// Nothing fits yet; hard-cut the first part so we still render something.
-			result = candidate[:attachmentCompactBudget]
+			// Nothing fits yet; hard-cut the first part so we still render
+			// something. Back up to a rune boundary so the cut can't split a
+			// multibyte character into invalid UTF-8.
+			cut := attachmentCompactBudget
+			for cut > 0 && !utf8.RuneStart(candidate[cut]) {
+				cut--
+			}
+			result = candidate[:cut]
 		}
 		truncated = true
 		break

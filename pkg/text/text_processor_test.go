@@ -3,6 +3,7 @@ package text
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/slack-go/slack"
 )
@@ -621,6 +622,26 @@ func TestUnitAttachmentCompactOversizedTitle(t *testing.T) {
 	want := strings.Repeat("A", attachmentCompactBudget)
 	if body != want {
 		t.Errorf("ModeStandard output body = %q (len %d), want %d-char hard-cut title", body, len(body), attachmentCompactBudget)
+	}
+}
+
+func TestUnitAttachmentCompactOversizedTitleMultibyte(t *testing.T) {
+	// "é" is 2 bytes in UTF-8; 200 of them put a rune straddling byte 300,
+	// so a naive byte-slice cut would produce invalid UTF-8.
+	att := slack.Attachment{
+		Title: strings.Repeat("é", 200),
+	}
+
+	got := AttachmentToText(att, ModeStandard)
+	if !strings.HasSuffix(got, attachmentTruncationReceipt) {
+		t.Fatalf("ModeStandard output %q should end with the truncation receipt", got)
+	}
+	body := strings.TrimSuffix(got, attachmentTruncationReceipt)
+	if !utf8.ValidString(body) {
+		t.Errorf("ModeStandard output body is not valid UTF-8 after hard cut: %q", body)
+	}
+	if len(body) > attachmentCompactBudget {
+		t.Errorf("ModeStandard output body length = %d, want <= %d", len(body), attachmentCompactBudget)
 	}
 }
 
