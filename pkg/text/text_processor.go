@@ -50,24 +50,86 @@ func AttachmentToText(att slack.Attachment, mode OutputMode) string {
 	return attachmentToCompactText(att)
 }
 
-// attachmentToCompactText keeps link previews short: title plus URL when available.
-// Full mode appends author, body, fields, and footer which often doubles message size.
+// attachmentCompactBudget caps per-attachment rendered length in standard mode.
+// Fields render before body text because bot attachments (alerts, CI, Jira)
+// carry their densest signal in fields. When content is cut, an explicit
+// receipt tells the agent how to recover it losslessly.
+const attachmentCompactBudget = 300
+
+const attachmentTruncationReceipt = " …[attachment truncated — re-fetch this message with detail: \"full\"]"
+
+// attachmentToCompactText renders bot-attachment content in standard mode up
+// to attachmentCompactBudget characters, in priority order: title+link, then
+// fields (Title: Value pairs, matching attachmentToFullText's formatting),
+// then text, then pretext. Parts are cut whole, not mid-word, except that an
+// oversized first part (typically the title) is hard-cut at the budget so an
+// attachment always renders something. When any content is dropped or cut,
+// attachmentTruncationReceipt is appended so the agent knows it can recover
+// the rest by re-fetching the message with detail: "full".
 func attachmentToCompactText(att slack.Attachment) string {
-	var result string
+	var parts []string
+
 	switch {
 	case att.Title != "" && att.TitleLink != "":
-		result = fmt.Sprintf("%s (%s)", att.Title, att.TitleLink)
+		parts = append(parts, fmt.Sprintf("%s (%s)", att.Title, att.TitleLink))
 	case att.Title != "":
-		result = att.Title
+		parts = append(parts, att.Title)
 	case att.TitleLink != "":
-		result = att.TitleLink
-	default:
+		parts = append(parts, att.TitleLink)
+	}
+
+	for _, f := range att.Fields {
+		if f.Title != "" && f.Value != "" {
+			parts = append(parts, fmt.Sprintf("%s: %s", f.Title, f.Value))
+		} else if f.Title != "" {
+			parts = append(parts, f.Title)
+		} else if f.Value != "" {
+			parts = append(parts, f.Value)
+		}
+	}
+
+	if att.Text != "" {
+		parts = append(parts, att.Text)
+	}
+
+	if att.Pretext != "" {
+		parts = append(parts, att.Pretext)
+	}
+
+	if len(parts) == 0 {
 		return ""
+	}
+
+	var result string
+	truncated := false
+	for i, p := range parts {
+		candidate := p
+		if i > 0 {
+			candidate = result + "; " + p
+		}
+
+		if len(candidate) <= attachmentCompactBudget {
+			result = candidate
+			continue
+		}
+
+		if i == 0 {
+			// Nothing fits yet; hard-cut the first part so we still render something.
+			result = candidate[:attachmentCompactBudget]
+		}
+		truncated = true
+		break
 	}
 
 	result = strings.ReplaceAll(result, "\n", " ")
 	result = strings.ReplaceAll(result, "\r", " ")
-	return strings.TrimSpace(result)
+	result = strings.TrimSpace(result)
+
+	if truncated {
+		result += attachmentTruncationReceipt
+	}
+
+	return result
 }
 
 func attachmentToFullText(att slack.Attachment) string {

@@ -301,10 +301,13 @@ func TestUnitResolveOutputMode(t *testing.T) {
 }
 
 func TestUnitAttachmentToTextModeSelection(t *testing.T) {
+	// The body is longer than attachmentCompactBudget so the two modes must
+	// diverge: standard truncates with a receipt, full renders everything.
+	longBody := strings.Repeat("the long body text ", 20) + "UNIQUE-TAIL-MARKER"
 	att := slack.Attachment{
 		Title:     "Release notes",
 		TitleLink: "https://example.com/notes",
-		Text:      "the long body text",
+		Text:      longBody,
 	}
 
 	standard := AttachmentToText(att, ModeStandard)
@@ -314,13 +317,19 @@ func TestUnitAttachmentToTextModeSelection(t *testing.T) {
 	if !strings.Contains(standard, "https://example.com/notes") {
 		t.Errorf("ModeStandard output %q should contain the link", standard)
 	}
-	if strings.Contains(standard, "the long body text") {
-		t.Errorf("ModeStandard output %q should not contain the body text", standard)
+	if !strings.Contains(standard, attachmentTruncationReceipt) {
+		t.Errorf("ModeStandard output %q should contain the truncation receipt", standard)
+	}
+	if strings.Contains(standard, "UNIQUE-TAIL-MARKER") {
+		t.Errorf("ModeStandard output %q should not contain the tail of the long body", standard)
 	}
 
 	full := AttachmentToText(att, ModeFull)
-	if !strings.Contains(full, "the long body text") {
-		t.Errorf("ModeFull output %q should contain the body text", full)
+	if !strings.Contains(full, "UNIQUE-TAIL-MARKER") {
+		t.Errorf("ModeFull output %q should contain the full body text", full)
+	}
+	if strings.Contains(full, attachmentTruncationReceipt) {
+		t.Errorf("ModeFull output %q should not contain the truncation receipt", full)
 	}
 }
 
@@ -502,12 +511,116 @@ func TestAttachmentToTextCompact(t *testing.T) {
 	got := AttachmentToText(slack.Attachment{
 		Title:     "Free Ideas",
 		TitleLink: "https://loop.substack.com/",
-		Text:      "Long preview body that should not appear in compact mode.",
+		Text:      "Short preview body that fits the standard-mode budget.",
 		Footer:    "Substack",
 	}, mode)
-	want := "Free Ideas (https://loop.substack.com/)"
+	// Standard mode renders title+link then body text (it fits the budget);
+	// footer is not part of the standard-mode priority list and stays absent.
+	want := "Free Ideas (https://loop.substack.com/); Short preview body that fits the standard-mode budget."
 	if got != want {
 		t.Errorf("AttachmentToText() = %q, want %q", got, want)
+	}
+}
+
+func TestUnitAttachmentCompactIncludesFields(t *testing.T) {
+	att := slack.Attachment{
+		Title:     "Alert fired",
+		TitleLink: "https://alerts.example.com/123",
+		Fields: []slack.AttachmentField{
+			{Title: "sev", Value: "P1"},
+			{Title: "svc", Value: "api-gw"},
+		},
+	}
+
+	got := AttachmentToText(att, ModeStandard)
+	for _, part := range []string{"Alert fired", "https://alerts.example.com/123", "sev: P1", "svc: api-gw"} {
+		if !strings.Contains(got, part) {
+			t.Errorf("ModeStandard output %q should contain %q", got, part)
+		}
+	}
+	if strings.Contains(got, attachmentTruncationReceipt) {
+		t.Errorf("ModeStandard output %q should not contain the truncation receipt", got)
+	}
+}
+
+func TestUnitAttachmentCompactTruncatesWithReceipt(t *testing.T) {
+	att := slack.Attachment{
+		Title:     "Deploy failed",
+		TitleLink: "https://ci.example.com/build/42",
+		Fields: []slack.AttachmentField{
+			{Title: "env", Value: "production"},
+			{Title: "log", Value: strings.Repeat("error line ", 20)},
+		},
+		Text: strings.Repeat("stack trace frame ", 30) + "FINAL-FRAME",
+	}
+
+	got := AttachmentToText(att, ModeStandard)
+	if !strings.HasSuffix(got, attachmentTruncationReceipt) {
+		t.Fatalf("ModeStandard output %q should end with the truncation receipt", got)
+	}
+	if !strings.Contains(got, "env: production") {
+		t.Errorf("ModeStandard output %q should contain the first field (priority order)", got)
+	}
+	body := strings.TrimSuffix(got, attachmentTruncationReceipt)
+	if len(body) > attachmentCompactBudget {
+		t.Errorf("ModeStandard output body length = %d, want <= %d", len(body), attachmentCompactBudget)
+	}
+
+	// Full mode remains the untouched recovery path: everything renders, no receipt.
+	full := AttachmentToText(att, ModeFull)
+	if !strings.Contains(full, "FINAL-FRAME") {
+		t.Errorf("ModeFull output %q should contain the full body text", full)
+	}
+	if strings.Contains(full, attachmentTruncationReceipt) {
+		t.Errorf("ModeFull output %q should not contain the truncation receipt", full)
+	}
+}
+
+func TestUnitAttachmentCompactNoReceiptWhenFits(t *testing.T) {
+	att := slack.Attachment{
+		Title:     "Build passed",
+		TitleLink: "https://ci.example.com/build/43",
+		Fields: []slack.AttachmentField{
+			{Title: "env", Value: "staging"},
+		},
+		Text: "All 128 tests green.",
+	}
+
+	got := AttachmentToText(att, ModeStandard)
+	if strings.Contains(got, attachmentTruncationReceipt) {
+		t.Errorf("ModeStandard output %q should not contain the truncation receipt", got)
+	}
+	if !strings.Contains(got, "All 128 tests green.") {
+		t.Errorf("ModeStandard output %q should contain the body text", got)
+	}
+}
+
+func TestUnitAttachmentCompactTitleOnlyUnchanged(t *testing.T) {
+	att := slack.Attachment{
+		Title:     "Title",
+		TitleLink: "https://link",
+	}
+
+	got := AttachmentToText(att, ModeStandard)
+	want := "Title (https://link)"
+	if got != want {
+		t.Errorf("AttachmentToText() = %q, want %q", got, want)
+	}
+}
+
+func TestUnitAttachmentCompactOversizedTitle(t *testing.T) {
+	att := slack.Attachment{
+		Title: strings.Repeat("A", 400),
+	}
+
+	got := AttachmentToText(att, ModeStandard)
+	if !strings.HasSuffix(got, attachmentTruncationReceipt) {
+		t.Fatalf("ModeStandard output %q should end with the truncation receipt", got)
+	}
+	body := strings.TrimSuffix(got, attachmentTruncationReceipt)
+	want := strings.Repeat("A", attachmentCompactBudget)
+	if body != want {
+		t.Errorf("ModeStandard output body = %q (len %d), want %d-char hard-cut title", body, len(body), attachmentCompactBudget)
 	}
 }
 
