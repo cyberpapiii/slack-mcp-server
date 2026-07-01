@@ -15,11 +15,39 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-func AttachmentToText(att slack.Attachment) string {
-	if compactOutput() {
-		return attachmentToCompactText(att)
+// OutputMode selects the render fidelity for tool output. Resolved once per
+// request from the tool's `detail` parameter, falling back to the
+// SLACK_MCP_COMPACT_OUTPUT env var.
+type OutputMode int
+
+const (
+	ModeStandard OutputMode = iota // compact, agent-oriented (default)
+	ModeFull                       // verbose legacy format, all columns
+)
+
+// ResolveOutputMode maps a tool's `detail` parameter to an OutputMode.
+// Empty string defers to the SLACK_MCP_COMPACT_OUTPUT env var.
+func ResolveOutputMode(detailParam string) (OutputMode, error) {
+	switch strings.ToLower(strings.TrimSpace(detailParam)) {
+	case "":
+		if compactOutput() {
+			return ModeStandard, nil
+		}
+		return ModeFull, nil
+	case "standard":
+		return ModeStandard, nil
+	case "full":
+		return ModeFull, nil
+	default:
+		return ModeStandard, fmt.Errorf("invalid detail value %q: must be \"standard\" or \"full\"", detailParam)
 	}
-	return attachmentToFullText(att)
+}
+
+func AttachmentToText(att slack.Attachment, mode OutputMode) string {
+	if mode == ModeFull {
+		return attachmentToFullText(att)
+	}
+	return attachmentToCompactText(att)
 }
 
 // attachmentToCompactText keeps link previews short: title plus URL when available.
@@ -161,15 +189,14 @@ func formatEmailUser(u slack.EmailFileUserInfo) string {
 	return ""
 }
 
-
-func AttachmentsTo2CSV(msgText string, attachments []slack.Attachment) string {
+func AttachmentsTo2CSV(msgText string, attachments []slack.Attachment, mode OutputMode) string {
 	if len(attachments) == 0 {
 		return ""
 	}
 
 	var descriptions []string
 	for _, att := range attachments {
-		plainText := AttachmentToText(att)
+		plainText := AttachmentToText(att, mode)
 		if plainText != "" {
 			descriptions = append(descriptions, fmt.Sprintf("%s", plainText))
 		}
