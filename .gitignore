@@ -19,3 +19,4 @@
 /npm/slack-mcp-server/README.md
 docker-compose.release.yml
 bin/
+.cursor/

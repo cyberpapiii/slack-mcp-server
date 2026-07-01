@@ -9,10 +9,11 @@ make deps          # go mod download
 make test          # all tests except *Integration* (CI gate)
 make test-integration  # needs Slack/ngrok secrets
 make build         # outputs ./build/slack-mcp-server
-go build -o bin/slack-mcp-server ./cmd/slack-mcp-server  # local Plug binary
+make deploy-local  # build bin/slack-mcp-server + plug reload
+go build -o bin/slack-mcp-server ./cmd/slack-mcp-server  # manual equivalent
 ```
 
-After changing Go code, rebuild `bin/slack-mcp-server` and restart Plug's `slack` server (or the plug daemon) so Cursor picks up the new binary.
+After changing Go code, run `make deploy-local` (or rebuild `bin/slack-mcp-server` and restart Plug's `slack` server) so Cursor picks up the new binary.
 
 ## Runtime layout
 
@@ -27,15 +28,18 @@ Auth tokens (`SLACK_MCP_XOXC_TOKEN`, `SLACK_MCP_XOXD_TOKEN`, etc.) live in the e
 
 ## Tool surface
 
-Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **29** tools; upstream README documents fewer.
+Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **30** tools; upstream README documents fewer.
 
 Local-only or fork-extended tools include:
 
+- `slack_auth_status` — cache and browser-session health (call before activity/saved tools)
 - `conversations_open`, `conversations_draft_message`, `files_list`
-- `channels_starred`, `channels_me`
+- `channels_starred`, `channels_me`, `conversations_unreads`
 - `activity_unreads`, `activity_mark_read` (browser session / xoxc+xoxd)
 - `saved_list`, `saved_update`, `saved_clear_completed`
 - `reactions_get`, compact CSV via `SLACK_MCP_COMPACT_OUTPUT`
+
+Agent allowlist presets: `docs/agent-presets.md`.
 
 Plug deployment uses `SLACK_MCP_ENABLED_TOOLS` as an allowlist. Adding a new tool to the server does **not** expose it in Cursor until the name is added to that env list and Plug is restarted.
 
@@ -55,9 +59,11 @@ pkg/provider/api.go          → Slack auth, SWR cache, API client
 pkg/text/                    → message/block-kit formatting
 ```
 
-Cache warmup runs in the background for stdio; the server serves immediately. Cache-dependent tools register after warmup via `RegisterCacheDependentTools()` (channels_list, unreads, activity, resources). Write tools register at startup only — do not duplicate them in delayed registration.
+Cache warmup runs in the background for stdio; the server serves immediately. Cache-dependent tools register after warmup via `RegisterCacheDependentTools()` (channels_list, channels_me, unreads, activity). Write tools register at startup only — phase guards in `pkg/server/tool_phases.go` prevent duplicate registration.
 
-If users or channels cache warm-up fails, the process stays alive but cache-dependent tools never register until restart. Restart Plug's slack server (or the plug daemon) after fixing auth or network issues.
+Warm-up retries up to 3 times (30s apart) before giving up. Startup logs a warning when browser session auth is degraded. `RegisterCacheDependentTools` is idempotent (`sync.Once`) and emits `tools/list_changed` when tools appear.
+
+If users or channels cache warm-up fails after retries, the process stays alive but cache-dependent tools never register until restart. Restart Plug's slack server (or the plug daemon) after fixing auth or network issues.
 
 ## Upstream merge checklist
 
@@ -79,3 +85,19 @@ If users or channels cache warm-up fails, the process stays alive but cache-depe
 
 - `bin/` is the Plug target binary (may differ from `make build` output in `./build/`)
 - Do not commit secrets, cache JSON files, or `.env`
+
+## Learned User Preferences
+
+- Do not propose upstream PRs or contributions — this is a personal/local fork only
+- Prefer plain, simple English when summarizing updates (release-notes style)
+- After server changes, verify live behavior through Plug-exposed Slack tools, not only `make test`
+- When finishing work, merge to `master` locally and delete temporary branches rather than opening upstream PRs
+
+## Learned Workspace Facts
+
+- Source (`master`), built binary (`bin/slack-mcp-server`), and Plug runtime are three layers that can drift independently — verify all three after code changes
+- Plug daemon (`plug serve --daemon`) spawns the server; Cursor connects via `~/.cursor/mcp.json` → `plug connect`, not a direct binary entry
+- `SLACK_MCP_ENABLED_TOOLS` in Plug may expose fewer tools than the server registers (allowlist vs 29 registered)
+- Upstream v1.3.0 is fully merged (0 behind `origin/master`); ongoing work lands as commits ahead on `master`
+- Local fork intentionally keeps non-blocking stdio startup and browser-auth degradation — upstream blocks stdio until cache warm
+- Restart Plug's `slack` server or run `plug reload` after rebuilding `bin/slack-mcp-server` so Cursor picks up the new binary

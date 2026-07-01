@@ -1,0 +1,52 @@
+# Agent presets for Slack MCP (Plug)
+
+These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[servers.slack.env]` block. After editing `~/Library/Application Support/plug/config.toml`, run `make deploy-local` from this repo (build + `plug reload`) or restart Plug manually.
+
+## Shared settings
+
+| Variable | Recommended | Purpose |
+|----------|-------------|---------|
+| `SLACK_MCP_COMPACT_OUTPUT` | `true` | CSV-style compact tool output; smaller context for agents |
+| `slack_auth_status` | in allowlist | Check cache + browser auth before activity/saved tools |
+
+Write tools still require explicit opt-in:
+
+- `SLACK_MCP_ADD_MESSAGE_TOOL` — posting
+- `SLACK_MCP_REACTION_TOOL` — reactions
+- `SLACK_MCP_ATTACHMENT_TOOL` — file download
+
+## Preset: read-only triage
+
+Best for inbox review, search, and channel discovery without posting.
+
+```toml
+SLACK_MCP_COMPACT_OUTPUT = "true"
+SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_search_messages,conversations_mark,channels_list,channels_me,channels_starred,conversations_unreads,reactions_get,users_search,files_list,usergroups_list,usergroups_me,activity_unreads,saved_list"
+```
+
+## Preset: full agent (default local)
+
+Read + write + activity/saved; matches typical Cursor agent workflows on this machine.
+
+```toml
+SLACK_MCP_COMPACT_OUTPUT = "true"
+SLACK_MCP_ADD_MESSAGE_TOOL = "true"
+SLACK_MCP_REACTION_TOOL = "true"
+SLACK_MCP_ATTACHMENT_TOOL = "true"
+SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_add_message,conversations_draft_message,conversations_search_messages,conversations_mark,conversations_open,channels_list,channels_me,channels_starred,conversations_unreads,reactions_add,reactions_remove,reactions_get,attachment_get_data,files_list,usergroups_list,usergroups_me,usergroups_create,usergroups_update,usergroups_users_update,users_search,activity_unreads,activity_mark_read,saved_list,saved_update,saved_clear_completed"
+```
+
+## Preset: minimal (IDs only)
+
+Use with `--no-cache` or when channel/user name resolution is not needed.
+
+```toml
+SLACK_MCP_COMPACT_OUTPUT = "true"
+SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_search_messages,users_search"
+```
+
+## Troubleshooting
+
+1. Call **`slack_auth_status`** — confirms user/channel cache readiness and xoxc/xoxd browser session health.
+2. If caches are not ready, wait for warm-up (up to 3 retries, 30s apart) or restart Plug.
+3. Activity and Saved tools require browser session tokens; refresh Slack in the browser and restart Plug if degraded.
