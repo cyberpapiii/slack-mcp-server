@@ -714,78 +714,6 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 		), channelsHandler.ChannelsStarredHandler)
 	}
 
-	if shouldAddTool(ToolConversationsAddMessage, enabledTools, "SLACK_MCP_ADD_MESSAGE_TOOL") {
-		s.server.AddTool(mcp.NewTool(ToolConversationsAddMessage,
-			mcp.WithDescription("Add a message to a public channel, private channel, or direct message (DM, or IM) conversation by channel_id and thread_ts."),
-			mcp.WithTitleAnnotation("Send Message"),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithString("channel_id",
-				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
-			),
-			mcp.WithString("thread_ts",
-				mcp.Description("Unique identifier of either a thread's parent message or a message in the thread_ts must be the timestamp in format 1234567890.123456 of an existing message with 0 or more replies. Optional, if not provided the message will be added to the channel itself, otherwise it will be added to the thread."),
-			),
-			mcp.WithString("text",
-				mcp.Description("Message text in specified content_type format. Example: 'Hello, world!' for text/plain or '# Hello, world!' for text/markdown."),
-			),
-			mcp.WithString("content_type",
-				mcp.DefaultString("text/markdown"),
-				mcp.Description("Content type of the message. Default is 'text/markdown'. Allowed values: 'text/markdown', 'text/plain'."),
-			),
-		), conversationsHandler.ConversationsAddMessageHandler)
-	}
-
-	if shouldAddTool(ToolReactionsAdd, enabledTools, "SLACK_MCP_REACTION_TOOL") {
-		s.server.AddTool(mcp.NewTool(ToolReactionsAdd,
-			mcp.WithDescription("Add an emoji reaction to a message in a public channel, private channel, or direct message (DM, or IM) conversation."),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithString("channel_id",
-				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
-			),
-			mcp.WithString("timestamp",
-				mcp.Required(),
-				mcp.Description("Timestamp of the message to add reaction to, in format 1234567890.123456."),
-			),
-			mcp.WithString("emoji",
-				mcp.Required(),
-				mcp.Description("The name of the emoji to add as a reaction (without colons). Example: 'thumbsup', 'heart', 'rocket'."),
-			),
-		), conversationsHandler.ReactionsAddHandler)
-	}
-
-	if shouldAddTool(ToolReactionsRemove, enabledTools, "SLACK_MCP_REACTION_TOOL") {
-		s.server.AddTool(mcp.NewTool(ToolReactionsRemove,
-			mcp.WithDescription("Remove an emoji reaction from a message in a public channel, private channel, or direct message (DM, or IM) conversation."),
-			mcp.WithDestructiveHintAnnotation(true),
-			mcp.WithString("channel_id",
-				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
-			),
-			mcp.WithString("timestamp",
-				mcp.Required(),
-				mcp.Description("Timestamp of the message to remove reaction from, in format 1234567890.123456."),
-			),
-			mcp.WithString("emoji",
-				mcp.Required(),
-				mcp.Description("The name of the emoji to remove as a reaction (without colons). Example: 'thumbsup', 'heart', 'rocket'."),
-			),
-		), conversationsHandler.ReactionsRemoveHandler)
-	}
-
-	if shouldAddTool(ToolAttachmentGetData, enabledTools, "SLACK_MCP_ATTACHMENT_TOOL") {
-		s.server.AddTool(mcp.NewTool(ToolAttachmentGetData,
-			mcp.WithDescription("Download an attachment's content by file ID. Returns file metadata and content (text files as-is, binary files as base64). Maximum file size is 5MB."),
-			mcp.WithTitleAnnotation("Get Attachment Data"),
-			mcp.WithReadOnlyHintAnnotation(true),
-			mcp.WithString("file_id",
-				mcp.Required(),
-				mcp.Description("The ID of the attachment to download, in format Fxxxxxxxxxx. Attachment IDs can be found in message metadata when HasMedia is true or AttachmentCount > 0."),
-			),
-		), conversationsHandler.FilesGetHandler)
-	}
-
 	if !provider.IsBotToken() && shouldAddTool(ToolConversationsUnreads, enabledTools, "") {
 		s.server.AddTool(mcp.NewTool(ToolConversationsUnreads,
 			mcp.WithDescription("Get unread messages across all channels. With browser session tokens (xoxc/xoxd), uses a single API call for complete results. With OAuth user tokens (xoxp), scans a subset of channels per type (limited by max_channels) — results may be partial on large workspaces. Results are prioritized: DMs > group DMs > partner channels > internal channels."),
@@ -949,12 +877,18 @@ func buildErrorRecoveryMiddleware(logger *zap.Logger) server.ToolHandlerMiddlewa
 }
 
 func buildLoggerMiddleware(logger *zap.Logger) server.ToolHandlerMiddleware {
+	logParams := strings.EqualFold(os.Getenv("SLACK_MCP_LOG_PARAMS"), "debug")
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			logger.Info("Request received",
 				zap.String("tool", req.Params.Name),
-				zap.Any("params", req.Params),
 			)
+			if logParams {
+				logger.Debug("Request params",
+					zap.String("tool", req.Params.Name),
+					zap.Any("params", req.Params),
+				)
+			}
 
 			startTime := time.Now()
 

@@ -101,7 +101,7 @@ deps: ## Download dependencies
 
 .PHONY: test
 test: ## Run the tests
-	$(GO) test -count=1 -v -run=".*Unit.*" ./...
+	$(GO) test -count=1 -v -skip="Integration" ./...
 
 .PHONY: test-integration
 test-integration: ## Run integration tests

@@ -191,10 +191,11 @@ func newUsersWatcher(p *provider.ApiProvider, once *sync.Once, logger *zap.Logge
 
 		err := p.RefreshUsers(context.Background())
 		if err != nil {
-			logger.Fatal("Error booting provider",
+			logger.Error("Users cache warm-up failed; server continues with degraded cache",
 				zap.String("context", "console"),
 				zap.Error(err),
 			)
+			return
 		}
 
 		ready, _ := p.IsReady()
@@ -223,10 +224,11 @@ func newChannelsWatcher(p *provider.ApiProvider, once *sync.Once, logger *zap.Lo
 
 		err := p.RefreshChannels(context.Background())
 		if err != nil {
-			logger.Fatal("Error booting provider",
+			logger.Error("Channels cache warm-up failed; server continues with degraded cache",
 				zap.String("context", "console"),
 				zap.Error(err),
 			)
+			return
 		}
 
 		ready, _ := p.IsReady()
