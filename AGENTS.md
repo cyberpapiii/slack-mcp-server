@@ -27,7 +27,7 @@ Auth tokens (`SLACK_MCP_XOXC_TOKEN`, `SLACK_MCP_XOXD_TOKEN`, etc.) live in the e
 
 ## Tool surface
 
-Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **30** tools; upstream README documents fewer.
+Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **29** tools; upstream README documents fewer.
 
 Local-only or fork-extended tools include:
 
@@ -57,6 +57,8 @@ pkg/text/                    → message/block-kit formatting
 
 Cache warmup runs in the background for stdio; the server serves immediately. Cache-dependent tools register after warmup via `RegisterCacheDependentTools()` (channels_list, unreads, activity, resources). Write tools register at startup only — do not duplicate them in delayed registration.
 
+If users or channels cache warm-up fails, the process stays alive but cache-dependent tools never register until restart. Restart Plug's slack server (or the plug daemon) after fixing auth or network issues.
+
 ## Upstream merge checklist
 
 1. `git fetch origin && git rev-list --left-right --count HEAD...origin/master`
@@ -71,7 +73,7 @@ Cache warmup runs in the background for stdio; the server serves immediately. Ca
 - Unit tests: any name except `*Integration*` runs under `make test`
 - Integration tests: `*Integration*` in name, run via `make test-integration`
 - Error handling: zap structured logging; avoid `logger.Fatal` on background cache paths
-- Tool params are not logged at Info; set `SLACK_MCP_LOG_PARAMS=debug` for full param logging
+- Tool params are not logged at Info by default; set `SLACK_MCP_LOG_PARAMS=debug` to log full params at Info (may include message text)
 
 ## Local-only working tree notes
 

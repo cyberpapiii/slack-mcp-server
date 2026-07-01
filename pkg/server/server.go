@@ -884,7 +884,7 @@ func buildLoggerMiddleware(logger *zap.Logger) server.ToolHandlerMiddleware {
 				zap.String("tool", req.Params.Name),
 			)
 			if logParams {
-				logger.Debug("Request params",
+				logger.Info("Request params",
 					zap.String("tool", req.Params.Name),
 					zap.Any("params", req.Params),
 				)
