@@ -14,9 +14,9 @@ your row when done.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001  | Per-call `detail` parameter; thread OutputMode through render pipeline | P1 | M | — | DONE (reviewed & approved; commit `b335266` on `advisor/001-per-call-detail-parameter`, worktree `.claude/worktrees/advisor-001`; not merged) |
-| 002  | Attachment truncate-with-receipt rendering in standard mode | P1 | S | 001 | DONE (reviewed & approved; commit `4e9c456` on `advisor/002-attachment-truncate-with-receipt`, worktree `.claude/worktrees/agent-a80e51d8c31f3c5db`; branched from `b335266`; not merged) |
-| 003  | Legend header (`#users:`, `#link_template:`) + `Files` count column | P2 | M | 001 | DONE (reviewed & approved; commit `3f6d2a0` on `advisor/003-legend-header-and-link-template`, worktree `.claude/worktrees/agent-a6e8d53f48819fd1b`; branched from `b335266`; not merged) |
+| 001  | Per-call `detail` parameter; thread OutputMode through render pipeline | P1 | M | — | DONE (reviewed & approved; commit `b335266` on `advisor/001-per-call-detail-parameter`, worktree `.claude/worktrees/advisor-001`; merged to master 2026-07-01) |
+| 002  | Attachment truncate-with-receipt rendering in standard mode | P1 | S | 001 | DONE (reviewed & approved; commit `4e9c456` on `advisor/002-attachment-truncate-with-receipt`, worktree `.claude/worktrees/agent-a80e51d8c31f3c5db`; branched from `b335266`; merged to master 2026-07-01) |
+| 003  | Legend header (`#users:`, `#link_template:`) + `Files` count column | P2 | M | 001 | DONE (reviewed & approved; commit `3f6d2a0` on `advisor/003-legend-header-and-link-template`, worktree `.claude/worktrees/agent-a6e8d53f48819fd1b`; branched from `b335266`; merged to master 2026-07-01) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
@@ -61,7 +61,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - Branch topology: 002 and 003 both branch from `b335266` (tip of the 001
   branch) and touch disjoint files (002: `pkg/text/`; 003: handler/provider/
   server). Merging 001 then both should be conflict-free. Merge decision is
-  the maintainer's; nothing has been merged or pushed.
+  the maintainer's; all three were merged to master on 2026-07-01 (nothing pushed).
 - Consciously accepted per 002's maintenance note: a message with ~10
   attachments can now render ~3KB in standard mode (300-char budget is
   per-attachment, not per-message).
