@@ -1,13 +1,11 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server"
@@ -69,6 +67,7 @@ func main() {
 
 	p := provider.New(transport, logger)
 	s := server.NewMCPServer(p, logger, enabledTools)
+	logStartupAuthStatus(p, logger)
 
 	if noCache {
 		p.SkipCache()
@@ -76,22 +75,7 @@ func main() {
 			zap.String("context", "console"),
 		)
 	} else {
-		go func() {
-			var once sync.Once
-
-			newUsersWatcher(p, &once, logger)()
-			newChannelsWatcher(p, &once, logger)()
-
-			// Register cache-dependent tools now that caches are warm.
-			// This triggers tools/list_changed notification to connected clients.
-			if ready, err := p.IsReady(); ready {
-				s.RegisterCacheDependentTools()
-			} else {
-				logger.Error("Cache warm-up completed but provider not ready, cache-dependent tools will not be available",
-					zap.Error(err),
-				)
-			}
-		}()
+		startCacheWarmup(p, s, logger)
 	}
 
 	switch transport {
@@ -173,72 +157,6 @@ func main() {
 			zap.String("transport", transport),
 			zap.String("allowed", "stdio, sse, http"),
 		)
-	}
-}
-
-func newUsersWatcher(p *provider.ApiProvider, once *sync.Once, logger *zap.Logger) func() {
-	return func() {
-		logger.Info("Caching users collection...",
-			zap.String("context", "console"),
-		)
-
-		if os.Getenv("SLACK_MCP_XOXP_TOKEN") == "demo" || (os.Getenv("SLACK_MCP_XOXC_TOKEN") == "demo" && os.Getenv("SLACK_MCP_XOXD_TOKEN") == "demo") {
-			logger.Info("Demo credentials are set, skip",
-				zap.String("context", "console"),
-			)
-			return
-		}
-
-		err := p.RefreshUsers(context.Background())
-		if err != nil {
-			logger.Error("Users cache warm-up failed; server continues with degraded cache",
-				zap.String("context", "console"),
-				zap.Error(err),
-			)
-			return
-		}
-
-		ready, _ := p.IsReady()
-		if ready {
-			once.Do(func() {
-				logger.Info("Slack MCP Server is fully ready",
-					zap.String("context", "console"),
-				)
-			})
-		}
-	}
-}
-
-func newChannelsWatcher(p *provider.ApiProvider, once *sync.Once, logger *zap.Logger) func() {
-	return func() {
-		logger.Info("Caching channels collection...",
-			zap.String("context", "console"),
-		)
-
-		if os.Getenv("SLACK_MCP_XOXP_TOKEN") == "demo" || (os.Getenv("SLACK_MCP_XOXC_TOKEN") == "demo" && os.Getenv("SLACK_MCP_XOXD_TOKEN") == "demo") {
-			logger.Info("Demo credentials are set, skip.",
-				zap.String("context", "console"),
-			)
-			return
-		}
-
-		err := p.RefreshChannels(context.Background())
-		if err != nil {
-			logger.Error("Channels cache warm-up failed; server continues with degraded cache",
-				zap.String("context", "console"),
-				zap.Error(err),
-			)
-			return
-		}
-
-		ready, _ := p.IsReady()
-		if ready {
-			once.Do(func() {
-				logger.Info("Slack MCP Server is fully ready.",
-					zap.String("context", "console"),
-				)
-			})
-		}
 	}
 }
 

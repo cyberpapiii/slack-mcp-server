@@ -125,6 +125,7 @@ func TestValidToolNames(t *testing.T) {
 			ToolSavedUpdate:                 true,
 			ToolSavedClearCompleted:         true,
 			ToolFilesList:                   true,
+			ToolSlackAuthStatus:             true,
 		}
 
 		assert.Equal(t, len(expectedTools), len(ValidToolNames), "ValidToolNames should have %d tools", len(expectedTools))
@@ -164,6 +165,7 @@ func TestValidToolNames(t *testing.T) {
 		assert.Equal(t, "saved_update", ToolSavedUpdate)
 		assert.Equal(t, "saved_clear_completed", ToolSavedClearCompleted)
 		assert.Equal(t, "files_list", ToolFilesList)
+		assert.Equal(t, "slack_auth_status", ToolSlackAuthStatus)
 	})
 }
 
@@ -371,6 +373,16 @@ func TestRegisterCacheDependentTools(t *testing.T) {
 		assert.NotContains(t, tools, ToolConversationsUnreads)
 		assert.NotContains(t, tools, ToolConversationsAddMessage)
 		assert.Len(t, tools, 1)
+	})
+
+	t.Run("second call is idempotent via sync.Once", func(t *testing.T) {
+		srv := newTestServer(nil)
+
+		srv.RegisterCacheDependentTools()
+		firstCount := len(srv.server.ListTools())
+
+		srv.RegisterCacheDependentTools()
+		assert.Len(t, srv.server.ListTools(), firstCount)
 	})
 }
 

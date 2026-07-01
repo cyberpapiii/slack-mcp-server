@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
@@ -20,11 +21,12 @@ import (
 )
 
 type MCPServer struct {
-	server       *server.MCPServer
-	logger       *zap.Logger
-	workspace    string
-	provider     *provider.ApiProvider
-	enabledTools []string
+	server          *server.MCPServer
+	logger          *zap.Logger
+	workspace       string
+	provider        *provider.ApiProvider
+	enabledTools    []string
+	cacheToolsOnce  sync.Once
 }
 
 const (
@@ -57,6 +59,7 @@ const (
 	ToolSavedUpdate                 = "saved_update"
 	ToolSavedClearCompleted         = "saved_clear_completed"
 	ToolFilesList                   = "files_list"
+	ToolSlackAuthStatus             = "slack_auth_status"
 )
 
 var ValidToolNames = []string{
@@ -89,6 +92,7 @@ var ValidToolNames = []string{
 	ToolSavedUpdate,
 	ToolSavedClearCompleted,
 	ToolFilesList,
+	ToolSlackAuthStatus,
 }
 
 func ValidateEnabledTools(tools []string) error {
@@ -144,6 +148,15 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	)
 
 	conversationsHandler := handler.NewConversationsHandler(provider, logger)
+	authStatusHandler := handler.NewAuthStatusHandler(provider, logger)
+
+	if shouldAddTool(ToolSlackAuthStatus, enabledTools, "") {
+		s.AddTool(mcp.NewTool(ToolSlackAuthStatus,
+			mcp.WithDescription("Report Slack auth, cache readiness, and browser-session health. Use before activity or saved tools when auth may have expired."),
+			mcp.WithTitleAnnotation("Auth & Cache Status"),
+			mcp.WithReadOnlyHintAnnotation(true),
+		), authStatusHandler.Handler)
+	}
 
 	if shouldAddTool(ToolConversationsOpen, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolConversationsOpen,
@@ -644,6 +657,10 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 // Called after cache warm-up completes. The mcp-go server automatically sends
 // notifications/tools/list_changed to connected clients when AddTool is called.
 func (s *MCPServer) RegisterCacheDependentTools() {
+	s.cacheToolsOnce.Do(s.registerCacheDependentTools)
+}
+
+func (s *MCPServer) registerCacheDependentTools() {
 	provider := s.provider
 	logger := s.logger
 	enabledTools := s.enabledTools
@@ -652,6 +669,7 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 	channelsHandler := handler.NewChannelsHandler(provider, logger)
 
 	if shouldAddTool(ToolChannelsList, enabledTools, "") {
+		guardCacheDependentRegistration(ToolChannelsList)
 		s.server.AddTool(mcp.NewTool(ToolChannelsList,
 			mcp.WithDescription("Get list of channels"),
 			mcp.WithTitleAnnotation("List Channels"),
@@ -681,6 +699,7 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 	}
 
 	if shouldAddTool(ToolChannelsMe, enabledTools, "") {
+		guardCacheDependentRegistration(ToolChannelsMe)
 		s.server.AddTool(mcp.NewTool(ToolChannelsMe,
 			mcp.WithDescription("List channels you are a member of. Unlike channels_list which returns all workspace channels, this returns only channels you have joined. Useful on large workspaces where channels_list returns thousands of results."),
 			mcp.WithTitleAnnotation("My Channels"),
@@ -699,6 +718,7 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 	}
 
 	if !provider.IsBotToken() && shouldAddTool(ToolChannelsStarred, enabledTools, "") {
+		guardCacheDependentRegistration(ToolChannelsStarred)
 		s.server.AddTool(mcp.NewTool(ToolChannelsStarred,
 			mcp.WithDescription("List channels and DMs that the user has starred (saved/bookmarked). Returns a curated subset of all channels — useful for focused workflows that only care about high-priority channels."),
 			mcp.WithTitleAnnotation("List Starred Channels"),
@@ -715,6 +735,7 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 	}
 
 	if !provider.IsBotToken() && shouldAddTool(ToolConversationsUnreads, enabledTools, "") {
+		guardCacheDependentRegistration(ToolConversationsUnreads)
 		s.server.AddTool(mcp.NewTool(ToolConversationsUnreads,
 			mcp.WithDescription("Get unread messages across all channels. With browser session tokens (xoxc/xoxd), uses a single API call for complete results. With OAuth user tokens (xoxp), scans a subset of channels per type (limited by max_channels) — results may be partial on large workspaces. Results are prioritized: DMs > group DMs > partner channels > internal channels."),
 			mcp.WithTitleAnnotation("Get Unread Messages"),
@@ -749,6 +770,7 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 	// Activity tools use the same underlying session/cache state, so register
 	// them alongside the other cache-dependent tools after warm-up completes.
 	if !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolActivityUnreads, enabledTools, "") {
+		guardCacheDependentRegistration(ToolActivityUnreads)
 		activityHandler := handler.NewActivityHandler(provider, logger, conversationsHandler)
 		s.server.AddTool(mcp.NewTool(ToolActivityUnreads,
 			mcp.WithDescription("Get unread Activity items (thread replies and @mentions). Returns the same data as Slack's Activity panel Unreads tab. Requires browser session tokens (xoxc/xoxd)."),
@@ -769,6 +791,7 @@ func (s *MCPServer) RegisterCacheDependentTools() {
 		), activityHandler.ActivityUnreadsHandler)
 
 		if shouldAddTool(ToolActivityMarkRead, enabledTools, "") {
+			guardCacheDependentRegistration(ToolActivityMarkRead)
 			s.server.AddTool(mcp.NewTool(ToolActivityMarkRead,
 				mcp.WithDescription("Mark an Activity item as read. Use the key, feed_ts, and type values from activity_unreads output."),
 				mcp.WithTitleAnnotation("Mark Activity Read"),

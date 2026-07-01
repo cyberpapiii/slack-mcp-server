@@ -1684,6 +1684,14 @@ func (ap *ApiProvider) IsReady() (bool, error) {
 	return true, nil
 }
 
+func (ap *ApiProvider) UsersCacheReady() bool {
+	return ap.usersReady.Load()
+}
+
+func (ap *ApiProvider) ChannelsCacheReady() bool {
+	return ap.channelsReady.Load()
+}
+
 // SkipCache marks both users and channels caches as ready without loading
 // any data. Lookups by #channel-name or @username will not work; callers
 // must use channel/user IDs instead.
