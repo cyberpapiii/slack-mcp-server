@@ -75,7 +75,7 @@ type CompactMessage struct {
 	ThreadTs      string `csv:"ThreadTs,omitempty"`
 	Reactions     string `csv:"Reactions,omitempty"`
 	AttachmentIDs string `csv:"AttachmentIDs,omitempty"`
-	HasMedia      string `csv:"HasMedia,omitempty"`
+	Files         string `csv:"Files,omitempty"`
 	Cursor        string `csv:"Cursor,omitempty"`
 }
 
@@ -857,7 +857,7 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 	if len(messages) > 0 && history.HasMore {
 		messages[len(messages)-1].Cursor = history.ResponseMetaData.NextCursor
 	}
-	return marshalMessagesToCSV(messages, mode)
+	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
 }
 
 // ConversationsRepliesHandler streams thread replies as CSV
@@ -899,7 +899,7 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	if len(messages) > 0 && hasMore {
 		messages[len(messages)-1].Cursor = nextCursor
 	}
-	return marshalMessagesToCSV(messages, mode)
+	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
 }
 
 func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -940,7 +940,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 		nextCursor := fmt.Sprintf("page:%d", messagesRes.Pagination.Page+1)
 		messages[len(messages)-1].Cursor = base64.StdEncoding.EncodeToString([]byte(nextCursor))
 	}
-	return marshalMessagesToCSV(messages, mode)
+	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
 }
 
 // UnreadChannel represents a channel with unread messages
@@ -1252,7 +1252,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 
 	ch.logger.Debug("Fetched unread messages", zap.Int("total", len(allMessages)))
 
-	return marshalMessagesToCSV(allMessages, mode)
+	return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
 }
 
 func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, mode text.OutputMode) (*mcp.CallToolResult, error) {
@@ -1392,7 +1392,7 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 
 	ch.logger.Debug("Fetched unread messages via fallback", zap.Int("total", len(allMessages)))
 
-	result, err := marshalMessagesToCSV(allMessages, mode)
+	result, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
 	if err != nil {
 		return nil, err
 	}
@@ -2624,9 +2624,16 @@ func (ch *ConversationsHandler) paramFormatChannel(raw string) (string, error) {
 	return "", fmt.Errorf("invalid channel format: %q", raw)
 }
 
-func marshalMessagesToCSV(messages []Message, mode text.OutputMode) (*mcp.CallToolResult, error) {
-	if mode != text.ModeFull {
-		return marshalMessagesToCompactCSV(messages)
+// renderOptions carries the per-call rendering context (output mode plus
+// anything the compact-mode legend header needs) through marshalMessagesToCSV.
+type renderOptions struct {
+	mode         text.OutputMode
+	workspaceURL string
+}
+
+func marshalMessagesToCSV(messages []Message, opts renderOptions) (*mcp.CallToolResult, error) {
+	if opts.mode != text.ModeFull {
+		return marshalMessagesToCompactCSV(messages, opts.workspaceURL)
 	}
 	csvBytes, err := gocsv.MarshalBytes(&messages)
 	if err != nil {
@@ -2636,7 +2643,7 @@ func marshalMessagesToCSV(messages []Message, mode text.OutputMode) (*mcp.CallTo
 }
 
 // marshalMessagesToCompactCSV converts messages to the default agent CSV format.
-func marshalMessagesToCompactCSV(messages []Message) (*mcp.CallToolResult, error) {
+func marshalMessagesToCompactCSV(messages []Message, workspaceURL string) (*mcp.CallToolResult, error) {
 	compact := make([]CompactMessage, len(messages))
 	for i, m := range messages {
 		user := m.RealName
@@ -2647,9 +2654,13 @@ func marshalMessagesToCompactCSV(messages []Message) (*mcp.CallToolResult, error
 			user = m.BotName + " (bot)"
 		}
 
-		hasMedia := ""
-		if m.HasMedia {
-			hasMedia = "true"
+		files := ""
+		if m.FileCount > 0 {
+			files = strconv.Itoa(m.FileCount)
+		} else if m.HasMedia {
+			// Search-path messages don't populate FileCount; HasMedia-but-unknown-count
+			// is floored to 1 so the column still signals "there are files here".
+			files = "1"
 		}
 
 		compact[i] = CompactMessage{
@@ -2661,7 +2672,7 @@ func marshalMessagesToCompactCSV(messages []Message) (*mcp.CallToolResult, error
 			ThreadTs:      m.ThreadTs,
 			Reactions:     m.Reactions,
 			AttachmentIDs: m.AttachmentIDs,
-			HasMedia:      hasMedia,
+			Files:         files,
 			Cursor:        m.Cursor,
 		}
 	}
@@ -2670,7 +2681,55 @@ func marshalMessagesToCompactCSV(messages []Message) (*mcp.CallToolResult, error
 	if err != nil {
 		return nil, err
 	}
-	return mcp.NewToolResultText(string(csvBytes)), nil
+
+	legend := buildLegendHeader(messages, workspaceURL)
+	return mcp.NewToolResultText(legend + string(csvBytes)), nil
+}
+
+// buildLegendHeader emits comment lines (agent-oriented, not CSV data) that
+// normalize per-row redundancy: distinct users with their IDs, and a permalink
+// template so links are derivable without a Permalink column. Skipped for
+// tiny result sets where the header would outweigh the rows.
+func buildLegendHeader(messages []Message, workspaceURL string) string {
+	if len(messages) < 3 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	seen := make(map[string]bool)
+	var userParts []string
+	for _, m := range messages {
+		if m.BotName != "" || m.UserID == "" || seen[m.UserID] {
+			continue
+		}
+		seen[m.UserID] = true
+
+		name := m.UserName
+		label := m.UserID + "=" + name
+		if m.RealName != "" && m.RealName != name {
+			label += "|" + m.RealName
+		}
+		userParts = append(userParts, label)
+	}
+	if len(userParts) > 0 {
+		sb.WriteString("#users: ")
+		sb.WriteString(strings.Join(userParts, ", "))
+		sb.WriteString("\n")
+	}
+
+	if workspaceURL != "" {
+		base := workspaceURL
+		if !strings.HasSuffix(base, "/") {
+			base += "/"
+		}
+		sb.WriteString(fmt.Sprintf(
+			"#link_template: %sarchives/{CHANNEL_ID}/p{MsgID with \".\" removed}  (Channel column may contain \"ID (#name)\" — use the leading ID)\n",
+			base,
+		))
+	}
+
+	return sb.String()
 }
 
 func getUserInfo(userID string, usersMap map[string]slack.User) (userName, realName string, ok bool) {

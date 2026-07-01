@@ -806,7 +806,7 @@ func csvResultBody(t *testing.T, result *mcp.CallToolResult) string {
 }
 
 func TestUnitMarshalMessagesToCompactCSV(t *testing.T) {
-	result, err := marshalMessagesToCSV(compactCSVFixtureMessages(), text.ModeStandard)
+	result, err := marshalMessagesToCSV(compactCSVFixtureMessages(), renderOptions{mode: text.ModeStandard})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -816,14 +816,15 @@ func TestUnitMarshalMessagesToCompactCSV(t *testing.T) {
 	assert.Contains(t, body, "1782935556.396379")
 	assert.Contains(t, body, "ThreadTs")
 	assert.Contains(t, body, "F123 (deck.pdf)")
-	assert.Contains(t, body, "HasMedia")
+	assert.Contains(t, body, "Files")
 	assert.Contains(t, body, "rob dezendorf")
 	assert.NotContains(t, body, "Permalink")
 	assert.NotContains(t, body, "U03BMAR2R50")
+	assert.NotContains(t, body, "HasMedia")
 }
 
 func TestUnitMarshalMessagesToFullCSV(t *testing.T) {
-	result, err := marshalMessagesToCSV(compactCSVFixtureMessages(), text.ModeFull)
+	result, err := marshalMessagesToCSV(compactCSVFixtureMessages(), renderOptions{mode: text.ModeFull})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -831,4 +832,95 @@ func TestUnitMarshalMessagesToFullCSV(t *testing.T) {
 
 	assert.Contains(t, body, "Permalink")
 	assert.Contains(t, body, "U03BMAR2R50")
+	assert.False(t, strings.Contains(body, "\n#"), "full mode output should not contain legend comment lines")
+}
+
+func compactCSVFixtureMessagesN(n int) []Message {
+	base := compactCSVFixtureMessages()[0]
+	users := []struct {
+		id, userName, realName string
+	}{
+		{"U03BMAR2R50", "robdezendorf", "rob dezendorf"},
+		{"U04CNAS3S61", "alicew", "Alice Wonderland"},
+	}
+	messages := make([]Message, 0, n)
+	for i := 0; i < n; i++ {
+		m := base
+		m.MsgID = fmt.Sprintf("1782935556.%06d", 396379+i)
+		if i%3 == 2 {
+			// Every third message is a bot message — excluded from the legend.
+			m.UserID = ""
+			m.UserName = ""
+			m.RealName = ""
+			m.BotName = "GitHub"
+		} else {
+			u := users[i%2]
+			m.UserID = u.id
+			m.UserName = u.userName
+			m.RealName = u.realName
+			m.BotName = ""
+		}
+		messages = append(messages, m)
+	}
+	return messages
+}
+
+func TestUnitCompactCSVLegendHeader(t *testing.T) {
+	messages := compactCSVFixtureMessagesN(4)
+	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	body := csvResultBody(t, result)
+
+	require.True(t, strings.HasPrefix(body, "#users:"), "body should start with #users: legend, got: %s", body)
+	assert.Contains(t, body, "U03BMAR2R50=robdezendorf|rob dezendorf")
+	assert.Contains(t, body, "U04CNAS3S61=alicew|Alice Wonderland")
+	assert.Contains(t, body, "#link_template: https://loop.slack.com/archives/")
+
+	lines := strings.Split(body, "\n")
+	require.True(t, len(lines) >= 3)
+	assert.True(t, strings.HasPrefix(lines[0], "#users:"))
+	assert.NotContains(t, lines[0], "GitHub", "bot rows must be excluded from the #users: legend")
+	assert.True(t, strings.HasPrefix(lines[1], "#link_template:"))
+	assert.Equal(t, "User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor", lines[2])
+}
+
+func TestUnitCompactCSVLegendSkippedForSmallResults(t *testing.T) {
+	messages := compactCSVFixtureMessagesN(2)
+	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	body := csvResultBody(t, result)
+
+	assert.True(t, strings.HasPrefix(body, "User,Channel,Text,Time,MsgID"), "body should start directly with the CSV header, got: %s", body)
+	assert.NotContains(t, body, "#users:")
+	assert.NotContains(t, body, "#link_template:")
+}
+
+func TestUnitCompactCSVLegendNoWorkspace(t *testing.T) {
+	messages := compactCSVFixtureMessagesN(4)
+	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: ""})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	body := csvResultBody(t, result)
+
+	assert.Contains(t, body, "#users:")
+	assert.NotContains(t, body, "#link_template:")
+}
+
+func TestUnitCompactCSVLegendDeterministic(t *testing.T) {
+	messages := compactCSVFixtureMessagesN(6)
+
+	result1, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
+	require.NoError(t, err)
+	body1 := csvResultBody(t, result1)
+
+	result2, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
+	require.NoError(t, err)
+	body2 := csvResultBody(t, result2)
+
+	assert.Equal(t, body1, body2)
 }

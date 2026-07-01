@@ -191,7 +191,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		return mcp.NewToolResultText(sb.String()), nil
 	}
 
-	return marshalMessagesToCSV(allMessages, mode)
+	return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

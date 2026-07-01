@@ -190,7 +190,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 1w - 1 week, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided."),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), conversationsHandler.ConversationsHistoryHandler)
 	}
@@ -220,7 +220,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided."),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), conversationsHandler.ConversationsRepliesHandler)
 	}
@@ -382,7 +382,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.Description("The maximum number of items to return. Must be an integer between 1 and 100."),
 		),
 		mcp.WithString("detail",
-			mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+			mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
 		),
 	)
 	// Only register search tool for non-bot tokens (bot tokens cannot use search.messages API)
@@ -593,7 +593,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.DefaultNumber(5),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), savedHandler.SavedListHandler)
 
@@ -777,7 +777,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 				mcp.DefaultBool(false),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), conversationsHandler.ConversationsUnreadsHandler)
 	}
@@ -804,7 +804,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 				mcp.DefaultNumber(30),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), activityHandler.ActivityUnreadsHandler)
 
