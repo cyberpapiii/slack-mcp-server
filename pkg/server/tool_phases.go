@@ -6,12 +6,12 @@ package server
 // immediateOnlyToolNames must never appear in cacheDependentToolNames.
 
 var cacheDependentToolNames = map[string]struct{}{
-	ToolChannelsList:           {},
-	ToolChannelsMe:             {},
-	ToolChannelsStarred:        {},
-	ToolConversationsUnreads:   {},
-	ToolActivityUnreads:        {},
-	ToolActivityMarkRead:       {},
+	ToolChannelsList:         {},
+	ToolChannelsMe:           {},
+	ToolChannelsStarred:      {},
+	ToolConversationsUnreads: {},
+	ToolActivityUnreads:      {},
+	ToolActivityMarkRead:     {},
 }
 
 var immediateOnlyToolNames = map[string]struct{}{
