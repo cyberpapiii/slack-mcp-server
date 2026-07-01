@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/korotovsky/slack-mcp-server/pkg/test/util"
+	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -772,10 +773,8 @@ func TestUnitIsSlackUserIDPrefix(t *testing.T) {
 	}
 }
 
-func TestUnitMarshalMessagesToCompactCSV(t *testing.T) {
-	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "true")
-
-	result, err := marshalMessagesToCSV([]Message{
+func compactCSVFixtureMessages() []Message {
+	return []Message{
 		{
 			MsgID:         "1782935556.396379",
 			UserID:        "U03BMAR2R50",
@@ -790,10 +789,11 @@ func TestUnitMarshalMessagesToCompactCSV(t *testing.T) {
 			AttachmentIDs: "F123 (deck.pdf)",
 			HasMedia:      true,
 		},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, result)
+	}
+}
 
+func csvResultBody(t *testing.T, result *mcp.CallToolResult) string {
+	t.Helper()
 	var body string
 	for _, content := range result.Content {
 		if textContent, ok := content.(mcp.TextContent); ok {
@@ -802,6 +802,15 @@ func TestUnitMarshalMessagesToCompactCSV(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, body)
+	return body
+}
+
+func TestUnitMarshalMessagesToCompactCSV(t *testing.T) {
+	result, err := marshalMessagesToCSV(compactCSVFixtureMessages(), text.ModeStandard)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	body := csvResultBody(t, result)
 
 	assert.Contains(t, body, "MsgID")
 	assert.Contains(t, body, "1782935556.396379")
@@ -811,4 +820,15 @@ func TestUnitMarshalMessagesToCompactCSV(t *testing.T) {
 	assert.Contains(t, body, "rob dezendorf")
 	assert.NotContains(t, body, "Permalink")
 	assert.NotContains(t, body, "U03BMAR2R50")
+}
+
+func TestUnitMarshalMessagesToFullCSV(t *testing.T) {
+	result, err := marshalMessagesToCSV(compactCSVFixtureMessages(), text.ModeFull)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	body := csvResultBody(t, result)
+
+	assert.Contains(t, body, "Permalink")
+	assert.Contains(t, body, "U03BMAR2R50")
 }

@@ -824,6 +824,10 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 		ch.logger.Error("Failed to parse history params", zap.Error(err))
 		return nil, err
 	}
+	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	if err != nil {
+		return nil, err
+	}
 	ch.logger.Debug("History params parsed",
 		zap.String("channel", params.channel),
 		zap.Int("limit", params.limit),
@@ -848,12 +852,12 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 
 	ch.logger.Debug("Fetched conversation history", zap.Int("message_count", len(history.Messages)))
 
-	messages := ch.convertMessagesFromHistory(ctx, history.Messages, params.channel, params.activity)
+	messages := ch.convertMessagesFromHistory(ctx, history.Messages, params.channel, params.activity, mode)
 
 	if len(messages) > 0 && history.HasMore {
 		messages[len(messages)-1].Cursor = history.ResponseMetaData.NextCursor
 	}
-	return marshalMessagesToCSV(messages)
+	return marshalMessagesToCSV(messages, mode)
 }
 
 // ConversationsRepliesHandler streams thread replies as CSV
@@ -863,6 +867,10 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	params, err := ch.parseParamsToolConversations(ctx, request)
 	if err != nil {
 		ch.logger.Error("Failed to parse replies params", zap.Error(err))
+		return nil, err
+	}
+	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	if err != nil {
 		return nil, err
 	}
 	threadTs := request.GetString("thread_ts", "")
@@ -887,11 +895,11 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	}
 	ch.logger.Debug("Fetched conversation replies", zap.Int("count", len(replies)))
 
-	messages := ch.convertMessagesFromHistory(ctx, replies, params.channel, params.activity)
+	messages := ch.convertMessagesFromHistory(ctx, replies, params.channel, params.activity, mode)
 	if len(messages) > 0 && hasMore {
 		messages[len(messages)-1].Cursor = nextCursor
 	}
-	return marshalMessagesToCSV(messages)
+	return marshalMessagesToCSV(messages, mode)
 }
 
 func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -900,6 +908,10 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	params, err := ch.parseParamsToolSearch(ctx, request)
 	if err != nil {
 		ch.logger.Error("Failed to parse search params", zap.Error(err))
+		return nil, err
+	}
+	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	if err != nil {
 		return nil, err
 	}
 	ch.logger.Debug("Search params parsed", zap.String("query", params.query), zap.Int("limit", params.limit), zap.Int("page", params.page))
@@ -923,12 +935,12 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	}
 	ch.logger.Debug("Search completed", zap.Int("matches", len(messagesRes.Matches)))
 
-	messages := ch.convertMessagesFromSearch(ctx, messagesRes.Matches)
+	messages := ch.convertMessagesFromSearch(ctx, messagesRes.Matches, mode)
 	if len(messages) > 0 && messagesRes.Pagination.Page < messagesRes.Pagination.PageCount {
 		nextCursor := fmt.Sprintf("page:%d", messagesRes.Pagination.Page+1)
 		messages[len(messages)-1].Cursor = base64.StdEncoding.EncodeToString([]byte(nextCursor))
 	}
-	return marshalMessagesToCSV(messages)
+	return marshalMessagesToCSV(messages, mode)
 }
 
 // UnreadChannel represents a channel with unread messages
@@ -952,6 +964,11 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 	ch.logger.Debug("ConversationsUnreadsHandler called", zap.Any("params", request.Params))
 
 	params := ch.parseParamsToolUnreads(request)
+
+	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	if err != nil {
+		return nil, err
+	}
 
 	// Fetch muted channels unless the caller wants them included
 	if !params.includeMuted {
@@ -977,23 +994,23 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 			)
 		}
 		ch.logger.Info("OAuth token detected, using conversations.info fallback for unreads")
-		return ch.getUnreadsViaConversationsInfo(ctx, request, params)
+		return ch.getUnreadsViaConversationsInfo(ctx, request, params, mode)
 	}
 
 	counts, err := ch.apiProvider.Slack().ClientCounts(ctx)
 	if err != nil {
 		if errors.Is(err, provider.ErrBrowserSessionUnavailable) {
 			ch.logger.Warn("Browser session unavailable for client.counts, falling back to OAuth-compatible unread scan", zap.Error(err))
-			return ch.getUnreadsViaConversationsInfo(ctx, request, params)
+			return ch.getUnreadsViaConversationsInfo(ctx, request, params, mode)
 		}
 		ch.logger.Error("ClientCounts failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to get client counts: %v", err)
 	}
 
-	return ch.processClientCountsResponse(ctx, request, params, counts)
+	return ch.processClientCountsResponse(ctx, request, params, counts, mode)
 }
 
-func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, counts edge.ClientCountsResponse) (*mcp.CallToolResult, error) {
+func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, counts edge.ClientCountsResponse, mode text.OutputMode) (*mcp.CallToolResult, error) {
 	ch.logger.Debug("Got counts data",
 		zap.Int("channels", len(counts.Channels)),
 		zap.Int("mpims", len(counts.MPIMs)),
@@ -1229,16 +1246,16 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		unreadChannels[i].UnreadCount = len(history.Messages)
 
 		// Convert messages
-		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, unreadChannels[i].ChannelName, false)
+		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, unreadChannels[i].ChannelName, false, mode)
 		allMessages = append(allMessages, channelMessages...)
 	}
 
 	ch.logger.Debug("Fetched unread messages", zap.Int("total", len(allMessages)))
 
-	return marshalMessagesToCSV(allMessages)
+	return marshalMessagesToCSV(allMessages, mode)
 }
 
-func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams) (*mcp.CallToolResult, error) {
+func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, mode text.OutputMode) (*mcp.CallToolResult, error) {
 	usersMap := ch.apiProvider.ProvideUsersMap()
 
 	// Define channel type groups in priority order.
@@ -1369,13 +1386,13 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 			continue
 		}
 
-		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, uc.ChannelName, false)
+		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, uc.ChannelName, false, mode)
 		allMessages = append(allMessages, channelMessages...)
 	}
 
 	ch.logger.Debug("Fetched unread messages via fallback", zap.Int("total", len(allMessages)))
 
-	result, err := marshalMessagesToCSV(allMessages)
+	result, err := marshalMessagesToCSV(allMessages, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -1880,7 +1897,7 @@ func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel st
 	return channelsMaps.Channels[chn].ID, nil
 }
 
-func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, slackMessages []slack.Message, channel string, includeActivity bool) []Message {
+func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, slackMessages []slack.Message, channel string, includeActivity bool, mode text.OutputMode) []Message {
 	resolver := ch.newUserResolver(ctx)
 	var messages []Message
 	warn := false
@@ -1910,7 +1927,7 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, 
 		if msgText == "" {
 			msgText = text.FilesToText(msg.Files)
 		}
-		msgText += text.AttachmentsTo2CSV(msgText, msg.Attachments)
+		msgText += text.AttachmentsTo2CSV(msgText, msg.Attachments, mode)
 
 		var reactionParts []string
 		for _, r := range msg.Reactions {
@@ -1964,7 +1981,7 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, 
 	return messages
 }
 
-func (ch *ConversationsHandler) convertMessagesFromSearch(ctx context.Context, slackMessages []slack.SearchMessage) []Message {
+func (ch *ConversationsHandler) convertMessagesFromSearch(ctx context.Context, slackMessages []slack.SearchMessage, mode text.OutputMode) []Message {
 	resolver := ch.newUserResolver(ctx)
 	var messages []Message
 	warn := false
@@ -1989,7 +2006,7 @@ func (ch *ConversationsHandler) convertMessagesFromSearch(ctx context.Context, s
 		}
 
 		msgText := text.MergeBlocksWithText(msg.Text, msg.Blocks)
-		msgText += text.AttachmentsTo2CSV(msgText, msg.Attachments)
+		msgText += text.AttachmentsTo2CSV(msgText, msg.Attachments, mode)
 
 		hasMedia := hasImageBlocks(msg.Blocks)
 
@@ -2607,8 +2624,8 @@ func (ch *ConversationsHandler) paramFormatChannel(raw string) (string, error) {
 	return "", fmt.Errorf("invalid channel format: %q", raw)
 }
 
-func marshalMessagesToCSV(messages []Message) (*mcp.CallToolResult, error) {
-	if compactOutput() {
+func marshalMessagesToCSV(messages []Message, mode text.OutputMode) (*mcp.CallToolResult, error) {
+	if mode != text.ModeFull {
 		return marshalMessagesToCompactCSV(messages)
 	}
 	csvBytes, err := gocsv.MarshalBytes(&messages)
@@ -2654,18 +2671,6 @@ func marshalMessagesToCompactCSV(messages []Message) (*mcp.CallToolResult, error
 		return nil, err
 	}
 	return mcp.NewToolResultText(string(csvBytes)), nil
-}
-
-// compactOutput is the default message format. Set SLACK_MCP_COMPACT_OUTPUT=false
-// for legacy verbose CSV (all columns including UserID and Permalink).
-func compactOutput() bool {
-	v := strings.TrimSpace(os.Getenv("SLACK_MCP_COMPACT_OUTPUT"))
-	switch strings.ToLower(v) {
-	case "0", "false", "no":
-		return false
-	default:
-		return true
-	}
 }
 
 func getUserInfo(userID string, usersMap map[string]slack.User) (userName, realName string, ok bool) {

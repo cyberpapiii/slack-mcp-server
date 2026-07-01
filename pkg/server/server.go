@@ -21,12 +21,12 @@ import (
 )
 
 type MCPServer struct {
-	server          *server.MCPServer
-	logger          *zap.Logger
-	workspace       string
-	provider        *provider.ApiProvider
-	enabledTools    []string
-	cacheToolsOnce  sync.Once
+	server         *server.MCPServer
+	logger         *zap.Logger
+	workspace      string
+	provider       *provider.ApiProvider
+	enabledTools   []string
+	cacheToolsOnce sync.Once
 }
 
 const (
@@ -189,6 +189,9 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.DefaultString("1d"),
 				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 1w - 1 week, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided."),
 			),
+			mcp.WithString("detail",
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+			),
 		), conversationsHandler.ConversationsHistoryHandler)
 	}
 
@@ -215,6 +218,9 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.WithString("limit",
 				mcp.DefaultString("1d"),
 				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided."),
+			),
+			mcp.WithString("detail",
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
 			),
 		), conversationsHandler.ConversationsRepliesHandler)
 	}
@@ -374,6 +380,9 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		mcp.WithNumber("limit",
 			mcp.DefaultNumber(20),
 			mcp.Description("The maximum number of items to return. Must be an integer between 1 and 100."),
+		),
+		mcp.WithString("detail",
+			mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
 		),
 	)
 	// Only register search tool for non-bot tokens (bot tokens cannot use search.messages API)
@@ -583,6 +592,9 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
 				mcp.DefaultNumber(5),
 			),
+			mcp.WithString("detail",
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+			),
 		), savedHandler.SavedListHandler)
 
 		if shouldAddTool(ToolSavedUpdate, enabledTools, "") {
@@ -764,6 +776,9 @@ func (s *MCPServer) registerCacheDependentTools() {
 				mcp.Description("If true, includes muted channels in results. Default is false (muted channels are excluded, matching Slack app behavior)."),
 				mcp.DefaultBool(false),
 			),
+			mcp.WithString("detail",
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
+			),
 		), conversationsHandler.ConversationsUnreadsHandler)
 	}
 
@@ -787,6 +802,9 @@ func (s *MCPServer) registerCacheDependentTools() {
 			mcp.WithNumber("limit",
 				mcp.Description("Max Activity items to return. Default is 30."),
 				mcp.DefaultNumber(30),
+			),
+			mcp.WithString("detail",
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only."),
 			),
 		), activityHandler.ActivityUnreadsHandler)
 

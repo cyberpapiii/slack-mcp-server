@@ -8,6 +8,7 @@ import (
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -47,6 +48,11 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	limit := request.GetInt("limit", 50)
 	includeMessages := request.GetBool("include_messages", true)
 	maxMsgsPerItem := request.GetInt("max_messages_per_item", 5)
+
+	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	if err != nil {
+		return nil, err
+	}
 
 	channelsMaps := h.apiProvider.ProvideChannelsMaps()
 	rl := limiter.Tier3.Limiter()
@@ -134,12 +140,12 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 						}
 						replies, _, _, err := h.apiProvider.Slack().GetConversationRepliesContext(ctx, repliesParams)
 						if err == nil && len(replies) > 0 {
-							msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false)
+							msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false, mode)
 							allMessages = append(allMessages, msgs...)
 							continue
 						}
 					}
-					msgs := h.convHandler.convertMessagesFromHistory(ctx, histResp.Messages, item.ItemID, false)
+					msgs := h.convHandler.convertMessagesFromHistory(ctx, histResp.Messages, item.ItemID, false, mode)
 					allMessages = append(allMessages, msgs...)
 				} else {
 					repliesParams := &slack.GetConversationRepliesParameters{
@@ -152,7 +158,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 					}
 					replies, _, _, err := h.apiProvider.Slack().GetConversationRepliesContext(ctx, repliesParams)
 					if err == nil && len(replies) > 0 {
-						msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false)
+						msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false, mode)
 						allMessages = append(allMessages, msgs...)
 					} else {
 						allMessages = append(allMessages, Message{
@@ -173,7 +179,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	}
 
 	if includeMessages && len(allMessages) > 0 {
-		return marshalMessagesToCSV(allMessages)
+		return marshalMessagesToCSV(allMessages, mode)
 	}
 
 	csvBytes, err := gocsv.MarshalBytes(&allItems)

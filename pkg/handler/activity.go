@@ -8,6 +8,7 @@ import (
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -47,6 +48,11 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	includeMessages := request.GetBool("include_messages", true)
 	maxMsgsPerThread := request.GetInt("max_messages_per_thread", 10)
 	limit := request.GetInt("limit", 30)
+
+	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	if err != nil {
+		return nil, err
+	}
 
 	feedResp, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
 	if err != nil {
@@ -160,7 +166,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			continue
 		}
 
-		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, t.ChannelID, false)
+		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, t.ChannelID, false, mode)
 
 		// Annotate with channel name
 		channelName := t.ChannelID
@@ -185,7 +191,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		return mcp.NewToolResultText(sb.String()), nil
 	}
 
-	return marshalMessagesToCSV(allMessages)
+	return marshalMessagesToCSV(allMessages, mode)
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

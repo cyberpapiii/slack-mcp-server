@@ -1,6 +1,7 @@
 package text
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -263,8 +264,67 @@ func TestBlocksToText(t *testing.T) {
 	}
 }
 
+func TestUnitResolveOutputMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		detail  string
+		env     string // value for SLACK_MCP_COMPACT_OUTPUT; "" leaves it unset/empty
+		want    OutputMode
+		wantErr bool
+	}{
+		{name: "empty_detail_env_unset", detail: "", env: "", want: ModeStandard},
+		{name: "empty_detail_env_false", detail: "", env: "false", want: ModeFull},
+		{name: "standard", detail: "standard", env: "", want: ModeStandard},
+		{name: "full", detail: "full", env: "", want: ModeFull},
+		{name: "full_case_insensitive", detail: "FULL", env: "", want: ModeFull},
+		{name: "bogus", detail: "bogus", env: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SLACK_MCP_COMPACT_OUTPUT", tt.env)
+			got, err := ResolveOutputMode(tt.detail)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ResolveOutputMode(%q) expected error, got nil", tt.detail)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolveOutputMode(%q) unexpected error: %v", tt.detail, err)
+			}
+			if got != tt.want {
+				t.Errorf("ResolveOutputMode(%q) = %v, want %v", tt.detail, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUnitAttachmentToTextModeSelection(t *testing.T) {
+	att := slack.Attachment{
+		Title:     "Release notes",
+		TitleLink: "https://example.com/notes",
+		Text:      "the long body text",
+	}
+
+	standard := AttachmentToText(att, ModeStandard)
+	if !strings.Contains(standard, "Release notes") {
+		t.Errorf("ModeStandard output %q should contain the title", standard)
+	}
+	if !strings.Contains(standard, "https://example.com/notes") {
+		t.Errorf("ModeStandard output %q should contain the link", standard)
+	}
+	if strings.Contains(standard, "the long body text") {
+		t.Errorf("ModeStandard output %q should not contain the body text", standard)
+	}
+
+	full := AttachmentToText(att, ModeFull)
+	if !strings.Contains(full, "the long body text") {
+		t.Errorf("ModeFull output %q should contain the body text", full)
+	}
+}
+
 func TestAttachmentToTextWithBlocks(t *testing.T) {
-	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "false")
 	att := slack.Attachment{
 		Blocks: slack.Blocks{
 			BlockSet: []slack.Block{
@@ -279,14 +339,13 @@ func TestAttachmentToTextWithBlocks(t *testing.T) {
 		},
 	}
 
-	result := AttachmentToText(att)
+	result := AttachmentToText(att, ModeFull)
 	if result != "Blocks: block content" {
 		t.Errorf("AttachmentToText() = %q, want %q", result, "Blocks: block content")
 	}
 }
 
 func TestAttachmentToTextWithBlocksAndText(t *testing.T) {
-	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "false")
 	att := slack.Attachment{
 		Title: "Email Subject",
 		Text:  "email body",
@@ -303,7 +362,7 @@ func TestAttachmentToTextWithBlocksAndText(t *testing.T) {
 		},
 	}
 
-	result := AttachmentToText(att)
+	result := AttachmentToText(att, ModeFull)
 	expected := "Title: Email Subject; Text: email body; Blocks: extra block info"
 	if result != expected {
 		t.Errorf("AttachmentToText() = %q, want %q", result, expected)
@@ -311,7 +370,6 @@ func TestAttachmentToTextWithBlocksAndText(t *testing.T) {
 }
 
 func TestAttachmentToText(t *testing.T) {
-	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "false")
 	tests := []struct {
 		name string
 		att  slack.Attachment
@@ -374,8 +432,8 @@ func TestAttachmentToText(t *testing.T) {
 		{
 			name: "fields_with_all_parts",
 			att: slack.Attachment{
-				Title:  "Alert",
-				Text:   "Failed workflow",
+				Title: "Alert",
+				Text:  "Failed workflow",
 				Fields: []slack.AttachmentField{
 					{Title: "Env", Value: "prod"},
 					{Title: "Version", Value: "v1.9.0"},
@@ -422,7 +480,7 @@ func TestAttachmentToText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := AttachmentToText(tt.att)
+			got := AttachmentToText(tt.att, ModeFull)
 			if got != tt.want {
 				t.Errorf("AttachmentToText() = %q, want %q", got, tt.want)
 			}
@@ -431,14 +489,22 @@ func TestAttachmentToText(t *testing.T) {
 }
 
 func TestAttachmentToTextCompact(t *testing.T) {
+	// Env-driven fallback: empty detail param + compact env var resolves to ModeStandard.
 	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "true")
+	mode, err := ResolveOutputMode("")
+	if err != nil {
+		t.Fatalf("ResolveOutputMode() error = %v", err)
+	}
+	if mode != ModeStandard {
+		t.Fatalf("ResolveOutputMode(\"\") = %v, want ModeStandard", mode)
+	}
 
 	got := AttachmentToText(slack.Attachment{
 		Title:     "Free Ideas",
 		TitleLink: "https://loop.substack.com/",
 		Text:      "Long preview body that should not appear in compact mode.",
 		Footer:    "Substack",
-	})
+	}, mode)
 	want := "Free Ideas (https://loop.substack.com/)"
 	if got != want {
 		t.Errorf("AttachmentToText() = %q, want %q", got, want)
@@ -446,7 +512,6 @@ func TestAttachmentToTextCompact(t *testing.T) {
 }
 
 func TestAttachmentsTo2CSV(t *testing.T) {
-	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "false")
 	tests := []struct {
 		name        string
 		msgText     string
@@ -500,7 +565,7 @@ func TestAttachmentsTo2CSV(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := AttachmentsTo2CSV(tt.msgText, tt.attachments)
+			got := AttachmentsTo2CSV(tt.msgText, tt.attachments, ModeFull)
 			if got != tt.want {
 				t.Errorf("AttachmentsTo2CSV() = %q, want %q", got, tt.want)
 			}
@@ -937,4 +1002,3 @@ func TestFilesToTextProcessTextPipeline(t *testing.T) {
 		})
 	}
 }
-
