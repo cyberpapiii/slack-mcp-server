@@ -113,9 +113,16 @@ deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plu
 	@echo "Built ./bin/slack-mcp-server"
 	@strings ./bin/slack-mcp-server 2>/dev/null | grep -m1 'github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=' || true
 	@if command -v plug >/dev/null 2>&1; then \
-		plug server disable slack && plug server enable slack && echo "Plug slack server restarted with new binary"; \
+		plug server disable slack && sleep 2 && plug server enable slack \
+			&& echo "Plug slack server restarted with new binary"; \
 	else \
 		echo "plug not in PATH — restart Plug manually"; \
+	fi
+	@sleep 3; NEW_PID=$$(pgrep -f 'bin/slack-mcp-server --transport' | head -1); \
+	if [ -n "$$NEW_PID" ]; then \
+		echo "slack-mcp-server running as PID $$NEW_PID (started $$(ps -o lstart= -p $$NEW_PID))"; \
+	else \
+		echo "WARNING: no slack-mcp-server process found — check plug status"; \
 	fi
 
 .PHONY: format
