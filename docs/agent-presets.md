@@ -1,6 +1,6 @@
 # Agent presets for Slack MCP (Plug)
 
-These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[servers.slack.env]` block. After editing `~/Library/Application Support/plug/config.toml`, run `make deploy-local` from this repo (build + `plug reload`) or restart Plug manually.
+These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[servers.slack.env]` block. After editing `~/Library/Application Support/plug/config.toml` or changing Go code, run `make deploy-local` from this repo — it builds the binary and restarts Plug's `slack` server. (A bare `plug reload` is not enough: it reloads config but leaves the old server process running.)
 
 ## Shared settings
 
@@ -36,7 +36,7 @@ User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor
   downloadable IDs.
 - Long bot/link-unfurl attachments render up to a 300-char budget. When cut,
   the row ends with `…[attachment truncated — re-fetch this message with
-  detail: "full"]` — attachments have no ID-addressable fetch path, so the
+  detail: full]` — attachments have no ID-addressable fetch path, so the
   `detail: full` re-fetch is the lossless recovery route.
 
 Write tools still require explicit opt-in:
@@ -50,7 +50,6 @@ Write tools still require explicit opt-in:
 Best for inbox review, search, and channel discovery without posting.
 
 ```toml
-SLACK_MCP_COMPACT_OUTPUT = "true"
 SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_search_messages,conversations_mark,channels_list,channels_me,channels_starred,conversations_unreads,reactions_get,users_search,files_list,usergroups_list,usergroups_me,activity_unreads,saved_list"
 ```
 
@@ -59,7 +58,6 @@ SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations
 Read + write + activity/saved; matches typical Cursor agent workflows on this machine.
 
 ```toml
-SLACK_MCP_COMPACT_OUTPUT = "true"
 SLACK_MCP_ADD_MESSAGE_TOOL = "true"
 SLACK_MCP_REACTION_TOOL = "true"
 SLACK_MCP_ATTACHMENT_TOOL = "true"
@@ -71,7 +69,6 @@ SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations
 Use with `--no-cache` or when channel/user name resolution is not needed.
 
 ```toml
-SLACK_MCP_COMPACT_OUTPUT = "true"
 SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_search_messages,users_search"
 ```
 

@@ -57,7 +57,9 @@ func AttachmentToText(att slack.Attachment, mode OutputMode) string {
 // receipt tells the agent how to recover it losslessly.
 const attachmentCompactBudget = 300
 
-const attachmentTruncationReceipt = " …[attachment truncated — re-fetch this message with detail: \"full\"]"
+// No quotes around "full": these strings land inside quoted CSV fields, where
+// literal double quotes get doubled by the CSV encoder and read as noise.
+const attachmentTruncationReceipt = " …[attachment truncated — re-fetch this message with detail: full]"
 
 // attachmentToCompactText renders bot-attachment content in standard mode up
 // to attachmentCompactBudget characters, in priority order: title+link, then

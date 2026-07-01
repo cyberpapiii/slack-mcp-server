@@ -108,12 +108,12 @@ test-integration: ## Run integration tests
 	$(GO) test -count=1 -v -run=".*Integration.*" ./...
 
 .PHONY: deploy-local
-deploy-local: ## Build bin/slack-mcp-server and reload Plug
+deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plug reload alone leaves the old process running)
 	go build $(COMMON_BUILD_ARGS) -o ./bin/slack-mcp-server ./cmd/slack-mcp-server
 	@echo "Built ./bin/slack-mcp-server"
 	@strings ./bin/slack-mcp-server 2>/dev/null | grep -m1 'github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=' || true
 	@if command -v plug >/dev/null 2>&1; then \
-		plug reload && echo "Plug reloaded"; \
+		plug server disable slack && plug server enable slack && echo "Plug slack server restarted with new binary"; \
 	else \
 		echo "plug not in PATH — restart Plug manually"; \
 	fi

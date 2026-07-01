@@ -37,7 +37,7 @@ Local-only or fork-extended tools include:
 - `channels_starred`, `channels_me`, `conversations_unreads`
 - `activity_unreads`, `activity_mark_read` (browser session / xoxc+xoxd)
 - `saved_list`, `saved_update`, `saved_clear_completed`
-- `reactions_get`, compact CSV by default via `SLACK_MCP_COMPACT_OUTPUT` (on unless set to `false`; keeps MsgID/ThreadTs for follow-up actions)
+- `reactions_get`, compact CSV by default (keeps MsgID/ThreadTs for follow-up actions). Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode may prepend `#users:`/`#link_template:` legend lines and truncates long attachments with a re-fetch receipt — see `docs/agent-presets.md`.
 
 Agent allowlist presets: `docs/agent-presets.md`.
 
