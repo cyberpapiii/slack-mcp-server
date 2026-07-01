@@ -1718,6 +1718,18 @@ func (ap *ApiProvider) IsOAuth() bool {
 	return ok && client != nil && client.IsOAuth()
 }
 
+// WorkspaceURL returns the cached workspace base URL from auth (e.g.
+// "https://myorg.slack.com/"), or "" when the client type doesn't cache it
+// (callers must treat "" as "omit workspace-dependent output").
+func (ap *ApiProvider) WorkspaceURL() string {
+	if c, ok := ap.client.(*MCPSlackClient); ok {
+		if ar := c.AuthResponse(); ar != nil {
+			return ar.URL
+		}
+	}
+	return ""
+}
+
 func (ap *ApiProvider) BrowserFeaturesAvailable() bool {
 	client, ok := ap.client.(*MCPSlackClient)
 	return ok && client != nil && client.browserFeaturesAvailable()

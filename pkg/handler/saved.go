@@ -179,7 +179,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	}
 
 	if includeMessages && len(allMessages) > 0 {
-		return marshalMessagesToCSV(allMessages, mode)
+		return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
 	}
 
 	csvBytes, err := gocsv.MarshalBytes(&allItems)
