@@ -74,7 +74,7 @@ type clientDMsForm struct {
 type clientDMsResponse struct {
 	baseResponse
 	IMs   []ClientDM `json:"ims,omitempty"`
-	MPIMs []ClientDM `json:"mpims,omitempty"` //TODO
+	MPIMs []ClientDM `json:"mpims,omitempty"`
 }
 
 type ClientDM struct {
@@ -90,6 +90,7 @@ type IM struct {
 	IsFrozen         bool           `json:"is_frozen"`
 	IsArchived       bool           `json:"is_archived"`
 	IsIM             bool           `json:"is_im"`
+	IsMpim           bool           `json:"is_mpim"`
 	IsOrgShared      bool           `json:"is_org_shared"`
 	ContextTeamID    string         `json:"context_team_id"`
 	Updated          slack.JSONTime `json:"updated"`
@@ -116,6 +117,7 @@ func (c IM) SlackChannel() slack.Channel {
 				ID:          c.ID,
 				Created:     c.Created,
 				IsIM:        c.IsIM,
+				IsMpIM:      c.IsMpim,
 				IsOrgShared: c.IsOrgShared,
 				User:        c.User,
 				LastRead:    c.LastRead.SlackString(),
@@ -138,7 +140,7 @@ func (cl *Client) ClientDMs(ctx context.Context) ([]ClientDM, error) {
 		WebClientFields: webclientReason("dms-tab-populate"),
 	}
 	lim := limiter.Tier2boost.Limiter()
-	var IMs []ClientDM
+	var dms []ClientDM
 	for {
 		resp, err := cl.PostFormRaw(ctx, cl.webapiURL("client.dms"), values(form, true))
 		if err != nil {
@@ -148,7 +150,8 @@ func (cl *Client) ClientDMs(ctx context.Context) ([]ClientDM, error) {
 		if err := cl.ParseResponse(&r, resp); err != nil {
 			return nil, err
 		}
-		IMs = append(IMs, r.IMs...)
+		dms = append(dms, r.IMs...)
+		dms = append(dms, r.MPIMs...)
 		if r.ResponseMetadata.NextCursor == "" {
 			break
 		}
@@ -157,7 +160,7 @@ func (cl *Client) ClientDMs(ctx context.Context) ([]ClientDM, error) {
 			return nil, err
 		}
 	}
-	return IMs, nil
+	return dms, nil
 }
 
 // activity.feed API
