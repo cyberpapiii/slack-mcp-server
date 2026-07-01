@@ -41,6 +41,8 @@ Local-only or fork-extended tools include:
 
 Agent allowlist presets: `docs/agent-presets.md`.
 
+Documented solutions: `docs/solutions/` — past problems solved in this repo (bugs, deploy and workflow issues), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`); relevant when debugging or changing documented areas. Shared domain vocabulary: `CONCEPTS.md`.
+
 Plug deployment uses `SLACK_MCP_ENABLED_TOOLS` as an allowlist. Adding a new tool to the server does **not** expose it in Cursor until the name is added to that env list and Plug is restarted.
 
 Write tools require explicit env opt-in:
