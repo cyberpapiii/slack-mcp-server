@@ -264,6 +264,7 @@ func TestBlocksToText(t *testing.T) {
 }
 
 func TestAttachmentToTextWithBlocks(t *testing.T) {
+	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "false")
 	att := slack.Attachment{
 		Blocks: slack.Blocks{
 			BlockSet: []slack.Block{
@@ -285,6 +286,7 @@ func TestAttachmentToTextWithBlocks(t *testing.T) {
 }
 
 func TestAttachmentToTextWithBlocksAndText(t *testing.T) {
+	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "false")
 	att := slack.Attachment{
 		Title: "Email Subject",
 		Text:  "email body",
@@ -309,6 +311,7 @@ func TestAttachmentToTextWithBlocksAndText(t *testing.T) {
 }
 
 func TestAttachmentToText(t *testing.T) {
+	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "false")
 	tests := []struct {
 		name string
 		att  slack.Attachment
@@ -427,7 +430,23 @@ func TestAttachmentToText(t *testing.T) {
 	}
 }
 
+func TestAttachmentToTextCompact(t *testing.T) {
+	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "true")
+
+	got := AttachmentToText(slack.Attachment{
+		Title:     "Free Ideas",
+		TitleLink: "https://loop.substack.com/",
+		Text:      "Long preview body that should not appear in compact mode.",
+		Footer:    "Substack",
+	})
+	want := "Free Ideas (https://loop.substack.com/)"
+	if got != want {
+		t.Errorf("AttachmentToText() = %q, want %q", got, want)
+	}
+}
+
 func TestAttachmentsTo2CSV(t *testing.T) {
+	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "false")
 	tests := []struct {
 		name        string
 		msgText     string

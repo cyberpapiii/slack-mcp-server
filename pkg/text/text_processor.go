@@ -22,18 +22,24 @@ func AttachmentToText(att slack.Attachment) string {
 	return attachmentToFullText(att)
 }
 
-// attachmentToCompactText returns only the Title of an attachment.
-// Link previews in Slack append Title + Text + Footer which can double
-// the message length. The title alone tells the LLM what was linked.
+// attachmentToCompactText keeps link previews short: title plus URL when available.
+// Full mode appends author, body, fields, and footer which often doubles message size.
 func attachmentToCompactText(att slack.Attachment) string {
-	if att.Title != "" {
-		result := att.Title
-		result = strings.ReplaceAll(result, "\n", " ")
-		result = strings.ReplaceAll(result, "\r", " ")
-		result = strings.TrimSpace(result)
-		return result
+	var result string
+	switch {
+	case att.Title != "" && att.TitleLink != "":
+		result = fmt.Sprintf("%s (%s)", att.Title, att.TitleLink)
+	case att.Title != "":
+		result = att.Title
+	case att.TitleLink != "":
+		result = att.TitleLink
+	default:
+		return ""
 	}
-	return ""
+
+	result = strings.ReplaceAll(result, "\n", " ")
+	result = strings.ReplaceAll(result, "\r", " ")
+	return strings.TrimSpace(result)
 }
 
 func attachmentToFullText(att slack.Attachment) string {
@@ -90,8 +96,13 @@ func attachmentToFullText(att slack.Attachment) string {
 }
 
 func compactOutput() bool {
-	v := os.Getenv("SLACK_MCP_COMPACT_OUTPUT")
-	return v == "1" || v == "true" || v == "yes"
+	v := strings.TrimSpace(os.Getenv("SLACK_MCP_COMPACT_OUTPUT"))
+	switch strings.ToLower(v) {
+	case "0", "false", "no":
+		return false
+	default:
+		return true
+	}
 }
 
 // FilesToText extracts text metadata from email file attachments.

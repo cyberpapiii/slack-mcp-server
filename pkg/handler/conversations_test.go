@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/korotovsky/slack-mcp-server/pkg/test/util"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
@@ -769,4 +770,45 @@ func TestUnitIsSlackUserIDPrefix(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUnitMarshalMessagesToCompactCSV(t *testing.T) {
+	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "true")
+
+	result, err := marshalMessagesToCSV([]Message{
+		{
+			MsgID:         "1782935556.396379",
+			UserID:        "U03BMAR2R50",
+			UserName:      "robdezendorf",
+			RealName:      "rob dezendorf",
+			Channel:       "C039NRB81UL",
+			ThreadTs:      "1782935556.396379",
+			Text:          "hello",
+			Time:          "2026-05-20T13:40:20Z",
+			Permalink:     "https://loop.slack.com/archives/C039NRB81UL/p1782935556396379",
+			Reactions:     "fire:1",
+			AttachmentIDs: "F123 (deck.pdf)",
+			HasMedia:      true,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	var body string
+	for _, content := range result.Content {
+		if textContent, ok := content.(mcp.TextContent); ok {
+			body = textContent.Text
+			break
+		}
+	}
+	require.NotEmpty(t, body)
+
+	assert.Contains(t, body, "MsgID")
+	assert.Contains(t, body, "1782935556.396379")
+	assert.Contains(t, body, "ThreadTs")
+	assert.Contains(t, body, "F123 (deck.pdf)")
+	assert.Contains(t, body, "HasMedia")
+	assert.Contains(t, body, "rob dezendorf")
+	assert.NotContains(t, body, "Permalink")
+	assert.NotContains(t, body, "U03BMAR2R50")
 }

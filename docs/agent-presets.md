@@ -6,7 +6,7 @@ These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[se
 
 | Variable | Recommended | Purpose |
 |----------|-------------|---------|
-| `SLACK_MCP_COMPACT_OUTPUT` | `true` | CSV-style compact tool output; smaller context for agents |
+| `SLACK_MCP_COMPACT_OUTPUT` | default **on** (unset = on) | Agent CSV: readable columns + MsgID/ThreadTs/attachments; compact link previews. Set `false` for legacy verbose output. |
 | `slack_auth_status` | in allowlist | Check cache + browser auth before activity/saved tools |
 
 Write tools still require explicit opt-in:

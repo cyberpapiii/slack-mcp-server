@@ -37,7 +37,7 @@ Local-only or fork-extended tools include:
 - `channels_starred`, `channels_me`, `conversations_unreads`
 - `activity_unreads`, `activity_mark_read` (browser session / xoxc+xoxd)
 - `saved_list`, `saved_update`, `saved_clear_completed`
-- `reactions_get`, compact CSV via `SLACK_MCP_COMPACT_OUTPUT`
+- `reactions_get`, compact CSV by default via `SLACK_MCP_COMPACT_OUTPUT` (on unless set to `false`; keeps MsgID/ThreadTs for follow-up actions)
 
 Agent allowlist presets: `docs/agent-presets.md`.
 

@@ -63,17 +63,20 @@ type Message struct {
 	Cursor        string `json:"cursor"`
 }
 
-// CompactMessage is a slimmed-down CSV output that drops fields rarely needed
-// by the LLM: MsgID (timestamp IDs), UserID (redundant with UserName/RealName),
-// ThreadTs (empty most of the time), FileCount/AttachmentIDs/HasMedia (usually 0/empty/false).
-// Cursor is preserved only on the last message for pagination.
+// CompactMessage is the default agent-oriented CSV shape: readable columns plus the
+// IDs needed for reactions, thread replies, and attachment downloads. Drops only
+// redundant or bulky fields (UserID when User is set, Permalink URLs, FileCount).
 type CompactMessage struct {
-	UserName  string `csv:"User"`
-	Channel   string `csv:"Channel"`
-	Text      string `csv:"Text"`
-	Time      string `csv:"Time"`
-	Reactions string `csv:"Reactions,omitempty"`
-	Cursor    string `csv:"Cursor,omitempty"`
+	User          string `csv:"User"`
+	Channel       string `csv:"Channel"`
+	Text          string `csv:"Text"`
+	Time          string `csv:"Time"`
+	MsgID         string `csv:"MsgID"`
+	ThreadTs      string `csv:"ThreadTs,omitempty"`
+	Reactions     string `csv:"Reactions,omitempty"`
+	AttachmentIDs string `csv:"AttachmentIDs,omitempty"`
+	HasMedia      string `csv:"HasMedia,omitempty"`
+	Cursor        string `csv:"Cursor,omitempty"`
 }
 
 type User struct {
@@ -2615,13 +2618,10 @@ func marshalMessagesToCSV(messages []Message) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText(string(csvBytes)), nil
 }
 
-// marshalMessagesToCompactCSV converts messages to a slimmed-down CSV format
-// that drops fields rarely needed by LLM agents: MsgID, UserID, ThreadTs,
-// FileCount, AttachmentIDs, HasMedia. Reduces output by ~40%.
+// marshalMessagesToCompactCSV converts messages to the default agent CSV format.
 func marshalMessagesToCompactCSV(messages []Message) (*mcp.CallToolResult, error) {
 	compact := make([]CompactMessage, len(messages))
 	for i, m := range messages {
-		// Merge UserName and RealName into one field
 		user := m.RealName
 		if user == "" {
 			user = m.UserName
@@ -2630,13 +2630,22 @@ func marshalMessagesToCompactCSV(messages []Message) (*mcp.CallToolResult, error
 			user = m.BotName + " (bot)"
 		}
 
+		hasMedia := ""
+		if m.HasMedia {
+			hasMedia = "true"
+		}
+
 		compact[i] = CompactMessage{
-			UserName:  user,
-			Channel:   m.Channel,
-			Text:      m.Text,
-			Time:      m.Time,
-			Reactions: m.Reactions,
-			Cursor:    m.Cursor,
+			User:          user,
+			Channel:       m.Channel,
+			Text:          m.Text,
+			Time:          m.Time,
+			MsgID:         m.MsgID,
+			ThreadTs:      m.ThreadTs,
+			Reactions:     m.Reactions,
+			AttachmentIDs: m.AttachmentIDs,
+			HasMedia:      hasMedia,
+			Cursor:        m.Cursor,
 		}
 	}
 
@@ -2647,10 +2656,16 @@ func marshalMessagesToCompactCSV(messages []Message) (*mcp.CallToolResult, error
 	return mcp.NewToolResultText(string(csvBytes)), nil
 }
 
-// compactOutput returns true if SLACK_MCP_COMPACT_OUTPUT is set to any truthy value.
+// compactOutput is the default message format. Set SLACK_MCP_COMPACT_OUTPUT=false
+// for legacy verbose CSV (all columns including UserID and Permalink).
 func compactOutput() bool {
-	v := os.Getenv("SLACK_MCP_COMPACT_OUTPUT")
-	return v == "1" || v == "true" || v == "yes"
+	v := strings.TrimSpace(os.Getenv("SLACK_MCP_COMPACT_OUTPUT"))
+	switch strings.ToLower(v) {
+	case "0", "false", "no":
+		return false
+	default:
+		return true
+	}
 }
 
 func getUserInfo(userID string, usersMap map[string]slack.User) (userName, realName string, ok bool) {
