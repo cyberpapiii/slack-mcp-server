@@ -63,9 +63,9 @@ pkg/text/                    → message/block-kit formatting
 
 Cache warmup runs in the background for stdio; the server serves immediately. Cache-dependent tools register after warmup via `RegisterCacheDependentTools()` (channels_list, channels_me, unreads, activity). Write tools register at startup only — phase guards in `pkg/server/tool_phases.go` prevent duplicate registration.
 
-Warm-up retries up to 3 times (30s apart) before giving up. Startup logs a warning when browser session auth is degraded. `RegisterCacheDependentTools` is idempotent (`sync.Once`) and emits `tools/list_changed` when tools appear.
+Warm-up retries up to 3 times (30s apart), then keeps retrying in the background on a slow interval (5m) indefinitely. Startup logs a warning when browser session auth is degraded. `RegisterCacheDependentTools` is idempotent (`sync.Once`) and emits `tools/list_changed` when tools appear.
 
-If users or channels cache warm-up fails after retries, the process stays alive but cache-dependent tools never register until restart. Restart Plug's slack server (or the plug daemon) after fixing auth or network issues.
+If users or channels cache warm-up fails after the 3 fast attempts, the server keeps retrying in the background every 5 minutes and registers cache-dependent tools automatically once a retry succeeds (clients are notified via `tools/list_changed`). Restarting Plug's slack server is only needed to force an immediate retry.
 
 ## Upstream merge checklist
 

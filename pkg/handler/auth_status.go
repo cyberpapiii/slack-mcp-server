@@ -84,7 +84,7 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 		if !channelsReady {
 			parts = append(parts, "Channels cache is still loading or failed.")
 		}
-		parts = append(parts, "Cache-dependent tools (channels_list, unreads, activity, saved) may be unavailable until caches warm or Plug is restarted.")
+		parts = append(parts, "Cache-dependent tools (channels_list, unreads, activity, saved) are unavailable until caches warm; the server keeps retrying in the background and registers them automatically on success.")
 	}
 
 	if browserOK {
