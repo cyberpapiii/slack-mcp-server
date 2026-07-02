@@ -21,6 +21,7 @@ import (
 	"github.com/openai/openai-go/responses"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestIntegrationConversations(t *testing.T) {
@@ -771,6 +772,36 @@ func TestUnitIsSlackUserIDPrefix(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUnitSplitQueryHasModifier(t *testing.T) {
+	free, filters := splitQuery("quarterly report has:link from:@bob")
+	assert.Equal(t, []string{"quarterly", "report"}, free)
+	assert.Equal(t, []string{"link"}, filters["has"])
+	assert.Equal(t, []string{"@bob"}, filters["from"])
+}
+
+func TestUnitBuildQueryEmitsHas(t *testing.T) {
+	filters := map[string][]string{"has": {"link"}, "in": {"#general"}}
+	q := buildQuery([]string{"report"}, filters)
+	assert.Contains(t, q, "has:link")
+	assert.Contains(t, q, "in:#general")
+	assert.Contains(t, q, "report")
+}
+
+func TestUnitBuildQueryUnknownKeyStillDropped(t *testing.T) {
+	// documents the invariant: keys outside the ordered list don't survive buildQuery
+	q := buildQuery(nil, map[string][]string{"bogus": {"x"}})
+	assert.Equal(t, "", q)
+}
+
+func TestUnitSearchSortValidation(t *testing.T) {
+	ch := &ConversationsHandler{logger: zap.NewNop()}
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"search_query": "hello", "sort": "bogus"}
+	_, err := ch.parseParamsToolSearch(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sort")
 }
 
 func compactCSVFixtureMessages() []Message {
