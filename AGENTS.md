@@ -28,7 +28,7 @@ Auth tokens (`SLACK_MCP_XOXC_TOKEN`, `SLACK_MCP_XOXD_TOKEN`, etc.) live in the e
 
 ## Tool surface
 
-Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **30** tools; upstream README documents fewer.
+Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **31** tools; upstream README documents fewer.
 
 Local-only or fork-extended tools include:
 
@@ -37,6 +37,7 @@ Local-only or fork-extended tools include:
 - `channels_starred`, `channels_me`, `conversations_unreads`
 - `activity_unreads`, `activity_mark_read` (browser session / xoxc+xoxd)
 - `saved_list`, `saved_update`, `saved_clear_completed`
+- conversations_get_message — fetch one message by channel + timestamp (recovery path for attachment-truncation receipts)
 - `reactions_get`, compact CSV by default (keeps MsgID/ThreadTs for follow-up actions). Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode may prepend `#users:`/`#link_template:` legend lines and truncates long attachments with a re-fetch receipt — see `docs/agent-presets.md`.
 
 Agent allowlist presets: `docs/agent-presets.md`.

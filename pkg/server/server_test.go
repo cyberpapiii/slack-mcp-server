@@ -103,6 +103,7 @@ func TestValidToolNames(t *testing.T) {
 			ToolReactionsAdd:                true,
 			ToolReactionsRemove:             true,
 			ToolReactionsGet:                true,
+			ToolConversationsGetMessage:     true,
 			ToolAttachmentGetData:           true,
 			ToolConversationsSearchMessages: true,
 			ToolConversationsUnreads:        true,
@@ -143,6 +144,7 @@ func TestValidToolNames(t *testing.T) {
 		assert.Equal(t, "reactions_add", ToolReactionsAdd)
 		assert.Equal(t, "reactions_remove", ToolReactionsRemove)
 		assert.Equal(t, "reactions_get", ToolReactionsGet)
+		assert.Equal(t, "conversations_get_message", ToolConversationsGetMessage)
 		assert.Equal(t, "attachment_get_data", ToolAttachmentGetData)
 		assert.Equal(t, "conversations_search_messages", ToolConversationsSearchMessages)
 		assert.Equal(t, "conversations_unreads", ToolConversationsUnreads)
@@ -573,4 +575,8 @@ func TestShouldAddTool_Matrix(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestUnitGetMessageToolNameRegistered(t *testing.T) {
+	assert.Contains(t, ValidToolNames, "conversations_get_message")
 }
