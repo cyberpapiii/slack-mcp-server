@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -21,6 +22,34 @@ func withAuthKey(ctx context.Context, auth string) context.Context {
 	return context.WithValue(ctx, authKey{}, auth)
 }
 
+// silentPassWarnOnce ensures the "serving without authentication" log fires
+// at Warn level only once; subsequent occurrences log at Debug to avoid
+// flooding logs on every request.
+var silentPassWarnOnce sync.Once
+
+// RequireAPIKeyOrOptOut returns an error if no API key is configured for a
+// network transport and the operator has not explicitly opted out via
+// SLACK_MCP_ALLOW_UNAUTHENTICATED=true.
+func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
+	keyA := os.Getenv("SLACK_MCP_API_KEY")
+	if keyA == "" {
+		keyA = os.Getenv("SLACK_MCP_SSE_API_KEY")
+	}
+
+	if keyA != "" {
+		return nil
+	}
+
+	if strings.EqualFold(os.Getenv("SLACK_MCP_ALLOW_UNAUTHENTICATED"), "true") {
+		logger.Warn("serving WITHOUT authentication — every client that can reach this server gets full Slack access",
+			zap.String("context", "console"),
+		)
+		return nil
+	}
+
+	return fmt.Errorf("no API key configured: set SLACK_MCP_API_KEY (or deprecated SLACK_MCP_SSE_API_KEY), or explicitly opt out with SLACK_MCP_ALLOW_UNAUTHENTICATED=true")
+}
+
 // Authenticate checks if the request is authenticated based on the provided context.
 func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
 	// no configured token means no authentication
@@ -33,9 +62,18 @@ func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
 	}
 
 	if keyA == "" {
-		logger.Debug("No SSE API key configured, skipping authentication",
-			zap.String("context", "http"),
-		)
+		alreadyWarned := true
+		silentPassWarnOnce.Do(func() {
+			alreadyWarned = false
+			logger.Warn("No SSE API key configured, skipping authentication",
+				zap.String("context", "http"),
+			)
+		})
+		if alreadyWarned {
+			logger.Debug("No SSE API key configured, skipping authentication",
+				zap.String("context", "http"),
+			)
+		}
 		return true, nil
 	}
 
