@@ -75,5 +75,5 @@ SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations
 ## Troubleshooting
 
 1. Call **`slack_auth_status`**. It confirms user/channel cache readiness and xoxc/xoxd browser session health.
-2. If caches are not ready, wait for warm-up (up to 3 retries, 30s apart) or restart Plug.
+2. If caches are not ready, wait for warm-up (up to 3 attempts, 30s apart) or restart Plug.
 3. Activity and Saved tools require browser session tokens; refresh Slack in the browser and restart Plug if degraded.
