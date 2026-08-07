@@ -2,13 +2,10 @@ package edge
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/rusq/slack"
 )
-
-var ErrParameterMissing = errors.New("required parameter missing")
 
 type channelResult struct {
 	Channels []slack.Channel
@@ -106,5 +103,3 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 	channels = append(channels, mpims...)
 	return channels, "", nil
 }
-
-var ErrNotFound = errors.New("not found")
