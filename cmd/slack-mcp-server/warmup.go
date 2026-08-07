@@ -11,9 +11,21 @@ import (
 )
 
 const (
-	warmupMaxAttempts = 3
-	warmupRetryDelay  = 30 * time.Second
+	warmupMaxAttempts    = 3
+	warmupRetryDelay     = 30 * time.Second
+	warmupSlowRetryDelay = 5 * time.Minute
 )
+
+// warmupNextDelay returns how long to wait before the given (1-based) next
+// attempt. The first warmupMaxAttempts attempts are fast; afterwards the
+// loop degrades to a slow indefinite retry so a transient startup failure
+// doesn't permanently disable cache-dependent tools.
+func warmupNextDelay(nextAttempt int) time.Duration {
+	if nextAttempt <= warmupMaxAttempts {
+		return warmupRetryDelay
+	}
+	return warmupSlowRetryDelay
+}
 
 func isDemoCredentials() bool {
 	return os.Getenv("SLACK_MCP_XOXP_TOKEN") == "demo" ||
@@ -22,7 +34,7 @@ func isDemoCredentials() bool {
 
 func startCacheWarmup(p *provider.ApiProvider, s *server.MCPServer, logger *zap.Logger) {
 	go func() {
-		for attempt := 1; attempt <= warmupMaxAttempts; attempt++ {
+		for attempt := 1; ; attempt++ {
 			if isDemoCredentials() {
 				logger.Info("Demo credentials are set, skip cache warm-up",
 					zap.String("context", "console"),
@@ -49,22 +61,30 @@ func startCacheWarmup(p *provider.ApiProvider, s *server.MCPServer, logger *zap.
 				return
 			}
 
-			if attempt < warmupMaxAttempts {
+			switch {
+			case attempt < warmupMaxAttempts:
 				logger.Warn("Cache warm-up incomplete, retrying",
 					zap.String("context", "console"),
 					zap.Int("attempt", attempt),
 					zap.Error(err),
 					zap.Duration("next_retry_in", warmupRetryDelay),
 				)
-				time.Sleep(warmupRetryDelay)
-				continue
+			case attempt == warmupMaxAttempts:
+				logger.Error("Cache warm-up failed after retries; cache-dependent tools will not be available until a background retry succeeds",
+					zap.String("context", "console"),
+					zap.Int("attempts", warmupMaxAttempts),
+					zap.Duration("slow_retry_every", warmupSlowRetryDelay),
+					zap.Error(err),
+				)
+			default:
+				logger.Info("Background cache warm-up retry",
+					zap.String("context", "console"),
+					zap.Int("attempt", attempt),
+					zap.Error(err),
+				)
 			}
 
-			logger.Error("Cache warm-up failed after retries; cache-dependent tools will not be available",
-				zap.String("context", "console"),
-				zap.Int("attempts", warmupMaxAttempts),
-				zap.Error(err),
-			)
+			time.Sleep(warmupNextDelay(attempt + 1))
 		}
 	}()
 }
