@@ -7,6 +7,7 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/rusq/slack"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/time/rate"
 )
 
 type UsersListRequest struct {
@@ -189,35 +190,45 @@ func (cl *Client) UsersList(ctx context.Context, channelIDs ...string) ([]User, 
 		return nil, errors.New("no channel IDs provided")
 	}
 	channelIDs, dmIDs := splitDMs(channelIDs)
-	var uu []User
+
+	// Both branches hit the same workspace token, and Slack meters requests
+	// per token rather than per goroutine, so they share one limiter. Two
+	// limiters would let the pair issue requests at twice the Tier 3 rate.
+	lim := limiter.Tier3.Limiter()
+
+	// Each goroutine writes only its own slice; they are joined below, after
+	// eg.Wait, so there is no shared mutable state to synchronize.
+	var pub, dms []User
+
 	eg, ctx := errgroup.WithContext(ctx)
 	if len(channelIDs) > 0 {
 		eg.Go(func() error {
-			u, err := cl.publicUserList(ctx, channelIDs)
+			u, err := cl.publicUserList(ctx, channelIDs, lim)
 			if err != nil {
 				return err
 			}
-			uu = append(uu, u...)
+			pub = u
 			return nil
 		})
 	}
 	if len(dmIDs) > 0 {
 		eg.Go(func() error {
-			u, err := cl.directUserList(ctx, dmIDs)
+			u, err := cl.directUserList(ctx, dmIDs, lim)
 			if err != nil {
 				return err
 			}
-			uu = append(uu, u...)
+			dms = u
 			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
-	return uu, nil
+
+	return append(pub, dms...), nil
 }
 
-func (cl *Client) publicUserList(ctx context.Context, channelIDs []string) ([]User, error) {
+func (cl *Client) publicUserList(ctx context.Context, channelIDs []string, lim *rate.Limiter) ([]User, error) {
 	const (
 		// everyone = "everyone AND NOT bots AND NOT apps"
 		everyone = "everyone"
@@ -236,7 +247,6 @@ func (cl *Client) publicUserList(ctx context.Context, channelIDs []string) ([]Us
 		Count:        count,
 	}
 	uu := make([]User, 0, count)
-	lim := limiter.Tier3.Limiter()
 	for {
 		var ur UsersListResponse
 		if err := cl.callEdgeAPI(ctx, &ur, "users/list", &req); err != nil {
@@ -260,12 +270,11 @@ func (cl *Client) publicUserList(ctx context.Context, channelIDs []string) ([]Us
 // directUserList tries to get users from the direct message channels.  It is
 // much slower than getting users from the public channels, as it uses
 // conversations.view endpoint.
-func (cl *Client) directUserList(ctx context.Context, dmIDs []string) ([]User, error) {
+func (cl *Client) directUserList(ctx context.Context, dmIDs []string, lim *rate.Limiter) ([]User, error) {
 	if len(dmIDs) == 0 {
 		return nil, errors.New("no direct message IDs provided")
 	}
 	var ret []User
-	lim := limiter.Tier3.Limiter()
 	for _, id := range dmIDs {
 		resp, err := cl.ConversationsView(ctx, id)
 		if err != nil {
