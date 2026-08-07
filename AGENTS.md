@@ -6,12 +6,18 @@ This repository is a **local fork** of [korotovsky/slack-mcp-server](https://git
 
 ```bash
 make deps          # go mod download
-make test          # all tests except *Integration* (CI gate)
+make lint          # go vet + gofmt check + `go mod tidy -diff` (read-only)
+make test          # all tests except *Integration*, with -race (CI gate)
 make test-integration  # needs Slack/ngrok secrets
-make build         # outputs ./build/slack-mcp-server
+make build         # outputs ./build/slack-mcp-server (read-only: no tidy/format)
+make prepare       # go mod tidy + go fmt — the only targets that rewrite files
 make deploy-local  # build bin/slack-mcp-server + plug reload
 go build -o bin/slack-mcp-server ./cmd/slack-mcp-server  # manual equivalent
 ```
+
+`make lint && make test` is the whole verification gate. Neither mutates the
+working tree; `make build` no longer runs `tidy`/`format` either, so it is safe
+mid-review. Run `make prepare` explicitly when you want the tree reformatted.
 
 After changing Go code, run `make deploy-local` (or rebuild `bin/slack-mcp-server` and restart Plug's `slack` server) so Cursor picks up the new binary.
 

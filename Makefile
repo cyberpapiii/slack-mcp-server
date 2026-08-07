@@ -47,7 +47,7 @@ clean: ## Clean up all build artifacts
 	rm -rf $(CLEAN_TARGETS)
 
 .PHONY: build
-build: clean tidy format ## Build the project
+build: clean ## Build the project (read-only: run `make prepare` for tidy+format)
 	go build $(COMMON_BUILD_ARGS) -o ./build/$(BINARY_NAME) ./cmd/slack-mcp-server
 
 .PHONY: build-all-platforms
@@ -100,12 +100,18 @@ deps: ## Download dependencies
 	$(GO) mod download
 
 .PHONY: test
-test: ## Run the tests
-	$(GO) test -count=1 -v -skip="Integration" ./...
+test: ## Run the tests (with the race detector)
+	$(GO) test -count=1 -race -v -skip="Integration" ./...
 
 .PHONY: test-integration
 test-integration: ## Run integration tests
 	$(GO) test -count=1 -v -run=".*Integration.*" ./...
+
+.PHONY: lint
+lint: ## Vet, check formatting and check go.mod tidiness (read-only)
+	$(GO) vet ./...
+	@fmt_out=$$(gofmt -l pkg cmd); if [ -n "$$fmt_out" ]; then echo "gofmt needed:"; echo "$$fmt_out"; exit 1; fi
+	$(GO) mod tidy -diff
 
 .PHONY: deploy-local
 deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plug reload alone leaves the old process running)
@@ -132,6 +138,9 @@ format: ## Format the code
 .PHONY: tidy
 tidy: ## Tidy up the go modules
 	$(GO) mod tidy
+
+.PHONY: prepare
+prepare: tidy format ## Tidy modules and format the code (the mutating half of the old `build`)
 
 .PHONY: release
 release: ## Create release tag. Usage: make tag TAG=v1.2.3
