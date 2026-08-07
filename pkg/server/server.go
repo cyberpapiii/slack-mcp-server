@@ -431,7 +431,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), conversationsHandler.FilesListHandler)
 	}
 	// Register mark tool - marks a channel as read
-	if shouldAddTool(ToolConversationsMark, enabledTools, "") {
+	if shouldAddTool(ToolConversationsMark, enabledTools, "SLACK_MCP_MARK_TOOL") {
 		s.AddTool(mcp.NewTool(ToolConversationsMark,
 			mcp.WithDescription("Mark a channel or DM as read. If no timestamp is provided, marks all messages as read."),
 			mcp.WithTitleAnnotation("Mark as Read"),
@@ -446,7 +446,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), conversationsHandler.ConversationsMarkHandler)
 	}
 
-	if shouldAddTool(ToolConversationsLeave, enabledTools, "") {
+	if shouldAddTool(ToolConversationsLeave, enabledTools, "SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL") {
 		s.AddTool(mcp.NewTool(ToolConversationsLeave,
 			mcp.WithDescription("Leave a channel, group conversation, or DM. Cannot leave the #general channel."),
 			mcp.WithTitleAnnotation("Leave Channel"),
@@ -458,7 +458,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), conversationsHandler.ConversationsLeaveHandler)
 	}
 
-	if shouldAddTool(ToolConversationsJoin, enabledTools, "") {
+	if shouldAddTool(ToolConversationsJoin, enabledTools, "SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL") {
 		s.AddTool(mcp.NewTool(ToolConversationsJoin,
 			mcp.WithDescription("Join a public channel. Use channels_list or channels_me to find channel IDs."),
 			mcp.WithTitleAnnotation("Join Channel"),
@@ -507,7 +507,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsMeHandler)
 	}
 
-	if shouldAddTool(ToolUsergroupsCreate, enabledTools, "") {
+	if shouldAddTool(ToolUsergroupsCreate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsCreate,
 			mcp.WithDescription("Create a new user group (mention group) in the Slack workspace. After creation, use usergroups_users_update to add members, or users can join themselves with usergroups_me. The handle becomes the @mention (e.g., handle='engineering' creates @engineering)."),
 			mcp.WithTitleAnnotation("Create User Group"),
@@ -528,7 +528,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsCreateHandler)
 	}
 
-	if shouldAddTool(ToolUsergroupsUpdate, enabledTools, "") {
+	if shouldAddTool(ToolUsergroupsUpdate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsUpdate,
 			mcp.WithDescription("Update a user group's metadata: name, handle (@mention), description, or default channels. Does NOT change members - use usergroups_users_update for that. At least one field must be provided."),
 			mcp.WithTitleAnnotation("Update User Group"),
@@ -552,7 +552,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsUpdateHandler)
 	}
 
-	if shouldAddTool(ToolUsergroupsUsersUpdate, enabledTools, "") {
+	if shouldAddTool(ToolUsergroupsUsersUpdate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsUsersUpdate,
 			mcp.WithDescription("Replace all members of a user group with a new list. WARNING: This completely replaces the member list - any user not in the 'users' parameter will be removed. To add/remove just yourself, use usergroups_me instead. To add a single user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
 			mcp.WithTitleAnnotation("Update User Group Members"),

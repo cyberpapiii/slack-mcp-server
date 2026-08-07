@@ -1736,6 +1736,15 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ch.logger.Debug("ConversationsLeaveHandler called", zap.Any("params", request.Params))
 
+	if !requireToolEnabled("SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL", "conversations_leave") {
+		ch.logger.Error("Channel membership tool disabled by default")
+		return nil, errors.New(
+			"by default, the conversations_leave tool is disabled to guard Slack workspaces against accidental channel membership changes. " +
+				"To enable it, set the SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL environment variable to true or 1, " +
+				"or add 'conversations_leave' to SLACK_MCP_ENABLED_TOOLS",
+		)
+	}
+
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
 		return nil, fmt.Errorf("channel_id is required")
@@ -1763,6 +1772,15 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 
 func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ch.logger.Debug("ConversationsJoinHandler called", zap.Any("params", request.Params))
+
+	if !requireToolEnabled("SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL", "conversations_join") {
+		ch.logger.Error("Channel membership tool disabled by default")
+		return nil, errors.New(
+			"by default, the conversations_join tool is disabled to guard Slack workspaces against accidental channel membership changes. " +
+				"To enable it, set the SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL environment variable to true or 1, " +
+				"or add 'conversations_join' to SLACK_MCP_ENABLED_TOOLS",
+		)
+	}
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
@@ -2186,6 +2204,16 @@ func isToolInEnabledList(enabledTools, toolName string) bool {
 	return false
 }
 
+// requireToolEnabled reports whether a call-time-gated tool is enabled: either
+// its dedicated envVarName is set to a non-empty value, or toolName is
+// explicitly listed in the SLACK_MCP_ENABLED_TOOLS allowlist.
+func requireToolEnabled(envVarName, toolName string) bool {
+	if os.Getenv(envVarName) != "" {
+		return true
+	}
+	return isToolInEnabledList(os.Getenv("SLACK_MCP_ENABLED_TOOLS"), toolName)
+}
+
 func formatThreadTs(threadTs string) string {
 	if threadTs == "" {
 		return "(top-level message)"
@@ -2236,7 +2264,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	enabledTools := os.Getenv("SLACK_MCP_ENABLED_TOOLS")
 
 	if toolConfig == "" {
-		if !strings.Contains(enabledTools, "conversations_add_message") {
+		if !isToolInEnabledList(enabledTools, "conversations_add_message") {
 			ch.logger.Error("Add-message tool disabled by default")
 			return nil, errors.New(
 				"by default, the conversations_add_message tool is disabled to guard Slack workspaces against accidental spamming. " +
@@ -2332,7 +2360,7 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 	enabledTools := os.Getenv("SLACK_MCP_ENABLED_TOOLS")
 
 	if toolConfig == "" {
-		if !strings.Contains(enabledTools, "reactions_add") && !strings.Contains(enabledTools, "reactions_remove") {
+		if !isToolInEnabledList(enabledTools, "reactions_add") && !isToolInEnabledList(enabledTools, "reactions_remove") {
 			ch.logger.Error("Reactions tool disabled by default")
 			return nil, errors.New(
 				"by default, the reactions tools are disabled to guard Slack workspaces against accidental spamming. " +
@@ -2380,7 +2408,7 @@ func (ch *ConversationsHandler) parseParamsToolFilesGet(request mcp.CallToolRequ
 	enabledTools := os.Getenv("SLACK_MCP_ENABLED_TOOLS")
 
 	if toolConfig == "" {
-		if !strings.Contains(enabledTools, "attachment_get_data") {
+		if !isToolInEnabledList(enabledTools, "attachment_get_data") {
 			ch.logger.Error("Attachment tool disabled by default")
 			return nil, errors.New(
 				"by default, the attachment_get_data tool is disabled. " +
