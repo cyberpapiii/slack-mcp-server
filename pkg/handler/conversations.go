@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1000,7 +1001,11 @@ type UnreadChannel struct {
 func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ConversationsUnreadsHandler called", request)
 
-	params := ch.parseParamsToolUnreads(request)
+	params, err := ch.parseParamsToolUnreads(request)
+	if err != nil {
+		ch.logger.Error("Failed to parse unreads params", zap.Error(err))
+		return nil, err
+	}
 
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
 	if err != nil {
@@ -1204,6 +1209,10 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 			ch.logger.Debug("Failed to backfill unread count",
 				zap.String("channel", unreadChannels[i].ChannelID),
 				zap.Error(err))
+			// A failed fetch must not leave the count at 0 for a channel
+			// client.counts flagged as unread; the helper yields the same
+			// conservative 1 the include_messages path applies.
+			unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, 0, err)
 			continue
 		}
 		unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, len(history.Messages), nil)
@@ -1305,7 +1314,14 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 
 		channelName := snap.ID
 		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
-			channelName = cached.Name
+			// Same normalization the regular-channel branch applies: the cached
+			// name may or may not already carry the # prefix.
+			name := cached.Name
+			if strings.HasPrefix(name, "#") {
+				channelName = name
+			} else {
+				channelName = "#" + name
+			}
 		}
 
 		unreadChannels = append(unreadChannels, UnreadChannel{
@@ -1920,19 +1936,46 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully joined %s", channel)), nil
 }
 
-// sortChannelsByPriority sorts channels: DMs > group_dm > partner > internal
+// channelTypePriority ranks the five known ChannelType values. Package-level so
+// it is not rebuilt on every sort call. Keep in sync with the channel_types
+// validation set in parseParamsToolUnreads and the tool's parameter description
+// in pkg/server/server.go.
+var channelTypePriority = map[string]int{
+	"dm":       0,
+	"group_dm": 1,
+	"partner":  2,
+	"internal": 3,
+}
+
+// unknownChannelTypePriority is the rank given to a ChannelType that is not in
+// channelTypePriority, so an unrecognized (or empty) type sorts last rather
+// than tying with "dm" at 0. Must stay strictly larger than the largest value
+// in channelTypePriority.
+const unknownChannelTypePriority = 99
+
+// sortChannelsByPriority sorts channels by type first — dm > group_dm >
+// partner > internal, with any unrecognized or empty ChannelType last — then by
+// descending UnreadCount within a type, then by ascending ChannelID. The type
+// rank stays the primary key on purpose: a silent DM still outranks a busy
+// internal channel. The two tiebreakers only make the order total and
+// reproducible, so the max_channels truncation that follows is deterministic.
 func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel) {
-	priority := map[string]int{
-		"dm":       0,
-		"group_dm": 1,
-		"partner":  2,
-		"internal": 3,
+	rank := func(channelType string) int {
+		if p, ok := channelTypePriority[channelType]; ok {
+			return p
+		}
+		return unknownChannelTypePriority
 	}
 
-	sort.Slice(channels, func(i, j int) bool {
-		pi := priority[channels[i].ChannelType]
-		pj := priority[channels[j].ChannelType]
-		return pi < pj
+	sort.SliceStable(channels, func(i, j int) bool {
+		pi, pj := rank(channels[i].ChannelType), rank(channels[j].ChannelType)
+		if pi != pj {
+			return pi < pj
+		}
+		if channels[i].UnreadCount != channels[j].UnreadCount {
+			return channels[i].UnreadCount > channels[j].UnreadCount
+		}
+		return channels[i].ChannelID < channels[j].ChannelID
 	})
 }
 
@@ -2599,7 +2642,22 @@ func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolR
 	}, nil
 }
 
-func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolRequest) *unreadsParams {
+// validUnreadsChannelTypes is the complete set of channel_types values the
+// unreads pipeline understands. Any other non-empty value matches no branch in
+// collectUnreadChannels or getUnreadsViaConversationsInfo and would silently
+// yield an empty result, so it is rejected at parse time.
+//
+// An empty (or whitespace-only) value means "absent" and defaults to "all":
+// MCP clients differ in how they serialize an omitted optional string, and
+// several send "" rather than dropping the key. GetString cannot tell the two
+// apart, so rejecting "" would break those clients on a request that means
+// "no filter".
+//
+// Keep in sync with channelTypePriority and the tool's parameter description
+// in pkg/server/server.go.
+var validUnreadsChannelTypes = []string{"all", "dm", "group_dm", "partner", "internal"}
+
+func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolRequest) (*unreadsParams, error) {
 	// GetInt only substitutes its default for an absent key, so a caller-supplied
 	// non-positive value survives. maxChannels reaches a slice expression in
 	// collectUnreadChannels, so treat non-positive exactly like absent.
@@ -2612,14 +2670,23 @@ func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolReque
 		maxMessagesPerChannel = 10
 	}
 
+	channelTypes := strings.TrimSpace(request.GetString("channel_types", "all"))
+	if channelTypes == "" {
+		channelTypes = "all"
+	}
+	if !slices.Contains(validUnreadsChannelTypes, channelTypes) {
+		return nil, fmt.Errorf("unsupported channel_types %q: must be one of %s",
+			channelTypes, strings.Join(validUnreadsChannelTypes, ", "))
+	}
+
 	return &unreadsParams{
 		includeMessages:       request.GetBool("include_messages", true),
-		channelTypes:          request.GetString("channel_types", "all"),
+		channelTypes:          channelTypes,
 		maxChannels:           maxChannels,
 		maxMessagesPerChannel: maxMessagesPerChannel,
 		mentionsOnly:          request.GetBool("mentions_only", false),
 		includeMuted:          request.GetBool("include_muted", false),
-	}
+	}, nil
 }
 
 func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest) (*markParams, error) {

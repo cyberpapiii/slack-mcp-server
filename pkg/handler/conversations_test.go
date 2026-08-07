@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1175,7 +1176,8 @@ func TestUnitParseParamsToolUnreadsClamps(t *testing.T) {
 			req := mcp.CallToolRequest{}
 			req.Params.Arguments = tt.args
 
-			params := ch.parseParamsToolUnreads(req)
+			params, err := ch.parseParamsToolUnreads(req)
+			require.NoError(t, err)
 			assert.Equal(t, tt.wantMaxChannels, params.maxChannels)
 			assert.Equal(t, tt.wantMaxMessagesPerChannel, params.maxMessagesPerChannel)
 		})
@@ -1342,14 +1344,15 @@ func unreadIDs(channels []UnreadChannel) []string {
 	return out
 }
 
-// TestUnitSortChannelsByPriority pins the ONLY sort key the implementation uses:
-// the channel-type priority dm(0) < group_dm(1) < partner(2) < internal(3).
+// TestUnitSortChannelsByPriority pins the total order the implementation
+// produces: channel-type priority dm(0) < group_dm(1) < partner(2) <
+// internal(3) < unknown(99) as the primary key, then descending UnreadCount,
+// then ascending ChannelID.
 //
-// NOTE: characterizes current behavior, possibly wrong: there is no secondary
-// key at all. Mention counts and latest-activity timestamps are ignored, and
-// sort.Slice is not a stable sort, so the relative order of two channels of the
-// same type is unspecified. Tests below therefore assert the type sequence
-// exactly and only the membership of each equal-type run.
+// Plan 027 replaced the previous type-only sort.Slice: the type rank is still
+// the primary key (a silent DM outranks a busy internal channel), but the two
+// tiebreakers make the result total and reproducible, and an unrecognized type
+// now sorts last instead of tying with "dm" at rank 0.
 func TestUnitSortChannelsByPriority(t *testing.T) {
 	ch := newUnreadsTestHandler()
 
@@ -1376,8 +1379,8 @@ func TestUnitSortChannelsByPriority(t *testing.T) {
 		assert.Equal(t, []string{"D_dm", "G_mpim", "C_partner", "C_internal"}, unreadIDs(channels))
 	})
 
-	t.Run("mention count and timestamps are not sort keys", func(t *testing.T) {
-		// A silent DM still outranks a heavily-mentioned, more-recent channel.
+	t.Run("type outranks mention count: a silent DM beats a busy channel", func(t *testing.T) {
+		// The tiebreakers must not have become the primary key.
 		channels := []UnreadChannel{
 			{ChannelID: "C_busy", ChannelType: "internal", UnreadCount: 99, Latest: "1800000000.000000"},
 			{ChannelID: "D_quiet", ChannelType: "dm", UnreadCount: 0, Latest: "1000000000.000000"},
@@ -1386,21 +1389,133 @@ func TestUnitSortChannelsByPriority(t *testing.T) {
 		assert.Equal(t, []string{"D_quiet", "C_busy"}, unreadIDs(channels))
 	})
 
-	t.Run("unknown channel type gets priority 0 and sorts with dms", func(t *testing.T) {
-		// NOTE: characterizes current behavior, possibly wrong: an unrecognized
-		// (or empty) ChannelType misses the priority map and defaults to 0, i.e.
-		// the same rank as a DM — ahead of partner and internal channels.
+	t.Run("unknown and empty channel types sort last", func(t *testing.T) {
 		channels := []UnreadChannel{
-			{ChannelID: "C_internal", ChannelType: "internal"},
-			{ChannelID: "C_partner", ChannelType: "partner"},
-			{ChannelID: "X_unknown", ChannelType: "totally-made-up"},
 			{ChannelID: "Y_empty", ChannelType: ""},
+			{ChannelID: "C_internal", ChannelType: "internal"},
+			{ChannelID: "X_unknown", ChannelType: "totally-made-up"},
+			{ChannelID: "C_partner", ChannelType: "partner"},
 		}
 		ch.sortChannelsByPriority(channels)
 
-		assert.ElementsMatch(t, []string{"X_unknown", "Y_empty"}, unreadIDs(channels)[:2],
-			"the two priority-0 entries lead, in unspecified relative order")
-		assert.Equal(t, []string{"partner", "internal"}, unreadTypes(channels)[2:])
+		assert.Equal(t, []string{"C_partner", "C_internal", "X_unknown", "Y_empty"}, unreadIDs(channels),
+			"unknown ranks fall behind every known type; ChannelID breaks the tie between them")
+		assert.Equal(t, []string{"partner", "internal", "totally-made-up", ""}, unreadTypes(channels))
+	})
+
+	t.Run("mixed input with all known types plus unknown and empty", func(t *testing.T) {
+		channels := []UnreadChannel{
+			{ChannelID: "Y_empty", ChannelType: "", UnreadCount: 42},
+			{ChannelID: "C_internal_b", ChannelType: "internal", UnreadCount: 1},
+			{ChannelID: "D_dm_low", ChannelType: "dm", UnreadCount: 1},
+			{ChannelID: "X_weird", ChannelType: "weird", UnreadCount: 7},
+			{ChannelID: "C_internal_a", ChannelType: "internal", UnreadCount: 1},
+			{ChannelID: "C_partner", ChannelType: "partner", UnreadCount: 3},
+			{ChannelID: "G_mpim", ChannelType: "group_dm", UnreadCount: 0},
+			{ChannelID: "D_dm_high", ChannelType: "dm", UnreadCount: 9},
+			{ChannelID: "C_internal_busy", ChannelType: "internal", UnreadCount: 50},
+		}
+		ch.sortChannelsByPriority(channels)
+
+		assert.Equal(t, []string{
+			// dm: higher UnreadCount first
+			"D_dm_high", "D_dm_low",
+			// group_dm
+			"G_mpim",
+			// partner
+			"C_partner",
+			// internal: UnreadCount desc, then ChannelID asc for the 1/1 tie
+			"C_internal_busy", "C_internal_a", "C_internal_b",
+			// unknown ranks last, UnreadCount desc among them
+			"Y_empty", "X_weird",
+		}, unreadIDs(channels))
+	})
+
+	t.Run("sorting is deterministic across independently built slices", func(t *testing.T) {
+		build := func() []UnreadChannel {
+			return []UnreadChannel{
+				{ChannelID: "C_a", ChannelType: "internal", UnreadCount: 5},
+				{ChannelID: "C_b", ChannelType: "internal", UnreadCount: 5},
+				{ChannelID: "C_c", ChannelType: "internal", UnreadCount: 5},
+				{ChannelID: "D_a", ChannelType: "dm", UnreadCount: 0},
+				{ChannelID: "D_b", ChannelType: "dm", UnreadCount: 0},
+				{ChannelID: "X_a", ChannelType: "weird"},
+				{ChannelID: "X_b", ChannelType: ""},
+			}
+		}
+
+		first, second := build(), build()
+		// Feed the second one in a different order: a total order must still
+		// collapse both to the same sequence.
+		slices.Reverse(second)
+
+		ch.sortChannelsByPriority(first)
+		ch.sortChannelsByPriority(second)
+
+		assert.Equal(t, unreadIDs(first), unreadIDs(second))
+		assert.Equal(t, []string{"D_a", "D_b", "C_a", "C_b", "C_c", "X_a", "X_b"}, unreadIDs(first))
+	})
+}
+
+// TestUnitParseParamsToolUnreadsChannelTypes pins that an unrecognized
+// channel_types value is rejected at parse time (plan 027) rather than
+// silently matching no branch and returning an empty "you have no unreads".
+func TestUnitParseParamsToolUnreadsChannelTypes(t *testing.T) {
+	ch := &ConversationsHandler{logger: zap.NewNop()}
+
+	t.Run("accepted values parse", func(t *testing.T) {
+		for _, want := range []string{"all", "dm", "group_dm", "partner", "internal"} {
+			t.Run(want, func(t *testing.T) {
+				req := mcp.CallToolRequest{}
+				req.Params.Arguments = map[string]any{"channel_types": want}
+
+				params, err := ch.parseParamsToolUnreads(req)
+				require.NoError(t, err)
+				assert.Equal(t, want, params.channelTypes)
+			})
+		}
+	})
+
+	t.Run("absent defaults to all", func(t *testing.T) {
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]any{}
+
+		params, err := ch.parseParamsToolUnreads(req)
+		require.NoError(t, err)
+		assert.Equal(t, "all", params.channelTypes)
+	})
+
+	t.Run("empty value is treated as absent, not rejected", func(t *testing.T) {
+		// MCP clients differ on how they serialize an omitted optional string;
+		// several send "" rather than dropping the key. GetString cannot tell
+		// the two apart, so "" must mean "no filter".
+		for _, empty := range []string{"", " ", "\t"} {
+			t.Run(fmt.Sprintf("%q", empty), func(t *testing.T) {
+				req := mcp.CallToolRequest{}
+				req.Params.Arguments = map[string]any{"channel_types": empty}
+
+				params, err := ch.parseParamsToolUnreads(req)
+				require.NoError(t, err)
+				assert.Equal(t, "all", params.channelTypes)
+			})
+		}
+	})
+
+	t.Run("unrecognized values are errors", func(t *testing.T) {
+		for _, bad := range []string{"public", "DM", "im", "public_channel"} {
+			t.Run(bad, func(t *testing.T) {
+				req := mcp.CallToolRequest{}
+				req.Params.Arguments = map[string]any{"channel_types": bad}
+
+				params, err := ch.parseParamsToolUnreads(req)
+				require.Error(t, err)
+				assert.Nil(t, params)
+				assert.Contains(t, err.Error(), fmt.Sprintf("%q", bad),
+					"the message names the offending value")
+				assert.Contains(t, err.Error(), "all, dm, group_dm, partner, internal",
+					"the message lists the accepted set")
+			})
+		}
 	})
 }
 
@@ -1490,6 +1605,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		"C_EXT":     {ID: "C_EXT", Name: "vendor", IsExtShared: true},
 		"C_HASHED":  {ID: "C_HASHED", Name: "#already-hashed"},
 		"G_MPIM":    {ID: "G_MPIM", Name: "mpdm-alice--bob-1", IsMpIM: true},
+		"G_HASHED":  {ID: "G_HASHED", Name: "#mpdm-hashed", IsMpIM: true},
 		"D_ALICE":   {ID: "D_ALICE", Name: "alice", IsIM: true, User: "U_ALICE"},
 		"D_GHOST":   {ID: "D_GHOST", Name: "ghost", IsIM: true, User: "U_NOT_CACHED"},
 		"D_NOUSER":  {ID: "D_NOUSER", Name: "nouser", IsIM: true},
@@ -1561,6 +1677,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		c := edge.ClientCountsResponse{
 			MPIMs: []edge.ChannelSnapshot{
 				{ID: "G_MPIM", HasUnreads: true, MentionCount: 2},
+				{ID: "G_HASHED", HasUnreads: true},
 				{ID: "G_UNKNOWN", HasUnreads: true},
 			},
 			IMs: []edge.ChannelSnapshot{
@@ -1571,17 +1688,20 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 			},
 		}
 		got := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
-		require.Len(t, got, 6)
+		require.Len(t, got, 7)
 
 		byID := map[string]UnreadChannel{}
 		for _, u := range got {
 			byID[u.ChannelID] = u
 		}
-		// NOTE: characterizes current behavior, possibly wrong: MPIM names are
-		// taken verbatim from the cache with no prefix at all, unlike regular
-		// channels (#) and DMs (@).
-		assert.Equal(t, "mpdm-alice--bob-1", byID["G_MPIM"].ChannelName)
+		// Plan 027: a cached MPIM name now gets the same #-prefix normalization
+		// the regular-channel branch applies, instead of being taken verbatim.
+		assert.Equal(t, "#mpdm-alice--bob-1", byID["G_MPIM"].ChannelName)
 		assert.Equal(t, "group_dm", byID["G_MPIM"].ChannelType)
+		assert.Equal(t, "#mpdm-hashed", byID["G_HASHED"].ChannelName,
+			"an existing # is not doubled")
+		// A cache miss still falls back to the bare ID with no prefix: an
+		// unresolved ID is not a name, so "#G_UNKNOWN" would be a lie.
 		assert.Equal(t, "G_UNKNOWN", byID["G_UNKNOWN"].ChannelName)
 
 		assert.Equal(t, "@alice", byID["D_ALICE"].ChannelName, "IM resolves via the users cache")
@@ -1637,8 +1757,11 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 			{"group_dm", []string{"G_MPIM"}},
 			{"partner", []string{"C_EXT"}},
 			{"internal", []string{"C_MENTION", "C_SILENT"}},
-			// NOTE: characterizes current behavior, possibly wrong: an unrecognized
-			// channel_types value is not rejected — it silently matches nothing.
+			// collect still matches nothing for an unrecognized value, but plan
+			// 027 made that unreachable from the tool: parseParamsToolUnreads
+			// now rejects anything outside the five accepted values, so the
+			// caller gets an error instead of a misleading empty result (see
+			// TestUnitParseParamsToolUnreadsChannelTypes).
 			{"nonsense", nil},
 		} {
 			t.Run(tc.channelTypes, func(t *testing.T) {
@@ -1653,11 +1776,10 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 			p := defaultUnreadsParams()
 			got := ch.collectUnreadChannels(p, c, users, channelsCache)
 			require.Len(t, got, 5)
-			// Equal-priority internal channels have an unspecified relative order
-			// (sort.Slice is not stable), so compare the prefix exactly and the
-			// trailing internal run as a set.
-			assert.Equal(t, []string{"D_ALICE", "G_MPIM", "C_EXT"}, unreadIDs(got)[:3])
-			assert.ElementsMatch(t, []string{"C_MENTION", "C_SILENT"}, unreadIDs(got)[3:])
+			// Plan 027 made the order total: the two internal channels are
+			// separated by UnreadCount (C_MENTION has 3, C_SILENT has 0), so the
+			// whole sequence is assertable exactly.
+			assert.Equal(t, []string{"D_ALICE", "G_MPIM", "C_EXT", "C_MENTION", "C_SILENT"}, unreadIDs(got))
 		})
 	})
 
@@ -1819,12 +1941,11 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 		// edge-sourced channel really does reach it and really does skip the call.
 	})
 
-	t.Run("history failure leaves the count at zero and the loop continues", func(t *testing.T) {
-		// NOTE: characterizes current behavior, possibly wrong: in summary mode a
-		// failed fetch leaves UnreadCount at 0, so the CSV renders "0" for a
-		// channel client.counts reported as unread. The include_messages path
-		// applies a conservative 1 in the same situation (see
-		// TestUnitUnreadCountFromHistory).
+	t.Run("history failure reports a conservative 1 and the loop continues", func(t *testing.T) {
+		// Plan 027: the failed-fetch branch now routes through
+		// unreadCountFromHistory too, closing the last summary-vs-message
+		// disagreement plan 026 left open. Summary mode no longer renders "0
+		// unread" for a channel client.counts reported as unread.
 		fake := &fakeHistoryFetcher{
 			errs:      map[string]error{"C_BROKEN": errors.New("boom")},
 			byChannel: map[string]*slack.GetConversationHistoryResponse{"C_OK": historyWith(2)},
@@ -1838,7 +1959,7 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 
 		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
 		require.Len(t, fake.calls, 2, "a failure on one channel does not abort the loop")
-		assert.Equal(t, 0, channels[0].UnreadCount)
+		assert.Equal(t, 1, channels[0].UnreadCount, "the failed fetch reports a conservative 1")
 		assert.Equal(t, 2, channels[1].UnreadCount)
 	})
 
