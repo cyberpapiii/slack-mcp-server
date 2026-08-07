@@ -34,6 +34,8 @@ Auth tokens (`SLACK_MCP_XOXC_TOKEN`, `SLACK_MCP_XOXD_TOKEN`, etc.) live in the e
 
 The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is set (deprecated fallback: `SLACK_MCP_SSE_API_KEY`), or `SLACK_MCP_ALLOW_UNAUTHENTICATED` is set to exactly `true`. `1`/`yes` are rejected. `stdio` (the Plug path) is unaffected. See `pkg/server/auth/sse_auth.go`.
 
+`SLACK_MCP_SERVER_CA_TOOLKIT` is unusable: the embedded HTTP Toolkit CA in `pkg/transport/transport.go` expired **2026-03-13**. Setting the env var fatals at startup. For MitM debugging, set `SLACK_MCP_SERVER_CA` to a current CA PEM instead.
+
 ## Tool surface
 
 Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **31** tools; upstream README documents fewer.
@@ -78,6 +80,8 @@ Side-effecting tools require explicit env opt-in. Every gate below is enforced *
 The five boolean gates (`ATTACHMENT`, `MARK`, `CHANNEL_MEMBERSHIP`, `USERGROUPS_WRITE`, `FILES_LIST`) accept only `true`, `1`, or `yes`, matched case-insensitively and ignoring surrounding whitespace (`isTruthyEnv`, duplicated in `pkg/handler/conversations.go` and `pkg/server/server.go`). Any other value, **including `false`**, leaves the tool disabled. The two channel-allowlist gates (`ADD_MESSAGE`, `REACTION`) are not booleans: their value *is* the configuration, so any non-empty value enables them (`channelListGates` in `pkg/server/server.go`).
 
 Gate vars and the allowlist interact: when `SLACK_MCP_ENABLED_TOOLS` is set, the allowlist alone decides registration: a gated tool named in it registers without its dedicated env var, and one absent from it stays unregistered even when the env var is set. When `SLACK_MCP_ENABLED_TOOLS` is unset, a gated tool registers only if its own env var is truthy, or non-empty for the two channel-allowlist gates. Matching is an **exact** per-entry comparison (`isToolInEnabledList`, `slices.Contains`), not a substring test.
+
+- MCP resources (`slack://…/channels`, `slack://…/users`) always register after cache warm-up; they ignore `SLACK_MCP_ENABLED_TOOLS`.
 
 ## Code map (runtime spine)
 

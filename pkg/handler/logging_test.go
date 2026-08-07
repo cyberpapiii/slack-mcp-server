@@ -106,9 +106,7 @@ func TestUnitLogResourceCall(t *testing.T) {
 	})
 }
 
-// TestUnitLogToolCallReadsEnvPerCall guards against caching the gate in a
-// package-level var, which would make the setting unchangeable at runtime and
-// untestable with t.Setenv.
+// Gate must re-read env each call (no package-level cache).
 func TestUnitLogToolCallReadsEnvPerCall(t *testing.T) {
 	t.Setenv("SLACK_MCP_LOG_PARAMS", "")
 	assert.False(t, logParamsEnabled())

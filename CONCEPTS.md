@@ -22,4 +22,4 @@ The verbose output level: all columns including per-message user IDs and permali
 Comment lines prepended to Standard-mode output before the CSV header: a user map (each distinct human speaker's ID, username, and real name) and a link template for constructing message permalinks from the channel and message ID columns. Emitted only when the response is large enough for the mapping to pay for itself; bots are excluded from the user map.
 
 ### Truncation receipt
-The suffix appended to an attachment cut down to Standard mode's rendering budget, telling the reader the content was truncated and naming the recovery route (re-fetch the message in Full mode). Exists because attachments have no ID-addressable fetch path of their own.
+The suffix appended to an attachment cut down to Standard mode's rendering budget, telling the reader the content was truncated. Recovery: re-fetch that message with `detail: full`, or call `conversations_get_message` with the channel and MsgID/timestamp. Attachments have no ID-addressable fetch path of their own.

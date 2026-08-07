@@ -291,8 +291,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	}
 
 	if params.blocks != nil {
-		// Raw blocks provided: use them directly. If text is also provided, it
-		// becomes the notification/fallback text.
+		// Text alongside blocks is notification/fallback only.
 		options = append(options, slack.MsgOptionBlocks(params.blocks...))
 		if params.text != "" {
 			options = append(options, slack.MsgOptionText(params.text, false))
@@ -350,9 +349,8 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully posted message to channel %s (ts=%s)", respChannel, respTimestamp)), nil
 }
 
-// ConversationsDraftMessageHandler validates and formats a message without sending it.
-// Returns a preview of what the message would look like, allowing the user to review
-// before sending via conversations_add_message.
+// ConversationsDraftMessageHandler validates and formats a message without sending.
+// Preview for review before conversations_add_message.
 func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ConversationsDraftMessageHandler called", request)
 
@@ -537,11 +535,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 }
 
 // fetchMessageByTimestamp retrieves a single message by timestamp using conversations.replies.
-// This works for top-level messages, thread parents, and thread replies alike, and needs no
-// scopes beyond channels:history.
-//
-// Note: Slack's reactions.get API is purpose-built for this but requires the reactions:read scope.
-// We use conversations.replies instead to avoid introducing a new scope requirement.
+// Works for top-level messages, thread parents, and thread replies; needs only channels:history.
 func (ch *ConversationsHandler) fetchMessageByTimestamp(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
 	msgs, _, _, err := ch.apiProvider.Slack().GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 		ChannelID: channel,
@@ -561,12 +555,10 @@ func (ch *ConversationsHandler) fetchMessageByTimestamp(ctx context.Context, cha
 	return &msgs[0], nil
 }
 
-// ConversationsGetMessageHandler fetches a single message by channel + timestamp.
-// It exists so agents holding a MsgID (e.g. from compact CSV rows, or after an
-// attachment-truncation receipt) can re-read exactly one message, optionally
-// with detail: full, instead of re-paging conversations_history.
+// ConversationsGetMessageHandler fetches one message by channel + timestamp
+// (MsgID from compact CSV / attachment-truncation receipt; optional detail:full).
 func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsGetMessageHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsGetMessageHandler called", request)
 
 	rawChannel := request.GetString("channel_id", "")
 	if rawChannel == "" {
@@ -705,8 +697,7 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 
 	content := buf.Bytes()
 
-	// For image files, return as native MCP image content so the client
-	// can render them directly without base64-in-JSON overflow.
+	// Native MCP image avoids base64-in-JSON overflow.
 	if isImageMimetype(fileInfo.Mimetype) {
 		imageData := base64.StdEncoding.EncodeToString(content)
 		metadata, err := marshalFileMetadata(fileMetadataPayload{
@@ -1111,9 +1102,8 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Fetching messages: channel %d of %d", i+1, len(unreadChannels)))
 
 		if unreadChannels[i].LastRead == "" {
-			// No last-read bound: fetching from the beginning of the channel
-			// would be unbounded and misleading. Report the conservative 1
-			// and move on, matching the summary path.
+			// No bound: unbounded history would mislead. Same conservative 1
+			// as the summary/backfill path.
 			unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, 0, nil)
 			continue
 		}
@@ -1130,14 +1120,12 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 			ch.logger.Warn("Failed to get history for channel",
 				zap.String("channel", unreadChannels[i].ChannelID),
 				zap.Error(err))
-			// The fetch failed, so we can't count: conservatively report 1 unread
-			// since HasUnreads was true, rather than rendering "0 unread".
+			// Failed fetch must not render 0 unread when HasUnreads was true.
 			unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, 0, err)
 			continue
 		}
 
-		// Update unread count from actual message count. A zero-row window (e.g.
-		// no usable last-read timestamp) still reports 1, since HasUnreads was true.
+		// Zero-row window still reports ≥1 when HasUnreads was true.
 		unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, len(history.Messages), nil)
 
 		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, unreadChannels[i].ChannelName, false, mode)
@@ -1177,9 +1165,7 @@ type historyFetcher interface {
 // and reports false if the context was cancelled mid-flight.
 func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, request mcp.CallToolRequest, api historyFetcher, params *unreadsParams, unreadChannels []UnreadChannel) bool {
 	if params.includeMessages {
-		// The message-fetch loop issues the same conversations.history call over
-		// the same window and overwrites UnreadCount anyway, so backfilling first
-		// would double the API calls for no observable difference.
+		// Message-fetch loop overwrites UnreadCount; backfill would double API calls.
 		return true
 	}
 
@@ -1196,13 +1182,11 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Backfilling unread counts: channel %d of %d", i+1, len(unreadChannels)))
 
 		if unreadChannels[i].UnreadCount > 0 {
-			continue // MentionCount was positive, good enough
+			continue // already counted (mentions)
 		}
 		if unreadChannels[i].LastRead == "" {
-			// Reached when client.counts reported no last-read timestamp at all
-			// (slackTS maps the zero fasttime.Time to ""). Without a bound the
-			// query would cover the channel's whole history, so skip the call and
-			// conservatively report 1 unread since HasUnreads was true.
+			// No last-read bound (slackTS maps zero fasttime.Time to ""). Skip
+			// unbounded history query; report 1 since HasUnreads was true.
 			unreadChannels[i].UnreadCount = 1
 			backfilled++
 			continue
@@ -1218,9 +1202,7 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 			ch.logger.Debug("Failed to backfill unread count",
 				zap.String("channel", unreadChannels[i].ChannelID),
 				zap.Error(err))
-			// A failed fetch must not leave the count at 0 for a channel
-			// client.counts flagged as unread; the helper yields the same
-			// conservative 1 the include_messages path applies.
+			// Same conservative 1 as the include_messages path.
 			unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, 0, err)
 			continue
 		}
@@ -1267,7 +1249,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 		channelName := snap.ID
 		channelType := "internal"
 		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
-			// Cached name may already include #.
 			name := cached.Name
 			if strings.HasPrefix(name, "#") {
 				channelName = name
@@ -1312,8 +1293,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 
 		channelName := snap.ID
 		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
-			// Same normalization the regular-channel branch applies: the cached
-			// name may or may not already carry the # prefix.
 			name := cached.Name
 			if strings.HasPrefix(name, "#") {
 				channelName = name
@@ -1372,8 +1351,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 
 	ch.sortChannelsByPriority(unreadChannels)
 
-	// Limit channels. The maxChannels > 0 guard is a backstop: a non-positive
-	// value would otherwise slice with a negative bound and panic.
+	// maxChannels > 0 backstop: non-positive would slice negative and panic.
 	if params.maxChannels > 0 && len(unreadChannels) > params.maxChannels {
 		unreadChannels = unreadChannels[:params.maxChannels]
 	}
@@ -1384,9 +1362,8 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, mode text.OutputMode) (*mcp.CallToolResult, error) {
 	usersMap := ch.apiProvider.ProvideUsersMap()
 
-	// Define channel type groups in priority order.
-	// users.conversations returns channels in creation order (NOT by activity),
-	// so we scan each type independently with its own budget/scan cap.
+	// users.conversations is creation-order (not activity); scan each type
+	// with its own budget/scan cap.
 	type typeGroup struct {
 		slackTypes  []string // users.conversations "types" parameter values
 		channelType string   // our internal type label
@@ -1394,9 +1371,8 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 		isDM        bool     // DMs get unread_count directly from conversations.info
 	}
 
-	// Allocate budgets: DMs get the full max_channels allocation,
-	// MPIMs and channels each get half. Each type group scans up to
-	// budget*2 channels to find unreads (see scanTypeGroupForUnreads).
+	// DMs: full max_channels. MPIMs/channels: half each. Scan cap budget*2
+	// (see scanTypeGroupForUnreads).
 	dmBudget := params.maxChannels
 	mpimBudget := params.maxChannels / 2
 	channelBudget := params.maxChannels / 2
@@ -1451,8 +1427,7 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 		zap.Int("apiCalls", totalAPIcalls),
 		zap.Int("rateLimited", totalRateLimited))
 
-	// Prepend a note about xoxp limitations so the LLM understands
-	// these results may be partial.
+	// xoxp scan can be partial; surface that to the caller.
 	mutedNote := ""
 	if params.mutedUnavailable && !params.includeMuted {
 		mutedNote = "Muted channel filtering is unavailable with xoxp tokens; results may include muted channels. "
@@ -1613,10 +1588,8 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 
 			scanned++
 
-			// Get full channel info including last_read and latest.
-			// Uses rate limiting + retry to avoid cascading 429 errors
-			// that silently skip channels (see: slack-go does NOT auto-retry
-			// on *RateLimitedError for standard client methods).
+			// Rate-limit + retry: slack-go does not auto-retry *RateLimitedError
+			// on standard client methods; cascading 429s silently skip channels.
 			info, err := limiter.CallWithRetry(ctx, rl, 2, slackRetryAfter, func() (*slack.Channel, error) {
 				return ch.apiProvider.Slack().GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{
 					ChannelID: channel.ID,
@@ -1660,10 +1633,8 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 				neverVisited := lastRead == "" || lastRead == "0000000000.000000"
 
 				if neverVisited && groupType != "group_dm" {
-					// For regular channels: skip if never visited/read. On large
-					// workspaces this includes hundreds of auto-joined or dormant
-					// channels; skip to avoid flooding results with stale unreads.
-					// MPIMs are always intentional (someone added you), so check them.
+					// Skip never-visited channels (noise on large workspaces).
+					// MPIMs stay: join is intentional.
 					continue
 				}
 
@@ -2169,11 +2140,8 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 	)
 	isDurationLimit := strings.HasSuffix(limit, "d") || strings.HasSuffix(limit, "w") || strings.HasSuffix(limit, "m")
 	if isDurationLimit && cursor != "" {
-		// The schema's advertised default limit is "1d", but the same schema
-		// forbids a limit alongside 'cursor'. Sending both a cursor and a
-		// duration window makes pagination silently return nothing, so honour
-		// the cursor and drop the window, matching what the numeric branch
-		// already does when a cursor is present.
+		// Schema default limit is "1d" but also forbids limit+cursor. Honour
+		// cursor, drop window (same as numeric branch) so pagination works.
 		ch.logger.Debug("Ignoring duration limit because a cursor was provided",
 			zap.String("limit", limit),
 			zap.String("cursor", cursor),

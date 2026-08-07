@@ -523,7 +523,6 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	usergroupsHandler := handler.NewUsergroupsHandler(provider, logger)
 
-	// User groups tools
 	if shouldAddTool(ToolUsergroupsList, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsList,
 			mcp.WithDescription("List all user groups (subteams) in the workspace. User groups are mention handles like @engineering that notify all members. Use this to find a group's ID before joining or updating it. Returns CSV with columns: id, name, handle, description, user_count, is_external."),
@@ -886,7 +885,6 @@ func (s *MCPServer) registerCacheDependentTools() {
 		}
 	}
 
-	// Register resources (depend on cache for channel/user data)
 	s.server.AddResource(mcp.NewResource(
 		"slack://"+s.workspace+"/channels",
 		"Directory of Slack channels",

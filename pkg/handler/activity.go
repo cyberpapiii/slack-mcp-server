@@ -35,12 +35,7 @@ func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, c
 	return &ActivityHandler{apiProvider: apiProvider, logger: logger, convHandler: convHandler}
 }
 
-// activityChannelLabel renders a channel for the Message.Channel column of
-// activity output. It mirrors the search path's "ID (#name)" convention (see
-// convertMessagesFromSearch and the #link_template legend line): the ID stays
-// leading so permalinks and follow-up tool calls remain derivable, with the
-// cached name, which already carries its "#"/"@" prefix, appended. Falls
-// back to the bare ID when the channel is not in the cache.
+// activityChannelLabel formats "ID (#name)" like search output; bare ID if uncached.
 func activityChannelLabel(channelID string, channels map[string]provider.Channel) string {
 	if cached, ok := channels[channelID]; ok && cached.Name != "" {
 		return fmt.Sprintf("%s (%s)", channelID, cached.Name)
@@ -183,18 +178,12 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			continue
 		}
 
-		// Label the thread's channel by name so the rendered rows read
-		// "C0123ABC (#general)" instead of a bare ID. Resolved before the
-		// conversion so it lands in every message's Channel column.
 		channelLabel := activityChannelLabel(t.ChannelID, channelsMaps.Channels)
-
 		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, channelLabel, false, mode)
-
 		allMessages = append(allMessages, msgs...)
 	}
 
 	if len(allMessages) == 0 {
-		// Fall back to summary if no messages could be fetched
 		var sb strings.Builder
 		sb.WriteString("No messages could be fetched. Activity summary:\n")
 		csvBytes, err := gocsv.MarshalBytes(&items)

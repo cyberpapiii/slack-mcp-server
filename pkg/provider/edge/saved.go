@@ -5,9 +5,7 @@ import (
 	"runtime/trace"
 )
 
-// saved.* API: internal Slack APIs for the "Save for Later" panel.
-// These replaced the deprecated stars.* API (March 2023).
-// Only accessible with browser session tokens (xoxc/xoxd).
+// saved.* API (xoxc/xoxd; replaced stars.* March 2023)
 
 type savedListForm struct {
 	BaseRequest

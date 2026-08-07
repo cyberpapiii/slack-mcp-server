@@ -143,7 +143,6 @@ func TestIntegrationConversations(t *testing.T) {
 
 			require.NotEmpty(t, toolOutput, "no tool output captured")
 
-			// Parse CSV
 			reader := csv.NewReader(strings.NewReader(toolOutput.String()))
 			rows, err := reader.ReadAll()
 			require.NoError(t, err, "failed to parse CSV")
@@ -203,7 +202,7 @@ func TestUnitParseFlexibleDate(t *testing.T) {
 		wantDate string
 		wantErr  bool
 	}{
-		// Standard formats (existing)
+		// Standard formats
 		{
 			name:     "YYYY-MM-DD",
 			input:    "2025-07-15",
@@ -217,7 +216,7 @@ func TestUnitParseFlexibleDate(t *testing.T) {
 			wantErr:  false,
 		},
 
-		// New flexible month-year formats
+		// Flexible month-year formats
 		{
 			name:     "Month Year - July 2025",
 			input:    "July 2025",
@@ -558,7 +557,6 @@ func TestUnitLimitByExpression_Valid(t *testing.T) {
 				t.Errorf("expected slackLimit=100 for %q, got %d", tt.input, slackLimit)
 			}
 
-			// Parse the "1234567890.000000" format back to an integer
 			o, err := strconv.ParseInt(strings.TrimSuffix(oldestStr, ".000000"), 10, 64)
 			if err != nil {
 				t.Fatalf("invalid oldest timestamp %q: %v", oldestStr, err)
@@ -1169,8 +1167,8 @@ func TestUnitParseParamsToolSearchLimit(t *testing.T) {
 }
 
 // TestUnitParseParamsToolUnreadsClamps pins the non-positive clamp on the two
-// unreads size parameters. mcp's GetInt substitutes its default only for an
-// absent key, so an explicit -1 used to survive all the way to a slice bound.
+// unreads size parameters. mcp GetInt defaults only absent keys; clamp keeps
+// explicit -1/0 from becoming a panic-prone slice bound.
 func TestUnitParseParamsToolUnreadsClamps(t *testing.T) {
 	ch := &ConversationsHandler{logger: zap.NewNop()}
 
@@ -1744,11 +1742,8 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 			{"group_dm", []string{"G_MPIM"}},
 			{"partner", []string{"C_EXT"}},
 			{"internal", []string{"C_MENTION", "C_SILENT"}},
-			// collect still matches nothing for an unrecognized value, but plan
-			// 027 made that unreachable from the tool: parseParamsToolUnreads
-			// now rejects anything outside the five accepted values, so the
-			// caller gets an error instead of a misleading empty result (see
-			// TestUnitParseParamsToolUnreadsChannelTypes).
+			// Pure collect: unrecognized → empty. Tool parse rejects first
+			// (TestUnitParseParamsToolUnreadsChannelTypes).
 			{"nonsense", nil},
 		} {
 			t.Run(tc.channelTypes, func(t *testing.T) {

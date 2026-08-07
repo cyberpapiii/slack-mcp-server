@@ -161,14 +161,16 @@ func richTextSectionElementToText(elem slack.RichTextSectionElement) string {
 
 func richTextListToText(list *slack.RichTextList) string {
 	var lines []string
-	for i, elem := range list.Elements {
+	itemNum := 0
+	for _, elem := range list.Elements {
 		t := richTextElementToText(elem)
 		if t == "" {
 			continue
 		}
 		prefix := "- "
 		if list.Style == slack.RTEListOrdered {
-			prefix = fmt.Sprintf("%d. ", i+list.Offset+1)
+			prefix = fmt.Sprintf("%d. ", itemNum+list.Offset+1)
+			itemNum++
 		}
 		indent := strings.Repeat("  ", list.Indent)
 		lines = append(lines, indent+prefix+t)

@@ -10,10 +10,9 @@ import (
 
 // conversations.* API
 
-// conversationsGenericInfoForm is the request to conversations.genericInfo
 type conversationsGenericInfoForm struct {
 	BaseRequest
-	UpdatedChannels string `json:"updated_channels"` // i.e. {"C065H568ZAT":0}
+	UpdatedChannels string `json:"updated_channels"`
 	WebClientFields
 }
 
@@ -78,7 +77,6 @@ type ConversationsViewResponse struct {
 	Users  []User            `json:"users"`
 	IM     IM                `json:"im"`
 	Emojis map[string]string `json:"emojis"`
-	// we don't care about the rest of the response
 }
 
 func (cl *Client) ConversationsView(ctx context.Context, channelID string) (ConversationsViewResponse, error) {
@@ -90,18 +88,14 @@ func (cl *Client) ConversationsView(ctx context.Context, channelID string) (Conv
 		BaseRequest: BaseRequest{
 			Token: cl.token,
 		},
-		CanonicalAvatars:          true,
-		NoUserProfile:             true,
-		IgnoreReplies:             true,
-		NoSelf:                    true,
-		IncludeFullUsers:          false,
-		IncludeUseCases:           false,
-		IncludeStories:            false,
-		NoMembers:                 true,
-		IncludeMutationTimestamps: false,
-		Count:                     50,
-		Channel:                   channelID,
-		WebClientFields:           webclientReason(""),
+		CanonicalAvatars: true,
+		NoUserProfile:    true,
+		IgnoreReplies:    true,
+		NoSelf:           true,
+		NoMembers:        true,
+		Count:            50,
+		Channel:          channelID,
+		WebClientFields:  webclientReason(""),
 	}
 	resp, err := cl.PostForm(ctx, "conversations.view", values(form, true))
 	if err != nil {

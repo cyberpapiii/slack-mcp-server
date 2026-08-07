@@ -195,12 +195,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	return mcp.NewToolResultText(string(csvBytes)), nil
 }
 
-// parseSavedUpdateParams extracts and validates the saved_update parameters.
-//
-// The tool schema documents `date_due: 0` as the way to clear a due date, so
-// an explicitly supplied zero must be distinguishable from an absent key:
-// the "at least one of mark or date_due" check keys off key presence, not
-// value truthiness.
+// parseSavedUpdateParams: schema uses date_due:0 to clear; key presence (not truthiness) gates the required-field check.
 func parseSavedUpdateParams(request mcp.CallToolRequest) (itemID, ts, mark string, dateDue int64, err error) {
 	itemID = request.GetString("item_id", "")
 	ts = request.GetString("ts", "")

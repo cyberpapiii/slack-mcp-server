@@ -108,11 +108,7 @@ type UserInfo struct {
 
 var ErrNotOK = errors.New("server returned NOT OK")
 
-// GetUsers returns users from the slack edge api for the channel.  User IDs
-// should be provided by the caller.  If ids is empty, does nothing.
-//
-// This tries to replicate the logic of the Slack client, when it fetches
-// the channel users while being logged in as a guest user.
+// GetUsers fetches user info by ID via users/info, retrying pending IDs.
 func (cl *Client) GetUsers(ctx context.Context, userID ...string) ([]UserInfo, error) {
 	if len(userID) == 0 {
 		return []UserInfo{}, nil
@@ -174,9 +170,7 @@ func (cl *Client) GetUsers(ctx context.Context, userID ...string) ([]UserInfo, e
 	return nil, fmt.Errorf("users/info: %d ids still pending after %d rounds", len(updatedIds), maxUsersInfoRounds)
 }
 
-// UsersInfo calls a users.info endpoint.  This endpoint does not return results
-// straight away.  It may return "pending ids", and when it does, it should be
-// called again to get the actual user info (see [Client.GetUsers]).
+// UsersInfo may return pending_ids; callers should retry (see [Client.GetUsers]).
 func (cl *Client) UsersInfo(ctx context.Context, req *UsersInfoRequest) (*UserInfoResponse, error) {
 	var ui UserInfoResponse
 	if err := cl.callEdgeAPI(ctx, &ui, "users/info", req); err != nil {
@@ -185,42 +179,15 @@ func (cl *Client) UsersInfo(ctx context.Context, req *UsersInfoRequest) (*UserIn
 	return &ui, nil
 }
 
-type ChannelsMembershipRequest struct {
-	BaseRequest
-	Channel string   `json:"channel"`
-	Users   []string `json:"users"`
-	AsAdmin bool     `json:"as_admin"`
-}
-
-type ChannelsMembershipResponse struct {
-	Channel    string   `json:"channel"`
-	NonMembers []string `json:"non_members"`
-	baseResponse
-}
-
-// ChannelsMembership calls channels/membership endpoint.
-func (cl *Client) ChannelsMembership(ctx context.Context, req *ChannelsMembershipRequest) (*ChannelsMembershipResponse, error) {
-	var um ChannelsMembershipResponse
-	if err := cl.callEdgeAPI(ctx, &um, "channels/membership", req); err != nil {
-		return nil, err
-	}
-	return &um, nil
-}
-
-// UserList lists users in the conversation(s).
 func (cl *Client) UsersList(ctx context.Context, channelIDs ...string) ([]User, error) {
 	if len(channelIDs) == 0 {
 		return nil, errors.New("no channel IDs provided")
 	}
 	channelIDs, dmIDs := splitDMs(channelIDs)
 
-	// Both branches hit the same workspace token, and Slack meters requests
-	// per token rather than per goroutine, so they share one limiter. Two
-	// limiters would let the pair issue requests at twice the Tier 3 rate.
+	// Shared limiter: Slack meters per token, not per goroutine.
 	lim := limiter.Tier3.Limiter()
 
-	// Each goroutine writes only its own slice; they are joined below, after
-	// eg.Wait, so there is no shared mutable state to synchronize.
 	var pub, dms []User
 
 	eg, ctx := errgroup.WithContext(ctx)
@@ -253,21 +220,16 @@ func (cl *Client) UsersList(ctx context.Context, channelIDs ...string) ([]User, 
 
 func (cl *Client) publicUserList(ctx context.Context, channelIDs []string, lim *rate.Limiter) ([]User, error) {
 	const (
-		// everyone = "everyone AND NOT bots AND NOT apps"
 		everyone = "everyone"
-		filter   = "people"
 		index    = "users_by_display_name"
-
-		count = 50
+		count    = 50
 	)
 	req := UsersListRequest{
-		Channels:     channelIDs,
-		Filter:       everyone,
-		PresentFirst: false,
-		Index:        index,
-		Locale:       "en-US",
-		Marker:       "",
-		Count:        count,
+		Channels: channelIDs,
+		Filter:   everyone,
+		Index:    index,
+		Locale:   "en-US",
+		Count:    count,
 	}
 	uu := make([]User, 0, count)
 	for {
@@ -293,9 +255,7 @@ func (cl *Client) publicUserList(ctx context.Context, channelIDs []string, lim *
 	return uu, nil
 }
 
-// directUserList tries to get users from the direct message channels.  It is
-// much slower than getting users from the public channels, as it uses
-// conversations.view endpoint.
+// directUserList fetches users via conversations.view (slower than users/list).
 func (cl *Client) directUserList(ctx context.Context, dmIDs []string, lim *rate.Limiter) ([]User, error) {
 	if len(dmIDs) == 0 {
 		return nil, errors.New("no direct message IDs provided")
@@ -319,7 +279,7 @@ func splitDMs(IDs []string) (chans []string, dms []string) {
 		if len(id) == 0 {
 			continue
 		}
-		if len(id) > 0 && id[0] == 'D' {
+		if id[0] == 'D' {
 			dms = append(dms, id)
 		} else {
 			chans = append(chans, id)

@@ -17,10 +17,7 @@ const (
 	warmupRefreshTimeout = 2 * time.Minute
 )
 
-// warmupNextDelay returns how long to wait before the given (1-based) next
-// attempt. The first warmupMaxAttempts attempts are fast; afterwards the
-// loop degrades to a slow indefinite retry so a transient startup failure
-// doesn't permanently disable cache-dependent tools.
+// warmupNextDelay: nextAttempt is 1-based. Fast for attempts <= warmupMaxAttempts, else slow.
 func warmupNextDelay(nextAttempt int) time.Duration {
 	if nextAttempt <= warmupMaxAttempts {
 		return warmupRetryDelay

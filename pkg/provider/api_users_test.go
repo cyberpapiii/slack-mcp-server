@@ -31,12 +31,8 @@ func (f *fakeConnectFailureClient) ClientUserBoot(ctx context.Context) (*edge.Cl
 	return nil, errors.New("client.userBoot: browser features unavailable")
 }
 
-// TestUnitFetchAndStoreUsersSurvivesConnectFailure is a regression test for
-// the bug where a Slack Connect enrichment failure (GetSlackConnect ->
-// ClientUserBoot error) caused fetchAndStoreUsers to hard-fail via
-// `return err`, leaving usersReady permanently false and the users cache
-// never built. The enrichment is additive and must now be best-effort: the
-// standard user list should still be cached and readiness still set.
+// Connect enrichment is best-effort: ClientUserBoot failure must not leave
+// usersReady false or skip caching the standard user list.
 func TestUnitFetchAndStoreUsersSurvivesConnectFailure(t *testing.T) {
 	users := []slack.User{
 		{ID: "U001", Name: "alice"},

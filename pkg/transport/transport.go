@@ -44,7 +44,7 @@ g6ZwdV3myNqKQVJiV+6HSIO1y8tLOnBXjF751L56+fxQoP9Lh9wB0edq730mcb6y
 0GhBUL73wXOL2ymHsqrUhSpmScf+YnnX9GN29520s5LFTpY=
 -----END CERTIFICATE-----`
 
-// UserAgentTransport wraps another RoundTripper to add User-Agent and cookies
+// UserAgentTransport wraps another RoundTripper to add User-Agent and cookies.
 type UserAgentTransport struct {
 	roundTripper http.RoundTripper
 	userAgent    string
@@ -52,7 +52,6 @@ type UserAgentTransport struct {
 	logger       *zap.Logger
 }
 
-// NewUserAgentTransport creates a new UserAgentTransport
 func NewUserAgentTransport(roundTripper http.RoundTripper, userAgent string, cookies []*http.Cookie, logger *zap.Logger) *UserAgentTransport {
 	return &UserAgentTransport{
 		roundTripper: roundTripper,
@@ -62,7 +61,6 @@ func NewUserAgentTransport(roundTripper http.RoundTripper, userAgent string, coo
 	}
 }
 
-// RoundTrip implements the RoundTripper interface
 func (t *UserAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clonedReq := req.Clone(req.Context())
 	clonedReq.Header.Set("User-Agent", t.userAgent)
@@ -80,7 +78,6 @@ func (t *UserAgentTransport) RoundTrip(req *http.Request) (*http.Response, error
 	return resp, err
 }
 
-// uTLSTransport is a custom http.RoundTripper that uses uTLS for TLS connections
 type uTLSTransport struct {
 	dialer         *net.Dialer
 	tlsConfig      *utls.Config
@@ -90,7 +87,6 @@ type uTLSTransport struct {
 	logger         *zap.Logger
 }
 
-// NewUTLSTransport creates a new transport with uTLS
 func NewUTLSTransport(tlsConfig *utls.Config, proxy func(*http.Request) (*url.URL, error), clientHelloID utls.ClientHelloID, logger *zap.Logger) *uTLSTransport {
 	return &uTLSTransport{
 		dialer: &net.Dialer{
@@ -103,7 +99,6 @@ func NewUTLSTransport(tlsConfig *utls.Config, proxy func(*http.Request) (*url.UR
 		http2Transport: &http2.Transport{
 			AllowHTTP: false,
 			DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
-				// This won't be called since we handle TLS ourselves
 				return nil, fmt.Errorf("DialTLS should not be called")
 			},
 		},
@@ -111,7 +106,6 @@ func NewUTLSTransport(tlsConfig *utls.Config, proxy func(*http.Request) (*url.UR
 	}
 }
 
-// RoundTrip implements the http.RoundTripper interface
 func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	targetAddr := req.URL.Host
 	if req.URL.Port() == "" {
@@ -172,12 +166,10 @@ func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 					clientConn.Close()
 					return nil, err
 				}
-				// Close the h2 client conn when the response body is drained.
 				resp.Body = &closeAfterBody{ReadCloser: resp.Body, close: clientConn.Close}
 				return resp, nil
 			default:
 				t.logger.Debug("Using HTTP/1.1 transport for request", zap.String("request", req.URL.String()))
-				// Fall through to HTTP/1.1
 			}
 		}
 	}
@@ -201,7 +193,6 @@ func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
-// closeAfterBody closes an underlying resource after the response body is closed.
 type closeAfterBody struct {
 	io.ReadCloser
 	close func() error
@@ -215,7 +206,6 @@ func (c *closeAfterBody) Close() error {
 	return err
 }
 
-// dialProxy establishes a connection through an HTTP proxy
 func (t *uTLSTransport) dialProxy(ctx context.Context, proxyURL *url.URL, targetAddr string) (net.Conn, error) {
 	proxyAddr := proxyURL.Host
 	if proxyURL.Port() == "" {
@@ -281,7 +271,6 @@ func (t *uTLSTransport) dialProxy(ctx context.Context, proxyURL *url.URL, target
 	return conn, nil
 }
 
-// establishTLS performs the TLS handshake using uTLS
 func (t *uTLSTransport) establishTLS(conn net.Conn, serverName string) (net.Conn, error) {
 	config := t.tlsConfig.Clone()
 	config.ServerName = serverName
@@ -308,7 +297,6 @@ func (t *uTLSTransport) establishTLS(conn net.Conn, serverName string) (net.Conn
 	return tlsConn, nil
 }
 
-// getClientHelloName returns a human-readable name for the ClientHello fingerprint
 func (t *uTLSTransport) getClientHelloName() string {
 	switch t.clientHelloID {
 	case utls.HelloChrome_Auto:
@@ -324,13 +312,11 @@ func (t *uTLSTransport) getClientHelloName() string {
 	}
 }
 
-// basicAuth creates a basic authentication header value
 func basicAuth(username, password string) string {
 	auth := username + ":" + password
 	return base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
-// detectBrowserFromUserAgent determines the browser type from user agent string
 func detectBrowserFromUserAgent(userAgent string) utls.ClientHelloID {
 	ua := strings.ToLower(userAgent)
 
@@ -354,7 +340,7 @@ func detectBrowserFromUserAgent(userAgent string) utls.ClientHelloID {
 	return utls.HelloChrome_Auto
 }
 
-// ProvideHTTPClient creates an HTTP client with optional uTLS support
+// ProvideHTTPClient creates an HTTP client with optional uTLS support.
 func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client {
 	if os.Getenv("SLACK_MCP_PROXY") != "" && os.Getenv("SLACK_MCP_CUSTOM_TLS") != "" {
 		logger.Fatal("SLACK_MCP_PROXY and SLACK_MCP_CUSTOM_TLS cannot be used together",

@@ -121,15 +121,6 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	query := request.GetString("query", "")
 	queryTargets := request.GetString("query_targets", "name")
 
-	ch.logger.Debug("Request parameters",
-		zap.String("sort", sortType),
-		zap.String("channel_types", types),
-		zap.String("cursor", cursor),
-		zap.Int("limit", limit),
-		zap.String("query", query),
-		zap.String("query_targets", queryTargets),
-	)
-
 	// MCP Inspector v0.14.0 has issues with Slice type
 	// introspection, so some type simplification makes sense here
 	channelTypes := []string{}
@@ -240,15 +231,11 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	), nil
 }
 
-// slackMaxChannelsPageSize is the largest page users.conversations will serve
-// in a single call.
+// slackMaxChannelsPageSize is users.conversations max page size.
 const slackMaxChannelsPageSize = 200
 
-// nextPageSize returns how many channels to ask Slack for on the next call:
-// exactly the number still missing to reach limit, capped at Slack's maximum
-// page size. Never over-requesting is what keeps the cursor Slack returns
-// aligned with the last row we actually hand back. Asking for more would
-// leave the surplus rows unreachable by any later page.
+// nextPageSize asks only for rows still needed, capped at Slack's page max so
+// the returned cursor stays aligned with the last row we hand back.
 func nextPageSize(limit, have int) int {
 	remaining := limit - have
 	if remaining > slackMaxChannelsPageSize {
@@ -309,17 +296,12 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 			allChannels = append(allChannels, provider.MapChannelFromSlack(c, usersMap))
 		}
 
-		// Early exit: stop paginating through the Slack API once we have
-		// enough. Because every request asked for exactly the rows still
-		// missing, the API cannot have returned more than we hand back, so
-		// nextCursor is positioned right after the last row we return.
 		if len(allChannels) >= limit {
 			slackNextCursor = nextCursor
 			break
 		}
 
-		// Zero-progress guard: an empty page paired with a non-empty cursor
-		// would otherwise spin forever.
+		// Empty page + non-empty cursor would spin forever.
 		if len(channels) == 0 {
 			slackNextCursor = nextCursor
 			break
@@ -432,11 +414,6 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	if limit <= 0 {
 		limit = 100
 	}
-
-	ch.logger.Debug("Request parameters",
-		zap.String("channel_types", channelTypesFilter),
-		zap.Int("limit", limit),
-	)
 
 	starredIDs, err := ch.apiProvider.Slack().GetStarredChannelIDs(ctx, limit)
 	if err != nil {
@@ -556,9 +533,7 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 	if endIndex > len(channels) {
 		endIndex = len(channels)
 	}
-	// Backstop: a non-positive limit would put endIndex behind startIndex and
-	// panic the slice below. Every caller clamps, but a panic here would take
-	// down the whole stdio server, so do not rely on that alone.
+	// Non-positive limit would panic the slice; callers clamp, but do not rely on that alone.
 	if endIndex < startIndex {
 		endIndex = startIndex
 	}

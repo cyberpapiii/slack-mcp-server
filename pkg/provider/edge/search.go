@@ -37,7 +37,6 @@ type SearchResponse[T any] struct {
 	Items      []T             `json:"items"`
 }
 
-// searchForm is the form to be sent to the search endpoint.
 type searchForm struct {
 	BaseRequest
 	Cursor               string            `json:"cursor,omitempty"`
@@ -68,30 +67,15 @@ type searchForm struct {
 
 type searchChannelType string
 
-const (
-	sctPublic          searchChannelType = "public"
-	sctPrivate         searchChannelType = "private"
-	scpArchived        searchChannelType = "archived"
-	scpExternalShared  searchChannelType = "external_shared"
-	scpExcludeArchived searchChannelType = "exclude_archived"
-	scpPrivateExclude  searchChannelType = "private_exclude"
-	scpAll             searchChannelType = ""
-)
+const scpAll searchChannelType = ""
 
 type searchSortDir string
 
-const (
-	ssdEmpty searchSortDir = ""
-	ssdAsc   searchSortDir = "asc"
-	ssdDesc  searchSortDir = "desc"
-)
+const ssdAsc searchSortDir = "asc"
 
 type searchSortType string
 
-const (
-	sstRecommended searchSortType = "recommended"
-	sstName        searchSortType = "name"
-)
+const sstName searchSortType = "name"
 
 func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Channel, error) {
 	ctx, task := trace.NewTask(ctx, "SearchChannels")
@@ -112,17 +96,11 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 		BaseRequest:          BaseRequest{Token: cl.token},
 		Module:               "channels",
 		Query:                query,
-		Page:                 0,
 		ClientReqID:          clientReq.String(),
 		BrowseID:             browseID.String(),
-		Extracts:             0,
-		Highlight:            0,
 		Cursor:               "*",
-		ExtraMsg:             0,
 		NoUserProfile:        1,
 		Count:                perPage,
-		FileTitleOnly:        false,
-		QueryRewriteDisabled: false,
 		IncludeFilesShares:   1,
 		Browse:               "standard",
 		SearchContext:        "desktop_channel_browser",
@@ -130,8 +108,6 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 		Sort:                 sstName,
 		SortDir:              ssdAsc,
 		ChannelType:          scpAll,
-		ExcludeMyChannels:    0,
-		SearchOnlyMyChannels: false,
 		RecommendSource:      "channel-browser",
 		WebClientFields: WebClientFields{
 			XReason:  "browser-query",

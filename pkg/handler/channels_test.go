@@ -301,10 +301,7 @@ func TestUnitPaginateChannelsRoundTrip(t *testing.T) {
 	assert.Empty(t, cursor3, "the final page must not advertise another page")
 }
 
-// TestUnitPaginateChannelsNonPositiveLimit pins the backstop that keeps a
-// non-positive limit from panicking the slice expression. mcp's GetInt only
-// substitutes its default for an absent key, so `limit: -5` used to reach
-// channels[0:-5] and take down the stdio server.
+// Non-positive limit must not panic the page slice (GetInt only defaults absent keys).
 func TestUnitPaginateChannelsNonPositiveLimit(t *testing.T) {
 	channels := []provider.Channel{
 		{ID: "C01", Name: "#one"},
@@ -331,10 +328,6 @@ func channelIDs(channels []provider.Channel) []string {
 	return ids
 }
 
-// TestUnitNextPageSize covers the page-size arithmetic behind the channels_me
-// fetch loop: it must never request more rows than the caller asked for
-// (over-requesting strands the surplus behind the returned cursor) and never
-// exceed Slack's 200-row maximum.
 func TestUnitNextPageSize(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -355,10 +348,7 @@ func TestUnitNextPageSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := nextPageSize(tt.limit, tt.have)
-			assert.Equal(t, tt.expected, got)
-			assert.GreaterOrEqual(t, got, 1, "a request for <1 row is meaningless to Slack")
-			assert.LessOrEqual(t, got, slackMaxChannelsPageSize, "Slack will not serve more than 200 per page")
+			assert.Equal(t, tt.expected, nextPageSize(tt.limit, tt.have))
 		})
 	}
 }

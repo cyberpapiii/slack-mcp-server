@@ -4,7 +4,6 @@ import (
 	"context"
 	"runtime/trace"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge/fasttime"
 	"github.com/rusq/slack"
 )
@@ -61,29 +60,6 @@ func (cl *Client) ClientCounts(ctx context.Context) (ClientCountsResponse, error
 	return r, nil
 }
 
-type clientDMsForm struct {
-	BaseRequest
-	Count          int    `json:"count"`
-	IncludeClosed  bool   `json:"include_closed"`
-	IncludeChannel bool   `json:"include_channel"`
-	ExcludeBots    bool   `json:"exclude_bots"`
-	Cursor         string `json:"cursor,omitempty"`
-	WebClientFields
-}
-
-type clientDMsResponse struct {
-	baseResponse
-	IMs   []ClientDM `json:"ims,omitempty"`
-	MPIMs []ClientDM `json:"mpims,omitempty"`
-}
-
-type ClientDM struct {
-	ID string `json:"id"`
-	// Message slack.Message `json:"message,omitempty"`
-	Channel IM            `json:"channel,omitempty"`
-	Latest  fasttime.Time `json:"latest,omitempty"` // i.e. "1710632873.037269"
-}
-
 type IM struct {
 	ID               string         `json:"id"`
 	Created          slack.JSONTime `json:"created"`
@@ -105,7 +81,6 @@ type IM struct {
 }
 
 func (c IM) SlackChannel() slack.Channel {
-	// Add Members array with just the User for IM channels
 	var members []string
 	if c.User != "" {
 		members = []string{c.User}
@@ -126,44 +101,6 @@ func (c IM) SlackChannel() slack.Channel {
 			Members:    members,
 		},
 	}
-
-}
-
-func (cl *Client) ClientDMs(ctx context.Context) ([]ClientDM, error) {
-	form := clientDMsForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
-		Count:           250,
-		IncludeClosed:   true,
-		IncludeChannel:  true,
-		ExcludeBots:     false,
-		Cursor:          "",
-		WebClientFields: webclientReason("dms-tab-populate"),
-	}
-	lim := limiter.Tier2boost.Limiter()
-	var dms []ClientDM
-	for {
-		resp, err := cl.PostFormRaw(ctx, cl.webapiURL("client.dms"), values(form, true))
-		if err != nil {
-			return nil, err
-		}
-		r := clientDMsResponse{}
-		if err := cl.ParseResponse(&r, resp); err != nil {
-			return nil, err
-		}
-		if err := r.validate("client.dms"); err != nil {
-			return nil, err
-		}
-		dms = append(dms, r.IMs...)
-		dms = append(dms, r.MPIMs...)
-		if r.ResponseMetadata.NextCursor == "" {
-			break
-		}
-		form.Cursor = r.ResponseMetadata.NextCursor
-		if err := lim.Wait(ctx); err != nil {
-			return nil, err
-		}
-	}
-	return dms, nil
 }
 
 // activity.feed API

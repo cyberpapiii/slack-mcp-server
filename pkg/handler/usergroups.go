@@ -25,12 +25,10 @@ type UserGroup struct {
 	Users       string `csv:"-" json:"users,omitempty" jsonschema_description:"Comma-separated user IDs"`
 }
 
-// UsergroupListResult is the structured output for list handlers.
 type UsergroupListResult struct {
 	Usergroups []UserGroup `json:"usergroups" jsonschema_description:"List of user groups"`
 }
 
-// UsergroupMeActionResult is the structured output for join/leave actions.
 type UsergroupMeActionResult struct {
 	Message   string `json:"message" jsonschema_description:"Result message"`
 	GroupID   string `json:"group_id" jsonschema_description:"User group ID"`
@@ -71,12 +69,6 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 	includeUsers := request.GetBool("include_users", false)
 	includeCount := request.GetBool("include_count", true)
 	includeDisabled := request.GetBool("include_disabled", false)
-
-	h.logger.Debug("Request parameters",
-		zap.Bool("include_users", includeUsers),
-		zap.Bool("include_count", includeCount),
-		zap.Bool("include_disabled", includeDisabled),
-	)
 
 	options := []slack.GetUserGroupsOption{
 		slack.GetUserGroupsOptionIncludeUsers(includeUsers),
@@ -127,13 +119,6 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 	description := request.GetString("description", "")
 	channelsStr := request.GetString("channels", "")
 
-	h.logger.Debug("Request parameters",
-		zap.String("name", name),
-		zap.String("handle", handle),
-		zap.String("description", description),
-		zap.String("channels", channelsStr),
-	)
-
 	userGroup := slack.UserGroup{
 		Name:        name,
 		Handle:      handle,
@@ -177,14 +162,6 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 	handle := request.GetString("handle", "")
 	description := request.GetString("description", "")
 	channelsStr := request.GetString("channels", "")
-
-	h.logger.Debug("Request parameters",
-		zap.String("usergroup_id", usergroupID),
-		zap.String("name", name),
-		zap.String("handle", handle),
-		zap.String("description", description),
-		zap.String("channels", channelsStr),
-	)
 
 	var options []slack.UpdateUserGroupsOption
 
@@ -239,12 +216,6 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 		return nil, errors.New("users is required")
 	}
 
-	h.logger.Debug("Request parameters",
-		zap.String("usergroup_id", usergroupID),
-		zap.String("users", usersStr),
-	)
-
-	// UpdateUserGroupMembersContext expects a comma-separated string of user IDs
 	updated, err := h.apiProvider.Slack().UpdateUserGroupMembersContext(ctx, usergroupID, usersStr)
 	if err != nil {
 		h.logger.Error("UpdateUserGroupMembersContext failed", zap.Error(err))
@@ -287,11 +258,6 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 	if usergroupID == "" {
 		return nil, errors.New("usergroup_id is required for join/leave actions")
 	}
-
-	h.logger.Debug("Request parameters",
-		zap.String("usergroup_id", usergroupID),
-		zap.String("action", action),
-	)
 
 	members, err := h.apiProvider.Slack().GetUserGroupMembersContext(ctx, usergroupID)
 	if err != nil {

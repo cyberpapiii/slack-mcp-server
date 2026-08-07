@@ -14,8 +14,24 @@ func TestToolPhaseRegistry_NoOverlap(t *testing.T) {
 }
 
 func TestToolPhaseRegistry_WriteToolsAreImmediateOnly(t *testing.T) {
-	assert.True(t, isImmediateOnlyTool(ToolConversationsAddMessage))
-	assert.False(t, isCacheDependentTool(ToolConversationsAddMessage))
+	writeTools := []string{
+		ToolConversationsAddMessage,
+		ToolReactionsAdd,
+		ToolReactionsRemove,
+		ToolAttachmentGetData,
+		ToolConversationsMark,
+		ToolConversationsLeave,
+		ToolConversationsJoin,
+		ToolUsergroupsCreate,
+		ToolUsergroupsUpdate,
+		ToolUsergroupsUsersUpdate,
+		ToolSavedUpdate,
+		ToolSavedClearCompleted,
+	}
+	for _, name := range writeTools {
+		assert.True(t, isImmediateOnlyTool(name), "%s should be immediate-only", name)
+		assert.False(t, isCacheDependentTool(name), "%s must not be cache-dependent", name)
+	}
 }
 
 func TestToolPhaseRegistry_ChannelsListIsCacheDependent(t *testing.T) {

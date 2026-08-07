@@ -49,23 +49,14 @@ func (c *gatedUsersClient) GetUsersContext(ctx context.Context, _ ...slack.GetUs
 	}
 }
 
-func emptyUsersSnapshot() *UsersCache {
-	return &UsersCache{
-		Users:    make(map[string]slack.User),
-		UsersInv: make(map[string]string),
-	}
-}
-
-// TestUnitBackgroundRefresh pins the liveness properties of the background
-// users refresh: a fetch that never returns on its own is cancelled at the
-// deadline, and the process can refresh again afterwards.
+// Background users refresh cancels at deadline and can spawn again after.
 func TestUnitBackgroundRefresh(t *testing.T) {
 	t.Run("background users refresh gives up at the timeout", func(t *testing.T) {
 		client := &hangingUsersClient{
 			started: make(chan struct{}),
 			sawDone: make(chan struct{}),
 		}
-		ap := newTestApiProvider(client, emptyUsersSnapshot())
+		ap := newTestApiProvider(client, emptyUsersCache())
 		ap.backgroundRefreshTimeout = 50 * time.Millisecond
 
 		ap.spawnBackgroundUsersRefresh()
@@ -92,7 +83,7 @@ func TestUnitBackgroundRefresh(t *testing.T) {
 			entered: make(chan struct{}, 4),
 			release: make(chan struct{}),
 		}
-		ap := newTestApiProvider(client, emptyUsersSnapshot())
+		ap := newTestApiProvider(client, emptyUsersCache())
 		// Long enough that the deadline never fires; `release` ends the fetch.
 		ap.backgroundRefreshTimeout = 30 * time.Second
 

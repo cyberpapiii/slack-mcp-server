@@ -43,7 +43,6 @@ func CallWithRetry[T any](
 	var err error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Proactive rate limiting: wait for a token before calling the API.
 		if waitErr := rl.Wait(ctx); waitErr != nil {
 			return result, fmt.Errorf("rate limiter context cancelled: %w", waitErr)
 		}
@@ -55,16 +54,13 @@ func CallWithRetry[T any](
 
 		backoff := retryAfter(err)
 		if backoff <= 0 {
-			// Non-retryable error, return immediately.
 			return result, err
 		}
 
 		if attempt == maxRetries {
-			// Exhausted retries, return the error as-is.
 			return result, err
 		}
 
-		// Sleep for the backoff duration, then retry.
 		select {
 		case <-ctx.Done():
 			return result, ctx.Err()

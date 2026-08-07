@@ -19,6 +19,14 @@ var immediateOnlyToolNames = map[string]struct{}{
 	ToolReactionsAdd:            {},
 	ToolReactionsRemove:         {},
 	ToolAttachmentGetData:       {},
+	ToolConversationsMark:       {},
+	ToolConversationsLeave:      {},
+	ToolConversationsJoin:       {},
+	ToolUsergroupsCreate:        {},
+	ToolUsergroupsUpdate:        {},
+	ToolUsergroupsUsersUpdate:   {},
+	ToolSavedUpdate:             {},
+	ToolSavedClearCompleted:     {},
 }
 
 func isCacheDependentTool(name string) bool {

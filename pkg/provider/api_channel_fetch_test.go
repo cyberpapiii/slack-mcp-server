@@ -65,8 +65,7 @@ func emptyUsersCache() *UsersCache {
 	}
 }
 
-// TestUnitChannelFetchPartialResult pins the invariant that a truncated channel
-// list never reaches the snapshot with a nil error.
+// Truncated channel pagination must error; must not replace a good snapshot.
 func TestUnitChannelFetchPartialResult(t *testing.T) {
 	t.Run("partial fetch returns an error", func(t *testing.T) {
 		client := &fakeChannelsClient{pages: []channelsPage{
@@ -165,7 +164,6 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 	})
 }
 
-// TestUnitSlackRetryAfter pins the retry classifier used by the channel fetch.
 func TestUnitSlackRetryAfter(t *testing.T) {
 	t.Run("rate limit error yields its retry after", func(t *testing.T) {
 		err := &slack.RateLimitedError{RetryAfter: 7 * time.Second}

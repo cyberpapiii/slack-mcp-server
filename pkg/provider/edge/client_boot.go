@@ -10,7 +10,7 @@ import (
 	"github.com/rusq/slack"
 )
 
-// client.userBoot API.  It was too large to chuck into the client.* file.
+// client.userBoot API
 
 type clientUserBootForm struct {
 	BaseRequest
@@ -21,7 +21,6 @@ type clientUserBootForm struct {
 	WebClientFields
 }
 
-// ClientUserBoot calls the client.userBoot API.
 func (cl *Client) ClientUserBoot(ctx context.Context) (*ClientUserBootResponse, error) {
 	ctx, task := trace.NewTask(ctx, "ClientUserBoot")
 	defer task.End()
@@ -121,13 +120,9 @@ type UserBootChannel struct {
 }
 
 func (c *UserBootChannel) SlackChannel() slack.Channel {
-	// For IM channels, extract the other user's ID from Members
-	// Members contains current user and the DM partner
+	// IM: first non-empty Members entry (self ID unavailable here).
 	var userID string
 	if c.IsIM && len(c.Members) > 0 {
-		// For IMs, Members typically has 2 users. We need the one that's not "self"
-		// Since we don't have access to self user ID here, we'll take the first member
-		// The API provider will handle filtering later
 		if len(c.Members) == 1 {
 			userID = c.Members[0]
 		} else if len(c.Members) >= 2 {

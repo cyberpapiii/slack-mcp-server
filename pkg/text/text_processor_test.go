@@ -253,6 +253,68 @@ func TestBlocksToText(t *testing.T) {
 			},
 			want: "Only fields",
 		},
+		{
+			name: "ordered rich text list skips empty items without number gaps",
+			blocks: slack.Blocks{
+				BlockSet: []slack.Block{
+					&slack.RichTextBlock{
+						Type: slack.MBTRichText,
+						Elements: []slack.RichTextElement{
+							&slack.RichTextList{
+								Type:   slack.RTEList,
+								Style:  slack.RTEListOrdered,
+								Offset: 0,
+								Elements: []slack.RichTextElement{
+									&slack.RichTextSection{
+										Type: slack.RTESection,
+										Elements: []slack.RichTextSectionElement{
+											&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "one"},
+										},
+									},
+									&slack.RichTextSection{
+										Type:     slack.RTESection,
+										Elements: []slack.RichTextSectionElement{},
+									},
+									&slack.RichTextSection{
+										Type: slack.RTESection,
+										Elements: []slack.RichTextSectionElement{
+											&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "two"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: "1. one\n2. two",
+		},
+		{
+			name: "ordered rich text list honors Offset",
+			blocks: slack.Blocks{
+				BlockSet: []slack.Block{
+					&slack.RichTextBlock{
+						Type: slack.MBTRichText,
+						Elements: []slack.RichTextElement{
+							&slack.RichTextList{
+								Type:   slack.RTEList,
+								Style:  slack.RTEListOrdered,
+								Offset: 3,
+								Elements: []slack.RichTextElement{
+									&slack.RichTextSection{
+										Type: slack.RTESection,
+										Elements: []slack.RichTextSectionElement{
+											&slack.RichTextSectionTextElement{Type: slack.RTSEText, Text: "four"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: "4. four",
+		},
 	}
 
 	for _, tt := range tests {

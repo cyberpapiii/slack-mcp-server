@@ -59,12 +59,17 @@ func SetupMCP(cfg MCPConfig) (*MCPConnection, error) {
 		"SLACK_MCP_XOXP_TOKEN="+xoxp,
 		"SLACK_MCP_HOST="+host,
 		"SLACK_MCP_PORT="+strconv.Itoa(port),
-		"SLACK_MCP_ADD_MESSAGE_TOOL=true",
 		"SLACK_MCP_API_KEY="+cfg.SSEKey,
 		"SLACK_MCP_USERS_CACHE=/tmp/users_cache.json",
 		"SLACK_MCP_CHANNELS_CACHE=/tmp/channels_cache_v3.json",
 	)
 
+	if cfg.MessageToolEnabled {
+		cmd.Env = append(cmd.Env, "SLACK_MCP_ADD_MESSAGE_TOOL=true")
+	}
+	if cfg.MessageToolMark {
+		cmd.Env = append(cmd.Env, "SLACK_MCP_ADD_MESSAGE_MARK=true")
+	}
 	if len(cfg.EnabledTools) > 0 {
 		cmd.Env = append(cmd.Env, "SLACK_MCP_ENABLED_TOOLS="+strings.Join(cfg.EnabledTools, ","))
 	}
@@ -96,7 +101,6 @@ func SetupMCP(cfg MCPConfig) (*MCPConnection, error) {
 			if strings.Contains(line, "Slack MCP Server is fully ready") {
 				select {
 				case <-ready:
-					// already closed, ignore
 				default:
 					close(ready)
 				}
@@ -120,7 +124,6 @@ func SetupMCP(cfg MCPConfig) (*MCPConnection, error) {
 	const bootTimeout = 30 * time.Second
 	select {
 	case <-ready:
-		// ready to go
 	case <-done:
 		cancel()
 		return nil, fmt.Errorf("MCP server exited before becoming ready")
@@ -133,11 +136,9 @@ func SetupMCP(cfg MCPConfig) (*MCPConnection, error) {
 		Host: host,
 		Port: port,
 		Shutdown: func() {
-			// Send SIGTERM to the process group
 			if cmd.Process != nil {
 				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 			}
-			// Cancel context and wait for exit
 			cancel()
 			<-done
 		},

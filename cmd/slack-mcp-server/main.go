@@ -101,18 +101,11 @@ func main() {
 			)
 		}
 
-		host := os.Getenv("SLACK_MCP_HOST")
-		if host == "" {
-			host = defaultSseHost
-		}
-		port := os.Getenv("SLACK_MCP_PORT")
-		if port == "" {
-			port = strconv.Itoa(defaultSsePort)
-		}
-
-		sseServer := s.ServeSSE(host + ":" + port)
+		host, port := listenHostPort()
+		addr := host + ":" + port
+		sseServer := s.ServeSSE(addr)
 		logger.Info(
-			fmt.Sprintf("SSE server listening on %s", fmt.Sprintf("%s:%s/sse", host, port)),
+			fmt.Sprintf("SSE server listening on %s:%s/sse", host, port),
 			zap.String("context", "console"),
 			zap.String("host", host),
 			zap.String("port", port),
@@ -124,7 +117,7 @@ func main() {
 			)
 		}
 
-		if err := sseServer.Start(host + ":" + port); err != nil {
+		if err := sseServer.Start(addr); err != nil {
 			logger.Fatal("Server error",
 				zap.String("context", "console"),
 				zap.Error(err),
@@ -138,18 +131,11 @@ func main() {
 			)
 		}
 
-		host := os.Getenv("SLACK_MCP_HOST")
-		if host == "" {
-			host = defaultSseHost
-		}
-		port := os.Getenv("SLACK_MCP_PORT")
-		if port == "" {
-			port = strconv.Itoa(defaultSsePort)
-		}
-
-		httpServer := s.ServeHTTP(host + ":" + port)
+		host, port := listenHostPort()
+		addr := host + ":" + port
+		httpServer := s.ServeHTTP(addr)
 		logger.Info(
-			fmt.Sprintf("HTTP server listening on %s", fmt.Sprintf("%s:%s", host, port)),
+			fmt.Sprintf("HTTP server listening on %s:%s", host, port),
 			zap.String("context", "console"),
 			zap.String("host", host),
 			zap.String("port", port),
@@ -161,7 +147,7 @@ func main() {
 			)
 		}
 
-		if err := httpServer.Start(host + ":" + port); err != nil {
+		if err := httpServer.Start(addr); err != nil {
 			logger.Fatal("Server error",
 				zap.String("context", "console"),
 				zap.Error(err),
@@ -174,6 +160,18 @@ func main() {
 			zap.String("allowed", "stdio, sse, http"),
 		)
 	}
+}
+
+func listenHostPort() (host, port string) {
+	host = os.Getenv("SLACK_MCP_HOST")
+	if host == "" {
+		host = defaultSseHost
+	}
+	port = os.Getenv("SLACK_MCP_PORT")
+	if port == "" {
+		port = strconv.Itoa(defaultSsePort)
+	}
+	return host, port
 }
 
 func validateToolConfig(config string) error {
@@ -309,10 +307,6 @@ func shouldUseColors() bool {
 
 	if os.Getenv("FORCE_COLOR") != "" {
 		return true
-	}
-
-	if env := os.Getenv("ENVIRONMENT"); env == "development" || env == "dev" {
-		return isatty.IsTerminal(os.Stdout.Fd())
 	}
 
 	return isatty.IsTerminal(os.Stdout.Fd())

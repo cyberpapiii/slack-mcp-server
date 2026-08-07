@@ -30,18 +30,12 @@ type httpClient interface {
 }
 
 type Client struct {
-	// cl is the http client to use
-	cl httpClient
-	// edgeAPI is the edge API endpoint
-	edgeAPI string
-	// webclientAPI is the webclient APIs endpoint
+	cl           httpClient
+	edgeAPI      string
 	webclientAPI string
-	// token is the slack token
-	token string
-
-	// teamID is the team ID
-	teamID string
-	tape   io.WriteCloser
+	token        string
+	teamID       string
+	tape         io.WriteCloser
 }
 
 type Option func(*Client)
@@ -52,7 +46,6 @@ func WithTape(tape io.WriteCloser) Option {
 	}
 }
 
-// OptionHTTPClient - provide a custom http client to the slack client.
 func OptionHTTPClient(client httpClient) func(*Client) {
 	return func(cl *Client) {
 		cl.cl = client
@@ -64,8 +57,6 @@ var (
 	ErrNoToken  = errors.New("token is empty")
 )
 
-// getSlackBaseDomain returns the base domain for Slack API endpoints.
-// Returns "slack-gov.com" if SLACK_MCP_GOVSLACK=true, otherwise "slack.com".
 func getSlackBaseDomain() string {
 	if os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
 		return "slack-gov.com"
@@ -98,17 +89,6 @@ func NewWithClient(workspaceName string, teamID string, token string, cl *http.C
 	return c, nil
 }
 
-func NewWithToken(ctx context.Context, token string, cookies []*http.Cookie) (*Client, error) {
-	if token == "" {
-		return nil, ErrNoToken
-	}
-	prov, err := auth.NewValueCookiesAuth(token, cookies)
-	if err != nil {
-		return nil, err
-	}
-	return New(ctx, prov)
-}
-
 type nopTape struct{}
 
 func (nopTape) Write(p []byte) (n int, err error) {
@@ -139,22 +119,6 @@ func NewWithInfo(info *slack.AuthTestResponse, prov auth.Provider, opt ...Option
 		o(c)
 	}
 	return c, nil
-}
-
-func New(ctx context.Context, prov auth.Provider, opt ...Option) (*Client, error) {
-	info, err := prov.Test(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return NewWithInfo(&slack.AuthTestResponse{
-		URL:          info.URL,
-		Team:         info.Team,
-		User:         info.User,
-		TeamID:       info.TeamID,
-		UserID:       info.UserID,
-		EnterpriseID: info.EnterpriseID,
-		BotID:        info.BotID,
-	}, prov, opt...)
 }
 
 func (cl *Client) Raw() httpClient {
@@ -361,12 +325,10 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 		if err != nil {
 			return nil, err
 		}
-		// if we are still rate limited, then we are in trouble
 		if resp.StatusCode == http.StatusTooManyRequests {
-			lg.DebugContext(ctx, "edge.do: did my best, but still rate limited, giving up, not my problem")
+			lg.DebugContext(ctx, "edge.do: still rate limited after one retry")
 			wait, err = parseRetryAfter(resp)
-			// parseRetryAfter only reads headers; close the body on both the
-			// error and the give-up path so it is closed exactly once.
+			// parseRetryAfter only reads headers; close body once on both paths.
 			_, _ = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			if err != nil {
@@ -404,10 +366,6 @@ func values(s any, omitempty bool) url.Values {
 		v.Set(k, fmt.Sprint(val))
 	}
 	return v
-}
-
-func (cl *Client) webapiURL(endpoint string) string {
-	return cl.webclientAPI + endpoint
 }
 
 type APIError struct {

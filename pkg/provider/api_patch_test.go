@@ -47,7 +47,6 @@ func newTestApiProvider(client SlackAPI, snapshot *UsersCache) *ApiProvider {
 	return ap
 }
 
-// TestUnitPatchUser verifies the targeted single-user cache patch behavior.
 func TestUnitPatchUser(t *testing.T) {
 	t.Run("fetches and adds new user to snapshot", func(t *testing.T) {
 		initial := &UsersCache{
@@ -171,9 +170,7 @@ func TestUnitPatchUser(t *testing.T) {
 	})
 }
 
-// TestUnitPatchUserConcurrent verifies that concurrent PatchUser calls do not
-// lose updates via the load->copy->store race that CompareAndSwap retry
-// guards against.
+// Concurrent PatchUser must not drop updates (CAS retry on snapshot store).
 func TestUnitPatchUserConcurrent(t *testing.T) {
 	const seedCount = 5
 	const concurrentPatches = 8

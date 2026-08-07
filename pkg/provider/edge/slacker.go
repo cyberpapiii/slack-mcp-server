@@ -10,21 +10,13 @@ import (
 
 var ErrParameterMissing = errors.New("required parameter missing")
 
-// High level functions that wrap low level calls to webclient API to return
-// the data in the format close to the Slack API.
-
-// channelResult is one pipeline source's contribution to
-// GetConversationsContext.
 type channelResult struct {
 	Channels []slack.Channel
 	Err      error
 }
 
-// collectChannels drains the per-source results, de-duplicating channels by
-// ID.  Individual failures are non-fatal: channels from sources that succeeded
-// are kept, and only if every source failed (nothing was collected) is the last
-// error returned.  The returned seen set lets the caller skip IDs it has
-// already collected.
+// collectChannels de-dupes by ID. Partial source failures are non-fatal; only
+// when every source fails (nothing collected) is the last error returned.
 func collectChannels(results <-chan channelResult) (channels []slack.Channel, seen map[string]struct{}, err error) {
 	seen = make(map[string]struct{})
 	var lastErr error
@@ -50,7 +42,6 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 	var resultC = make(chan channelResult, 2)
 	var pipeline = []func(){
 		func() {
-			// getting client.userBoot information
 			ub, err := cl.ClientUserBoot(ctx)
 			if err != nil {
 				resultC <- channelResult{Err: err}
@@ -63,7 +54,6 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 			resultC <- channelResult{Channels: ch, Err: err}
 		},
 		func() {
-			// collecting the IMs.
 			ims, err := cl.IMList(ctx)
 			var ch = make([]slack.Channel, 0, len(ims))
 			for _, c := range ims {
@@ -72,7 +62,6 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 			resultC <- channelResult{Channels: ch, Err: err}
 		},
 		func() {
-			// collecting the channels.
 			ch, err := cl.SearchChannels(ctx, "")
 			resultC <- channelResult{Channels: ch, Err: err}
 		},
@@ -97,16 +86,12 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 		return nil, "", err
 	}
 
-	// ClientCounts returns MPIM IDs that we haven't seen in the user boot
-	// response. This is supplementary; failures here don't discard the
-	// channels we already collected.
+	// Supplementary MPIM IDs from ClientCounts; failure keeps boot/IM/search results.
 	cr, err := cl.ClientCounts(ctx)
 	if err != nil {
 		return channels, "", nil
 	}
 
-	// determine which mpims are already in the list, and which need to be
-	// fetched
 	var fetchIDs = make([]string, 0, len(cr.MPIMs))
 	for _, c := range cr.MPIMs {
 		if _, seen := seenChannels[c.ID]; !seen {
@@ -114,7 +99,6 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 		}
 	}
 
-	// getting the info on any MPIMs that we haven't seen yet.
 	mpims, err := cl.ConversationsGenericInfo(ctx, fetchIDs...)
 	if err != nil {
 		return channels, "", nil

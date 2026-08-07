@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -185,55 +184,37 @@ func TestValidateEnabledTools(t *testing.T) {
 	})
 }
 
-// Helper to set/unset env vars for tests
-func setEnv(key, value string) func() {
-	old := os.Getenv(key)
-	os.Setenv(key, value)
-	return func() {
-		if old == "" {
-			os.Unsetenv(key)
-		} else {
-			os.Setenv(key, old)
-		}
-	}
-}
-
 func TestShouldAddTool_WriteTool_AddMessage(t *testing.T) {
 	t.Run("empty enabledTools and empty env var - not registered", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
 
 		result := shouldAddTool(ToolConversationsAddMessage, []string{}, "SLACK_MCP_ADD_MESSAGE_TOOL")
 		assert.False(t, result, "write tool should NOT be registered when both enabledTools is empty and env var is not set")
 	})
 
 	t.Run("empty enabledTools and env var set to true - registered", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "true")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "true")
 
 		result := shouldAddTool(ToolConversationsAddMessage, []string{}, "SLACK_MCP_ADD_MESSAGE_TOOL")
 		assert.True(t, result, "write tool should be registered when enabledTools is empty but env var is set")
 	})
 
 	t.Run("empty enabledTools and env var set to channel list - registered", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "C123,C456")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C123,C456")
 
 		result := shouldAddTool(ToolConversationsAddMessage, []string{}, "SLACK_MCP_ADD_MESSAGE_TOOL")
 		assert.True(t, result, "write tool should be registered when enabledTools is empty but env var has channel list")
 	})
 
 	t.Run("explicit enabledTools includes tool and empty env var - registered", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
 
 		result := shouldAddTool(ToolConversationsAddMessage, []string{ToolConversationsAddMessage}, "SLACK_MCP_ADD_MESSAGE_TOOL")
 		assert.True(t, result, "write tool should be registered when explicitly in enabledTools even without env var")
 	})
 
 	t.Run("explicit enabledTools excludes tool - not registered even with env var", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "true")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "true")
 
 		result := shouldAddTool(ToolConversationsAddMessage, []string{ToolConversationsHistory}, "SLACK_MCP_ADD_MESSAGE_TOOL")
 		assert.False(t, result, "write tool should NOT be registered when not in explicit enabledTools list")
@@ -242,8 +223,7 @@ func TestShouldAddTool_WriteTool_AddMessage(t *testing.T) {
 
 func TestShouldAddTool_WriteTool_Reactions(t *testing.T) {
 	t.Run("empty enabledTools and no env var - not registered", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_REACTION_TOOL", "")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_REACTION_TOOL", "")
 
 		result := shouldAddTool(ToolReactionsAdd, []string{}, "SLACK_MCP_REACTION_TOOL")
 		assert.False(t, result, "reactions_add should NOT be registered when env var is not set")
@@ -253,8 +233,7 @@ func TestShouldAddTool_WriteTool_Reactions(t *testing.T) {
 	})
 
 	t.Run("empty enabledTools and env var set - registered", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_REACTION_TOOL", "true")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_REACTION_TOOL", "true")
 
 		result := shouldAddTool(ToolReactionsAdd, []string{}, "SLACK_MCP_REACTION_TOOL")
 		assert.True(t, result, "reactions_add should be registered when env var is set")
@@ -264,8 +243,7 @@ func TestShouldAddTool_WriteTool_Reactions(t *testing.T) {
 	})
 
 	t.Run("explicit enabledTools includes tool - registered without env var", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_REACTION_TOOL", "")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_REACTION_TOOL", "")
 
 		result := shouldAddTool(ToolReactionsAdd, []string{ToolReactionsAdd}, "SLACK_MCP_REACTION_TOOL")
 		assert.True(t, result, "reactions_add should be registered when explicitly in enabledTools")
@@ -274,24 +252,21 @@ func TestShouldAddTool_WriteTool_Reactions(t *testing.T) {
 
 func TestShouldAddTool_WriteTool_Attachment(t *testing.T) {
 	t.Run("empty enabledTools and no env var - not registered", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_ATTACHMENT_TOOL", "")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_ATTACHMENT_TOOL", "")
 
 		result := shouldAddTool(ToolAttachmentGetData, []string{}, "SLACK_MCP_ATTACHMENT_TOOL")
 		assert.False(t, result, "attachment_get_data should NOT be registered when env var is not set")
 	})
 
 	t.Run("empty enabledTools and env var set - registered", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_ATTACHMENT_TOOL", "true")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_ATTACHMENT_TOOL", "true")
 
 		result := shouldAddTool(ToolAttachmentGetData, []string{}, "SLACK_MCP_ATTACHMENT_TOOL")
 		assert.True(t, result, "attachment_get_data should be registered when env var is set")
 	})
 
 	t.Run("explicit enabledTools includes tool - registered without env var", func(t *testing.T) {
-		cleanup := setEnv("SLACK_MCP_ATTACHMENT_TOOL", "")
-		defer cleanup()
+		t.Setenv("SLACK_MCP_ATTACHMENT_TOOL", "")
 
 		result := shouldAddTool(ToolAttachmentGetData, []string{ToolAttachmentGetData}, "SLACK_MCP_ATTACHMENT_TOOL")
 		assert.True(t, result, "attachment_get_data should be registered when explicitly in enabledTools")
@@ -355,8 +330,6 @@ func TestRegisterCacheDependentTools(t *testing.T) {
 }
 
 func TestShouldAddTool_DraftMessage(t *testing.T) {
-	// conversations_draft_message is read-only (no env var gate), same as conversations_history.
-	// It follows the read-only tool pattern: registered by default, filtered only via enabledTools.
 	t.Run("empty enabledTools - registered by default", func(t *testing.T) {
 		result := shouldAddTool(ToolConversationsDraftMessage, []string{}, "")
 		assert.True(t, result, "read-only draft tool should be registered by default")
@@ -410,7 +383,7 @@ func setupMCPClientServer(t *testing.T, opts []server.ServerOption, toolHandler 
 	return c
 }
 
-func TestIntegrationErrorRecoveryMiddleware(t *testing.T) {
+func TestErrorRecoveryMiddleware(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("handler error is converted to isError tool result", func(t *testing.T) {
@@ -473,9 +446,6 @@ func TestIntegrationErrorRecoveryMiddleware(t *testing.T) {
 }
 
 func TestShouldAddTool_Matrix(t *testing.T) {
-	// ENABLED_TOOLS × TOOL_ENV_VAR registration matrix:
-	// empty×empty → off; empty×set → on; includes×any → on; excludes×any → off.
-
 	tests := []struct {
 		name         string
 		enabledTools []string
@@ -528,8 +498,7 @@ func TestShouldAddTool_Matrix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cleanup := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", tt.envVarValue)
-			defer cleanup()
+			t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", tt.envVarValue)
 
 			result := shouldAddTool(ToolConversationsAddMessage, tt.enabledTools, "SLACK_MCP_ADD_MESSAGE_TOOL")
 			assert.Equal(t, tt.expected, result)
@@ -537,8 +506,6 @@ func TestShouldAddTool_Matrix(t *testing.T) {
 	}
 }
 
-// Registration-time gates for mark/leave/join and usergroups write tools:
-// absent by default; present when env set or named in enabledTools.
 func TestShouldAddTool_RegistrationTimeGates(t *testing.T) {
 	cases := []struct {
 		tool   string
@@ -555,43 +522,36 @@ func TestShouldAddTool_RegistrationTimeGates(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.tool, func(t *testing.T) {
 			t.Run("absent with no env and no allowlist", func(t *testing.T) {
-				cleanup := setEnv(c.envVar, "")
-				defer cleanup()
+				t.Setenv(c.envVar, "")
 
 				result := shouldAddTool(c.tool, []string{}, c.envVar)
 				assert.False(t, result, "%s should NOT be registered when %s is unset and enabledTools is empty", c.tool, c.envVar)
 			})
 
 			t.Run("present with env var set", func(t *testing.T) {
-				cleanup := setEnv(c.envVar, "true")
-				defer cleanup()
+				t.Setenv(c.envVar, "true")
 
 				result := shouldAddTool(c.tool, []string{}, c.envVar)
 				assert.True(t, result, "%s should be registered when %s is set", c.tool, c.envVar)
 			})
 
 			t.Run("present when explicitly named in enabledTools", func(t *testing.T) {
-				cleanup := setEnv(c.envVar, "")
-				defer cleanup()
+				t.Setenv(c.envVar, "")
 
 				result := shouldAddTool(c.tool, []string{c.tool}, c.envVar)
 				assert.True(t, result, "%s should be registered when explicitly named in enabledTools even without %s", c.tool, c.envVar)
 			})
 
 			t.Run("absent when allowlist excludes it even with env var set", func(t *testing.T) {
-				cleanup := setEnv(c.envVar, "true")
-				defer cleanup()
+				t.Setenv(c.envVar, "true")
 
 				result := shouldAddTool(c.tool, []string{ToolConversationsHistory}, c.envVar)
 				assert.False(t, result, "%s should NOT be registered when enabledTools excludes it", c.tool)
 			})
 
-			// Plan 025: these are boolean gates, so a non-truthy value must
-			// leave the tool unregistered rather than enabling it.
 			for _, value := range []string{"false", "0", "no", "off", "maybe"} {
 				t.Run("absent with env var set to "+value, func(t *testing.T) {
-					cleanup := setEnv(c.envVar, value)
-					defer cleanup()
+					t.Setenv(c.envVar, value)
 
 					result := shouldAddTool(c.tool, []string{}, c.envVar)
 					assert.False(t, result, "%s should NOT be registered when %s=%q", c.tool, c.envVar, value)
@@ -600,8 +560,7 @@ func TestShouldAddTool_RegistrationTimeGates(t *testing.T) {
 
 			for _, value := range []string{"1", "yes", "TRUE", "  true  "} {
 				t.Run("present with env var set to "+value, func(t *testing.T) {
-					cleanup := setEnv(c.envVar, value)
-					defer cleanup()
+					t.Setenv(c.envVar, value)
 
 					result := shouldAddTool(c.tool, []string{}, c.envVar)
 					assert.True(t, result, "%s should be registered when %s=%q", c.tool, c.envVar, value)
@@ -611,7 +570,6 @@ func TestShouldAddTool_RegistrationTimeGates(t *testing.T) {
 	}
 }
 
-// ADD_MESSAGE and REACTION gates take a channel allowlist; any non-empty value registers.
 func TestShouldAddTool_ChannelListGates(t *testing.T) {
 	cases := []struct {
 		tool   string
@@ -626,8 +584,7 @@ func TestShouldAddTool_ChannelListGates(t *testing.T) {
 		t.Run(c.tool, func(t *testing.T) {
 			for _, value := range []string{"true", "1", "C123,C456", "!C123", "C1234567890,D0987654321"} {
 				t.Run("registered with env var "+value, func(t *testing.T) {
-					cleanup := setEnv(c.envVar, value)
-					defer cleanup()
+					t.Setenv(c.envVar, value)
 
 					result := shouldAddTool(c.tool, []string{}, c.envVar)
 					assert.True(t, result, "%s should be registered when %s=%q (channel list is the configuration)", c.tool, c.envVar, value)
@@ -635,8 +592,7 @@ func TestShouldAddTool_ChannelListGates(t *testing.T) {
 			}
 
 			t.Run("not registered when env var is empty", func(t *testing.T) {
-				cleanup := setEnv(c.envVar, "")
-				defer cleanup()
+				t.Setenv(c.envVar, "")
 
 				result := shouldAddTool(c.tool, []string{}, c.envVar)
 				assert.False(t, result, "%s should NOT be registered when %s is unset", c.tool, c.envVar)
