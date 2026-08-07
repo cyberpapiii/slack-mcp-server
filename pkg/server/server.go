@@ -378,7 +378,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
 		),
 		mcp.WithNumber("limit",
-			mcp.DefaultNumber(20),
+			mcp.DefaultNumber(100),
 			mcp.Description("The maximum number of items to return. Must be an integer between 1 and 100."),
 		),
 		mcp.WithString("detail",

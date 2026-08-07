@@ -1107,7 +1107,7 @@ func TestUnitRequireToolEnabled(t *testing.T) {
 	})
 }
 
-// Bug A: the search tool schema declares DefaultNumber(20) and a documented
+// Bug A: the search tool schema declares DefaultNumber(100) and a documented
 // 1..100 range; the parser must default and clamp to match.
 func TestUnitParseParamsToolSearchLimit(t *testing.T) {
 	ch := &ConversationsHandler{logger: zap.NewNop()}
@@ -1117,9 +1117,9 @@ func TestUnitParseParamsToolSearchLimit(t *testing.T) {
 		args map[string]any
 		want int
 	}{
-		{"absent limit uses schema default", map[string]any{"search_query": "hello"}, 20},
-		{"explicit zero uses schema default", map[string]any{"search_query": "hello", "limit": 0}, 20},
-		{"negative uses schema default", map[string]any{"search_query": "hello", "limit": -5}, 20},
+		{"absent limit uses schema default", map[string]any{"search_query": "hello"}, 100},
+		{"explicit zero uses schema default", map[string]any{"search_query": "hello", "limit": 0}, 100},
+		{"negative uses schema default", map[string]any{"search_query": "hello", "limit": -5}, 100},
 		{"above max clamps to 100", map[string]any{"search_query": "hello", "limit": 500}, 100},
 		{"in-range value passes through", map[string]any{"search_query": "hello", "limit": 50}, 50},
 		{"max value passes through", map[string]any{"search_query": "hello", "limit": 100}, 100},

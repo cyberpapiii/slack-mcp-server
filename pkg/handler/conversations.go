@@ -33,9 +33,9 @@ const (
 	defaultConversationsExpressionLimit = "1d"
 	maxFileSizeBytes                    = 5 * 1024 * 1024 // 5MB limit
 
-	// Search `limit` bounds, mirroring the tool schema's DefaultNumber(20) and
-	// its "Must be an integer between 1 and 100" description.
-	defaultSearchMessagesLimit = 20
+	// Search `limit` bounds. Default and max are both 100, matching the tool
+	// schema's DefaultNumber(100) and its "between 1 and 100" description.
+	defaultSearchMessagesLimit = 100
 	maxSearchMessagesLimit     = 100
 )
 
@@ -2673,7 +2673,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	}
 
 	finalQuery := buildQuery(freeText, filters)
-	// The tool schema declares a default of 20 and a documented range of
+	// The tool schema declares a default of 100 and a documented range of
 	// 1..100; clamp so out-of-range values are never forwarded to Slack.
 	limit := req.GetInt("limit", defaultSearchMessagesLimit)
 	if limit <= 0 {

@@ -83,7 +83,7 @@ Search messages in a public channel, private channel, or direct message (DM, or 
   - `filter_date_during` (string, optional): Filter messages sent during a specific period in format `YYYY-MM-DD`. Example: `July`, `Yesterday` or `Today`. If not provided, all dates will be searched.
   - `filter_threads_only` (boolean, default: false): If true, the response will include only messages from threads. Default is boolean false.
   - `cursor` (string, default: ""): Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request.
-  - `limit` (number, default: 20): The maximum number of items to return. Must be an integer between 1 and 100.
+  - `limit` (number, default: 100): The maximum number of items to return. Must be an integer between 1 and 100.
 
 ### 6. channels_list:
 Get list of channels
