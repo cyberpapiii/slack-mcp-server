@@ -995,12 +995,6 @@ type UnreadChannel struct {
 	Latest      string `json:"latest"`
 }
 
-// UnreadMessage extends Message with channel context
-type UnreadMessage struct {
-	Message
-	ChannelType string `json:"channelType"`
-}
-
 // ConversationsUnreadsHandler returns unread messages across all channels
 func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ch.logger.Debug("ConversationsUnreadsHandler called", zap.Any("params", request.Params))
@@ -2875,13 +2869,6 @@ func buildLegendHeader(messages []Message, workspaceURL string) string {
 	}
 
 	return sb.String()
-}
-
-func getUserInfo(userID string, usersMap map[string]slack.User) (userName, realName string, ok bool) {
-	if u, ok := usersMap[userID]; ok {
-		return u.Name, u.RealName, true
-	}
-	return userID, userID, false
 }
 
 // userResolver resolves user IDs to names, fetching unknown users from the
