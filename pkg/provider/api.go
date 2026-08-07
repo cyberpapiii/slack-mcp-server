@@ -238,10 +238,22 @@ func writeBrowserRuntimeStatus(state, reason string, logger *zap.Logger) {
 	}
 }
 
+// osascriptNotificationArgs builds the argv for a degradation notification.
+// The message travels as an argument to a fixed script — never interpolated
+// into AppleScript source — so no escaping is needed.
+func osascriptNotificationArgs(reason string) []string {
+	const maxRunes = 200
+	if r := []rune(reason); len(r) > maxRunes {
+		reason = string(r[:maxRunes]) + "…"
+	}
+	const script = `on run argv
+	display notification (item 1 of argv) with title "Slack MCP fallback active"
+end run`
+	return []string{"-e", script, reason}
+}
+
 func notifyBrowserDegradation(reason string, logger *zap.Logger) {
-	if err := exec.Command("osascript", "-e", fmt.Sprintf(`display notification "%s" with title "Slack MCP fallback active"`,
-		strings.ReplaceAll(reason, `"`, `\"`),
-	)).Run(); err != nil {
+	if err := exec.Command("osascript", osascriptNotificationArgs(reason)...).Run(); err != nil {
 		logger.Debug("Failed to emit browser degradation notification", zap.Error(err))
 	}
 }
