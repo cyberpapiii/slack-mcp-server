@@ -1,0 +1,7 @@
+{
+  "class": "handler_error",
+  "protocol_error": false,
+  "is_error": true,
+  "content_type": "text",
+  "text": "simulated tool error: invalid channel ID"
+}
