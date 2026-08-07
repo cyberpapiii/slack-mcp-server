@@ -924,3 +924,79 @@ func TestUnitCompactCSVLegendDeterministic(t *testing.T) {
 
 	assert.Equal(t, body1, body2)
 }
+
+// TestUnitIsToolInEnabledList covers plan 014: isToolInEnabledList must do an
+// exact, comma-split match rather than a raw substring match, so that a
+// longer tool name (or one sharing a prefix) present in the allowlist does
+// not accidentally enable an unrelated tool.
+func TestUnitIsToolInEnabledList(t *testing.T) {
+	tests := []struct {
+		name         string
+		enabledTools string
+		toolName     string
+		want         bool
+	}{
+		{"empty list", "", "conversations_add_message", false},
+		{"exact match single item", "conversations_add_message", "conversations_add_message", true},
+		{"exact match among many", "channels_list,conversations_add_message,reactions_add", "conversations_add_message", true},
+		{"no match", "channels_list,reactions_add", "conversations_add_message", false},
+		{"whitespace padding around match", " conversations_add_message , channels_list ", "conversations_add_message", true},
+		{
+			name:         "substring collision - longer name in list must NOT enable shorter name",
+			enabledTools: "conversations_add_message_v2",
+			toolName:     "conversations_add_message",
+			want:         false,
+		},
+		{
+			name:         "substring collision - shorter name in list must NOT enable longer name",
+			enabledTools: "conversations_add_message",
+			toolName:     "conversations_add_message_v2",
+			want:         false,
+		},
+		{"substring collision reactions_add vs reactions_add_extra", "reactions_add_extra", "reactions_add", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isToolInEnabledList(tt.enabledTools, tt.toolName)
+			assert.Equal(t, tt.want, got, "isToolInEnabledList(%q, %q)", tt.enabledTools, tt.toolName)
+		})
+	}
+}
+
+// TestUnitRequireToolEnabled covers the shared call-time gate helper used by
+// conversations_leave/join and the usergroups write handlers (plan 014):
+// enabled either via the tool's dedicated env var or via an exact-match
+// entry in SLACK_MCP_ENABLED_TOOLS.
+func TestUnitRequireToolEnabled(t *testing.T) {
+	const envVar = "SLACK_MCP_TEST_REQUIRE_TOOL_ENABLED"
+	const toolName = "conversations_leave"
+
+	t.Run("neither env var nor allowlist set - disabled", func(t *testing.T) {
+		t.Setenv(envVar, "")
+		t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
+
+		assert.False(t, requireToolEnabled(envVar, toolName))
+	})
+
+	t.Run("env var set - enabled", func(t *testing.T) {
+		t.Setenv(envVar, "true")
+		t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
+
+		assert.True(t, requireToolEnabled(envVar, toolName))
+	})
+
+	t.Run("tool named in allowlist - enabled without env var", func(t *testing.T) {
+		t.Setenv(envVar, "")
+		t.Setenv("SLACK_MCP_ENABLED_TOOLS", "channels_list,"+toolName)
+
+		assert.True(t, requireToolEnabled(envVar, toolName))
+	})
+
+	t.Run("allowlist has substring-colliding name only - still disabled", func(t *testing.T) {
+		t.Setenv(envVar, "")
+		t.Setenv("SLACK_MCP_ENABLED_TOOLS", toolName+"_extra")
+
+		assert.False(t, requireToolEnabled(envVar, toolName))
+	})
+}

@@ -574,3 +574,58 @@ func TestShouldAddTool_Matrix(t *testing.T) {
 		})
 	}
 }
+
+// TestShouldAddTool_RegistrationTimeGates covers plan 014: six previously
+// ungated mutating tools (conversations_mark/leave/join and
+// usergroups_create/update/users_update) must now behave like other write
+// tools at registration time - absent by default, present when their env
+// var is set, present when explicitly named in enabledTools.
+func TestShouldAddTool_RegistrationTimeGates(t *testing.T) {
+	cases := []struct {
+		tool   string
+		envVar string
+	}{
+		{ToolConversationsMark, "SLACK_MCP_MARK_TOOL"},
+		{ToolConversationsLeave, "SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL"},
+		{ToolConversationsJoin, "SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL"},
+		{ToolUsergroupsCreate, "SLACK_MCP_USERGROUPS_WRITE_TOOL"},
+		{ToolUsergroupsUpdate, "SLACK_MCP_USERGROUPS_WRITE_TOOL"},
+		{ToolUsergroupsUsersUpdate, "SLACK_MCP_USERGROUPS_WRITE_TOOL"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.tool, func(t *testing.T) {
+			t.Run("absent with no env and no allowlist", func(t *testing.T) {
+				cleanup := setEnv(c.envVar, "")
+				defer cleanup()
+
+				result := shouldAddTool(c.tool, []string{}, c.envVar)
+				assert.False(t, result, "%s should NOT be registered when %s is unset and enabledTools is empty", c.tool, c.envVar)
+			})
+
+			t.Run("present with env var set", func(t *testing.T) {
+				cleanup := setEnv(c.envVar, "true")
+				defer cleanup()
+
+				result := shouldAddTool(c.tool, []string{}, c.envVar)
+				assert.True(t, result, "%s should be registered when %s is set", c.tool, c.envVar)
+			})
+
+			t.Run("present when explicitly named in enabledTools", func(t *testing.T) {
+				cleanup := setEnv(c.envVar, "")
+				defer cleanup()
+
+				result := shouldAddTool(c.tool, []string{c.tool}, c.envVar)
+				assert.True(t, result, "%s should be registered when explicitly named in enabledTools even without %s", c.tool, c.envVar)
+			})
+
+			t.Run("absent when allowlist excludes it even with env var set", func(t *testing.T) {
+				cleanup := setEnv(c.envVar, "true")
+				defer cleanup()
+
+				result := shouldAddTool(c.tool, []string{ToolConversationsHistory}, c.envVar)
+				assert.False(t, result, "%s should NOT be registered when enabledTools excludes it", c.tool)
+			})
+		})
+	}
+}
