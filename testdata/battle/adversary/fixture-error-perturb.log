@@ -18,5 +18,5 @@
           "text": "simulated tool error: invalid channel ID"
         }
 FAIL
-FAIL	github.com/korotovsky/slack-mcp-server/pkg/server	0.010s
+FAIL	github.com/korotovsky/slack-mcp-server/pkg/server	0.009s
 FAIL

@@ -205,6 +205,154 @@ func TestADV003CancelledChannelWarmStopsWaitingForSlowDependency(t *testing.T) {
 		"cancelled channel waiter should not start another dependency call")
 }
 
+type advChannelLeaderDeadlineClient struct {
+	SlackAPI
+
+	calls      atomic.Int32
+	firstEnter chan struct{}
+}
+
+func (c *advChannelLeaderDeadlineClient) GetConversationsContext(ctx context.Context, _ *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+	call := c.calls.Add(1)
+	if call == 1 {
+		close(c.firstEnter)
+		<-ctx.Done()
+		return nil, "", ctx.Err()
+	}
+
+	timer := time.NewTimer(25 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		channel := slack.Channel{}
+		channel.ID = "C001"
+		channel.Name = "retry_success"
+		channel.NameNormalized = channel.Name
+		return []slack.Channel{channel}, "", nil
+	case <-ctx.Done():
+		return nil, "", ctx.Err()
+	}
+}
+
+func TestADV004ChannelLeaderDeadlineOwnsSharedDependency(t *testing.T) {
+	const waiters = 23
+	client := &advChannelLeaderDeadlineClient{firstEnter: make(chan struct{})}
+	ap := newTestApiProvider(client, emptyUsersCache())
+	ap.channelsCachePath = t.TempDir() + "/channels.json"
+
+	leaderCtx, cancelLeader := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancelLeader()
+	leaderDone := make(chan error, 1)
+	go func() {
+		leaderDone <- ap.RefreshChannels(leaderCtx)
+	}()
+	select {
+	case <-client.firstEnter:
+	case <-time.After(2 * time.Second):
+		t.Fatal("channel leader never entered dependency")
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, waiters)
+	var ready sync.WaitGroup
+	var done sync.WaitGroup
+	ready.Add(waiters)
+	done.Add(waiters)
+	for i := 0; i < waiters; i++ {
+		go func() {
+			defer done.Done()
+			ready.Done()
+			<-start
+			errs <- ap.RefreshChannels(context.Background())
+		}()
+	}
+	ready.Wait()
+	begin := time.Now()
+	close(start)
+
+	require.ErrorIs(t, <-leaderDone, context.DeadlineExceeded)
+	done.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	elapsed := time.Since(begin)
+	t.Logf("channel_leader_deadline=25ms waiters=%d dependency_calls=%d waiter_completion=%s",
+		waiters, client.calls.Load(), elapsed)
+	assert.Equal(t, int32(2), client.calls.Load(),
+		"channel leader deadline should fail shared attempt; live waiters should share one retry")
+	assert.Equal(t, "#retry_success", ap.channelsSnapshot.Load().Channels["C001"].Name)
+}
+
+type advPersistentChannelFailureClient struct {
+	SlackAPI
+
+	calls        atomic.Int32
+	firstEnter   chan struct{}
+	firstRelease chan struct{}
+}
+
+func (c *advPersistentChannelFailureClient) GetConversationsContext(ctx context.Context, _ *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+	call := c.calls.Add(1)
+	if call == 1 {
+		close(c.firstEnter)
+		select {
+		case <-c.firstRelease:
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		}
+	}
+	return nil, "", errors.New("persistent channels failure")
+}
+
+func TestADV004PersistentChannelFailureSerializesOneAttemptPerCaller(t *testing.T) {
+	const callers = 24
+	client := &advPersistentChannelFailureClient{
+		firstEnter:   make(chan struct{}),
+		firstRelease: make(chan struct{}),
+	}
+	ap := newTestApiProvider(client, emptyUsersCache())
+	ap.channelsCachePath = t.TempDir() + "/channels.json"
+
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var ready sync.WaitGroup
+	var done sync.WaitGroup
+	ready.Add(callers)
+	done.Add(callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			defer done.Done()
+			ready.Done()
+			<-start
+			errs <- ap.RefreshChannels(context.Background())
+		}()
+	}
+	ready.Wait()
+	close(start)
+	select {
+	case <-client.firstEnter:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first channel attempt never entered dependency")
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	begin := time.Now()
+	close(client.firstRelease)
+	done.Wait()
+	close(errs)
+	for err := range errs {
+		require.ErrorContains(t, err, "persistent channels failure")
+	}
+
+	elapsed := time.Since(begin)
+	t.Logf("callers=%d persistent_channel_failure_dependency_calls=%d serialized_tail=%s",
+		callers, client.calls.Load(), elapsed)
+	assert.Equal(t, int32(callers), client.calls.Load(),
+		"persistent channel failure should preserve one serialized dependency attempt per caller")
+}
+
 func TestADV001CancelledWarmStopsWaitingForSlowDependency(t *testing.T) {
 	client := &advUsersClient{
 		firstEnter:   make(chan struct{}),
