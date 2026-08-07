@@ -1532,7 +1532,20 @@ func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
 	ap.fetchChannelsMu.Lock()
 	defer ap.fetchChannelsMu.Unlock()
 
-	channels := ap.GetChannels(ctx, AllChanTypes)
+	channels, err := ap.GetChannels(ctx, AllChanTypes)
+
+	// Checked before the zero-channel case so that a failure on the very first
+	// page reports the real cause rather than "returned zero channels". A
+	// truncated list must never be written to the cache file as if complete.
+	if err != nil {
+		if ap.channelsReady.Load() {
+			ap.logger.Warn("Channel fetch incomplete, keeping existing cache",
+				zap.Int("partialCount", len(channels)),
+				zap.Error(err))
+			return nil
+		}
+		return fmt.Errorf("channel fetch incomplete and no existing cache is available: %w", err)
+	}
 
 	if len(channels) == 0 {
 		if ap.channelsReady.Load() {
@@ -1598,45 +1611,74 @@ func (ap *ApiProvider) GetSlackConnect(ctx context.Context) ([]slack.User, error
 	return res, nil
 }
 
-func (ap *ApiProvider) GetChannelsType(ctx context.Context, channelType string) []Channel {
+func (ap *ApiProvider) GetChannelsType(ctx context.Context, channelType string) ([]Channel, error) {
 	return ap.getChannelsMultiType(ctx, []string{channelType})
 }
 
-func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []string) []Channel {
+// slackRetryAfter reports the retry-after duration for a Slack rate-limit
+// error, or 0 when the error is not retryable. It is the retryAfter callback
+// for limiter.CallWithRetry.
+func slackRetryAfter(err error) time.Duration {
+	var rle *slack.RateLimitedError
+	if errors.As(err, &rle) {
+		return rle.RetryAfter
+	}
+	return 0
+}
+
+// channelsPageResult bundles the two success values of GetConversationsContext
+// so the call can be passed to limiter.CallWithRetry, which is generic over a
+// single return value.
+type channelsPageResult struct {
+	channels []slack.Channel
+	cursor   string
+}
+
+// getChannelsMultiType paginates conversations.list and returns every channel
+// it collected. A non-nil error means the list is INCOMPLETE: the partial data
+// is still returned so the caller can decide what to do with it, but it must
+// never be treated as a full channel list. Silently returning a truncated list
+// with a nil error is what previously let a single mid-pagination failure
+// overwrite a good cache with a short one, in memory and on disk.
+func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []string) ([]Channel, error) {
 	params := &slack.GetConversationsParameters{
 		Types:           channelTypes,
 		Limit:           999,
 		ExcludeArchived: true,
 	}
 
-	var (
-		channels []slack.Channel
-		chans    []Channel
-
-		nextcur string
-		err     error
-	)
+	var chans []Channel
 
 	usersMap := ap.ProvideUsersMap().Users
-	lim := limiter.Tier2boost.Limiter()
+	// conversations.list is a standard Web API method, so it is metered at
+	// Slack's documented tier — not at the edge API's boosted rate. The
+	// boosted tier previously used here was a copy-paste from the edge call
+	// sites and ran roughly 10x over budget, which is what made a
+	// mid-pagination 429 likely enough to truncate the cache.
+	lim := limiter.Tier2.Limiter()
 
 	for {
-		if err := lim.Wait(ctx); err != nil {
-			ap.logger.Error("Rate limiter wait failed", zap.Error(err))
-			return nil
-		}
-
-		channels, nextcur, err = ap.client.GetConversationsContext(ctx, params)
+		// CallWithRetry performs the limiter wait itself, so the loop must not
+		// wait again — that would double the pacing. A cancelled context still
+		// surfaces here as CallWithRetry's wrapped wait error.
+		page, err := limiter.CallWithRetry(ctx, lim, 2, slackRetryAfter,
+			func() (channelsPageResult, error) {
+				c, cur, err := ap.client.GetConversationsContext(ctx, params)
+				return channelsPageResult{channels: c, cursor: cur}, err
+			})
 		ap.logger.Debug("Fetched channels",
 			zap.Strings("channelTypes", channelTypes),
-			zap.Int("count", len(channels)),
+			zap.Int("count", len(page.channels)),
 		)
 		if err != nil {
-			ap.logger.Error("Failed to fetch channels", zap.Error(err))
-			break
+			ap.logger.Error("Failed to fetch channels, returning partial result",
+				zap.Strings("channelTypes", channelTypes),
+				zap.Int("collectedSoFar", len(chans)),
+				zap.Error(err))
+			return chans, err
 		}
 
-		for _, channel := range channels {
+		for _, channel := range page.channels {
 			ch := mapChannel(
 				channel.ID,
 				channel.Name,
@@ -1655,16 +1697,16 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 			chans = append(chans, ch)
 		}
 
-		if nextcur == "" {
+		if page.cursor == "" {
 			break
 		}
 
-		params.Cursor = nextcur
+		params.Cursor = page.cursor
 	}
-	return chans
+	return chans, nil
 }
 
-func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) []Channel {
+func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) ([]Channel, error) {
 	if len(channelTypes) == 0 {
 		channelTypes = AllChanTypes
 	}
@@ -1673,7 +1715,13 @@ func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) [
 	// conversations.list API supports multiple types per request, and the edge
 	// API (Enterprise Grid + non-OAuth) returns all types regardless. This
 	// avoids making 4 separate API round-trips (one per type).
-	chans := ap.getChannelsMultiType(ctx, channelTypes)
+	chans, err := ap.getChannelsMultiType(ctx, channelTypes)
+	if err != nil {
+		// The fetch is incomplete. Installing a truncated snapshot would
+		// atomically replace a good cache with a bad one, so leave the
+		// existing snapshot alone and let the caller decide.
+		return chans, err
+	}
 
 	// Build new snapshot with all fetched channels
 	newSnapshot := &ChannelsCache{
@@ -1686,7 +1734,7 @@ func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) [
 	}
 	ap.channelsSnapshot.Store(newSnapshot)
 
-	return chans
+	return chans, nil
 }
 
 func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
