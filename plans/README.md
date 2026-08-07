@@ -104,6 +104,60 @@ after the deploy was verified, reclaiming about 122 MB. All 28 `advisor/*`
 branches survive and every one is merged into `master`; the worktrees were
 only checkouts. `.claude/` is now git-ignored.
 
+**The allowlist gap is closed.** `conversations_get_message` was added to
+`SLACK_MCP_ENABLED_TOOLS` and Plug's `slack` server restarted, taking the live
+tool count from 28 to 29. The truncation receipt now names a tool the client
+can actually call.
+
+## Prose pass (2026-08-07, after all plans)
+
+A separate editing pass over every user-visible and developer-visible string
+in the repository, merged as `d27ba84` from `unslop/text-pass`. Not a plan and
+not audit-driven: three commits covering 36 files at +306/-371.
+
+The part with runtime effect is the 69 rewritten MCP tool description strings
+in `pkg/server/server.go`. Those ship on every `tools/list` call and are what a
+client reads to choose a tool and build its arguments, so they were treated as
+interface text rather than prose. The rest is 111 Go comment lines removed and
+48 rewritten, 155 markdown line rewrites, and 10 `manifest-dxt.json` string
+values. No executable code changed; the Go diff is comments and string literals
+only, confirmed by filtering the diff to non-comment lines.
+
+Seven factual defects surfaced while editing, which is the real argument for
+doing a pass like this:
+
+- `README.md` documented the `since` shorthand as `d1`. The parser at
+  `pkg/handler/conversations.go:3105` reads a number followed by a unit, so the
+  working form is `1d`. The documented form was rejected outright.
+- `README.md` had two `### 6.` headings, leaving 18 tools numbered 1 through 17.
+- `AGENTS.md` claimed 30 registered tools against a `ValidToolNames` of 31.
+- `docs/03-configuration-and-usage.md` listed 29 tools in both of its tool
+  lists, missing `conversations_get_message` and `slack_auth_status`.
+- The `Makefile`'s `release` target called itself `make tag` in both its help
+  text and its usage echo, naming a target that does not exist.
+- `docs/agent-presets.md` quoted the attachment-truncation receipt with an em
+  dash that no longer matched the constant in `pkg/text/text_processor.go`.
+- Two documentation sources described warm-up as retrying 3 times, but
+  `warmupMaxAttempts` is 3 attempts total, so the fast phase was overstated by
+  one round.
+
+Left alone on purpose. `plans/` itself, since restyling a record of past runs
+rewrites history. `SECURITY.md`'s stale `1.1.x` support table, because that file
+states upstream's policy and routes reports to the upstream maintainer's
+address; a fork that publishes no releases should not invent a support
+commitment. The README's traffic figures and its "Zero false positives" claim
+are upstream's, and the latter turns out to have a real basis:
+`pkg/handler/activity.go:86-88` filters on `fi.IsUnread` straight from Slack's
+own ActivityFeed response with no local heuristics, so a false positive would
+have to originate at Slack.
+
+Deployed and verified the same way as the plan stack: PID changed from 79958 to
+95755, `lsof` confirms the new process holds this repo's `bin/slack-mcp-server`,
+its start time (12:57:32) postdates the binary's build time (12:57:28), and
+`plug status` reports `slack` Healthy with 29 tools including the
+cache-dependent ones. The previous binary was copied to
+`bin/slack-mcp-server.prev` first; no rollback was needed.
+
 ## Execution order & status
 
 | Plan | Title | Priority | Effort | Depends on | Status |
