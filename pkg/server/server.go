@@ -63,7 +63,7 @@ const (
 	ToolFilesList                   = "files_list"
 	ToolSlackAuthStatus             = "slack_auth_status"
 
-	toolDetailDescription = "Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."
+	toolDetailDescription = "Output fidelity: 'standard' (compact CSV) or 'full' (all columns, including UserID and Permalink where available). When omitted, follows SLACK_MCP_COMPACT_OUTPUT (compact/standard unless that env is false/0/no, then full). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."
 )
 
 var ValidToolNames = []string{
@@ -120,14 +120,10 @@ func ValidateEnabledTools(tools []string) error {
 	return nil
 }
 
-func isTruthyEnv(value string) bool {
-	return envutil.IsTruthy(value)
-}
-
 // channelListGates are gate variables whose value is a channel allowlist, not
 // a boolean, e.g. "C1234567890,D0987654321" or "!C1234567890". For these, any
 // non-empty value means "enabled", because the value IS the configuration.
-// Every other gate variable is a boolean and goes through isTruthyEnv.
+// Every other gate variable is a boolean and goes through envutil.IsTruthy.
 var channelListGates = map[string]bool{
 	"SLACK_MCP_ADD_MESSAGE_TOOL": true,
 	"SLACK_MCP_REACTION_TOOL":    true,
@@ -150,7 +146,7 @@ func shouldAddTool(name string, enabledTools []string, envVarName string) bool {
 		if channelListGates[envVarName] {
 			return value != ""
 		}
-		return isTruthyEnv(value)
+		return envutil.IsTruthy(value)
 	}
 
 	return false
@@ -215,6 +211,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("detail",
 				mcp.Description(toolDetailDescription),
+				mcp.Enum("standard", "full"),
 			),
 		), conversationsHandler.ConversationsHistoryHandler)
 	}
@@ -245,6 +242,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("detail",
 				mcp.Description(toolDetailDescription),
+				mcp.Enum("standard", "full"),
 			),
 		), conversationsHandler.ConversationsRepliesHandler)
 	}
@@ -280,6 +278,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("detail",
 				mcp.Description(toolDetailDescription),
+				mcp.Enum("standard", "full"),
 			),
 		), conversationsHandler.ConversationsGetMessageHandler)
 	}
@@ -435,6 +434,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("detail",
 				mcp.Description(toolDetailDescription),
+				mcp.Enum("standard", "full"),
 			),
 		), conversationsHandler.ConversationsSearchHandler)
 	}
@@ -522,11 +522,11 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolUsergroupsList, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsList,
-			mcp.WithDescription("List all user groups (subteams) in the workspace. User groups are mention handles like @engineering that notify all members. Use this to find a group's ID before joining or updating it. Returns CSV with columns: id, name, handle, description, user_count, is_external."),
+			mcp.WithDescription("List all user groups (subteams) in the workspace. User groups are mention handles like @engineering that notify all members. Use this to find a group's ID before joining or updating it. Returns CSV with columns: id, name, handle, description, user_count, is_external, date_create, date_update; when include_users=true also users (semicolon-separated user IDs)."),
 			mcp.WithTitleAnnotation("List User Groups"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithBoolean("include_users",
-				mcp.Description("Include list of user IDs in each group. Default is false."),
+				mcp.Description("Include semicolon-separated user IDs in the users CSV column. Default is false."),
 				mcp.DefaultBool(false),
 			),
 			mcp.WithBoolean("include_count",
@@ -615,7 +615,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsUsersUpdateHandler)
 	}
 
-	browserSession := !provider.IsBotToken() && !provider.IsOAuth()
+	browserSession := provider.ConfiguredWithBrowserSession()
 	addSavedList := browserSession && shouldAddTool(ToolSavedList, enabledTools, "")
 	addSavedUpdate := browserSession && shouldAddTool(ToolSavedUpdate, enabledTools, "")
 	addSavedClear := browserSession && shouldAddTool(ToolSavedClearCompleted, enabledTools, "")
@@ -644,6 +644,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				),
 				mcp.WithString("detail",
 					mcp.Description(toolDetailDescription),
+					mcp.Enum("standard", "full"),
 				),
 			), savedHandler.SavedListHandler)
 		}
@@ -727,7 +728,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	provider := s.provider
 	logger := s.logger
 	enabledTools := s.enabledTools
-	browserSession := !provider.IsBotToken() && !provider.IsOAuth()
+	browserSession := provider.ConfiguredWithBrowserSession()
 
 	conversationsHandler := handler.NewConversationsHandler(provider, logger)
 	channelsHandler := handler.NewChannelsHandler(provider, logger)
@@ -830,6 +831,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 			),
 			mcp.WithString("detail",
 				mcp.Description(toolDetailDescription),
+				mcp.Enum("standard", "full"),
 			),
 		), conversationsHandler.ConversationsUnreadsHandler)
 	}
@@ -858,6 +860,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 				),
 				mcp.WithString("detail",
 					mcp.Description(toolDetailDescription),
+					mcp.Enum("standard", "full"),
 				),
 			), activityHandler.ActivityUnreadsHandler)
 		}

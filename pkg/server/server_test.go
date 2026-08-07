@@ -517,6 +517,8 @@ func TestShouldAddTool_RegistrationTimeGates(t *testing.T) {
 		{ToolUsergroupsCreate, "SLACK_MCP_USERGROUPS_WRITE_TOOL"},
 		{ToolUsergroupsUpdate, "SLACK_MCP_USERGROUPS_WRITE_TOOL"},
 		{ToolUsergroupsUsersUpdate, "SLACK_MCP_USERGROUPS_WRITE_TOOL"},
+		{ToolAttachmentGetData, "SLACK_MCP_ATTACHMENT_TOOL"},
+		{ToolFilesList, "SLACK_MCP_FILES_LIST_TOOL"},
 	}
 
 	for _, c := range cases {

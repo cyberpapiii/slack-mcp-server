@@ -610,6 +610,8 @@ func TestUnitIsChannelAllowedForConfig(t *testing.T) {
 		// Allow all cases
 		{"empty config allows all", "C123", "", true},
 		{"true allows all", "C123", "true", true},
+		{"TRUE allows all", "C123", "TRUE", true},
+		{"yes allows all", "C123", "yes", true},
 		{"1 allows all", "C123", "1", true},
 
 		// Allowlist (whitelist) cases
@@ -629,6 +631,10 @@ func TestUnitIsChannelAllowedForConfig(t *testing.T) {
 		{"single allowlist - no match", "C456", "C123", false},
 		{"single blocklist - match", "C123", "!C123", false},
 		{"single blocklist - no match", "C456", "!C123", true},
+
+		// Invalid configs fail closed (startup validateToolConfig should reject)
+		{"bare bang fails closed", "C123", "!", false},
+		{"empty tokens fail closed", "C123", ",,", false},
 	}
 
 	for _, tt := range tests {

@@ -106,8 +106,6 @@ type UserInfo struct {
 	WhoCanShareContactCard string  `json:"who_can_share_contact_card"`
 }
 
-var ErrNotOK = errors.New("server returned NOT OK")
-
 // GetUsers fetches user info by ID via users/info, retrying pending IDs.
 func (cl *Client) GetUsers(ctx context.Context, userID ...string) ([]UserInfo, error) {
 	if len(userID) == 0 {
@@ -130,8 +128,8 @@ func (cl *Client) GetUsers(ctx context.Context, userID ...string) ([]UserInfo, e
 		if err != nil {
 			return nil, err
 		}
-		if !uiresp.Ok {
-			return nil, ErrNotOK
+		if err := uiresp.validate("users/info"); err != nil {
+			return nil, err
 		}
 		if len(uiresp.Results) > 0 {
 			users = append(users, uiresp.Results...)

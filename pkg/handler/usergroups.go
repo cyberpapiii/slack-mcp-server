@@ -22,7 +22,7 @@ type UserGroup struct {
 	IsExternal  bool   `csv:"is_external" json:"is_external" jsonschema_description:"Whether group is external"`
 	DateCreate  string `csv:"date_create" json:"date_create,omitempty" jsonschema_description:"Creation timestamp"`
 	DateUpdate  string `csv:"date_update" json:"date_update,omitempty" jsonschema_description:"Last update timestamp"`
-	Users       string `csv:"users,omitempty" json:"users,omitempty" jsonschema_description:"Comma-separated user IDs when include_users=true"`
+	Users       string `csv:"users,omitempty" json:"users,omitempty" jsonschema_description:"Semicolon-separated user IDs when include_users=true"`
 }
 
 type UsergroupListResult struct {
@@ -53,7 +53,8 @@ func newUserGroupFromSlack(g slack.UserGroup) UserGroup {
 		DateUpdate:  formatJSONTime(g.DateUpdate),
 	}
 	if len(g.Users) > 0 {
-		ug.Users = strings.Join(g.Users, ",")
+		// Semicolon keeps CSV cells unambiguous (IDs never contain ';').
+		ug.Users = strings.Join(g.Users, ";")
 	}
 	return ug
 }

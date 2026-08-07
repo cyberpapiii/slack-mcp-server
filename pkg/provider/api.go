@@ -323,7 +323,7 @@ type MCPSlackClient struct {
 	isEnterprise bool
 	isOAuth      bool
 	isBotToken   bool
-	edgeFailed   bool // sticky: after edge fails, skip edge and use standard API
+	edgeFailed   atomic.Bool // sticky: after edge fails, skip edge and use standard API
 
 	fallbackSlackClient *slack.Client
 	browserState        atomic.Int32
@@ -522,33 +522,34 @@ func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, t
 }
 
 func (c *MCPSlackClient) LeaveConversationContext(ctx context.Context, channelID string) (bool, error) {
-	if c.isEnterprise && !c.isOAuth {
+	if c.isEnterprise && !c.effectiveOAuth() {
 		// Edge webclient path bypasses enterprise_is_restricted on session tokens.
 		notInChannel, err := c.edgeClient.LeaveConversation(ctx, channelID)
 		if err == nil {
 			return notInChannel, nil
 		}
 	}
-	return c.slackClient.LeaveConversationContext(ctx, channelID)
+	return c.standardSlackClient().LeaveConversationContext(ctx, channelID)
 }
 
 func (c *MCPSlackClient) JoinConversationContext(ctx context.Context, channelID string) (*slack.Channel, string, []string, error) {
-	return c.slackClient.JoinConversationContext(ctx, channelID)
+	return c.standardSlackClient().JoinConversationContext(ctx, channelID)
 }
 
 func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+	std := c.standardSlackClient()
 	// Enterprise + session: edge alone is partial (issue #73); merge with fully
 	// paginated standard API and return empty cursor. OAuth / non-Enterprise: standard only.
 	if c.isEnterprise {
-		if c.isOAuth {
-			return c.slackClient.GetConversationsContext(ctx, params)
+		if c.effectiveOAuth() {
+			return std.GetConversationsContext(ctx, params)
 		}
 
-		if !c.edgeFailed {
+		if !c.edgeFailed.Load() {
 			edgeChannels, _, edgeErr := c.edgeClient.GetConversationsContext(ctx, nil)
 			if edgeErr != nil {
-				c.edgeFailed = true
-				return c.slackClient.GetConversationsContext(ctx, params)
+				c.edgeFailed.Store(true)
+				return std.GetConversationsContext(ctx, params)
 			}
 
 			seen := make(map[string]struct{}, len(edgeChannels))
@@ -596,7 +597,7 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 				stdParams.Types = params.Types
 			}
 			for {
-				stdChannels, nextCur, stdErr := c.slackClient.GetConversationsContext(ctx, stdParams)
+				stdChannels, nextCur, stdErr := std.GetConversationsContext(ctx, stdParams)
 				if stdErr != nil {
 					break
 				}
@@ -615,10 +616,10 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 			return channels, "", nil
 		}
 
-		return c.slackClient.GetConversationsContext(ctx, params)
+		return std.GetConversationsContext(ctx, params)
 	}
 
-	return c.slackClient.GetConversationsContext(ctx, params)
+	return std.GetConversationsContext(ctx, params)
 }
 
 func (c *MCPSlackClient) GetConversationsForUserContext(ctx context.Context, params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error) {
@@ -846,6 +847,14 @@ func (c *MCPSlackClient) IsOAuth() bool {
 	return c.effectiveOAuth()
 }
 
+// ConfiguredWithBrowserSession reports construction-time xoxc/xoxd (or similar
+// session) auth — not runtime effectiveOAuth after browser degrade+xoxp fallback.
+// Use this for registering browser-only tools so mid-warmup degradation cannot
+// hide activity/saved tools that still need session credentials when healthy.
+func (c *MCPSlackClient) ConfiguredWithBrowserSession() bool {
+	return !c.isOAuth && !c.isBotToken
+}
+
 func New(transport string, logger *zap.Logger) *ApiProvider {
 	var (
 		authProvider auth.ValueAuth
@@ -1059,16 +1068,26 @@ func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.Use
 
 	for {
 		current := ap.usersSnapshot.Load()
+		usersLen, invLen := 0, 0
+		if current != nil {
+			usersLen = len(current.Users)
+			invLen = len(current.UsersInv)
+		}
 
 		newSnapshot := &UsersCache{
-			Users:    make(map[string]slack.User, len(current.Users)+1),
-			UsersInv: make(map[string]string, len(current.UsersInv)+1),
+			Users:    make(map[string]slack.User, usersLen+1),
+			UsersInv: make(map[string]string, invLen+1),
 		}
-		for k, v := range current.Users {
-			newSnapshot.Users[k] = v
-		}
-		for k, v := range current.UsersInv {
-			newSnapshot.UsersInv[k] = v
+		if current != nil {
+			for k, v := range current.Users {
+				newSnapshot.Users[k] = v
+			}
+			for k, v := range current.UsersInv {
+				if v == user.ID {
+					continue // drop stale name→ID before rename
+				}
+				newSnapshot.UsersInv[k] = v
+			}
 		}
 		newSnapshot.Users[user.ID] = user
 		newSnapshot.UsersInv[user.Name] = user.ID
@@ -1182,17 +1201,6 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 
 	list := users
 
-	newSnapshot := &UsersCache{
-		Users:    make(map[string]slack.User),
-		UsersInv: make(map[string]string),
-	}
-	for _, user := range users {
-		newSnapshot.Users[user.ID] = user
-		newSnapshot.UsersInv[user.Name] = user.ID
-	}
-	// Publish before GetSlackConnect so enrichment can read the current map.
-	ap.usersSnapshot.Store(newSnapshot)
-
 	if ap.IsOAuth() {
 		ap.logger.Debug("Skipping Slack Connect enrichment (OAuth token, browser features unavailable)")
 	} else {
@@ -1202,27 +1210,20 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 				zap.Error(err))
 		} else {
 			list = append(list, connectUsers...)
-
-			// Snapshot maps are shared; copy before mutating.
-			if len(connectUsers) > 0 {
-				finalSnapshot := &UsersCache{
-					Users:    make(map[string]slack.User, len(newSnapshot.Users)+len(connectUsers)),
-					UsersInv: make(map[string]string, len(newSnapshot.UsersInv)+len(connectUsers)),
-				}
-				for k, v := range newSnapshot.Users {
-					finalSnapshot.Users[k] = v
-				}
-				for k, v := range newSnapshot.UsersInv {
-					finalSnapshot.UsersInv[k] = v
-				}
-				for _, user := range connectUsers {
-					finalSnapshot.Users[user.ID] = user
-					finalSnapshot.UsersInv[user.Name] = user.ID
-				}
-				ap.usersSnapshot.Store(finalSnapshot)
-			}
 		}
 	}
+
+	// Single publish after enrichment so concurrent PatchUser CAS is not
+	// clobbered by an intermediate Store of the pre-Connect snapshot.
+	finalSnapshot := &UsersCache{
+		Users:    make(map[string]slack.User, len(list)),
+		UsersInv: make(map[string]string, len(list)),
+	}
+	for _, user := range list {
+		finalSnapshot.Users[user.ID] = user
+		finalSnapshot.UsersInv[user.Name] = user.ID
+	}
+	ap.usersSnapshot.Store(finalSnapshot)
 
 	if data, err := json.MarshalIndent(list, "", "  "); err != nil {
 		ap.logger.Error("Failed to marshal users for cache", zap.Error(err))
@@ -1582,6 +1583,11 @@ func (ap *ApiProvider) IsBotToken() bool {
 func (ap *ApiProvider) IsOAuth() bool {
 	client, ok := ap.client.(*MCPSlackClient)
 	return ok && client != nil && client.IsOAuth()
+}
+
+func (ap *ApiProvider) ConfiguredWithBrowserSession() bool {
+	client, ok := ap.client.(*MCPSlackClient)
+	return ok && client != nil && client.ConfiguredWithBrowserSession()
 }
 
 // Auth workspace base URL, or "" if unavailable (omit workspace-dependent output).

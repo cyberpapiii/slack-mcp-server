@@ -14,7 +14,10 @@ const (
 	warmupMaxAttempts    = 3
 	warmupRetryDelay     = 30 * time.Second
 	warmupSlowRetryDelay = 5 * time.Minute
-	warmupRefreshTimeout = 2 * time.Minute
+	// Match provider background refresh budget so cold large workspaces can
+	// finish warm-up (and RegisterCacheDependentTools) instead of timing out
+	// every attempt at 2m while background fetches get 15m.
+	warmupRefreshTimeout = 15 * time.Minute
 )
 
 // warmupNextDelay: nextAttempt is 1-based. Fast for attempts <= warmupMaxAttempts, else slow.

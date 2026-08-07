@@ -27,6 +27,10 @@ func (cl *Client) ConversationsGenericInfo(ctx context.Context, channelID ...str
 	defer task.End()
 	trace.Logf(ctx, "params", "channelID=%v", channelID)
 
+	if len(channelID) == 0 {
+		return nil, nil
+	}
+
 	updChannel := make(map[string]int, len(channelID))
 	for _, id := range channelID {
 		updChannel[id] = 0

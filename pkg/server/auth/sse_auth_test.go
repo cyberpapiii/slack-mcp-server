@@ -36,11 +36,12 @@ func TestUnitRequireAPIKeyOrOptOut(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:        "deprecated SLACK_MCP_SSE_API_KEY set returns nil",
+			name:        "deprecated SLACK_MCP_SSE_API_KEY set returns nil and warns",
 			apiKey:      "",
 			sseAPIKey:   "my-secret",
 			allowUnauth: "",
 			wantErr:     false,
+			wantWarn:    true,
 		},
 		{
 			name:        "no key, opt-out true returns nil and warns",
@@ -63,6 +64,14 @@ func TestUnitRequireAPIKeyOrOptOut(t *testing.T) {
 			apiKey:         "",
 			sseAPIKey:      "",
 			allowUnauth:    "yes",
+			wantErr:        true,
+			wantErrContain: "SLACK_MCP_ALLOW_UNAUTHENTICATED",
+		},
+		{
+			name:           "no key, opt-out TRUE (EqualFold) is not accepted",
+			apiKey:         "",
+			sseAPIKey:      "",
+			allowUnauth:    "TRUE",
 			wantErr:        true,
 			wantErrContain: "SLACK_MCP_ALLOW_UNAUTHENTICATED",
 		},

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
 	"net/http"
@@ -41,12 +42,17 @@ func apiKeyFromEnv(logger *zap.Logger, warnDeprecated bool) string {
 	return key
 }
 
+func allowUnauthenticated() bool {
+	// Exact match only (docs); do not widen to IsTruthy.
+	return os.Getenv("SLACK_MCP_ALLOW_UNAUTHENTICATED") == "true"
+}
+
 func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
-	if apiKeyFromEnv(logger, false) != "" {
+	if apiKeyFromEnv(logger, true) != "" {
 		return nil
 	}
 
-	if strings.EqualFold(os.Getenv("SLACK_MCP_ALLOW_UNAUTHENTICATED"), "true") {
+	if allowUnauthenticated() {
 		logger.Warn("serving WITHOUT authentication: every client that can reach this server gets full Slack access",
 			zap.String("context", "console"),
 		)
@@ -56,31 +62,45 @@ func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
 	return fmt.Errorf("no API key configured: set SLACK_MCP_API_KEY (or deprecated SLACK_MCP_SSE_API_KEY), or explicitly opt out with SLACK_MCP_ALLOW_UNAUTHENTICATED=true")
 }
 
+func constantTimeEqualAPIKey(configured, provided string) bool {
+	// Hash first so ConstantTimeCompare always runs on equal-length digests
+	// (raw compare leaks length via early exit when sizes differ).
+	sumA := sha256.Sum256([]byte(configured))
+	sumB := sha256.Sum256([]byte(provided))
+	return subtle.ConstantTimeCompare(sumA[:], sumB[:]) == 1
+}
+
 func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
 	keyA := apiKeyFromEnv(logger, true)
 
 	if keyA == "" {
-		alreadyWarned := true
-		silentPassWarnOnce.Do(func() {
-			alreadyWarned = false
-			logger.Warn("No SSE API key configured, skipping authentication",
-				zap.String("context", "http"),
-			)
-		})
-		if alreadyWarned {
-			logger.Debug("No SSE API key configured, skipping authentication",
-				zap.String("context", "http"),
-			)
+		if allowUnauthenticated() {
+			alreadyWarned := true
+			silentPassWarnOnce.Do(func() {
+				alreadyWarned = false
+				logger.Warn("No API key configured; allowing unauthenticated access (SLACK_MCP_ALLOW_UNAUTHENTICATED=true)",
+					zap.String("context", "http"),
+				)
+			})
+			if alreadyWarned {
+				logger.Debug("No API key configured; allowing unauthenticated access",
+					zap.String("context", "http"),
+				)
+			}
+			return true, nil
 		}
-		return true, nil
+		logger.Warn("No API key configured and unauthenticated access not opted in",
+			zap.String("context", "http"),
+		)
+		return false, fmt.Errorf("unauthorized")
 	}
 
 	keyB, ok := ctx.Value(authKey{}).(string)
-	if !ok {
+	if !ok || keyB == "" {
 		logger.Warn("Missing auth token in context",
 			zap.String("context", "http"),
 		)
-		return false, fmt.Errorf("missing auth")
+		return false, fmt.Errorf("unauthorized")
 	}
 
 	logger.Debug("Validating auth token",
@@ -92,11 +112,11 @@ func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
 		keyB = strings.TrimPrefix(keyB, "Bearer ")
 	}
 
-	if subtle.ConstantTimeCompare([]byte(keyA), []byte(keyB)) != 1 {
+	if !constantTimeEqualAPIKey(keyA, keyB) {
 		logger.Warn("Invalid auth token provided",
 			zap.String("context", "http"),
 		)
-		return false, fmt.Errorf("invalid auth token")
+		return false, fmt.Errorf("unauthorized")
 	}
 
 	logger.Debug("Auth token validated successfully",
@@ -157,14 +177,14 @@ func IsAuthenticated(ctx context.Context, transport string, logger *zap.Logger) 
 				zap.String("context", "http"),
 				zap.Error(err),
 			)
-			return false, fmt.Errorf("authentication error: %w", err)
+			return false, fmt.Errorf("unauthorized")
 		}
 
 		if !authenticated {
 			logger.Warn("HTTP/SSE unauthorized request",
 				zap.String("context", "http"),
 			)
-			return false, fmt.Errorf("unauthorized request")
+			return false, fmt.Errorf("unauthorized")
 		}
 
 		return true, nil

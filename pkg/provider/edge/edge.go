@@ -209,6 +209,7 @@ func (cl *Client) callEdgeAPI(ctx context.Context, v any, endpoint string, req P
 		return fmt.Errorf("edge %s: no response and no error", endpoint)
 	}
 	if err != nil && !errors.Is(err, io.EOF) {
+		_ = r.Body.Close()
 		return err
 	}
 	return cl.ParseResponse(v, r)
@@ -251,10 +252,10 @@ func (cl *Client) ParseResponse(req any, r *http.Response) error {
 	if r == nil {
 		return errors.New("nil response")
 	}
+	defer r.Body.Close()
 	if r.StatusCode < http.StatusOK || http.StatusMultipleChoices <= r.StatusCode {
 		return fmt.Errorf("error: status code: %s", r.Status)
 	}
-	defer r.Body.Close()
 	bodyBytes, err := io.ReadAll(cl.recorder(r.Body))
 	if err != nil {
 		return err

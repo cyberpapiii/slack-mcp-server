@@ -1898,22 +1898,35 @@ func (ch *ConversationsHandler) marshalUnreadChannelsToCSV(channels []UnreadChan
 }
 
 func isChannelAllowedForConfig(channel, config string) bool {
-	if config == "" || config == "true" || config == "1" {
+	// Registration treats any non-empty allowlist-gate value as enabled; for
+	// the "all channels" case accept the same truthy set as envutil.IsTruthy
+	// (true/1/yes), not only exact "true"/"1".
+	if config == "" || envutil.IsTruthy(config) {
 		return true
 	}
 	items := strings.Split(config, ",")
-	isNegated := strings.HasPrefix(strings.TrimSpace(items[0]), "!")
+	isNegated := false
+	sawEntry := false
 	for _, item := range items {
 		item = strings.TrimSpace(item)
+		if item == "" || item == "!" {
+			continue
+		}
+		if !sawEntry {
+			isNegated = strings.HasPrefix(item, "!")
+			sawEntry = true
+		}
 		if isNegated {
 			if strings.TrimPrefix(item, "!") == channel {
 				return false
 			}
-		} else {
-			if item == channel {
-				return true
-			}
+		} else if item == channel {
+			return true
 		}
+	}
+	// Empty/`!`-only lists are invalid config (startup should reject); fail closed.
+	if !sawEntry {
+		return false
 	}
 	return isNegated
 }
@@ -2280,13 +2293,9 @@ func isToolInEnabledList(enabledTools, toolName string) bool {
 	return false
 }
 
-func isTruthyEnv(value string) bool {
-	return envutil.IsTruthy(value)
-}
-
 // Dedicated env truthy, or toolName listed in SLACK_MCP_ENABLED_TOOLS.
 func requireToolEnabled(envVarName, toolName string) bool {
-	if isTruthyEnv(os.Getenv(envVarName)) {
+	if envutil.IsTruthy(os.Getenv(envVarName)) {
 		return true
 	}
 	return isToolInEnabledList(os.Getenv("SLACK_MCP_ENABLED_TOOLS"), toolName)
@@ -2364,9 +2373,9 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 		ch.logger.Error("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err
 	}
-	if !isChannelAllowed(channel) {
+	if !isChannelAllowedForConfig(channel, toolConfig) {
 		ch.logger.Warn("Add-message tool not allowed for channel", zap.String("channel", channel), zap.String("policy", toolConfig))
-		return nil, fmt.Errorf("conversations_add_message tool is not allowed for channel %q, applied policy: %s", channel, toolConfig)
+		return nil, fmt.Errorf("conversations_add_message tool is not allowed for channel %q", channel)
 	}
 
 	threadTs := request.GetString("thread_ts", "")
@@ -2460,7 +2469,7 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 	}
 	if !isChannelAllowedForConfig(channel, toolConfig) {
 		ch.logger.Warn("Reactions tool not allowed for channel", zap.String("channel", channel), zap.String("policy", toolConfig))
-		return nil, fmt.Errorf("reactions tools are not allowed for channel %q, applied policy: %s", channel, toolConfig)
+		return nil, fmt.Errorf("reactions tools are not allowed for channel %q", channel)
 	}
 
 	timestamp := request.GetString("timestamp", "")
@@ -2481,22 +2490,13 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 }
 
 func (ch *ConversationsHandler) parseParamsToolFilesGet(request mcp.CallToolRequest) (*filesGetParams, error) {
-	toolConfig := os.Getenv("SLACK_MCP_ATTACHMENT_TOOL")
-	enabledTools := os.Getenv("SLACK_MCP_ENABLED_TOOLS")
-
-	if toolConfig == "" {
-		if !isToolInEnabledList(enabledTools, "attachment_get_data") {
-			ch.logger.Error("Attachment tool disabled by default")
-			return nil, errors.New(
-				"by default, the attachment_get_data tool is disabled. " +
-					"To enable it, set the SLACK_MCP_ATTACHMENT_TOOL environment variable to true or 1",
-			)
-		}
-		toolConfig = "true"
-	}
-	if !isTruthyEnv(toolConfig) {
-		ch.logger.Error("Attachment tool disabled", zap.String("config", toolConfig))
-		return nil, errors.New("SLACK_MCP_ATTACHMENT_TOOL must be set to 'true', '1', or 'yes' to enable")
+	if !requireToolEnabled("SLACK_MCP_ATTACHMENT_TOOL", "attachment_get_data") {
+		ch.logger.Error("Attachment tool disabled by default")
+		return nil, errors.New(
+			"by default, the attachment_get_data tool is disabled. " +
+				"To enable it, set the SLACK_MCP_ATTACHMENT_TOOL environment variable to true or 1, " +
+				"or add 'attachment_get_data' to SLACK_MCP_ENABLED_TOOLS",
+		)
 	}
 
 	fileID := request.GetString("file_id", "")

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server"
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
@@ -57,6 +58,13 @@ func main() {
 			zap.Error(err),
 		)
 	}
+	reactionToolEnv := os.Getenv("SLACK_MCP_REACTION_TOOL")
+	if err = validateToolConfig(reactionToolEnv); err != nil {
+		logger.Fatal("error in SLACK_MCP_REACTION_TOOL",
+			zap.String("context", "console"),
+			zap.Error(err),
+		)
+	}
 
 	err = server.ValidateEnabledTools(enabledTools)
 	if err != nil {
@@ -74,6 +82,13 @@ func main() {
 		p.SkipCache()
 		s.RegisterCacheDependentTools()
 		logger.Info("Cache loading disabled via --no-cache flag",
+			zap.String("context", "console"),
+		)
+	} else if isDemoCredentials() {
+		// Register before Serve so early tools/list sees cache-dependent tools.
+		p.SkipCache()
+		s.RegisterCacheDependentTools()
+		logger.Info("Demo credentials are set, skip cache warm-up",
 			zap.String("context", "console"),
 		)
 	} else {
@@ -175,19 +190,21 @@ func listenHostPort() (host, port string) {
 }
 
 func validateToolConfig(config string) error {
-	if config == "" || config == "true" || config == "1" {
+	if config == "" || envutil.IsTruthy(config) {
 		return nil
 	}
 
 	items := strings.Split(config, ",")
 	hasNegated := false
 	hasPositive := false
+	validEntries := 0
 
 	for _, item := range items {
 		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
+		if item == "" || item == "!" {
+			return fmt.Errorf("empty channel entry in allow/block list")
 		}
+		validEntries++
 		if strings.HasPrefix(item, "!") {
 			hasNegated = true
 		} else {
@@ -195,6 +212,9 @@ func validateToolConfig(config string) error {
 		}
 	}
 
+	if validEntries == 0 {
+		return fmt.Errorf("channel allow/block list has no entries")
+	}
 	if hasNegated && hasPositive {
 		return fmt.Errorf("cannot mix allowed and disallowed (! prefixed) channels")
 	}

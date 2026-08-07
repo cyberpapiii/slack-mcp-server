@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	utls "github.com/refraction-networking/utls"
 	"go.uber.org/zap"
@@ -165,10 +166,9 @@ func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	if resp.Close || resp.Header.Get("Connection") == "close" {
-		conn.Close()
-	}
-
+	// Always close the one-shot dial when the body is drained; keep-alive
+	// reuse is not implemented for CUSTOM_TLS HTTP/1.1.
+	resp.Body = &closeAfterBody{ReadCloser: resp.Body, close: conn.Close}
 	return resp, nil
 }
 
@@ -359,7 +359,7 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client 
 	}
 
 	insecure := false
-	if os.Getenv("SLACK_MCP_SERVER_CA_INSECURE") != "" {
+	if envutil.IsTruthy(os.Getenv("SLACK_MCP_SERVER_CA_INSECURE")) {
 		if localCertFile := os.Getenv("SLACK_MCP_SERVER_CA"); localCertFile != "" {
 			logger.Fatal("SLACK_MCP_SERVER_CA and SLACK_MCP_SERVER_CA_INSECURE cannot be used together")
 		}

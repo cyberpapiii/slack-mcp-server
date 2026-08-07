@@ -93,6 +93,7 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 	if err != nil {
 		return nil, err
 	}
+	query = strings.TrimSpace(query)
 	form := searchForm{
 		BaseRequest:          BaseRequest{Token: cl.token},
 		Module:               "channels",
@@ -124,7 +125,7 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 		maxEmptyQueryPages = 5 // empty query is used for cache warm; avoid full-workspace crawl
 	)
 	maxPages := maxSearchPages
-	if strings.TrimSpace(query) == "" {
+	if query == "" {
 		maxPages = maxEmptyQueryPages
 	}
 	lim := limiter.Tier2boost.Limiter()
@@ -146,11 +147,14 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 		for _, c := range sr.Items {
 			obj := slack.Channel{
 				GroupConversation: c.GroupConversation,
-				IsChannel:         true,
+				IsChannel:         c.IsChannel,
 				IsGeneral:         c.IsGeneral,
 				IsMember:          c.IsMember,
 				Locale:            c.Locale,
 				Properties:        c.Properties,
+			}
+			if !obj.IsChannel && !obj.IsPrivate && !obj.IsIM && !obj.IsMpIM {
+				obj.IsChannel = true
 			}
 			obj.NumMembers = c.NumMembers
 			cc = append(cc, obj)
@@ -165,6 +169,15 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 		seenCursor[sr.Pagination.NextCursor] = struct{}{}
 		lg.DebugContext(ctx, "pagination", "next_cursor", sr.Pagination.NextCursor)
 		form.Cursor = sr.Pagination.NextCursor
+		if page == maxPages-1 {
+			lg.WarnContext(ctx, "SearchChannels page cap reached with remaining cursor; results may be incomplete",
+				"max_pages", maxPages,
+				"channels", len(cc),
+				"next_cursor", sr.Pagination.NextCursor,
+				"empty_query", query == "",
+			)
+			break
+		}
 		if err := lim.Wait(ctx); err != nil {
 			return nil, err
 		}

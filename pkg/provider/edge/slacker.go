@@ -36,7 +36,8 @@ func collectChannels(results <-chan channelResult) (channels []slack.Channel, se
 }
 
 func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConversationsParameters) (channels []slack.Channel, _ string, err error) {
-	var resultC = make(chan channelResult, 2)
+	// Buffer matches pipeline length so producers never block if collect lags.
+	resultC := make(chan channelResult, 3)
 	var pipeline = []func(){
 		func() {
 			ub, err := cl.ClientUserBoot(ctx)
