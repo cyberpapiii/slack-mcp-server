@@ -270,7 +270,6 @@ type Channel struct {
 
 type SlackAPI interface {
 	AuthTest() (*slack.AuthTestResponse, error)
-	AuthTestContext(ctx context.Context) (*slack.AuthTestResponse, error)
 	GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error)
 	GetUsersInfo(users ...string) (*[]slack.User, error)
 	PostMessageContext(ctx context.Context, channel string, options ...slack.MsgOption) (string, string, error)
@@ -508,10 +507,6 @@ func (c *MCPSlackClient) AuthTest() (*slack.AuthTestResponse, error) {
 	}
 
 	return c.slackClient.AuthTest()
-}
-
-func (c *MCPSlackClient) AuthTestContext(ctx context.Context) (*slack.AuthTestResponse, error) {
-	return c.standardSlackClient().AuthTestContext(ctx)
 }
 
 func (c *MCPSlackClient) GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error) {

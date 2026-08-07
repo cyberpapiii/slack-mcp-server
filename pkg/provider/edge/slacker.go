@@ -107,29 +107,4 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 	return channels, "", nil
 }
 
-func (cl *Client) GetUsersInConversationContext(ctx context.Context, p *slack.GetUsersInConversationParameters) (ids []string, _ string, err error) {
-	if p.ChannelID == "" {
-		return nil, "", ErrParameterMissing
-	}
-	uu, err := cl.UsersList(ctx, p.ChannelID)
-	if err != nil {
-		return nil, "", err
-	}
-	for _, u := range uu {
-		ids = append(ids, u.ID)
-	}
-	return ids, "", nil
-}
-
 var ErrNotFound = errors.New("not found")
-
-func (cl *Client) GetConversationInfoContext(ctx context.Context, input *slack.GetConversationInfoInput) (*slack.Channel, error) {
-	cc, err := cl.ConversationsGenericInfo(ctx, input.ChannelID)
-	if err != nil {
-		return nil, err
-	}
-	if len(cc) == 0 {
-		return nil, ErrNotFound
-	}
-	return &cc[0], nil
-}
