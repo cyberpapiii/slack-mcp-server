@@ -26,18 +26,28 @@ After changing Go code, run `make deploy-local` (or rebuild `bin/slack-mcp-serve
 
 Auth tokens (`SLACK_MCP_XOXC_TOKEN`, `SLACK_MCP_XOXD_TOKEN`, etc.) live in the environment Plug resolves — never commit them.
 
+The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is set (deprecated fallback: `SLACK_MCP_SSE_API_KEY`), or `SLACK_MCP_ALLOW_UNAUTHENTICATED` is set to exactly `true` — `1`/`yes` are rejected. `stdio` (the Plug path) is unaffected. See `pkg/server/auth/sse_auth.go`.
+
 ## Tool surface
 
 Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **30** tools; upstream README documents fewer.
 
-Local-only or fork-extended tools include:
+The full set, grouped (★ = local-only or fork-extended):
 
-- `slack_auth_status` — cache and browser-session health (call before activity/saved tools)
-- `conversations_open`, `conversations_draft_message`, `files_list`
-- `channels_starred`, `channels_me`, `conversations_unreads`
-- `activity_unreads`, `activity_mark_read` (browser session / xoxc+xoxd)
-- `saved_list`, `saved_update`, `saved_clear_completed`
-- `reactions_get`, compact CSV by default (keeps MsgID/ThreadTs for follow-up actions). Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode may prepend `#users:`/`#link_template:` legend lines and truncates long attachments with a re-fetch receipt — see `docs/agent-presets.md`.
+| Group | Tools |
+|-------|-------|
+| Messages | `conversations_history`, `conversations_replies`, `conversations_search_messages`, `conversations_add_message`, ★`conversations_draft_message` |
+| Conversations | ★`conversations_open`, ★`conversations_unreads`, `conversations_mark`, `conversations_join`, `conversations_leave` |
+| Channels | `channels_list`, ★`channels_starred`, ★`channels_me` |
+| Reactions | `reactions_add`, `reactions_remove`, ★`reactions_get` |
+| Usergroups | `usergroups_list`, `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update` |
+| Users | `users_search` |
+| Activity | ★`activity_unreads`, ★`activity_mark_read` (browser session / xoxc+xoxd) |
+| Saved items | ★`saved_list`, ★`saved_update`, ★`saved_clear_completed` |
+| Files | ★`files_list`, `attachment_get_data` |
+| Diagnostics | ★`slack_auth_status` — cache and browser-session health (call before activity/saved tools) |
+
+Output is compact CSV by default (keeps MsgID/ThreadTs for follow-up actions). Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode may prepend `#users:`/`#link_template:` legend lines and truncates long attachments with a re-fetch receipt — see `docs/agent-presets.md`.
 
 Agent allowlist presets: `docs/agent-presets.md`.
 
@@ -45,11 +55,19 @@ Documented solutions: `docs/solutions/` — past problems solved in this repo (b
 
 Plug deployment uses `SLACK_MCP_ENABLED_TOOLS` as an allowlist. Adding a new tool to the server does **not** expose it in Cursor until the name is added to that env list and Plug is restarted.
 
-Write tools require explicit env opt-in:
+Side-effecting tools require explicit env opt-in. Every gate below is enforced **at registration** (`shouldAddTool`, `pkg/server/server.go`) — a disabled tool never appears in `tools/list` — and all but `SLACK_MCP_FILES_LIST_TOOL` are re-checked in the handler:
 
-- `SLACK_MCP_ADD_MESSAGE_TOOL` — posting (channel allowlist or `true`)
-- `SLACK_MCP_REACTION_TOOL` — reactions add/remove
-- `SLACK_MCP_ATTACHMENT_TOOL` — attachment download
+| Env var | Gates | Accepted values |
+|---------|-------|-----------------|
+| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message` | `true`/`1`, or a comma-separated channel allowlist (`!C123…` negates) |
+| `SLACK_MCP_REACTION_TOOL` | `reactions_add`, `reactions_remove` | `true`/`1`, or a comma-separated channel allowlist (`!C123…` negates) |
+| `SLACK_MCP_ATTACHMENT_TOOL` | `attachment_get_data` | `true`, `1`, or `yes` |
+| `SLACK_MCP_MARK_TOOL` | `conversations_mark` | `true`, `1`, or `yes` |
+| `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL` | `conversations_join`, `conversations_leave` | any non-empty value |
+| `SLACK_MCP_USERGROUPS_WRITE_TOOL` | `usergroups_create`, `usergroups_update`, `usergroups_users_update` | any non-empty value |
+| `SLACK_MCP_FILES_LIST_TOOL` | `files_list` | any non-empty value (registration gate only) |
+
+Gate vars and the allowlist interact: when `SLACK_MCP_ENABLED_TOOLS` is set, registration is decided by the allowlist alone — a gated tool named in it registers without its dedicated env var, and one absent from it stays unregistered even when the env var is set. When `SLACK_MCP_ENABLED_TOOLS` is unset, a gated tool registers only if its own env var is non-empty. Matching is an **exact** per-entry comparison (`isToolInEnabledList`, `slices.Contains`), not a substring test.
 
 ## Code map (runtime spine)
 
@@ -81,7 +99,8 @@ If users or channels cache warm-up fails after retries, the process stays alive 
 - Unit tests: any name except `*Integration*` runs under `make test`
 - Integration tests: `*Integration*` in name, run via `make test-integration`
 - Error handling: zap structured logging; avoid `logger.Fatal` on background cache paths
-- Tool params are not logged at Info by default; set `SLACK_MCP_LOG_PARAMS=debug` to log full params at Info (may include message text)
+- Tool params are not logged at Info by default; set `SLACK_MCP_LOG_PARAMS=debug` to log full params at Info (may include message text). The same gate covers handler-level debug logs, not just the HTTP middleware.
+- New handlers log entry/exit via `logToolCall` / `logResourceCall` (`pkg/handler/logging.go`) rather than passing `request.Params` to the logger directly — that helper is what honors `SLACK_MCP_LOG_PARAMS`
 
 ## Local-only working tree notes
 
@@ -99,7 +118,7 @@ If users or channels cache warm-up fails after retries, the process stays alive 
 
 - Source (`master`), built binary (`bin/slack-mcp-server`), and Plug runtime are three layers that can drift independently — verify all three after code changes
 - Plug daemon (`plug serve --daemon`) spawns the server; Cursor connects via `~/.cursor/mcp.json` → `plug connect`, not a direct binary entry
-- `SLACK_MCP_ENABLED_TOOLS` in Plug may expose fewer tools than the server registers (allowlist vs 29 registered)
+- `SLACK_MCP_ENABLED_TOOLS` in Plug may expose fewer tools than the server registers (allowlist vs 30 registered)
 - Upstream v1.3.0 is fully merged (0 behind `origin/master`); ongoing work lands as commits ahead on `master`
 - Local fork intentionally keeps non-blocking stdio startup and browser-auth degradation — upstream blocks stdio until cache warm
 - Restart Plug's `slack` server or run `plug reload` after rebuilding `bin/slack-mcp-server` so Cursor picks up the new binary
