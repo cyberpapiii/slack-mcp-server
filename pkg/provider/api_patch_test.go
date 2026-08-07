@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -22,6 +24,18 @@ type mockSlackClient struct {
 
 func (m *mockSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
 	return m.usersInfoResult, m.usersInfoErr
+}
+
+// perUserSlackClient returns a distinct user for each requested user ID,
+// so concurrent PatchUser calls can be distinguished in assertions.
+type perUserSlackClient struct {
+	SlackAPI
+}
+
+func (m *perUserSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
+	id := users[0]
+	result := []slack.User{{ID: id, Name: "user_" + id}}
+	return &result, nil
 }
 
 func newTestApiProvider(client SlackAPI, snapshot *UsersCache) *ApiProvider {
@@ -155,4 +169,55 @@ func TestUnitPatchUser(t *testing.T) {
 		assert.Equal(t, "alice_new", snapshot.Users["U001"].Name)
 		assert.Equal(t, "U001", snapshot.UsersInv["alice_new"])
 	})
+}
+
+// TestUnitPatchUserConcurrent verifies that concurrent PatchUser calls do not
+// lose updates via the load->copy->store race that CompareAndSwap retry
+// guards against.
+func TestUnitPatchUserConcurrent(t *testing.T) {
+	const seedCount = 5
+	const concurrentPatches = 8
+
+	initial := &UsersCache{
+		Users:    make(map[string]slack.User, seedCount),
+		UsersInv: make(map[string]string, seedCount),
+	}
+	for i := 0; i < seedCount; i++ {
+		id := fmt.Sprintf("SEED%d", i)
+		name := fmt.Sprintf("seed_%d", i)
+		initial.Users[id] = slack.User{ID: id, Name: name}
+		initial.UsersInv[name] = id
+	}
+
+	ap := newTestApiProvider(&perUserSlackClient{}, initial)
+
+	var wg sync.WaitGroup
+	for i := 0; i < concurrentPatches; i++ {
+		id := fmt.Sprintf("U%03d", i)
+		wg.Add(1)
+		go func(userID string) {
+			defer wg.Done()
+			_, err := ap.PatchUser(context.Background(), userID)
+			assert.NoError(t, err)
+		}(id)
+	}
+	wg.Wait()
+
+	snapshot := ap.usersSnapshot.Load()
+	assert.Len(t, snapshot.Users, seedCount+concurrentPatches)
+	assert.Len(t, snapshot.UsersInv, seedCount+concurrentPatches)
+
+	for i := 0; i < seedCount; i++ {
+		id := fmt.Sprintf("SEED%d", i)
+		name := fmt.Sprintf("seed_%d", i)
+		assert.Equal(t, name, snapshot.Users[id].Name, "seed user %s should survive concurrent patches", id)
+		assert.Equal(t, id, snapshot.UsersInv[name])
+	}
+
+	for i := 0; i < concurrentPatches; i++ {
+		id := fmt.Sprintf("U%03d", i)
+		expectedName := "user_" + id
+		assert.Equal(t, expectedName, snapshot.Users[id].Name, "patched user %s should be present", id)
+		assert.Equal(t, id, snapshot.UsersInv[expectedName])
+	}
 }

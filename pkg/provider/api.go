@@ -31,6 +31,16 @@ const defaultUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/5
 const defaultCacheTTL = 24 * time.Hour
 const defaultMinRefreshInterval = 30 * time.Second
 
+// defaultBackgroundRefreshTimeout bounds a background cache refresh. Without a
+// deadline these goroutines can run forever: slack-go's GetUsersContext
+// retries rate limits in an unbounded loop whose only exit is ctx.Done(), and
+// a hung refresh holds fetchUsersMu and leaves refreshingUsers set, so no
+// later refresh can ever start. Sized generously — a large workspace
+// legitimately takes many minutes when Slack is throttling — because the goal
+// is to bound an infinite hang, not to make the refresh fast. It sits well
+// inside the 24h default cache TTL, so a timeout never races the next refresh.
+const defaultBackgroundRefreshTimeout = 15 * time.Minute
+
 var AllChanTypes = []string{MpIMChanType, IMChanType, PubChanType, PrivateChanType}
 
 const (
@@ -238,10 +248,22 @@ func writeBrowserRuntimeStatus(state, reason string, logger *zap.Logger) {
 	}
 }
 
+// osascriptNotificationArgs builds the argv for a degradation notification.
+// The message travels as an argument to a fixed script — never interpolated
+// into AppleScript source — so no escaping is needed.
+func osascriptNotificationArgs(reason string) []string {
+	const maxRunes = 200
+	if r := []rune(reason); len(r) > maxRunes {
+		reason = string(r[:maxRunes]) + "…"
+	}
+	const script = `on run argv
+	display notification (item 1 of argv) with title "Slack MCP fallback active"
+end run`
+	return []string{"-e", script, reason}
+}
+
 func notifyBrowserDegradation(reason string, logger *zap.Logger) {
-	if err := exec.Command("osascript", "-e", fmt.Sprintf(`display notification "%s" with title "Slack MCP fallback active"`,
-		strings.ReplaceAll(reason, `"`, `\"`),
-	)).Run(); err != nil {
+	if err := exec.Command("osascript", osascriptNotificationArgs(reason)...).Run(); err != nil {
 		logger.Debug("Failed to emit browser degradation notification", zap.Error(err))
 	}
 }
@@ -377,6 +399,11 @@ type ApiProvider struct {
 
 	cacheTTL           time.Duration
 	minRefreshInterval time.Duration
+
+	// backgroundRefreshTimeout bounds spawnBackgroundUsersRefresh and
+	// spawnBackgroundChannelsRefresh. Always defaultBackgroundRefreshTimeout in
+	// production; a field only so tests can shorten it.
+	backgroundRefreshTimeout time.Duration
 
 	// Users cache: atomic pointer to immutable snapshot (no copy on read)
 	usersSnapshot          atomic.Pointer[UsersCache]
@@ -1057,6 +1084,8 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		cacheTTL:           getCacheTTL(),
 		minRefreshInterval: getMinRefreshInterval(),
 
+		backgroundRefreshTimeout: defaultBackgroundRefreshTimeout,
+
 		usersCachePath:    usersCache,
 		channelsCachePath: channelsCache,
 	}
@@ -1130,6 +1159,8 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, oauthFallbackTok
 		cacheTTL:           getCacheTTL(),
 		minRefreshInterval: getMinRefreshInterval(),
 
+		backgroundRefreshTimeout: defaultBackgroundRefreshTimeout,
+
 		usersCachePath:    usersCache,
 		channelsCachePath: channelsCache,
 	}
@@ -1189,22 +1220,30 @@ func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.Use
 	}
 
 	user := (*usersInfo)[0]
-	current := ap.usersSnapshot.Load()
 
-	newSnapshot := &UsersCache{
-		Users:    make(map[string]slack.User, len(current.Users)+1),
-		UsersInv: make(map[string]string, len(current.UsersInv)+1),
-	}
-	for k, v := range current.Users {
-		newSnapshot.Users[k] = v
-	}
-	for k, v := range current.UsersInv {
-		newSnapshot.UsersInv[k] = v
-	}
-	newSnapshot.Users[user.ID] = user
-	newSnapshot.UsersInv[user.Name] = user.ID
+	for {
+		current := ap.usersSnapshot.Load()
 
-	ap.usersSnapshot.Store(newSnapshot)
+		newSnapshot := &UsersCache{
+			Users:    make(map[string]slack.User, len(current.Users)+1),
+			UsersInv: make(map[string]string, len(current.UsersInv)+1),
+		}
+		for k, v := range current.Users {
+			newSnapshot.Users[k] = v
+		}
+		for k, v := range current.UsersInv {
+			newSnapshot.UsersInv[k] = v
+		}
+		newSnapshot.Users[user.ID] = user
+		newSnapshot.UsersInv[user.Name] = user.ID
+
+		if ap.usersSnapshot.CompareAndSwap(current, newSnapshot) {
+			break
+		}
+		// Lost the race to another writer (a concurrent PatchUser or a
+		// background refresh snapshot store); retry from the fresh snapshot.
+	}
+
 	ap.logger.Debug("Patched user into cache",
 		zap.String("user_id", user.ID),
 		zap.String("user_name", user.Name))
@@ -1286,7 +1325,11 @@ func (ap *ApiProvider) spawnBackgroundUsersRefresh() {
 	}
 	go func() {
 		defer ap.refreshingUsers.Store(false)
-		if err := ap.fetchAndStoreUsers(context.Background()); err != nil {
+
+		ctx, cancel := context.WithTimeout(context.Background(), ap.backgroundRefreshTimeout)
+		defer cancel()
+
+		if err := ap.fetchAndStoreUsers(ctx); err != nil {
 			ap.logger.Warn("Background users refresh failed, continuing with stale data",
 				zap.Error(err))
 		}
@@ -1334,30 +1377,35 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 	// Store intermediate snapshot so GetSlackConnect can read current users
 	ap.usersSnapshot.Store(newSnapshot)
 
-	connectUsers, err := ap.GetSlackConnect(ctx)
-	if err != nil {
-		ap.logger.Error("Failed to fetch users from Slack Connect", zap.Error(err))
-		return err
-	}
-	list = append(list, connectUsers...)
+	if ap.IsOAuth() {
+		ap.logger.Debug("Skipping Slack Connect enrichment (OAuth token, browser features unavailable)")
+	} else {
+		connectUsers, err := ap.GetSlackConnect(ctx)
+		if err != nil {
+			ap.logger.Warn("Slack Connect enrichment failed; continuing with standard user list",
+				zap.Error(err))
+		} else {
+			list = append(list, connectUsers...)
 
-	// Add Slack Connect users to a new snapshot (since maps are shared)
-	if len(connectUsers) > 0 {
-		finalSnapshot := &UsersCache{
-			Users:    make(map[string]slack.User, len(newSnapshot.Users)+len(connectUsers)),
-			UsersInv: make(map[string]string, len(newSnapshot.UsersInv)+len(connectUsers)),
+			// Add Slack Connect users to a new snapshot (since maps are shared)
+			if len(connectUsers) > 0 {
+				finalSnapshot := &UsersCache{
+					Users:    make(map[string]slack.User, len(newSnapshot.Users)+len(connectUsers)),
+					UsersInv: make(map[string]string, len(newSnapshot.UsersInv)+len(connectUsers)),
+				}
+				for k, v := range newSnapshot.Users {
+					finalSnapshot.Users[k] = v
+				}
+				for k, v := range newSnapshot.UsersInv {
+					finalSnapshot.UsersInv[k] = v
+				}
+				for _, user := range connectUsers {
+					finalSnapshot.Users[user.ID] = user
+					finalSnapshot.UsersInv[user.Name] = user.ID
+				}
+				ap.usersSnapshot.Store(finalSnapshot)
+			}
 		}
-		for k, v := range newSnapshot.Users {
-			finalSnapshot.Users[k] = v
-		}
-		for k, v := range newSnapshot.UsersInv {
-			finalSnapshot.UsersInv[k] = v
-		}
-		for _, user := range connectUsers {
-			finalSnapshot.Users[user.ID] = user
-			finalSnapshot.UsersInv[user.Name] = user.ID
-		}
-		ap.usersSnapshot.Store(finalSnapshot)
 	}
 
 	if data, err := json.MarshalIndent(list, "", "  "); err != nil {
@@ -1494,7 +1542,11 @@ func (ap *ApiProvider) spawnBackgroundChannelsRefresh() {
 	}
 	go func() {
 		defer ap.refreshingChannels.Store(false)
-		if err := ap.fetchAndStoreChannels(context.Background()); err != nil {
+
+		ctx, cancel := context.WithTimeout(context.Background(), ap.backgroundRefreshTimeout)
+		defer cancel()
+
+		if err := ap.fetchAndStoreChannels(ctx); err != nil {
 			ap.logger.Warn("Background channels refresh failed, continuing with stale data",
 				zap.Error(err))
 		}
@@ -1507,7 +1559,20 @@ func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
 	ap.fetchChannelsMu.Lock()
 	defer ap.fetchChannelsMu.Unlock()
 
-	channels := ap.GetChannels(ctx, AllChanTypes)
+	channels, err := ap.GetChannels(ctx, AllChanTypes)
+
+	// Checked before the zero-channel case so that a failure on the very first
+	// page reports the real cause rather than "returned zero channels". A
+	// truncated list must never be written to the cache file as if complete.
+	if err != nil {
+		if ap.channelsReady.Load() {
+			ap.logger.Warn("Channel fetch incomplete, keeping existing cache",
+				zap.Int("partialCount", len(channels)),
+				zap.Error(err))
+			return nil
+		}
+		return fmt.Errorf("channel fetch incomplete and no existing cache is available: %w", err)
+	}
 
 	if len(channels) == 0 {
 		if ap.channelsReady.Load() {
@@ -1573,45 +1638,74 @@ func (ap *ApiProvider) GetSlackConnect(ctx context.Context) ([]slack.User, error
 	return res, nil
 }
 
-func (ap *ApiProvider) GetChannelsType(ctx context.Context, channelType string) []Channel {
+func (ap *ApiProvider) GetChannelsType(ctx context.Context, channelType string) ([]Channel, error) {
 	return ap.getChannelsMultiType(ctx, []string{channelType})
 }
 
-func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []string) []Channel {
+// slackRetryAfter reports the retry-after duration for a Slack rate-limit
+// error, or 0 when the error is not retryable. It is the retryAfter callback
+// for limiter.CallWithRetry.
+func slackRetryAfter(err error) time.Duration {
+	var rle *slack.RateLimitedError
+	if errors.As(err, &rle) {
+		return rle.RetryAfter
+	}
+	return 0
+}
+
+// channelsPageResult bundles the two success values of GetConversationsContext
+// so the call can be passed to limiter.CallWithRetry, which is generic over a
+// single return value.
+type channelsPageResult struct {
+	channels []slack.Channel
+	cursor   string
+}
+
+// getChannelsMultiType paginates conversations.list and returns every channel
+// it collected. A non-nil error means the list is INCOMPLETE: the partial data
+// is still returned so the caller can decide what to do with it, but it must
+// never be treated as a full channel list. Silently returning a truncated list
+// with a nil error is what previously let a single mid-pagination failure
+// overwrite a good cache with a short one, in memory and on disk.
+func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []string) ([]Channel, error) {
 	params := &slack.GetConversationsParameters{
 		Types:           channelTypes,
 		Limit:           999,
 		ExcludeArchived: true,
 	}
 
-	var (
-		channels []slack.Channel
-		chans    []Channel
-
-		nextcur string
-		err     error
-	)
+	var chans []Channel
 
 	usersMap := ap.ProvideUsersMap().Users
-	lim := limiter.Tier2boost.Limiter()
+	// conversations.list is a standard Web API method, so it is metered at
+	// Slack's documented tier — not at the edge API's boosted rate. The
+	// boosted tier previously used here was a copy-paste from the edge call
+	// sites and ran roughly 10x over budget, which is what made a
+	// mid-pagination 429 likely enough to truncate the cache.
+	lim := limiter.Tier2.Limiter()
 
 	for {
-		if err := lim.Wait(ctx); err != nil {
-			ap.logger.Error("Rate limiter wait failed", zap.Error(err))
-			return nil
-		}
-
-		channels, nextcur, err = ap.client.GetConversationsContext(ctx, params)
+		// CallWithRetry performs the limiter wait itself, so the loop must not
+		// wait again — that would double the pacing. A cancelled context still
+		// surfaces here as CallWithRetry's wrapped wait error.
+		page, err := limiter.CallWithRetry(ctx, lim, 2, slackRetryAfter,
+			func() (channelsPageResult, error) {
+				c, cur, err := ap.client.GetConversationsContext(ctx, params)
+				return channelsPageResult{channels: c, cursor: cur}, err
+			})
 		ap.logger.Debug("Fetched channels",
 			zap.Strings("channelTypes", channelTypes),
-			zap.Int("count", len(channels)),
+			zap.Int("count", len(page.channels)),
 		)
 		if err != nil {
-			ap.logger.Error("Failed to fetch channels", zap.Error(err))
-			break
+			ap.logger.Error("Failed to fetch channels, returning partial result",
+				zap.Strings("channelTypes", channelTypes),
+				zap.Int("collectedSoFar", len(chans)),
+				zap.Error(err))
+			return chans, err
 		}
 
-		for _, channel := range channels {
+		for _, channel := range page.channels {
 			ch := mapChannel(
 				channel.ID,
 				channel.Name,
@@ -1630,16 +1724,16 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 			chans = append(chans, ch)
 		}
 
-		if nextcur == "" {
+		if page.cursor == "" {
 			break
 		}
 
-		params.Cursor = nextcur
+		params.Cursor = page.cursor
 	}
-	return chans
+	return chans, nil
 }
 
-func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) []Channel {
+func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) ([]Channel, error) {
 	if len(channelTypes) == 0 {
 		channelTypes = AllChanTypes
 	}
@@ -1648,7 +1742,13 @@ func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) [
 	// conversations.list API supports multiple types per request, and the edge
 	// API (Enterprise Grid + non-OAuth) returns all types regardless. This
 	// avoids making 4 separate API round-trips (one per type).
-	chans := ap.getChannelsMultiType(ctx, channelTypes)
+	chans, err := ap.getChannelsMultiType(ctx, channelTypes)
+	if err != nil {
+		// The fetch is incomplete. Installing a truncated snapshot would
+		// atomically replace a good cache with a bad one, so leave the
+		// existing snapshot alone and let the caller decide.
+		return chans, err
+	}
 
 	// Build new snapshot with all fetched channels
 	newSnapshot := &ChannelsCache{
@@ -1661,7 +1761,7 @@ func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) [
 	}
 	ap.channelsSnapshot.Store(newSnapshot)
 
-	return chans
+	return chans, nil
 }
 
 func (ap *ApiProvider) ProvideUsersMap() *UsersCache {

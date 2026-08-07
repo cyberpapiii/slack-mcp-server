@@ -27,7 +27,10 @@ CLEAN_TARGETS += $(foreach os,$(OSES),$(foreach arch,$(ARCHS),./build/$(BINARY_N
 CLEAN_TARGETS += $(foreach os,$(OSES),$(foreach arch,$(ARCHS),./build/extension.dxt/server/$(BINARY_NAME)-$(os)-$(arch)))
 CLEAN_TARGETS += $(foreach os,$(OSES),$(foreach arch,$(ARCHS),./npm/$(BINARY_NAME)-$(os)-$(arch)/bin/))
 CLEAN_TARGETS += $(foreach os,$(OSES),$(foreach arch,$(ARCHS),./npm/$(BINARY_NAME)-$(os)-$(arch)/.npmrc))
-CLEAN_TARGETS += ./npm/slack-mcp-server/.npmrc ./npm/slack-mcp-server/LICENSE ./npm/slack-mcp-server/README.md build/extension.dxt/manifest.json build/extension.dxt/icon.png
+# Note: ./npm/slack-mcp-server/{LICENSE,README.md} are deliberately NOT cleaned.
+# They are copied in by `npm-publish` with a plain `cp`, which overwrites them on
+# the next run, and `clean` should not rm -rf paths that look like source files.
+CLEAN_TARGETS += ./npm/slack-mcp-server/.npmrc build/extension.dxt/manifest.json build/extension.dxt/icon.png
 CLEAN_TARGETS += ./build/slack-mcp-server.dxt ./build/slack-mcp-server-$(NPM_VERSION).dxt
 
 # The help will print out all targets with their descriptions organized bellow their categories. The categories are represented by `##@` and the target descriptions by `##`.
@@ -47,11 +50,11 @@ clean: ## Clean up all build artifacts
 	rm -rf $(CLEAN_TARGETS)
 
 .PHONY: build
-build: clean tidy format ## Build the project
+build: clean ## Build the project (read-only: run `make prepare` for tidy+format)
 	go build $(COMMON_BUILD_ARGS) -o ./build/$(BINARY_NAME) ./cmd/slack-mcp-server
 
 .PHONY: build-all-platforms
-build-all-platforms: clean tidy format ## Build the project for all platforms
+build-all-platforms: clean ## Build the project for all platforms (read-only: run `make prepare` for tidy+format)
 	$(foreach os,$(OSES),$(foreach arch,$(ARCHS), \
 		GOOS=$(os) GOARCH=$(arch) go build $(COMMON_BUILD_ARGS) -o ./build/$(BINARY_NAME)-$(os)-$(arch)$(if $(findstring windows,$(os)),.exe,) ./cmd/slack-mcp-server; \
 	))
@@ -100,12 +103,18 @@ deps: ## Download dependencies
 	$(GO) mod download
 
 .PHONY: test
-test: ## Run the tests
-	$(GO) test -count=1 -v -skip="Integration" ./...
+test: ## Run the tests (with the race detector)
+	$(GO) test -count=1 -race -v -skip="Integration" ./...
 
 .PHONY: test-integration
 test-integration: ## Run integration tests
 	$(GO) test -count=1 -v -run=".*Integration.*" ./...
+
+.PHONY: lint
+lint: ## Vet, check formatting and check go.mod tidiness (read-only)
+	$(GO) vet ./...
+	@fmt_out=$$(gofmt -l pkg cmd); if [ -n "$$fmt_out" ]; then echo "gofmt needed:"; echo "$$fmt_out"; exit 1; fi
+	$(GO) mod tidy -diff
 
 .PHONY: deploy-local
 deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plug reload alone leaves the old process running)
@@ -132,6 +141,9 @@ format: ## Format the code
 .PHONY: tidy
 tidy: ## Tidy up the go modules
 	$(GO) mod tidy
+
+.PHONY: prepare
+prepare: tidy format ## Tidy modules and format the code (the mutating half of the old `build`)
 
 .PHONY: release
 release: ## Create release tag. Usage: make tag TAG=v1.2.3

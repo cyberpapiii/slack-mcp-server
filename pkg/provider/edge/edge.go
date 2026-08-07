@@ -80,18 +80,22 @@ func NewWithClient(workspaceName string, teamID string, token string, cl *http.C
 	if token == "" {
 		return nil, ErrNoToken
 	}
-	tape, err := os.Create("tape.txt")
-	if err != nil {
-		return nil, err
-	}
-	return &Client{
+	// The default tape is a no-op: recorded bodies include the xoxc token, so
+	// recording must never be on by default.  Callers that want a tape pass
+	// WithTape(...), which the option loop below now actually applies.
+	c := &Client{
 		cl:           cl,
 		token:        token,
 		teamID:       teamID,
 		webclientAPI: fmt.Sprintf("https://%s.%s/api/", workspaceName, getSlackBaseDomain()),
 		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", getSlackBaseDomain(), teamID),
-		tape:         tape,
-	}, nil
+		tape:         nopTape{},
+	}
+
+	for _, o := range opt {
+		o(c)
+	}
+	return c, nil
 }
 
 func NewWithToken(ctx context.Context, token string, cookies []*http.Cookie) (*Client, error) {
@@ -220,6 +224,13 @@ func (cl *Client) PostJSON(ctx context.Context, path string, req PostRequest) (*
 	if err != nil {
 		return nil, err
 	}
+	// The body reader is a TeeReader, so http.NewRequestWithContext cannot
+	// derive GetBody itself; set it so the 429 retry in do() can replay the
+	// body.  The replay is deliberately not re-wrapped in cl.recorder: the
+	// tape records the payload once, not once per attempt.
+	r.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(data)), nil
+	}
 	r.Header.Set(hdrContentType, "application/json")
 
 	return do(ctx, cl.cl, r)
@@ -228,6 +239,15 @@ func (cl *Client) PostJSON(ctx context.Context, path string, req PostRequest) (*
 // callEdgeAPI calls the edge API.
 func (cl *Client) callEdgeAPI(ctx context.Context, v any, endpoint string, req PostRequest) error {
 	r, err := cl.PostJSON(ctx, endpoint, req)
+	// A transport error may yield a nil response; io.EOF in particular is
+	// returned whenever the server closes a pooled keep-alive connection.
+	// Forwarding nil to ParseResponse would panic on its first dereference.
+	if r == nil {
+		if err != nil {
+			return fmt.Errorf("edge %s: no response: %w", endpoint, err)
+		}
+		return fmt.Errorf("edge %s: no response and no error", endpoint)
+	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
@@ -257,17 +277,26 @@ func (cl *Client) PostFormRaw(ctx context.Context, url string, form url.Values) 
 	if form["token"] == nil {
 		form.Set("token", cl.token)
 	}
-	r := cl.recorder(strings.NewReader(form.Encode()))
+	encoded := form.Encode()
+	r := cl.recorder(strings.NewReader(encoded))
 	defer cl.record([]byte("\n\n"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, r)
 	if err != nil {
 		return nil, err
+	}
+	// See the note in PostJSON: GetBody must be set explicitly, and the
+	// replayed body is not re-recorded onto the tape.
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(encoded)), nil
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return do(ctx, cl.cl, req)
 }
 
 func (cl *Client) ParseResponse(req any, r *http.Response) error {
+	if r == nil {
+		return errors.New("nil response")
+	}
 	if r.StatusCode < http.StatusOK || http.StatusMultipleChoices <= r.StatusCode {
 		return fmt.Errorf("error: status code: %s", r.Status)
 	}
@@ -307,7 +336,27 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 		}
 		lg.InfoContext(ctx, "got rate limited, waiting", "delay", wait)
 
-		time.Sleep(wait)
+		// Drain and close the rate-limited response so the connection can be
+		// reused instead of leaked.
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		// The first attempt consumed the one-shot body reader; rebuild it, or
+		// the retry would post an empty body.
+		if req.GetBody != nil {
+			rc, gerr := req.GetBody()
+			if gerr != nil {
+				return nil, gerr
+			}
+			req.Body = rc
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(wait):
+		}
+
 		resp, err = cl.Do(req)
 		if err != nil {
 			return nil, err
@@ -316,6 +365,10 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			lg.DebugContext(ctx, "edge.do: did my best, but still rate limited, giving up, not my problem")
 			wait, err = parseRetryAfter(resp)
+			// parseRetryAfter only reads headers; close the body on both the
+			// error and the give-up path so it is closed exactly once.
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
 			if err != nil {
 				return nil, err
 			}
