@@ -51,7 +51,7 @@ func NewChannelsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *
 }
 
 func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-	ch.logger.Debug("ChannelsResource called", zap.Any("params", request.Params))
+	logResourceCall(ch.logger, "ChannelsResource called", request)
 
 	// mark3labs/mcp-go does not support middlewares for resources.
 	if authenticated, err := auth.IsAuthenticated(ctx, ch.apiProvider.ServerTransport(), ch.logger); !authenticated {
@@ -420,7 +420,7 @@ type StarredChannel struct {
 }
 
 func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ChannelsStarredHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ChannelsStarredHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))

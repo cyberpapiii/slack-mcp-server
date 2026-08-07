@@ -49,7 +49,7 @@ func activityChannelLabel(channelID string, channels map[string]provider.Channel
 }
 
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("ActivityUnreadsHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "ActivityUnreadsHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -204,7 +204,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("ActivityMarkReadHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "ActivityMarkReadHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {

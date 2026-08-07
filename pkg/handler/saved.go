@@ -35,7 +35,7 @@ func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, conv
 }
 
 func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("SavedListHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "SavedListHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -213,7 +213,7 @@ func parseSavedUpdateParams(request mcp.CallToolRequest) (itemID, ts, mark strin
 }
 
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("SavedUpdateHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "SavedUpdateHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -251,7 +251,7 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("SavedClearCompletedHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "SavedClearCompletedHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {

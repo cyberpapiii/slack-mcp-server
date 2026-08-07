@@ -68,7 +68,7 @@ func NewUsergroupsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger)
 // No IsReady check: usergroup handlers call the Slack API directly and do not
 // depend on the users/channels cache, so cache readiness is not required.
 func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("UsergroupsListHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "UsergroupsListHandler called", request)
 
 	includeUsers := request.GetBool("include_users", false)
 	includeCount := request.GetBool("include_count", true)
@@ -110,7 +110,7 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 
 // UsergroupsCreateHandler creates a new user group
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("UsergroupsCreateHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "UsergroupsCreateHandler called", request)
 
 	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_create") {
 		h.logger.Error("Usergroups write tool disabled by default")
@@ -161,7 +161,7 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 
 // UsergroupsUpdateHandler updates an existing user group's metadata
 func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("UsergroupsUpdateHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "UsergroupsUpdateHandler called", request)
 
 	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_update") {
 		h.logger.Error("Usergroups write tool disabled by default")
@@ -223,7 +223,7 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 
 // UsergroupsUsersUpdateHandler updates the members of a user group
 func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("UsergroupsUsersUpdateHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "UsergroupsUsersUpdateHandler called", request)
 
 	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_users_update") {
 		h.logger.Error("Usergroups write tool disabled by default")
@@ -270,7 +270,7 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 
 // UsergroupsMeHandler allows the current user to list their groups, join or leave a user group
 func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("UsergroupsMeHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "UsergroupsMeHandler called", request)
 
 	action := request.GetString("action", "")
 	if action != "list" && action != "join" && action != "leave" {

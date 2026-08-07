@@ -213,7 +213,7 @@ func sendProgress(ctx context.Context, request mcp.CallToolRequest, current, tot
 
 // UsersResource streams a CSV of all users
 func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-	ch.logger.Debug("UsersResource called", zap.Any("params", request.Params))
+	logResourceCall(ch.logger, "UsersResource called", request)
 
 	// authentication
 	if authenticated, err := auth.IsAuthenticated(ctx, ch.apiProvider.ServerTransport(), ch.logger); !authenticated {
@@ -273,7 +273,7 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 
 // ConversationsAddMessageHandler posts a message and returns a confirmation
 func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsAddMessageHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsAddMessageHandler called", request)
 
 	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
@@ -356,7 +356,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 // Returns a preview of what the message would look like, allowing the user to review
 // before sending via conversations_add_message.
 func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsDraftMessageHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsDraftMessageHandler called", request)
 
 	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
@@ -414,7 +414,7 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 
 // ReactionsAddHandler adds an emoji reaction to a message
 func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ReactionsAddHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ReactionsAddHandler called", request)
 
 	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
@@ -450,7 +450,7 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 
 // ReactionsRemoveHandler removes an emoji reaction from a message
 func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ReactionsRemoveHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ReactionsRemoveHandler called", request)
 
 	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
@@ -488,7 +488,7 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 // Uses conversations.replies which works for top-level messages, thread parents, and thread replies
 // alike. Requires only channels:history scope, no additional reactions:read permission needed.
 func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ReactionsGetHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ReactionsGetHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
@@ -570,7 +570,7 @@ func (ch *ConversationsHandler) fetchMessageForReactions(ctx context.Context, ch
 }
 
 func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("UsersSearchHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "UsersSearchHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
@@ -635,7 +635,7 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 }
 
 func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("FilesGetHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "FilesGetHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
@@ -773,7 +773,7 @@ func (ch *ConversationsHandler) parseParamsToolFilesList(request mcp.CallToolReq
 }
 
 func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("FilesListHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "FilesListHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
@@ -859,7 +859,7 @@ func isTextMimetype(mimetype string) bool {
 
 // ConversationsHistoryHandler streams conversation history as CSV
 func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsHistoryHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsHistoryHandler called", request)
 
 	params, err := ch.parseParamsToolConversations(ctx, request)
 	if err != nil {
@@ -904,7 +904,7 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 
 // ConversationsRepliesHandler streams thread replies as CSV
 func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsRepliesHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsRepliesHandler called", request)
 
 	params, err := ch.parseParamsToolConversations(ctx, request)
 	if err != nil {
@@ -945,7 +945,7 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 }
 
 func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsSearchHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsSearchHandler called", request)
 
 	params, err := ch.parseParamsToolSearch(ctx, request)
 	if err != nil {
@@ -997,7 +997,7 @@ type UnreadChannel struct {
 
 // ConversationsUnreadsHandler returns unread messages across all channels
 func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsUnreadsHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsUnreadsHandler called", request)
 
 	params := ch.parseParamsToolUnreads(request)
 
@@ -1781,7 +1781,7 @@ func (ch *ConversationsHandler) getChannelDisplayName(info *slack.Channel, chann
 
 // ConversationsMarkHandler marks a channel as read up to a specific timestamp
 func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsMarkHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsMarkHandler called", request)
 
 	params, err := ch.parseParamsToolMark(request)
 	if err != nil {
@@ -1826,7 +1826,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 }
 
 func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsLeaveHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsLeaveHandler called", request)
 
 	if !requireToolEnabled("SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL", "conversations_leave") {
 		ch.logger.Error("Channel membership tool disabled by default")
@@ -1863,7 +1863,7 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 }
 
 func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsJoinHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsJoinHandler called", request)
 
 	if !requireToolEnabled("SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL", "conversations_join") {
 		ch.logger.Error("Channel membership tool disabled by default")
@@ -2260,7 +2260,7 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 
 // ConversationsOpenHandler opens a new DM or MPIM
 func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ConversationsOpenHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ConversationsOpenHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
