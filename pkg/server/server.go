@@ -115,6 +115,32 @@ func ValidateEnabledTools(tools []string) error {
 	return nil
 }
 
+// isTruthyEnv reports whether a boolean gate environment variable's value means
+// "enabled": true, 1, or yes, case-insensitive and whitespace-tolerant. Any
+// other value, including "false", leaves the tool unregistered.
+//
+// This is a deliberate copy of the identical helper in pkg/handler
+// (conversations.go); pkg/server cannot import pkg/handler's unexported
+// helpers, and a shared package for one six-line predicate is not worth it.
+// The two copies must stay in sync — if a third package ever needs one, that
+// is the signal to extract a shared package instead.
+func isTruthyEnv(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "yes":
+		return true
+	}
+	return false
+}
+
+// channelListGates are gate variables whose value is a channel allowlist, not
+// a boolean — e.g. "C1234567890,D0987654321" or "!C1234567890". For these, any
+// non-empty value means "enabled", because the value IS the configuration.
+// Every other gate variable is a boolean and goes through isTruthyEnv.
+var channelListGates = map[string]bool{
+	"SLACK_MCP_ADD_MESSAGE_TOOL": true,
+	"SLACK_MCP_REACTION_TOOL":    true,
+}
+
 func shouldAddTool(name string, enabledTools []string, envVarName string) bool {
 	if envVarName == "" {
 		if len(enabledTools) == 0 {
@@ -128,7 +154,11 @@ func shouldAddTool(name string, enabledTools []string, envVarName string) bool {
 	}
 
 	if len(enabledTools) == 0 {
-		return os.Getenv(envVarName) != ""
+		value := os.Getenv(envVarName)
+		if channelListGates[envVarName] {
+			return value != ""
+		}
+		return isTruthyEnv(value)
 	}
 
 	return false

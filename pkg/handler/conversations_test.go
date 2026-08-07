@@ -1074,37 +1074,47 @@ func TestUnitIsToolInEnabledList(t *testing.T) {
 // conversations_leave/join and the usergroups write handlers (plan 014):
 // enabled either via the tool's dedicated env var or via an exact-match
 // entry in SLACK_MCP_ENABLED_TOOLS.
+//
+// Plan 025: the env var is now validated rather than merely tested for
+// non-emptiness. Only true/1/yes (case-insensitive, whitespace-tolerant)
+// enable the tool; "false" and friends leave it disabled.
 func TestUnitRequireToolEnabled(t *testing.T) {
 	const envVar = "SLACK_MCP_TEST_REQUIRE_TOOL_ENABLED"
 	const toolName = "conversations_leave"
 
-	t.Run("neither env var nor allowlist set - disabled", func(t *testing.T) {
-		t.Setenv(envVar, "")
-		t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
+	tests := []struct {
+		name         string
+		envValue     string
+		enabledTools string
+		want         bool
+	}{
+		{"neither env var nor allowlist set - disabled", "", "", false},
+		{"env var true - enabled", "true", "", true},
+		{"env var 1 - enabled", "1", "", true},
+		{"env var yes - enabled", "yes", "", true},
+		{"env var TRUE - case insensitive, enabled", "TRUE", "", true},
+		{"env var padded true - whitespace tolerant, enabled", "  true  ", "", true},
+		{"env var false - disabled", "false", "", false},
+		{"env var 0 - disabled", "0", "", false},
+		{"env var no - disabled", "no", "", false},
+		{"env var off - disabled", "off", "", false},
+		{"env var empty - disabled", "", "", false},
+		{"env var maybe - disabled", "maybe", "", false},
+		{"tool named in allowlist - enabled without env var", "", "channels_list," + toolName, true},
+		{"allowlist wins over env var false", "false", "channels_list," + toolName, true},
+		{"allowlist has substring-colliding name only - still disabled", "", toolName + "_extra", false},
+	}
 
-		assert.False(t, requireToolEnabled(envVar, toolName))
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envVar, tt.envValue)
+			t.Setenv("SLACK_MCP_ENABLED_TOOLS", tt.enabledTools)
 
-	t.Run("env var set - enabled", func(t *testing.T) {
-		t.Setenv(envVar, "true")
-		t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
-
-		assert.True(t, requireToolEnabled(envVar, toolName))
-	})
-
-	t.Run("tool named in allowlist - enabled without env var", func(t *testing.T) {
-		t.Setenv(envVar, "")
-		t.Setenv("SLACK_MCP_ENABLED_TOOLS", "channels_list,"+toolName)
-
-		assert.True(t, requireToolEnabled(envVar, toolName))
-	})
-
-	t.Run("allowlist has substring-colliding name only - still disabled", func(t *testing.T) {
-		t.Setenv(envVar, "")
-		t.Setenv("SLACK_MCP_ENABLED_TOOLS", toolName+"_extra")
-
-		assert.False(t, requireToolEnabled(envVar, toolName))
-	})
+			assert.Equal(t, tt.want, requireToolEnabled(envVar, toolName),
+				"requireToolEnabled with %s=%q, SLACK_MCP_ENABLED_TOOLS=%q",
+				envVar, tt.envValue, tt.enabledTools)
+		})
+	}
 }
 
 // Bug A: the search tool schema declares DefaultNumber(100) and a documented

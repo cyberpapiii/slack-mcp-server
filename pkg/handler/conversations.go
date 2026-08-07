@@ -2308,11 +2308,29 @@ func isToolInEnabledList(enabledTools, toolName string) bool {
 	return false
 }
 
+// isTruthyEnv reports whether a gate environment variable's value means
+// "enabled". The accepted set matches the SLACK_MCP_ATTACHMENT_TOOL and
+// SLACK_MCP_MARK_TOOL checks and the error text every gate prints: true, 1,
+// yes. Comparison is case-insensitive and ignores surrounding whitespace so
+// that `=True` and `= true` behave as an operator expects.
+//
+// A deliberate copy of this predicate lives in pkg/server/server.go for the
+// registration-time gate; the two must stay in sync.
+func isTruthyEnv(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "yes":
+		return true
+	}
+	return false
+}
+
 // requireToolEnabled reports whether a call-time-gated tool is enabled: either
-// its dedicated envVarName is set to a non-empty value, or toolName is
-// explicitly listed in the SLACK_MCP_ENABLED_TOOLS allowlist.
+// its dedicated envVarName is set to a truthy value (true, 1, yes —
+// case-insensitive), or toolName is explicitly listed in the
+// SLACK_MCP_ENABLED_TOOLS allowlist. Any other value, including "false",
+// leaves the tool disabled.
 func requireToolEnabled(envVarName, toolName string) bool {
-	if os.Getenv(envVarName) != "" {
+	if isTruthyEnv(os.Getenv(envVarName)) {
 		return true
 	}
 	return isToolInEnabledList(os.Getenv("SLACK_MCP_ENABLED_TOOLS"), toolName)
@@ -2521,7 +2539,7 @@ func (ch *ConversationsHandler) parseParamsToolFilesGet(request mcp.CallToolRequ
 		}
 		toolConfig = "true"
 	}
-	if toolConfig != "true" && toolConfig != "1" && toolConfig != "yes" {
+	if !isTruthyEnv(toolConfig) {
 		ch.logger.Error("Attachment tool disabled", zap.String("config", toolConfig))
 		return nil, errors.New("SLACK_MCP_ATTACHMENT_TOOL must be set to 'true', '1', or 'yes' to enable")
 	}
@@ -2589,7 +2607,7 @@ func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest)
 				"e.g. 'SLACK_MCP_MARK_TOOL=true'",
 		)
 	}
-	if toolConfig != "1" && toolConfig != "true" && toolConfig != "yes" {
+	if !isTruthyEnv(toolConfig) {
 		ch.logger.Error("Mark tool disabled by config", zap.String("config", toolConfig))
 		return nil, errors.New(
 			"the conversations_mark tool is disabled. " +

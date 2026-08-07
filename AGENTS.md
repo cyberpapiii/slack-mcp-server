@@ -63,11 +63,13 @@ Side-effecting tools require explicit env opt-in. Every gate below is enforced *
 | `SLACK_MCP_REACTION_TOOL` | `reactions_add`, `reactions_remove` | `true`/`1`, or a comma-separated channel allowlist (`!C123…` negates) |
 | `SLACK_MCP_ATTACHMENT_TOOL` | `attachment_get_data` | `true`, `1`, or `yes` |
 | `SLACK_MCP_MARK_TOOL` | `conversations_mark` | `true`, `1`, or `yes` |
-| `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL` | `conversations_join`, `conversations_leave` | any non-empty value |
-| `SLACK_MCP_USERGROUPS_WRITE_TOOL` | `usergroups_create`, `usergroups_update`, `usergroups_users_update` | any non-empty value |
-| `SLACK_MCP_FILES_LIST_TOOL` | `files_list` | any non-empty value (registration gate only) |
+| `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL` | `conversations_join`, `conversations_leave` | `true`, `1`, or `yes` |
+| `SLACK_MCP_USERGROUPS_WRITE_TOOL` | `usergroups_create`, `usergroups_update`, `usergroups_users_update` | `true`, `1`, or `yes` |
+| `SLACK_MCP_FILES_LIST_TOOL` | `files_list` | `true`, `1`, or `yes` (registration gate only) |
 
-Gate vars and the allowlist interact: when `SLACK_MCP_ENABLED_TOOLS` is set, registration is decided by the allowlist alone — a gated tool named in it registers without its dedicated env var, and one absent from it stays unregistered even when the env var is set. When `SLACK_MCP_ENABLED_TOOLS` is unset, a gated tool registers only if its own env var is non-empty. Matching is an **exact** per-entry comparison (`isToolInEnabledList`, `slices.Contains`), not a substring test.
+The five boolean gates (`ATTACHMENT`, `MARK`, `CHANNEL_MEMBERSHIP`, `USERGROUPS_WRITE`, `FILES_LIST`) accept only `true`, `1`, or `yes` — matched case-insensitively and ignoring surrounding whitespace (`isTruthyEnv`, duplicated in `pkg/handler/conversations.go` and `pkg/server/server.go`). Any other value, **including `false`**, leaves the tool disabled. The two channel-allowlist gates (`ADD_MESSAGE`, `REACTION`) are not booleans: their value *is* the configuration, so any non-empty value enables them (`channelListGates` in `pkg/server/server.go`).
+
+Gate vars and the allowlist interact: when `SLACK_MCP_ENABLED_TOOLS` is set, registration is decided by the allowlist alone — a gated tool named in it registers without its dedicated env var, and one absent from it stays unregistered even when the env var is set. When `SLACK_MCP_ENABLED_TOOLS` is unset, a gated tool registers only if its own env var is truthy — or, for the two channel-allowlist gates, non-empty. Matching is an **exact** per-entry comparison (`isToolInEnabledList`, `slices.Contains`), not a substring test.
 
 ## Code map (runtime spine)
 
