@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -360,25 +359,6 @@ func TestAtomicReadyFlags(t *testing.T) {
 	assert.True(t, channelsReady.Load())
 }
 
-// TestRefreshingFlagPreventsConcurrentRefreshes verifies that CompareAndSwap on
-// the refreshing flag prevents a second background refresh from starting.
-func TestRefreshingFlagPreventsConcurrentRefreshes(t *testing.T) {
-	var refreshing atomic.Bool
-
-	// First caller succeeds
-	assert.True(t, refreshing.CompareAndSwap(false, true),
-		"first refresh should acquire the flag")
-
-	// Second caller is blocked
-	assert.False(t, refreshing.CompareAndSwap(false, true),
-		"second refresh should be blocked while first is in progress")
-
-	// After first completes, next one can proceed
-	refreshing.Store(false)
-	assert.True(t, refreshing.CompareAndSwap(false, true),
-		"refresh should succeed after previous one completes")
-}
-
 // TestStaleWhileRevalidateReadyFlag verifies the stale-while-revalidate pattern:
 // when an expired cache file exists, the ready flag is set immediately from stale data,
 // without waiting for a fresh API fetch.
@@ -515,38 +495,6 @@ func TestGetMinRefreshInterval(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-// TestFetchSerializationWithMutex verifies that fetchUsersMu/fetchChannelsMu
-// serializes concurrent calls to fetchAndStore*. This test validates the mutex
-// pattern rather than calling the actual Slack API.
-func TestFetchSerializationWithMutex(t *testing.T) {
-	var mu sync.Mutex
-	var order []int
-
-	// Simulate two concurrent fetchAndStore calls serialized by a mutex
-	done := make(chan struct{})
-	started := make(chan struct{})
-
-	go func() {
-		mu.Lock()
-		close(started) // Signal that the lock is held
-		time.Sleep(50 * time.Millisecond)
-		order = append(order, 1)
-		mu.Unlock()
-	}()
-
-	go func() {
-		<-started // Wait for first goroutine to hold the lock
-		mu.Lock()
-		order = append(order, 2)
-		mu.Unlock()
-		close(done)
-	}()
-
-	<-done
-	assert.Equal(t, []int{1, 2}, order,
-		"second fetch should wait for first to complete")
 }
 
 // TestEmptyAPIResultGuard verifies that an empty API result does not overwrite
