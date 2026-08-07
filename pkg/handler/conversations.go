@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
@@ -335,7 +336,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	}
 
 	toolConfig := os.Getenv("SLACK_MCP_ADD_MESSAGE_MARK")
-	if toolConfig == "1" || toolConfig == "true" || toolConfig == "yes" {
+	if envutil.IsTruthy(toolConfig) {
 		err := ch.apiProvider.Slack().MarkConversationContext(ctx, params.channel, respTimestamp)
 		if err != nil {
 			ch.logger.Error("Slack MarkConversationContext failed", zap.Error(err))
@@ -2279,13 +2280,8 @@ func isToolInEnabledList(enabledTools, toolName string) bool {
 	return false
 }
 
-// true/1/yes (case-insensitive). Keep in sync with pkg/server/server.go.
 func isTruthyEnv(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "true", "1", "yes":
-		return true
-	}
-	return false
+	return envutil.IsTruthy(value)
 }
 
 // Dedicated env truthy, or toolName listed in SLACK_MCP_ENABLED_TOOLS.
@@ -2569,20 +2565,12 @@ func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolReque
 }
 
 func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest) (*markParams, error) {
-	toolConfig := os.Getenv("SLACK_MCP_MARK_TOOL")
-	if toolConfig == "" {
+	if !requireToolEnabled("SLACK_MCP_MARK_TOOL", "conversations_mark") {
 		ch.logger.Error("Mark tool disabled by default")
 		return nil, errors.New(
 			"by default, the conversations_mark tool is disabled to prevent accidental marking of messages as read. " +
 				"To enable it, set the SLACK_MCP_MARK_TOOL environment variable to true or 1, " +
-				"e.g. 'SLACK_MCP_MARK_TOOL=true'",
-		)
-	}
-	if !isTruthyEnv(toolConfig) {
-		ch.logger.Error("Mark tool disabled by config", zap.String("config", toolConfig))
-		return nil, errors.New(
-			"the conversations_mark tool is disabled. " +
-				"To enable it, set the SLACK_MCP_MARK_TOOL environment variable to true or 1",
+				"or add 'conversations_mark' to SLACK_MCP_ENABLED_TOOLS",
 		)
 	}
 

@@ -206,7 +206,7 @@ func newLogger(transport string) (*zap.Logger, error) {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
 	if envLevel := os.Getenv("SLACK_MCP_LOG_LEVEL"); envLevel != "" {
 		if err := atomicLevel.UnmarshalText([]byte(envLevel)); err != nil {
-			fmt.Printf("Invalid log level '%s': %v, using 'info'\n", envLevel, err)
+			fmt.Fprintf(os.Stderr, "Invalid log level '%s': %v, using 'info'\n", envLevel, err)
 		}
 	}
 

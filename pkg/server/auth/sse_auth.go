@@ -30,13 +30,19 @@ var silentPassWarnOnce sync.Once
 // RequireAPIKeyOrOptOut returns an error if no API key is configured for a
 // network transport and the operator has not explicitly opted out via
 // SLACK_MCP_ALLOW_UNAUTHENTICATED=true.
-func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
-	keyA := os.Getenv("SLACK_MCP_API_KEY")
-	if keyA == "" {
-		keyA = os.Getenv("SLACK_MCP_SSE_API_KEY")
+func apiKeyFromEnv(logger *zap.Logger, warnDeprecated bool) string {
+	if key := os.Getenv("SLACK_MCP_API_KEY"); key != "" {
+		return key
 	}
+	key := os.Getenv("SLACK_MCP_SSE_API_KEY")
+	if key != "" && warnDeprecated {
+		logger.Warn("SLACK_MCP_SSE_API_KEY is deprecated, please use SLACK_MCP_API_KEY")
+	}
+	return key
+}
 
-	if keyA != "" {
+func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
+	if apiKeyFromEnv(logger, false) != "" {
 		return nil
 	}
 
@@ -50,16 +56,8 @@ func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
 	return fmt.Errorf("no API key configured: set SLACK_MCP_API_KEY (or deprecated SLACK_MCP_SSE_API_KEY), or explicitly opt out with SLACK_MCP_ALLOW_UNAUTHENTICATED=true")
 }
 
-// Authenticate checks if the request is authenticated based on the provided context.
 func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
-	// no configured token means no authentication
-	keyA := os.Getenv("SLACK_MCP_API_KEY")
-	if keyA == "" {
-		keyA = os.Getenv("SLACK_MCP_SSE_API_KEY")
-		if keyA != "" {
-			logger.Warn("SLACK_MCP_SSE_API_KEY is deprecated, please use SLACK_MCP_API_KEY")
-		}
-	}
+	keyA := apiKeyFromEnv(logger, true)
 
 	if keyA == "" {
 		alreadyWarned := true
@@ -146,7 +144,6 @@ func BuildMiddleware(transport string, logger *zap.Logger) server.ToolHandlerMid
 	}
 }
 
-// IsAuthenticated public api
 func IsAuthenticated(ctx context.Context, transport string, logger *zap.Logger) (bool, error) {
 	switch transport {
 	case "stdio":

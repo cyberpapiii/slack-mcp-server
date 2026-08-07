@@ -839,10 +839,6 @@ func (c *MCPSlackClient) UpdateUserGroupMembersContext(ctx context.Context, user
 	return c.standardSlackClient().UpdateUserGroupMembersContext(ctx, userGroup, members, options...)
 }
 
-func (c *MCPSlackClient) IsEnterprise() bool {
-	return c.isEnterprise
-}
-
 func (c *MCPSlackClient) AuthResponse() *slack.AuthTestResponse {
 	return c.authResponse
 }
@@ -853,19 +849,6 @@ func (c *MCPSlackClient) IsBotToken() bool {
 
 func (c *MCPSlackClient) IsOAuth() bool {
 	return c.effectiveOAuth()
-}
-
-func (c *MCPSlackClient) Raw() struct {
-	Slack *slack.Client
-	Edge  *edge.Client
-} {
-	return struct {
-		Slack *slack.Client
-		Edge  *edge.Client
-	}{
-		Slack: c.slackClient,
-		Edge:  c.edgeClient,
-	}
 }
 
 func New(transport string, logger *zap.Logger) *ApiProvider {
@@ -931,7 +914,7 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 			zap.String("token_type", "xoxb"),
 		)
 
-		return newWithXOXB(transport, authProvider, logger)
+		return newWithXOXP(transport, authProvider, logger)
 	}
 
 	logger.Fatal("Authentication required: Either SLACK_MCP_XOXP_TOKEN, SLACK_MCP_XOXB_TOKEN, or both SLACK_MCP_XOXC_TOKEN and SLACK_MCP_XOXD_TOKEN must be provided")
@@ -991,10 +974,6 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		ChannelsInv: make(map[string]string),
 	})
 	return ap
-}
-
-func newWithXOXB(transport string, authProvider auth.ValueAuth, logger *zap.Logger) *ApiProvider {
-	return newWithXOXP(transport, authProvider, logger)
 }
 
 func newWithXOXC(transport string, authProvider auth.ValueAuth, oauthFallbackToken string, logger *zap.Logger) (*ApiProvider, error) {

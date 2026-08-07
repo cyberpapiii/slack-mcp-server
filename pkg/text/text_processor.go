@@ -303,8 +303,7 @@ func IsUnfurlingEnabled(text string, opt string, logger *zap.Logger) bool {
 		allowed[d] = struct{}{}
 	}
 
-	urlRe := regexp.MustCompile(`https?://[^\s]+`)
-	urls := urlRe.FindAllString(text, -1)
+	urls := unfurlURLRegex.FindAllString(text, -1)
 	for _, rawURL := range urls {
 		u, err := url.Parse(rawURL)
 		if err != nil || u.Host == "" {
@@ -326,10 +325,8 @@ func IsUnfurlingEnabled(text string, opt string, logger *zap.Logger) bool {
 		}
 	}
 
-	txtNoURLs := urlRe.ReplaceAllString(text, " ")
-
-	domRe := regexp.MustCompile(`\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}\b`)
-	doms := domRe.FindAllString(txtNoURLs, -1)
+	txtNoURLs := unfurlURLRegex.ReplaceAllString(text, " ")
+	doms := unfurlDomainRegex.FindAllString(txtNoURLs, -1)
 
 	for _, d := range doms {
 		d = strings.ToLower(d)
@@ -412,6 +409,8 @@ var (
 	markdownLinkRegex = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)]+)\)`)
 	htmlLinkRegex     = regexp.MustCompile(`<a\s+href=["']([^"']+)["'][^>]*>([^<]+)</a>`)
 	inlineSpaceRegex  = regexp.MustCompile(`[ \t]+`)
+	unfurlURLRegex    = regexp.MustCompile(`https?://[^\s]+`)
+	unfurlDomainRegex = regexp.MustCompile(`\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}\b`)
 )
 
 func normalizeLinks(text string) string {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"runtime/trace"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
@@ -118,13 +119,18 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 	}
 
 	const (
-		ep             = "search.modules.channels"
-		maxSearchPages = 100
+		ep                 = "search.modules.channels"
+		maxSearchPages     = 100
+		maxEmptyQueryPages = 5 // empty query is used for cache warm; avoid full-workspace crawl
 	)
+	maxPages := maxSearchPages
+	if strings.TrimSpace(query) == "" {
+		maxPages = maxEmptyQueryPages
+	}
 	lim := limiter.Tier2boost.Limiter()
 	var cc []slack.Channel
 	seenCursor := make(map[string]struct{})
-	for page := 0; page < maxSearchPages; page++ {
+	for page := 0; page < maxPages; page++ {
 		resp, err := cl.PostForm(ctx, ep, values(form, true))
 		if err != nil {
 			return nil, err

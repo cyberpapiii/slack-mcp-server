@@ -37,6 +37,8 @@ func startCacheWarmup(p *provider.ApiProvider, s *server.MCPServer, logger *zap.
 				logger.Info("Demo credentials are set, skip cache warm-up",
 					zap.String("context", "console"),
 				)
+				p.SkipCache()
+				s.RegisterCacheDependentTools()
 				return
 			}
 

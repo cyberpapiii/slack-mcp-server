@@ -121,10 +121,6 @@ func NewWithInfo(info *slack.AuthTestResponse, prov auth.Provider, opt ...Option
 	return c, nil
 }
 
-func (cl *Client) Raw() httpClient {
-	return cl.cl
-}
-
 func (cl *Client) Close() error {
 	if cl.tape != nil {
 		return cl.tape.Close()
@@ -216,12 +212,6 @@ func (cl *Client) callEdgeAPI(ctx context.Context, v any, endpoint string, req P
 		return err
 	}
 	return cl.ParseResponse(v, r)
-}
-
-// Post sends a POST request to a webclient API. It marshals the form
-// values to url.Values, omitting empty fields, and sends the request.
-func (cl *Client) Post(ctx context.Context, path string, a any) (*http.Response, error) {
-	return cl.PostFormRaw(ctx, cl.webclientAPI+path, values(a, true))
 }
 
 // PostForm sends a POST request to a webclient API with form values.

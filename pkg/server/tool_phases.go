@@ -54,7 +54,7 @@ func guardCacheDependentRegistration(toolName string) {
 	if isImmediateOnlyTool(toolName) {
 		panic("registerCacheDependentTools must not register immediate-only tool: " + toolName)
 	}
-	if _, ok := cacheDependentToolNames[toolName]; !ok {
+	if !isCacheDependentTool(toolName) {
 		panic("tool " + toolName + " registered in cache-dependent path but missing from cacheDependentToolNames")
 	}
 }

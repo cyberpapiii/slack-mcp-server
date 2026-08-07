@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
@@ -61,6 +62,8 @@ const (
 	ToolSavedClearCompleted         = "saved_clear_completed"
 	ToolFilesList                   = "files_list"
 	ToolSlackAuthStatus             = "slack_auth_status"
+
+	toolDetailDescription = "Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."
 )
 
 var ValidToolNames = []string{
@@ -117,13 +120,8 @@ func ValidateEnabledTools(tools []string) error {
 	return nil
 }
 
-// true/1/yes (case-insensitive). Keep in sync with pkg/handler/conversations.go.
 func isTruthyEnv(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "true", "1", "yes":
-		return true
-	}
-	return false
+	return envutil.IsTruthy(value)
 }
 
 // channelListGates are gate variables whose value is a channel allowlist, not
@@ -216,7 +214,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("How much history to fetch: a time range ('1d' for 1 day, '1w' for 1 week, '30d', '90d' which is the free-tier history limit) or a number of messages (e.g. 50). Default is 1d. Ignored when 'cursor' is set."),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description(toolDetailDescription),
 			),
 		), conversationsHandler.ConversationsHistoryHandler)
 	}
@@ -246,7 +244,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("How many replies to fetch: a time range ('1d' for 1 day, '30d', '90d' which is the free-tier history limit) or a number of messages (e.g. 50). Default is 1d. Ignored when 'cursor' is set."),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description(toolDetailDescription),
 			),
 		), conversationsHandler.ConversationsRepliesHandler)
 	}
@@ -281,7 +279,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("Timestamp of the message to fetch, in format 1234567890.123456."),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description(toolDetailDescription),
 			),
 		), conversationsHandler.ConversationsGetMessageHandler)
 	}
@@ -384,62 +382,61 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 		), conversationsHandler.FilesGetHandler)
 	}
-	conversationsSearchTool := mcp.NewTool(ToolConversationsSearchMessages,
-		mcp.WithDescription("Search messages across channels and DMs. All filters are optional. If no filter is set, search_query is required."),
-		mcp.WithTitleAnnotation("Search Messages"),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("search_query",
-			mcp.Description("Search query, e.g. 'marketing report'. A full Slack message URL such as 'https://slack.com/archives/C1234567890/p1234567890123456' returns that single message and ignores all other parameters."),
-		),
-		mcp.WithString("filter_in_channel",
-			mcp.Description("Limit search to one public or private channel by ID or name, e.g. 'C1234567890', 'G1234567890', or '#general'. Omit to search all channels."),
-		),
-		mcp.WithString("filter_in_im_or_mpim",
-			mcp.Description("Limit search to one DM or multi-person DM by ID or name, e.g. 'D1234567890' or '@username_dm'. Omit to search all DMs and MPIMs."),
-		),
-		mcp.WithString("filter_users_with",
-			mcp.Description("Only messages in threads and DMs with a specific user, by ID or display name, e.g. 'U1234567890' or '@username'. Omit to search all threads and DMs."),
-		),
-		mcp.WithString("filter_users_from",
-			mcp.Description("Only messages sent by a specific user, by ID or display name, e.g. 'U1234567890' or '@username'. Omit to search all users."),
-		),
-		mcp.WithString("filter_date_before",
-			mcp.Description("Only messages sent before a date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
-		),
-		mcp.WithString("filter_date_after",
-			mcp.Description("Only messages sent after a date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
-		),
-		mcp.WithString("filter_date_on",
-			mcp.Description("Only messages sent on a specific date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
-		),
-		mcp.WithString("filter_date_during",
-			mcp.Description("Only messages sent during a named period, e.g. 'July', 'Yesterday', or 'Today'."),
-		),
-		mcp.WithBoolean("filter_threads_only",
-			mcp.Description("If true, return only messages from threads. Default is false."),
-		),
-		mcp.WithString("filter_has",
-			mcp.Description("Only messages containing a given element: 'link', 'reaction', 'pin', 'file', or an emoji name like ':eyes:'. Maps to Slack's has: search modifier."),
-		),
-		mcp.WithString("cursor",
-			mcp.DefaultString(""),
-			mcp.Description("Pagination cursor. Pass the cursor value from the last row of the previous response."),
-		),
-		mcp.WithNumber("limit",
-			mcp.DefaultNumber(100),
-			mcp.Description("Maximum number of results, an integer between 1 and 100. Default is 100."),
-		),
-		mcp.WithString("sort",
-			mcp.DefaultString("score"),
-			mcp.Description("Sort order: 'score' (default, relevance) or 'timestamp' (most recent first)."),
-		),
-		mcp.WithString("detail",
-			mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
-		),
-	)
-	// Only register search tool for non-bot tokens (bot tokens cannot use search.messages API)
+	// Bot tokens cannot use search.messages.
 	if !provider.IsBotToken() && shouldAddTool(ToolConversationsSearchMessages, enabledTools, "") {
-		s.AddTool(conversationsSearchTool, conversationsHandler.ConversationsSearchHandler)
+		s.AddTool(mcp.NewTool(ToolConversationsSearchMessages,
+			mcp.WithDescription("Search messages across channels and DMs. All filters are optional. If no filter is set, search_query is required."),
+			mcp.WithTitleAnnotation("Search Messages"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithString("search_query",
+				mcp.Description("Search query, e.g. 'marketing report'. A full Slack message URL such as 'https://slack.com/archives/C1234567890/p1234567890123456' returns that single message and ignores all other parameters."),
+			),
+			mcp.WithString("filter_in_channel",
+				mcp.Description("Limit search to one public or private channel by ID or name, e.g. 'C1234567890', 'G1234567890', or '#general'. Omit to search all channels."),
+			),
+			mcp.WithString("filter_in_im_or_mpim",
+				mcp.Description("Limit search to one DM or multi-person DM by ID or name, e.g. 'D1234567890' or '@username_dm'. Omit to search all DMs and MPIMs."),
+			),
+			mcp.WithString("filter_users_with",
+				mcp.Description("Only messages in threads and DMs with a specific user, by ID or display name, e.g. 'U1234567890' or '@username'. Omit to search all threads and DMs."),
+			),
+			mcp.WithString("filter_users_from",
+				mcp.Description("Only messages sent by a specific user, by ID or display name, e.g. 'U1234567890' or '@username'. Omit to search all users."),
+			),
+			mcp.WithString("filter_date_before",
+				mcp.Description("Only messages sent before a date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
+			),
+			mcp.WithString("filter_date_after",
+				mcp.Description("Only messages sent after a date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
+			),
+			mcp.WithString("filter_date_on",
+				mcp.Description("Only messages sent on a specific date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
+			),
+			mcp.WithString("filter_date_during",
+				mcp.Description("Only messages sent during a named period, e.g. 'July', 'Yesterday', or 'Today'."),
+			),
+			mcp.WithBoolean("filter_threads_only",
+				mcp.Description("If true, return only messages from threads. Default is false."),
+			),
+			mcp.WithString("filter_has",
+				mcp.Description("Only messages containing a given element: 'link', 'reaction', 'pin', 'file', or an emoji name like ':eyes:'. Maps to Slack's has: search modifier."),
+			),
+			mcp.WithString("cursor",
+				mcp.DefaultString(""),
+				mcp.Description("Pagination cursor. Pass the cursor value from the last row of the previous response."),
+			),
+			mcp.WithNumber("limit",
+				mcp.DefaultNumber(100),
+				mcp.Description("Maximum number of results, an integer between 1 and 100. Default is 100."),
+			),
+			mcp.WithString("sort",
+				mcp.DefaultString("score"),
+				mcp.Description("Sort order: 'score' (default, relevance) or 'timestamp' (most recent first)."),
+			),
+			mcp.WithString("detail",
+				mcp.Description(toolDetailDescription),
+			),
+		), conversationsHandler.ConversationsSearchHandler)
 	}
 
 	if shouldAddTool(ToolUsersSearch, enabledTools, "") {
@@ -618,10 +615,10 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsUsersUpdateHandler)
 	}
 
-	// Saved-items tools need browser session tokens (xoxc/xoxd).
-	addSavedList := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolSavedList, enabledTools, "")
-	addSavedUpdate := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolSavedUpdate, enabledTools, "")
-	addSavedClear := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolSavedClearCompleted, enabledTools, "")
+	browserSession := !provider.IsBotToken() && !provider.IsOAuth()
+	addSavedList := browserSession && shouldAddTool(ToolSavedList, enabledTools, "")
+	addSavedUpdate := browserSession && shouldAddTool(ToolSavedUpdate, enabledTools, "")
+	addSavedClear := browserSession && shouldAddTool(ToolSavedClearCompleted, enabledTools, "")
 	if addSavedList || addSavedUpdate || addSavedClear {
 		savedHandler := handler.NewSavedHandler(provider, logger, conversationsHandler)
 		if addSavedList {
@@ -646,7 +643,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 					mcp.DefaultNumber(5),
 				),
 				mcp.WithString("detail",
-					mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
+					mcp.Description(toolDetailDescription),
 				),
 			), savedHandler.SavedListHandler)
 		}
@@ -730,6 +727,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	provider := s.provider
 	logger := s.logger
 	enabledTools := s.enabledTools
+	browserSession := !provider.IsBotToken() && !provider.IsOAuth()
 
 	conversationsHandler := handler.NewConversationsHandler(provider, logger)
 	channelsHandler := handler.NewChannelsHandler(provider, logger)
@@ -831,13 +829,13 @@ func (s *MCPServer) registerCacheDependentTools() {
 				mcp.DefaultBool(false),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description(toolDetailDescription),
 			),
 		), conversationsHandler.ConversationsUnreadsHandler)
 	}
 
-	addActivityUnreads := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolActivityUnreads, enabledTools, "")
-	addActivityMarkRead := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolActivityMarkRead, enabledTools, "")
+	addActivityUnreads := browserSession && shouldAddTool(ToolActivityUnreads, enabledTools, "")
+	addActivityMarkRead := browserSession && shouldAddTool(ToolActivityMarkRead, enabledTools, "")
 	if addActivityUnreads || addActivityMarkRead {
 		activityHandler := handler.NewActivityHandler(provider, logger, conversationsHandler)
 		if addActivityUnreads {
@@ -859,7 +857,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 					mcp.DefaultNumber(30),
 				),
 				mcp.WithString("detail",
-					mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
+					mcp.Description(toolDetailDescription),
 				),
 			), activityHandler.ActivityUnreadsHandler)
 		}

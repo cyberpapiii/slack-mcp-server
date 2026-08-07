@@ -34,7 +34,7 @@ Auth tokens (`SLACK_MCP_XOXC_TOKEN`, `SLACK_MCP_XOXD_TOKEN`, etc.) live in the e
 
 The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is set (deprecated fallback: `SLACK_MCP_SSE_API_KEY`), or `SLACK_MCP_ALLOW_UNAUTHENTICATED` is set to exactly `true`. `1`/`yes` are rejected. `stdio` (the Plug path) is unaffected. See `pkg/server/auth/sse_auth.go`.
 
-`SLACK_MCP_SERVER_CA_TOOLKIT` is unusable: the embedded HTTP Toolkit CA in `pkg/transport/transport.go` expired **2026-03-13**. Setting the env var fatals at startup. For MitM debugging, set `SLACK_MCP_SERVER_CA` to a current CA PEM instead.
+`SLACK_MCP_SERVER_CA_TOOLKIT` is removed (embedded CA expired). Setting it fatals; use `SLACK_MCP_SERVER_CA` with a current HTTP Toolkit CA PEM instead.
 
 ## Tool surface
 
