@@ -14,6 +14,40 @@ Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
 your row when done.
 
+## Merge status (2026-08-07)
+
+Both 2026-08-07 stacks are now merged to `master`. Individual plan rows below
+still read "not merged" — that phrasing describes the state at the time each
+plan was reviewed, and is left as written rather than rewritten twenty-five
+times. This section is the authority on what has landed.
+
+| Merge | Commit | Brings in | Result |
+|-------|--------|-----------|--------|
+| Plans commit | `bca659c` | plans 004–032 plus this index; documentation only | — |
+| Track A | `5fb655a` | 007, 013, 017, 008, 019, 018, 028, 029, 031, 032 — `pkg/provider/**`, `Makefile` | clean, no conflicts |
+| Track B | `bd72d3c` | 014, 016, 010, 009, 011, 012, 022, 020, 015, 021, 023, 024, 025, 026, 027 — `pkg/handler/**`, `pkg/server/**`, `cmd/**`, docs | clean, no conflicts |
+
+After each merge: `make test` (which runs with `-race` since plan 018) passed
+on all eight packages with no data-race warnings, `make lint` was clean, and
+`go build ./...` succeeded.
+
+Two deliberate behavior changes are now on `master`. The `sse` and `http`
+transports refuse to start without `SLACK_MCP_API_KEY` unless explicitly
+opted out (plan 016) — `stdio` is unaffected. A boolean tool gate set to
+`false` now disables its tool instead of enabling it (plan 025); the
+channel-list gates are exempt, since their value is a channel list rather
+than a boolean.
+
+**Not yet merged:** plans 004, 005 and 006. All three branch from `adbae97`
+and predate both stacks, and all three edit `pkg/handler/conversations.go`,
+which Track B rewrote substantially. Merge them one at a time with a test run
+between each, and expect real conflicts rather than trivial ones.
+
+The per-plan executor worktrees under `.claude/worktrees/` (28 of them, about
+122 MB) are still present. They are safe to prune once the merged code has
+been deployed and verified, but not before — a bad merge is much easier to
+investigate with the original trees intact.
+
 ## Execution order & status
 
 | Plan | Title | Priority | Effort | Depends on | Status |
