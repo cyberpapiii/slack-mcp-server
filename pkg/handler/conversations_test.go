@@ -1692,20 +1692,39 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		assert.Nil(t, got)
 	})
 
-	t.Run("a snapshot with no last_read renders a year-1 timestamp, not an empty string", func(t *testing.T) {
-		// NOTE: characterizes current behavior, possibly wrong: fasttime.Time's
-		// zero value is time.Time{} (year 1), and SlackString() formats that as a
-		// large negative Slack ts rather than "". Downstream this means the
-		// `LastRead == ""` guard in backfillUnreadCounts is unreachable for
-		// edge-sourced channels, and conversations.history is called with
-		// Oldest="-62135596800.000000" — effectively unbounded.
+	t.Run("a snapshot with no last_read renders an empty string", func(t *testing.T) {
+		// Plan 026: fasttime.Time's zero value is time.Time{} (year 1) and
+		// SlackString() formats that as "-62135596800.000000", not "". collect now
+		// routes both timestamps through slackTS, which maps the zero value to "".
+		// That makes the `LastRead == ""` guard in backfillUnreadCounts reachable
+		// for edge-sourced channels, so conversations.history is never called with
+		// an effectively unbounded Oldest.
 		c := edge.ClientCountsResponse{
 			Channels: []edge.ChannelSnapshot{{ID: "C_SILENT", HasUnreads: true}},
 		}
 		got := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
 		require.Len(t, got, 1)
-		assert.Equal(t, "-62135596800.000000", got[0].LastRead)
-		assert.Equal(t, "-62135596800.000000", got[0].Latest)
+		assert.Equal(t, "", got[0].LastRead)
+		assert.Equal(t, "", got[0].Latest)
+	})
+}
+
+// TestUnitSlackTS pins the zero-value plaster over fasttime.Time: a never-read
+// channel must render as "" so callers can tell "no bound available" apart from
+// a real timestamp, instead of fasttime's literal year-1 rendering.
+func TestUnitSlackTS(t *testing.T) {
+	t.Run("the zero value renders as an empty string", func(t *testing.T) {
+		var zero fasttime.Time
+		require.True(t, time.Time(zero).IsZero())
+		assert.Equal(t, "-62135596800.000000", zero.SlackString(),
+			"the raw fasttime rendering this helper exists to suppress")
+		assert.Equal(t, "", slackTS(zero))
+	})
+
+	t.Run("a real timestamp round-trips unchanged", func(t *testing.T) {
+		ts := fasttime.Time(time.UnixMicro(1710632873037269))
+		assert.Equal(t, "1710632873.037269", slackTS(ts))
+		assert.Equal(t, ts.SlackString(), slackTS(ts))
 	})
 }
 
@@ -1795,9 +1814,9 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
 		assert.Empty(t, fake.calls)
 		assert.Equal(t, 1, channels[0].UnreadCount)
-		// See TestUnitCollectUnreadChannels: edge-sourced channels never actually
-		// reach this branch, because a missing last_read stringifies to a year-1
-		// timestamp rather than "".
+		// Plan 026 made this branch live: collectUnreadChannels now renders a
+		// missing last_read as "" (see TestUnitCollectUnreadChannels), so an
+		// edge-sourced channel really does reach it and really does skip the call.
 	})
 
 	t.Run("history failure leaves the count at zero and the loop continues", func(t *testing.T) {
@@ -1823,9 +1842,11 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 		assert.Equal(t, 2, channels[1].UnreadCount)
 	})
 
-	t.Run("zero rows in the unread window leaves the count at zero", func(t *testing.T) {
-		// NOTE: characterizes current behavior, possibly wrong: same asymmetry as
-		// above — summary mode reports 0, include_messages mode reports 1.
+	t.Run("zero rows in the unread window reports a conservative 1", func(t *testing.T) {
+		// Plan 026: the summary path now routes the row count through
+		// unreadCountFromHistory, the same helper include_messages mode uses, so
+		// both modes report 1 rather than summary mode rendering "0 unread" for a
+		// channel client.counts flagged as unread.
 		fake := &fakeHistoryFetcher{
 			byChannel: map[string]*slack.GetConversationHistoryResponse{"C_SILENT": historyWith(0)},
 		}
@@ -1835,7 +1856,7 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 
 		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
 		require.Len(t, fake.calls, 1)
-		assert.Equal(t, 0, channels[0].UnreadCount)
+		assert.Equal(t, 1, channels[0].UnreadCount)
 	})
 
 	t.Run("cancelled context reports false before any call", func(t *testing.T) {
@@ -1853,11 +1874,57 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 	})
 }
 
-// TestUnitUnreadCountFromHistory pins the two conservative fallbacks the
-// include_messages path applies after fetching a channel's history.
+// TestUnitUnreadsZeroLastReadNeverReachesSlack wires collectUnreadChannels into
+// backfillUnreadCounts to pin plan 026's load-bearing guarantee end to end: a
+// client.counts snapshot with no last_read must never produce a
+// conversations.history call, and must never send "-62135596800.000000" as
+// Oldest.
+func TestUnitUnreadsZeroLastReadNeverReachesSlack(t *testing.T) {
+	ch := newUnreadsTestHandler()
+
+	counts := edge.ClientCountsResponse{
+		Channels: []edge.ChannelSnapshot{
+			{ID: "C_NEVER_READ", HasUnreads: true}, // zero LastRead and Latest
+			{ID: "C_BOUNDED", HasUnreads: true,
+				LastRead: ftime(t, "1700000100.000000"), Latest: ftime(t, "1700000800.000000")},
+		},
+	}
+	users := &provider.UsersCache{Users: map[string]slack.User{}}
+	channelsCache := &provider.ChannelsCache{Channels: map[string]provider.Channel{}}
+
+	p := defaultUnreadsParams()
+	p.includeMessages = false
+
+	channels := ch.collectUnreadChannels(p, counts, users, channelsCache)
+	require.Len(t, channels, 2)
+
+	fake := &fakeHistoryFetcher{
+		byChannel: map[string]*slack.GetConversationHistoryResponse{"C_BOUNDED": historyWith(2)},
+	}
+	require.True(t, ch.backfillUnreadCounts(context.Background(), mcp.CallToolRequest{}, fake, p, channels))
+
+	require.Len(t, fake.calls, 1, "only the channel with a real last_read is queried")
+	assert.Equal(t, "C_BOUNDED", fake.calls[0].ChannelID)
+	assert.Equal(t, "1700000100.000000", fake.calls[0].Oldest)
+	for _, call := range fake.calls {
+		assert.NotEqual(t, "-62135596800.000000", call.Oldest)
+		assert.NotEqual(t, "", call.Oldest, "an empty Oldest would mean 'whole channel history'")
+	}
+
+	byID := map[string]UnreadChannel{}
+	for _, c := range channels {
+		byID[c.ChannelID] = c
+	}
+	assert.Equal(t, 1, byID["C_NEVER_READ"].UnreadCount, "conservative 1, no API call")
+	assert.Equal(t, 2, byID["C_BOUNDED"].UnreadCount)
+}
+
+// TestUnitUnreadCountFromHistory pins the conservative fallbacks applied after
+// a channel's conversations.history fetch. Since plan 026 both modes share this
+// helper, so its result is observable in the summary CSV's UnreadCount column.
 //
-// NOTE: these fallbacks are currently NOT observable in tool output: the
-// include_messages path returns marshalMessagesToCSV(allMessages, ...) and never
+// NOTE: on the include_messages path the result is still NOT observable in tool
+// output: that path returns marshalMessagesToCSV(allMessages, ...) and never
 // marshals unreadChannels, so the corrected UnreadCount is discarded.
 func TestUnitUnreadCountFromHistory(t *testing.T) {
 	boom := errors.New("boom")
@@ -1874,9 +1941,10 @@ func TestUnitUnreadCountFromHistory(t *testing.T) {
 		{"row count replaces a zero", 0, 3, nil, 3},
 		{"row count replaces a positive prior count", 5, 3, nil, 3},
 		{"zero rows reports 1", 0, 0, nil, 1},
-		// NOTE: characterizes current behavior, possibly wrong: a successful fetch
-		// that returns no rows overwrites a positive MentionCount with 1.
-		{"zero rows overwrites a positive prior count with 1", 5, 0, nil, 1},
+		// Plan 026: a successful fetch that returns no rows used to overwrite a
+		// positive MentionCount with 1. It now preserves it, matching the
+		// fetch-failed arm.
+		{"zero rows keeps a positive prior count", 5, 0, nil, 5},
 	}
 
 	for _, tt := range tests {
