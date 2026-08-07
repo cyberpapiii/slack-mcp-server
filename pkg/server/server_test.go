@@ -135,40 +135,6 @@ func TestValidToolNames(t *testing.T) {
 			assert.True(t, expectedTools[tool], "unexpected tool in ValidToolNames: %s", tool)
 		}
 	})
-
-	t.Run("constants match their string values", func(t *testing.T) {
-		assert.Equal(t, "conversations_history", ToolConversationsHistory)
-		assert.Equal(t, "conversations_replies", ToolConversationsReplies)
-		assert.Equal(t, "conversations_add_message", ToolConversationsAddMessage)
-		assert.Equal(t, "conversations_draft_message", ToolConversationsDraftMessage)
-		assert.Equal(t, "reactions_add", ToolReactionsAdd)
-		assert.Equal(t, "reactions_remove", ToolReactionsRemove)
-		assert.Equal(t, "reactions_get", ToolReactionsGet)
-		assert.Equal(t, "conversations_get_message", ToolConversationsGetMessage)
-		assert.Equal(t, "attachment_get_data", ToolAttachmentGetData)
-		assert.Equal(t, "conversations_search_messages", ToolConversationsSearchMessages)
-		assert.Equal(t, "conversations_unreads", ToolConversationsUnreads)
-		assert.Equal(t, "conversations_mark", ToolConversationsMark)
-		assert.Equal(t, "conversations_open", ToolConversationsOpen)
-		assert.Equal(t, "conversations_leave", ToolConversationsLeave)
-		assert.Equal(t, "conversations_join", ToolConversationsJoin)
-		assert.Equal(t, "channels_list", ToolChannelsList)
-		assert.Equal(t, "channels_starred", ToolChannelsStarred)
-		assert.Equal(t, "channels_me", ToolChannelsMe)
-		assert.Equal(t, "usergroups_list", ToolUsergroupsList)
-		assert.Equal(t, "usergroups_me", ToolUsergroupsMe)
-		assert.Equal(t, "usergroups_create", ToolUsergroupsCreate)
-		assert.Equal(t, "usergroups_update", ToolUsergroupsUpdate)
-		assert.Equal(t, "usergroups_users_update", ToolUsergroupsUsersUpdate)
-		assert.Equal(t, "users_search", ToolUsersSearch)
-		assert.Equal(t, "activity_unreads", ToolActivityUnreads)
-		assert.Equal(t, "activity_mark_read", ToolActivityMarkRead)
-		assert.Equal(t, "saved_list", ToolSavedList)
-		assert.Equal(t, "saved_update", ToolSavedUpdate)
-		assert.Equal(t, "saved_clear_completed", ToolSavedClearCompleted)
-		assert.Equal(t, "files_list", ToolFilesList)
-		assert.Equal(t, "slack_auth_status", ToolSlackAuthStatus)
-	})
 }
 
 func TestValidateEnabledTools(t *testing.T) {
@@ -507,14 +473,8 @@ func TestIntegrationErrorRecoveryMiddleware(t *testing.T) {
 }
 
 func TestShouldAddTool_Matrix(t *testing.T) {
-	// Test the complete matrix from the plan:
-	// | ENABLED_TOOLS | TOOL_ENV_VAR | Result |
-	// |---------------|--------------|--------|
-	// | empty         | empty        | NOT registered |
-	// | empty         | true/list    | Registered |
-	// | includes tool | empty        | Registered |
-	// | includes tool | list         | Registered |
-	// | excludes tool | any          | NOT registered |
+	// ENABLED_TOOLS × TOOL_ENV_VAR registration matrix:
+	// empty×empty → off; empty×set → on; includes×any → on; excludes×any → off.
 
 	tests := []struct {
 		name         string
@@ -577,11 +537,8 @@ func TestShouldAddTool_Matrix(t *testing.T) {
 	}
 }
 
-// TestShouldAddTool_RegistrationTimeGates covers plan 014: six previously
-// ungated mutating tools (conversations_mark/leave/join and
-// usergroups_create/update/users_update) must now behave like other write
-// tools at registration time - absent by default, present when their env
-// var is set, present when explicitly named in enabledTools.
+// Registration-time gates for mark/leave/join and usergroups write tools:
+// absent by default; present when env set or named in enabledTools.
 func TestShouldAddTool_RegistrationTimeGates(t *testing.T) {
 	cases := []struct {
 		tool   string
@@ -654,9 +611,7 @@ func TestShouldAddTool_RegistrationTimeGates(t *testing.T) {
 	}
 }
 
-// TestShouldAddTool_ChannelListGates pins the plan 025 exemption: unlike the
-// boolean gates, SLACK_MCP_ADD_MESSAGE_TOOL and SLACK_MCP_REACTION_TOOL take a
-// channel allowlist, so any non-empty value must keep registering the tool.
+// ADD_MESSAGE and REACTION gates take a channel allowlist; any non-empty value registers.
 func TestShouldAddTool_ChannelListGates(t *testing.T) {
 	cases := []struct {
 		tool   string

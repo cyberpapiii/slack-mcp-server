@@ -53,7 +53,6 @@ func CallWithRetry[T any](
 			return result, nil
 		}
 
-		// Check if this is a retryable error.
 		backoff := retryAfter(err)
 		if backoff <= 0 {
 			// Non-retryable error, return immediately.

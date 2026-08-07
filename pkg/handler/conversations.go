@@ -367,7 +367,6 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 		return nil, err
 	}
 
-	// Validate content type and check markdown parsing, matching conversations_add_message behavior.
 	var formatStatus string
 
 	switch params.contentType {
@@ -1184,14 +1183,8 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 		return true
 	}
 
-	// Backfill real unread counts for channels where client.counts only gave us
-	// HasUnreads=true but MentionCount=0 (unreads without @mentions).
-	// DMs and group DMs don't need this; every DM message counts as a mention.
-	//
-	// NOTE: conversations.info does not return unread_count with browser tokens
-	// (xoxc/xoxd), so we use conversations.history to count messages since the
-	// last-read timestamp. Limit kept small (20) for speed; the exact count
-	// matters less than surfacing that unreads exist.
+	// client.counts gives HasUnreads without a count when MentionCount==0;
+	// history since LastRead is used because conversations.info omits unread_count for xoxc/xoxd.
 	const backfillLimit = 20
 	backfilled := 0
 	for i := range unreadChannels {

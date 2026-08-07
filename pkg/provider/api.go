@@ -1609,12 +1609,9 @@ type channelsPageResult struct {
 	cursor   string
 }
 
-// getChannelsMultiType paginates conversations.list and returns every channel
-// it collected. A non-nil error means the list is INCOMPLETE: the partial data
-// is still returned so the caller can decide what to do with it, but it must
-// never be treated as a full channel list. Silently returning a truncated list
-// with a nil error is what previously let a single mid-pagination failure
-// overwrite a good cache with a short one, in memory and on disk.
+// getChannelsMultiType paginates conversations.list. On error it still returns
+// partial data so the caller can decide; never treat that as a full list (a
+// mid-pagination failure must not overwrite a good cache).
 func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []string) ([]Channel, error) {
 	params := &slack.GetConversationsParameters{
 		Types:           channelTypes,
@@ -1625,11 +1622,7 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 	var chans []Channel
 
 	usersMap := ap.ProvideUsersMap().Users
-	// conversations.list is a standard Web API method, so it is metered at
-	// Slack's documented tier, not at the edge API's boosted rate. The
-	// boosted tier previously used here was a copy-paste from the edge call
-	// sites and ran roughly 10x over budget, which is what made a
-	// mid-pagination 429 likely enough to truncate the cache.
+	// Web API conversations.list uses Tier2; edge boosted rates over-budgeted and caused 429 truncations.
 	lim := limiter.Tier2.Limiter()
 
 	for {

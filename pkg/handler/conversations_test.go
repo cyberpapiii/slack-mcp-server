@@ -1138,8 +1138,7 @@ func TestUnitRequireToolEnabled(t *testing.T) {
 	}
 }
 
-// Bug A: the search tool schema declares DefaultNumber(100) and a documented
-// 1..100 range; the parser must default and clamp to match.
+// Search schema DefaultNumber(100) / 1..100 range: parser must default and clamp to match.
 func TestUnitParseParamsToolSearchLimit(t *testing.T) {
 	ch := &ConversationsHandler{logger: zap.NewNop()}
 
@@ -1204,8 +1203,7 @@ func TestUnitParseParamsToolUnreadsClamps(t *testing.T) {
 	}
 }
 
-// Bug B: a documented 'D1234567890' filter_in_im_or_mpim value is a
-// conversation ID, not a user ID, and must never yield "user ... not found".
+// Documented 'D1234567890' filter_in_im_or_mpim is a conversation ID, not a user ID.
 func TestUnitIsSlackConversationIDPrefix(t *testing.T) {
 	tests := []struct {
 		input string
@@ -1267,8 +1265,7 @@ func TestUnitFormatConversationFilter(t *testing.T) {
 	}
 }
 
-// Bug D: the history schema advertises limit "1d" by default while forbidding
-// a limit alongside 'cursor'; the cursor must win over the duration window.
+// History default limit "1d" is forbidden with cursor; cursor must win over the duration window.
 func TestUnitParseParamsToolConversationsCursorBeatsDurationLimit(t *testing.T) {
 	ch := &ConversationsHandler{logger: zap.NewNop()}
 

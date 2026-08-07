@@ -131,7 +131,6 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		return mcp.NewToolResultText(string(csvBytes)), nil
 	}
 
-	// Fetch unread messages per unique thread
 	type threadKey struct {
 		ChannelID string
 		ThreadTs  string

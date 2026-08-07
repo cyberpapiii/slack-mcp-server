@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -376,9 +377,10 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client 
 		rootCAs = x509.NewCertPool()
 	}
 
-	if isToolkit := os.Getenv("SLACK_MCP_SERVER_CA_TOOLKIT"); isToolkit != "" {
-		if ok := rootCAs.AppendCertsFromPEM([]byte(toolkitPEM)); !ok {
-			logger.Warn("Failed to append toolkit certificate")
+	if os.Getenv("SLACK_MCP_SERVER_CA_TOOLKIT") != "" {
+		if err := appendToolkitCA(rootCAs); err != nil {
+			logger.Fatal("SLACK_MCP_SERVER_CA_TOOLKIT enabled but embedded HTTP Toolkit CA is unusable; set SLACK_MCP_SERVER_CA to your current CA PEM instead",
+				zap.Error(err))
 		}
 	}
 
@@ -468,4 +470,22 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client 
 	}
 
 	return client
+}
+
+func appendToolkitCA(rootCAs *x509.CertPool) error {
+	block, _ := pem.Decode([]byte(toolkitPEM))
+	if block == nil {
+		return fmt.Errorf("embedded toolkit PEM decode failed")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return err
+	}
+	if time.Now().After(cert.NotAfter) {
+		return fmt.Errorf("embedded toolkit CA expired on %s", cert.NotAfter.Format(time.RFC3339))
+	}
+	if ok := rootCAs.AppendCertsFromPEM([]byte(toolkitPEM)); !ok {
+		return fmt.Errorf("embedded toolkit CA append failed")
+	}
+	return nil
 }

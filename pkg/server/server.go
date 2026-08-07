@@ -117,15 +117,7 @@ func ValidateEnabledTools(tools []string) error {
 	return nil
 }
 
-// isTruthyEnv reports whether a boolean gate environment variable's value means
-// "enabled": true, 1, or yes, case-insensitive and whitespace-tolerant. Any
-// other value, including "false", leaves the tool unregistered.
-//
-// This is a deliberate copy of the identical helper in pkg/handler
-// (conversations.go); pkg/server cannot import pkg/handler's unexported
-// helpers, and a shared package for one six-line predicate is not worth it.
-// The two copies must stay in sync. If a third package ever needs one, that
-// is the signal to extract a shared package instead.
+// true/1/yes (case-insensitive). Keep in sync with pkg/handler/conversations.go.
 func isTruthyEnv(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "true", "1", "yes":
@@ -490,7 +482,6 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 		), conversationsHandler.FilesListHandler)
 	}
-	// Register mark tool - marks a channel as read
 	if shouldAddTool(ToolConversationsMark, enabledTools, "SLACK_MCP_MARK_TOOL") {
 		s.AddTool(mcp.NewTool(ToolConversationsMark,
 			mcp.WithDescription("Mark a channel or DM as read. If no timestamp is provided, marks all messages as read."),

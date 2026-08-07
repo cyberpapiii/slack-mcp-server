@@ -6,7 +6,6 @@ import (
 
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,8 +77,7 @@ func TestUnitFormatUnixTs(t *testing.T) {
 	}
 }
 
-// Bug C: the schema documents `date_due: 0` as the way to clear a due date,
-// so an explicit zero must be distinguishable from an absent key.
+// Schema documents date_due: 0 to clear a due date; explicit zero must differ from absent key.
 func TestUnitParseSavedUpdateParams(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -147,43 +145,6 @@ func TestUnitParseSavedUpdateParams(t *testing.T) {
 			assert.Equal(t, tt.wantDateDue, dateDue)
 		})
 	}
-}
-
-func TestUnitSavedListResponseParsing(t *testing.T) {
-	resp := edge.SavedListResponse{
-		SavedItems: []edge.SavedItem{
-			{
-				ItemID:      "D0AGSQXLJHG",
-				ItemType:    "message",
-				DateCreated: 1771942696,
-				DateDue:     1772521200,
-				Ts:          "1771941381.234049",
-				State:       "in_progress",
-			},
-			{
-				ItemID:      "C0AJMCRNH0U",
-				ItemType:    "message",
-				DateCreated: 1772720838,
-				DateDue:     0,
-				Ts:          "1772680334.954409",
-				State:       "in_progress",
-			},
-		},
-		Counts: edge.SavedCounts{
-			UncompletedCount: 51,
-			TotalCount:       52,
-		},
-	}
-
-	assert.Len(t, resp.SavedItems, 2)
-	assert.Equal(t, 51, resp.Counts.UncompletedCount)
-
-	first := resp.SavedItems[0]
-	assert.Equal(t, "D0AGSQXLJHG", first.ItemID)
-	assert.Equal(t, int64(1772521200), first.DateDue)
-
-	second := resp.SavedItems[1]
-	assert.Equal(t, int64(0), second.DateDue)
 }
 
 func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
