@@ -1,92 +1,107 @@
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=953.542µs
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=1.036ms
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
-=== RUN   TestADV003OverlappingColdChannelWarmsRepeatDependencyWork
-    adv001_generated_test.go:155: callers=24 channel_api_calls=24 serialized_tail=7.188083ms
---- PASS: TestADV003OverlappingColdChannelWarmsRepeatDependencyWork (0.06s)
+=== RUN   TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork
+    adv001_generated_test.go:156: callers=24 channel_api_calls=1 serialized_tail=573.416µs
+--- PASS: TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork (0.05s)
+=== RUN   TestADV003CancelledChannelWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:201: channel_deadline=25ms returned=26.111167ms dependency_calls=1
+--- PASS: TestADV003CancelledChannelWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:197: deadline=25ms returned=26.078375ms dependency_calls=1
+    adv001_generated_test.go:244: deadline=25ms returned=26.051834ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV002LeaderDeadlineOwnsSharedDependency
-    adv001_generated_test.go:277: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=52.605792ms
+    adv001_generated_test.go:324: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=51.814792ms
 --- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
 === RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
-    adv001_generated_test.go:346: callers=24 persistent_failure_dependency_calls=24 serialized_tail=331.541µs
+    adv001_generated_test.go:393: callers=24 persistent_failure_dependency_calls=24 serialized_tail=272.792µs
 --- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:379: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:426: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=3.488333ms
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=490.875µs
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
-=== RUN   TestADV003OverlappingColdChannelWarmsRepeatDependencyWork
-    adv001_generated_test.go:155: callers=24 channel_api_calls=24 serialized_tail=8.420083ms
---- PASS: TestADV003OverlappingColdChannelWarmsRepeatDependencyWork (0.06s)
+=== RUN   TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork
+    adv001_generated_test.go:156: callers=24 channel_api_calls=1 serialized_tail=465.708µs
+--- PASS: TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork (0.05s)
+=== RUN   TestADV003CancelledChannelWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:201: channel_deadline=25ms returned=25.610583ms dependency_calls=1
+--- PASS: TestADV003CancelledChannelWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:197: deadline=25ms returned=26.199875ms dependency_calls=1
+    adv001_generated_test.go:244: deadline=25ms returned=25.795792ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV002LeaderDeadlineOwnsSharedDependency
-    adv001_generated_test.go:277: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=52.553583ms
+    adv001_generated_test.go:324: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=52.2635ms
 --- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
 === RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
-    adv001_generated_test.go:346: callers=24 persistent_failure_dependency_calls=24 serialized_tail=340µs
+    adv001_generated_test.go:393: callers=24 persistent_failure_dependency_calls=24 serialized_tail=301.917µs
 --- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:379: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:426: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=456.416µs
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=591.708µs
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
-=== RUN   TestADV003OverlappingColdChannelWarmsRepeatDependencyWork
-    adv001_generated_test.go:155: callers=24 channel_api_calls=24 serialized_tail=8.768833ms
---- PASS: TestADV003OverlappingColdChannelWarmsRepeatDependencyWork (0.06s)
+=== RUN   TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork
+    adv001_generated_test.go:156: callers=24 channel_api_calls=1 serialized_tail=742.959µs
+--- PASS: TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork (0.05s)
+=== RUN   TestADV003CancelledChannelWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:201: channel_deadline=25ms returned=26.028209ms dependency_calls=1
+--- PASS: TestADV003CancelledChannelWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:197: deadline=25ms returned=26.106625ms dependency_calls=1
+    adv001_generated_test.go:244: deadline=25ms returned=26.101667ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV002LeaderDeadlineOwnsSharedDependency
-    adv001_generated_test.go:277: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=53.576ms
+    adv001_generated_test.go:324: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=51.893708ms
 --- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
 === RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
-    adv001_generated_test.go:346: callers=24 persistent_failure_dependency_calls=24 serialized_tail=269.792µs
+    adv001_generated_test.go:393: callers=24 persistent_failure_dependency_calls=24 serialized_tail=421.583µs
 --- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:379: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:426: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=471.708µs
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=712.375µs
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
-=== RUN   TestADV003OverlappingColdChannelWarmsRepeatDependencyWork
-    adv001_generated_test.go:155: callers=24 channel_api_calls=24 serialized_tail=11.006208ms
---- PASS: TestADV003OverlappingColdChannelWarmsRepeatDependencyWork (0.06s)
+=== RUN   TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork
+    adv001_generated_test.go:156: callers=24 channel_api_calls=1 serialized_tail=824.625µs
+--- PASS: TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork (0.05s)
+=== RUN   TestADV003CancelledChannelWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:201: channel_deadline=25ms returned=25.13725ms dependency_calls=1
+--- PASS: TestADV003CancelledChannelWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:197: deadline=25ms returned=26.059209ms dependency_calls=1
+    adv001_generated_test.go:244: deadline=25ms returned=26.089541ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV002LeaderDeadlineOwnsSharedDependency
-    adv001_generated_test.go:277: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=52.732792ms
+    adv001_generated_test.go:324: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=52.929459ms
 --- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
 === RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
-    adv001_generated_test.go:346: callers=24 persistent_failure_dependency_calls=24 serialized_tail=353.625µs
+    adv001_generated_test.go:393: callers=24 persistent_failure_dependency_calls=24 serialized_tail=332.292µs
 --- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:379: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:426: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=426.125µs
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=839.334µs
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
-=== RUN   TestADV003OverlappingColdChannelWarmsRepeatDependencyWork
-    adv001_generated_test.go:155: callers=24 channel_api_calls=24 serialized_tail=6.866209ms
---- PASS: TestADV003OverlappingColdChannelWarmsRepeatDependencyWork (0.06s)
+=== RUN   TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork
+    adv001_generated_test.go:156: callers=24 channel_api_calls=1 serialized_tail=926.709µs
+--- PASS: TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork (0.05s)
+=== RUN   TestADV003CancelledChannelWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:201: channel_deadline=25ms returned=26.104334ms dependency_calls=1
+--- PASS: TestADV003CancelledChannelWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:197: deadline=25ms returned=26.049125ms dependency_calls=1
+    adv001_generated_test.go:244: deadline=25ms returned=25.850625ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV002LeaderDeadlineOwnsSharedDependency
-    adv001_generated_test.go:277: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=51.838291ms
+    adv001_generated_test.go:324: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=52.7495ms
 --- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
 === RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
-    adv001_generated_test.go:346: callers=24 persistent_failure_dependency_calls=24 serialized_tail=276.875µs
+    adv001_generated_test.go:393: callers=24 persistent_failure_dependency_calls=24 serialized_tail=561.584µs
 --- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:379: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:426: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 PASS
-ok  	github.com/korotovsky/slack-mcp-server/pkg/provider	2.327s
+ok  	github.com/korotovsky/slack-mcp-server/pkg/provider	2.442s

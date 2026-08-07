@@ -352,13 +352,18 @@ type ApiProvider struct {
 	channelsSnapshot          atomic.Pointer[ChannelsCache] // immutable snapshot; atomic load, no copy
 	channelsCachePath         string
 	channelsReady             atomic.Bool
-	refreshingChannels        atomic.Bool // CAS guard for one background refresh
 	lastForcedChannelsRefresh time.Time
 	channelsMu                sync.RWMutex // lastForcedChannelsRefresh
-	fetchChannelsMu           sync.Mutex   // serialize fetchAndStoreChannels
+	channelsRefreshMu         sync.Mutex
+	channelsRefresh           *channelsRefreshCall
 }
 
 type usersRefreshCall struct {
+	done chan struct{}
+	err  error
+}
+
+type channelsRefreshCall struct {
 	done chan struct{}
 	err  error
 }
@@ -1385,31 +1390,76 @@ func (ap *ApiProvider) refreshChannelsInternal(ctx context.Context, force bool) 
 	}
 
 	ap.channelsMu.Unlock()
-	return ap.fetchAndStoreChannels(ctx)
+	return ap.refreshChannels(ctx)
 }
 
 func (ap *ApiProvider) spawnBackgroundChannelsRefresh() {
-	if !ap.refreshingChannels.CompareAndSwap(false, true) {
+	call, leader := ap.beginChannelsRefresh()
+	if !leader {
 		ap.logger.Debug("Skipping background channels refresh, already in progress")
 		return
 	}
-	go func() {
-		defer ap.refreshingChannels.Store(false)
 
+	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), ap.backgroundRefreshTimeout)
 		defer cancel()
 
-		if err := ap.fetchAndStoreChannels(ctx); err != nil {
+		if err := ap.runChannelsRefresh(ctx, call); err != nil {
 			ap.logger.Warn("Background channels refresh failed, continuing with stale data",
 				zap.Error(err))
 		}
 	}()
 }
 
-func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
-	ap.fetchChannelsMu.Lock()
-	defer ap.fetchChannelsMu.Unlock()
+func (ap *ApiProvider) refreshChannels(ctx context.Context) error {
+	for {
+		call, leader := ap.beginChannelsRefresh()
+		if leader {
+			return ap.runChannelsRefresh(ctx, call)
+		}
 
+		select {
+		case <-call.done:
+			if call.err == nil {
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			// Preserve the old serialized retry behavior after a failed
+			// predecessor while coalescing successful overlapping refreshes.
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (ap *ApiProvider) beginChannelsRefresh() (*channelsRefreshCall, bool) {
+	ap.channelsRefreshMu.Lock()
+	defer ap.channelsRefreshMu.Unlock()
+
+	if ap.channelsRefresh != nil {
+		return ap.channelsRefresh, false
+	}
+
+	call := &channelsRefreshCall{done: make(chan struct{})}
+	ap.channelsRefresh = call
+	return call, true
+}
+
+func (ap *ApiProvider) runChannelsRefresh(ctx context.Context, call *channelsRefreshCall) error {
+	err := ap.fetchAndStoreChannels(ctx)
+
+	ap.channelsRefreshMu.Lock()
+	call.err = err
+	ap.channelsRefresh = nil
+	close(call.done)
+	ap.channelsRefreshMu.Unlock()
+
+	return err
+}
+
+func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
 	channels, err := ap.GetChannels(ctx, AllChanTypes)
 
 	// Prefer the real fetch error over a misleading "zero channels" when page 1 fails.

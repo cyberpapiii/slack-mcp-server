@@ -108,10 +108,11 @@ func (c *advChannelsClient) GetConversationsContext(ctx context.Context, _ *slac
 	var channel slack.Channel
 	channel.ID = fmt.Sprintf("C%03d", call)
 	channel.Name = fmt.Sprintf("channel_%03d", call)
+	channel.NameNormalized = channel.Name
 	return []slack.Channel{channel}, "", nil
 }
 
-func TestADV003OverlappingColdChannelWarmsRepeatDependencyWork(t *testing.T) {
+func TestADV003OverlappingColdChannelWarmsCoalesceDependencyWork(t *testing.T) {
 	const callers = 24
 	client := &advChannelsClient{
 		firstEnter:   make(chan struct{}),
@@ -154,8 +155,54 @@ func TestADV003OverlappingColdChannelWarmsRepeatDependencyWork(t *testing.T) {
 	elapsed := time.Since(begin)
 	t.Logf("callers=%d channel_api_calls=%d serialized_tail=%s",
 		callers, client.calls.Load(), elapsed)
-	assert.Equal(t, int32(callers), client.calls.Load(),
-		"overlapping cold channel warms repeat dependency work after lock handoff")
+	assert.Equal(t, int32(1), client.calls.Load(),
+		"overlapping cold channel warms should share one channels API call")
+	snapshot := ap.channelsSnapshot.Load()
+	require.NotNil(t, snapshot)
+	assert.Equal(t, "#channel_001", snapshot.Channels["C001"].Name)
+}
+
+func TestADV003CancelledChannelWarmStopsWaitingForSlowDependency(t *testing.T) {
+	client := &advChannelsClient{
+		firstEnter:   make(chan struct{}),
+		firstRelease: make(chan struct{}),
+	}
+	ap := newTestApiProvider(client, emptyUsersCache())
+	ap.channelsCachePath = t.TempDir() + "/channels.json"
+
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- ap.RefreshChannels(context.Background())
+	}()
+	select {
+	case <-client.firstEnter:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first channel warm never entered dependency")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	secondDone := make(chan error, 1)
+	begin := time.Now()
+	go func() {
+		secondDone <- ap.RefreshChannels(ctx)
+	}()
+
+	select {
+	case err := <-secondDone:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("cancelled queued channel warm did not return promptly")
+	}
+	returned := time.Since(begin)
+	close(client.firstRelease)
+
+	require.NoError(t, <-firstDone)
+	t.Logf("channel_deadline=25ms returned=%s dependency_calls=%d",
+		returned, client.calls.Load())
+	assert.Less(t, returned, 100*time.Millisecond)
+	assert.Equal(t, int32(1), client.calls.Load(),
+		"cancelled channel waiter should not start another dependency call")
 }
 
 func TestADV001CancelledWarmStopsWaitingForSlowDependency(t *testing.T) {
