@@ -26,10 +26,30 @@ times. This section is the authority on what has landed.
 | Plans commit | `bca659c` | plans 004–032 plus this index; documentation only | — |
 | Track A | `5fb655a` | 007, 013, 017, 008, 019, 018, 028, 029, 031, 032 — `pkg/provider/**`, `Makefile` | clean, no conflicts |
 | Track B | `bd72d3c` | 014, 016, 010, 009, 011, 012, 022, 020, 015, 021, 023, 024, 025, 026, 027 — `pkg/handler/**`, `pkg/server/**`, `cmd/**`, docs | clean, no conflicts |
+| 004 | `be4b93b` | `conversations_get_message` | three conflicts, resolved — see below |
+| 005 | `5fbb120` | search recency sort, `has:` modifiers | clean |
+| 006 | `e047014` | warmup self-heal, slow indefinite retry | clean |
 
 After each merge: `make test` (which runs with `-race` since plan 018) passed
-on all eight packages with no data-race warnings, `make lint` was clean, and
-`go build ./...` succeeded.
+with no data-race warnings, `make lint` was clean, and `go build ./...`
+succeeded. Nine packages report `ok` once 006 is in — it adds the first tests
+under `cmd/slack-mcp-server`.
+
+Plan 004's three conflicts were all resolved by keeping both sides.
+`pkg/server/server_test.go` and `pkg/handler/conversations_test.go` were
+additive-only: 004 and the Track B stack each appended a new test function at
+the same point in the file. `AGENTS.md` collided structurally rather than
+semantically — 004 still carried the flat bullet list of tools that plan 021
+had since replaced with a grouped table, so the table was kept and
+`conversations_get_message` added to its Messages row. The tool count
+auto-merged to 31 and matches `ValidToolNames`.
+
+Plan 005 auto-merged into `conversations.go` despite Track B's heavy edits to
+the same file, so its diff was reviewed by hand rather than trusted. Its
+changes are orthogonal — a `sort` parameter, a `has` filter key, and one
+entry in `buildQuery`'s key order. `defaultSearchMessagesLimit` and
+`maxSearchMessagesLimit` are both still 100, which is the value plan 023
+restored and the one the maintainer asked for.
 
 Two deliberate behavior changes are now on `master`. The `sse` and `http`
 transports refuse to start without `SLACK_MCP_API_KEY` unless explicitly
@@ -38,15 +58,24 @@ opted out (plan 016) — `stdio` is unaffected. A boolean tool gate set to
 channel-list gates are exempt, since their value is a channel list rather
 than a boolean.
 
-**Not yet merged:** plans 004, 005 and 006. All three branch from `adbae97`
-and predate both stacks, and all three edit `pkg/handler/conversations.go`,
-which Track B rewrote substantially. Merge them one at a time with a test run
-between each, and expect real conflicts rather than trivial ones.
+**Every plan is now merged.** No advisor branch remains outstanding.
+
+**Not deployed.** `make deploy-local` has not been run, so `bin/slack-mcp-server`
+is still the pre-merge binary and Plug is still serving it. That step is
+deliberately left to the maintainer: it restarts a live server that Cursor is
+connected to, its success cannot be confirmed from the test suite alone, and
+this repo has already recorded one stale-binary deploy failure
+(`docs/solutions/`). Verify in Cursor after deploying.
+
+Two deliberate behavior changes are worth re-reading before that deploy. The
+transport gate does not affect the Plug path, which is `stdio`. The boolean
+gate change does: any `SLACK_MCP_*_TOOL` variable currently set to `false` in
+Plug's environment used to enable its tool and now disables it.
 
 The per-plan executor worktrees under `.claude/worktrees/` (28 of them, about
-122 MB) are still present. They are safe to prune once the merged code has
-been deployed and verified, but not before — a bad merge is much easier to
-investigate with the original trees intact.
+122 MB) are still present, and `.claude/` is now git-ignored. They are safe to
+prune once the merged code has been deployed and verified, but not before — a
+bad merge is much easier to investigate with the original trees intact.
 
 ## Execution order & status
 
