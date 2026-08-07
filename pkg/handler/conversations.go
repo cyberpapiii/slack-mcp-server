@@ -1165,55 +1165,62 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
 
-	// Backfill real unread counts for channels where client.counts only gave us
-	// HasUnreads=true but MentionCount=0 (unreads without @mentions).
-	// DMs and group DMs don't need this — every DM message counts as a mention.
-	//
-	// NOTE: conversations.info does not return unread_count with browser tokens
-	// (xoxc/xoxd), so we use conversations.history to count messages since the
-	// last-read timestamp. Limit kept small (20) for speed; the exact count
-	// matters less than surfacing that unreads exist.
-	const backfillLimit = 20
-	backfilled := 0
-	for i := range unreadChannels {
-		select {
-		case <-ctx.Done():
-			return mcp.NewToolResultError("cancelled"), nil
-		default:
-		}
-		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Backfilling unread counts: channel %d of %d", i+1, len(unreadChannels)))
+	if !params.includeMessages {
+		// Backfill real unread counts for channels where client.counts only gave us
+		// HasUnreads=true but MentionCount=0 (unreads without @mentions).
+		// DMs and group DMs don't need this — every DM message counts as a mention.
+		//
+		// This only runs in summary-only mode (include_messages=false). When messages
+		// are fetched below, that loop issues the same conversations.history call over
+		// the same window and overwrites UnreadCount anyway, so backfilling first would
+		// double the API calls for no observable difference.
+		//
+		// NOTE: conversations.info does not return unread_count with browser tokens
+		// (xoxc/xoxd), so we use conversations.history to count messages since the
+		// last-read timestamp. Limit kept small (20) for speed; the exact count
+		// matters less than surfacing that unreads exist.
+		const backfillLimit = 20
+		backfilled := 0
+		for i := range unreadChannels {
+			select {
+			case <-ctx.Done():
+				return mcp.NewToolResultError("cancelled"), nil
+			default:
+			}
+			sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Backfilling unread counts: channel %d of %d", i+1, len(unreadChannels)))
 
-		if unreadChannels[i].UnreadCount > 0 {
-			continue // MentionCount was positive, good enough
-		}
-		if unreadChannels[i].LastRead == "" {
-			// No last-read timestamp means we can't bound the query.
-			// Conservatively report 1 unread since HasUnreads was true.
-			unreadChannels[i].UnreadCount = 1
+			if unreadChannels[i].UnreadCount > 0 {
+				continue // MentionCount was positive, good enough
+			}
+			if unreadChannels[i].LastRead == "" {
+				// No last-read timestamp means we can't bound the query.
+				// Conservatively report 1 unread since HasUnreads was true.
+				unreadChannels[i].UnreadCount = 1
+				backfilled++
+				continue
+			}
+			history, err := ch.apiProvider.Slack().GetConversationHistoryContext(ctx,
+				&slack.GetConversationHistoryParameters{
+					ChannelID: unreadChannels[i].ChannelID,
+					Oldest:    unreadChannels[i].LastRead,
+					Limit:     backfillLimit,
+					Inclusive: false,
+				})
+			if err != nil {
+				ch.logger.Debug("Failed to backfill unread count",
+					zap.String("channel", unreadChannels[i].ChannelID),
+					zap.Error(err))
+				continue
+			}
+			if len(history.Messages) > 0 {
+				unreadChannels[i].UnreadCount = len(history.Messages)
+			}
 			backfilled++
-			continue
 		}
-		history, err := ch.apiProvider.Slack().GetConversationHistoryContext(ctx,
-			&slack.GetConversationHistoryParameters{
-				ChannelID: unreadChannels[i].ChannelID,
-				Oldest:    unreadChannels[i].LastRead,
-				Limit:     backfillLimit,
-				Inclusive: false,
-			})
-		if err != nil {
-			ch.logger.Debug("Failed to backfill unread count",
-				zap.String("channel", unreadChannels[i].ChannelID),
-				zap.Error(err))
-			continue
+		if backfilled > 0 {
+			ch.logger.Debug("Backfilled unread counts via conversations.history",
+				zap.Int("backfilled", backfilled))
 		}
-		if len(history.Messages) > 0 {
-			unreadChannels[i].UnreadCount = len(history.Messages)
-		}
-		backfilled++
-	}
-	if backfilled > 0 {
-		ch.logger.Debug("Backfilled unread counts via conversations.history",
-			zap.Int("backfilled", backfilled))
 	}
 
 	// If not including messages, just return channel summary
@@ -1244,11 +1251,21 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 			ch.logger.Warn("Failed to get history for channel",
 				zap.String("channel", unreadChannels[i].ChannelID),
 				zap.Error(err))
+			// The fetch failed, so we can't count: conservatively report 1 unread
+			// since HasUnreads was true, rather than rendering "0 unread".
+			if unreadChannels[i].UnreadCount == 0 {
+				unreadChannels[i].UnreadCount = 1
+			}
 			continue
 		}
 
 		// Update unread count from actual message count
 		unreadChannels[i].UnreadCount = len(history.Messages)
+		if unreadChannels[i].UnreadCount == 0 {
+			// No rows in the unread window (e.g. no last-read timestamp to bound the
+			// query), but HasUnreads was true — conservatively report 1.
+			unreadChannels[i].UnreadCount = 1
+		}
 
 		// Convert messages
 		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, unreadChannels[i].ChannelName, false, mode)
