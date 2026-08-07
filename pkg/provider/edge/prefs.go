@@ -3,6 +3,7 @@ package edge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"runtime/trace"
 )
 
@@ -53,22 +54,19 @@ func (cl *Client) GetMutedChannels(ctx context.Context) (map[string]bool, error)
 		return nil, err
 	}
 
-	// The all_notifications_prefs value is a JSON-encoded string inside the
-	// prefs map. Unmarshal it to get per-channel notification settings.
 	raw, ok := prefsResp.Prefs["all_notifications_prefs"]
 	if !ok {
-		return nil, nil // no notification prefs set
+		return nil, nil
 	}
 
-	// First unwrap the JSON string (it's a string value containing JSON).
 	var notifJSON string
 	if err := json.Unmarshal(raw, &notifJSON); err != nil {
-		return nil, nil // not a string, skip
+		return nil, fmt.Errorf("users.prefs.get all_notifications_prefs: %w", err)
 	}
 
 	var notifPrefs allNotificationsPrefs
 	if err := json.Unmarshal([]byte(notifJSON), &notifPrefs); err != nil {
-		return nil, nil // malformed, skip
+		return nil, fmt.Errorf("users.prefs.get all_notifications_prefs decode: %w", err)
 	}
 
 	muted := make(map[string]bool, len(notifPrefs.Channels))

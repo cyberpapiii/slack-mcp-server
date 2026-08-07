@@ -14,6 +14,7 @@ const (
 	warmupMaxAttempts    = 3
 	warmupRetryDelay     = 30 * time.Second
 	warmupSlowRetryDelay = 5 * time.Minute
+	warmupRefreshTimeout = 2 * time.Minute
 )
 
 // warmupNextDelay returns how long to wait before the given (1-based) next
@@ -93,7 +94,9 @@ func refreshUsersCache(p *provider.ApiProvider, logger *zap.Logger) {
 	logger.Info("Caching users collection...",
 		zap.String("context", "console"),
 	)
-	err := p.RefreshUsers(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), warmupRefreshTimeout)
+	defer cancel()
+	err := p.RefreshUsers(ctx)
 	if err != nil {
 		logger.Error("Users cache warm-up failed; server continues with degraded cache",
 			zap.String("context", "console"),
@@ -106,7 +109,9 @@ func refreshChannelsCache(p *provider.ApiProvider, logger *zap.Logger) {
 	logger.Info("Caching channels collection...",
 		zap.String("context", "console"),
 	)
-	err := p.RefreshChannels(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), warmupRefreshTimeout)
+	defer cancel()
+	err := p.RefreshChannels(ctx)
 	if err != nil {
 		logger.Error("Channels cache warm-up failed; server continues with degraded cache",
 			zap.String("context", "console"),

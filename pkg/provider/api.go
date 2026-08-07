@@ -108,73 +108,44 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 func getCacheDir() string {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
-		// Fallback to current directory if we can't get user cache dir
 		return "."
 	}
 
 	dir := filepath.Join(cacheDir, "slack-mcp-server")
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		// Fallback to current directory if we can't create cache dir
 		return "."
 	}
 	return dir
 }
 
-// getCacheTTL returns the cache TTL from SLACK_MCP_CACHE_TTL env var or default (24 hours).
-// Supports formats: "1h", "30m", "3600" (seconds), "0" (disable TTL, cache forever)
-// Negative values are rejected and fall back to default.
-func getCacheTTL() time.Duration {
-	ttlStr := os.Getenv("SLACK_MCP_CACHE_TTL")
-	if ttlStr == "" {
-		return defaultCacheTTL
+// parseEnvDuration reads env as Go duration or integer seconds; negatives and
+// unparseable values fall back to defaultVal. Empty env also returns defaultVal.
+func parseEnvDuration(envKey string, defaultVal time.Duration) time.Duration {
+	raw := os.Getenv(envKey)
+	if raw == "" {
+		return defaultVal
 	}
-
-	// Try parsing as duration first (e.g., "1h", "30m")
-	if d, err := time.ParseDuration(ttlStr); err == nil {
+	if d, err := time.ParseDuration(raw); err == nil {
 		if d < 0 {
-			return defaultCacheTTL // Reject negative TTL
+			return defaultVal
 		}
 		return d
 	}
-
-	// Try parsing as seconds (e.g., "3600")
-	if secs, err := strconv.ParseInt(ttlStr, 10, 64); err == nil {
+	if secs, err := strconv.ParseInt(raw, 10, 64); err == nil {
 		if secs < 0 {
-			return defaultCacheTTL // Reject negative TTL
+			return defaultVal
 		}
 		return time.Duration(secs) * time.Second
 	}
-
-	return defaultCacheTTL
+	return defaultVal
 }
 
-// getMinRefreshInterval returns the minimum interval between forced refreshes from
-// SLACK_MCP_MIN_REFRESH_INTERVAL env var or default (30s).
-// Supports formats: "30s", "1m", "60" (seconds), "0" (disable rate limiting)
-// Negative values are rejected and fall back to default.
+func getCacheTTL() time.Duration {
+	return parseEnvDuration("SLACK_MCP_CACHE_TTL", defaultCacheTTL)
+}
+
 func getMinRefreshInterval() time.Duration {
-	intervalStr := os.Getenv("SLACK_MCP_MIN_REFRESH_INTERVAL")
-	if intervalStr == "" {
-		return defaultMinRefreshInterval
-	}
-
-	// Try parsing as duration first (e.g., "30s", "1m")
-	if d, err := time.ParseDuration(intervalStr); err == nil {
-		if d < 0 {
-			return defaultMinRefreshInterval // Reject negative interval
-		}
-		return d
-	}
-
-	// Try parsing as seconds (e.g., "60")
-	if secs, err := strconv.ParseInt(intervalStr, 10, 64); err == nil {
-		if secs < 0 {
-			return defaultMinRefreshInterval // Reject negative interval
-		}
-		return time.Duration(secs) * time.Second
-	}
-
-	return defaultMinRefreshInterval
+	return parseEnvDuration("SLACK_MCP_MIN_REFRESH_INTERVAL", defaultMinRefreshInterval)
 }
 
 // validateAuthAndGetTeamID performs auth validation on startup and returns the TeamID.
@@ -638,7 +609,6 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 				return c.slackClient.GetConversationsContext(ctx, params)
 			}
 
-			// Collect edge results into a map for deduplication.
 			seen := make(map[string]struct{}, len(edgeChannels))
 			var channels []slack.Channel
 			for _, ec := range edgeChannels {
@@ -817,8 +787,8 @@ func (c *MCPSlackClient) ActivityMarkRead(ctx context.Context, itemType, feedTs,
 }
 
 func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool, error) {
-	if !c.browserFeaturesAvailable() {
-		return nil, ErrBrowserSessionUnavailable
+	if err := c.ensureBrowserFeature("users.prefs.get"); err != nil {
+		return nil, err
 	}
 	resp, err := c.edgeClient.GetMutedChannels(ctx)
 	if isBrowserSessionAuthError(err) {
@@ -1001,7 +971,6 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 		)
 	}
 
-	// Priority 1: XOXP token (User OAuth)
 	if xoxpToken != "" {
 		authProvider, err = auth.NewValueAuth(xoxpToken, "")
 		if err != nil {
@@ -1011,7 +980,6 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 		return newWithXOXP(transport, authProvider, logger)
 	}
 
-	// Priority 2: XOXB token (Bot)
 	if xoxbToken != "" {
 		authProvider, err = auth.NewValueAuth(xoxbToken, "")
 		if err != nil {
@@ -1026,21 +994,9 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 		return newWithXOXB(transport, authProvider, logger)
 	}
 
-	// Priority 3: XOXC/XOXD tokens (session-based)
-	if xoxcToken == "" || xoxdToken == "" {
-		logger.Fatal("Authentication required: Either SLACK_MCP_XOXP_TOKEN, SLACK_MCP_XOXB_TOKEN, or both SLACK_MCP_XOXC_TOKEN and SLACK_MCP_XOXD_TOKEN must be provided")
-	}
-
-	authProvider, err = auth.NewValueAuth(xoxcToken, xoxdToken)
-	if err != nil {
-		logger.Fatal("Failed to create auth provider with XOXC/XOXD tokens", zap.Error(err))
-	}
-
-	ap, startupErr := newWithXOXC(transport, authProvider, "", logger)
-	if startupErr != nil {
-		logger.Fatal("Authentication failed: check your browser-session Slack tokens", zap.Error(startupErr))
-	}
-	return ap
+	// Browser-session path already handled above when both tokens present.
+	logger.Fatal("Authentication required: Either SLACK_MCP_XOXP_TOKEN, SLACK_MCP_XOXB_TOKEN, or both SLACK_MCP_XOXC_TOKEN and SLACK_MCP_XOXD_TOKEN must be provided")
+	return nil
 }
 
 func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logger) *ApiProvider {

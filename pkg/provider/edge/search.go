@@ -141,10 +141,14 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 		},
 	}
 
-	const ep = "search.modules.channels"
+	const (
+		ep             = "search.modules.channels"
+		maxSearchPages = 100
+	)
 	lim := limiter.Tier2boost.Limiter()
 	var cc []slack.Channel
-	for {
+	seenCursor := make(map[string]struct{})
+	for page := 0; page < maxSearchPages; page++ {
 		resp, err := cl.PostForm(ctx, ep, values(form, true))
 		if err != nil {
 			return nil, err
@@ -157,8 +161,6 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 			return nil, err
 		}
 
-		// fix for the members count, mapping is incorrect in the slack.Channel
-		// if the object is being used for search.modules.channels ep
 		for _, c := range sr.Items {
 			obj := slack.Channel{
 				GroupConversation: c.GroupConversation,
@@ -169,16 +171,16 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 				Properties:        c.Properties,
 			}
 			obj.NumMembers = c.NumMembers
-			if obj.NumMembers == 0 {
-				obj.IsArchived = true
-			}
-
 			cc = append(cc, obj)
 		}
 		if sr.Pagination.NextCursor == "" {
 			lg.Debug("no more channels")
 			break
 		}
+		if _, dup := seenCursor[sr.Pagination.NextCursor]; dup {
+			return nil, ErrPagination
+		}
+		seenCursor[sr.Pagination.NextCursor] = struct{}{}
 		lg.DebugContext(ctx, "pagination", "next_cursor", sr.Pagination.NextCursor)
 		form.Cursor = sr.Pagination.NextCursor
 		if err := lim.Wait(ctx); err != nil {

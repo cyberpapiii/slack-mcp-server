@@ -51,6 +51,9 @@ func (cl *Client) ConversationsGenericInfo(ctx context.Context, channelID ...str
 	if err := cl.ParseResponse(&r, resp); err != nil {
 		return nil, err
 	}
+	if err := r.validate("conversations.genericInfo"); err != nil {
+		return nil, err
+	}
 	return r.Channels, nil
 }
 
@@ -109,6 +112,9 @@ func (cl *Client) ConversationsView(ctx context.Context, channelID string) (Conv
 		ConversationsViewResponse
 	}{}
 	if err := cl.ParseResponse(&r, resp); err != nil {
+		return ConversationsViewResponse{}, err
+	}
+	if err := r.validate("conversations.view"); err != nil {
 		return ConversationsViewResponse{}, err
 	}
 	return r.ConversationsViewResponse, nil

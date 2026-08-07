@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Channel is the output type for channels tools, used for both structured output and CSV.
 type Channel struct {
 	ID          string `csv:"id" json:"id" jsonschema_description:"Channel ID"`
 	Name        string `csv:"name" json:"name" jsonschema_description:"Channel name"`
@@ -26,7 +25,6 @@ type Channel struct {
 	Cursor      string `csv:"cursor" json:"cursor,omitempty" jsonschema_description:"Pagination cursor"`
 }
 
-// ChannelList wraps a slice of Channel for structured output.
 type ChannelList struct {
 	Channels []Channel `json:"channels" jsonschema_description:"List of channels"`
 }
@@ -109,7 +107,7 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 }
 
 func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ChannelsHandler called")
+	logToolCall(ch.logger, "ChannelsHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
@@ -263,7 +261,7 @@ func nextPageSize(limit, have int) int {
 }
 
 func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ChannelsMeHandler called")
+	logToolCall(ch.logger, "ChannelsMeHandler called", request)
 
 	types := request.GetString("channel_types", "public_channel,private_channel")
 	cursor := request.GetString("cursor", "")
@@ -289,17 +287,10 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 		channelTypes = []string{provider.PubChanType, provider.PrivateChanType}
 	}
 
-	// Fetch channels via the Slack API, stopping as soon as we have enough
-	// results and using the API's native cursor for pagination. This avoids
-	// fetching every channel the user belongs to on large workspaces.
 	usersMap := ch.apiProvider.ProvideUsersMap().Users
 	var allChannels []provider.Channel
-	var apiCursor string
 	var slackNextCursor string
-
-	if cursor != "" {
-		apiCursor = cursor
-	}
+	apiCursor := cursor
 
 	for {
 		params := &slack.GetConversationsForUserParameters{
@@ -342,15 +333,9 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 
 	ch.logger.Debug("Fetched member channels", zap.Int("count", len(allChannels)))
 
-	// Truncate to limit and use the Slack API cursor. With per-request sizing
-	// above this slice is a no-op safeguard against a server that over-serves.
 	end := limit
 	if end > len(allChannels) {
 		end = len(allChannels)
-	}
-	// Backstop against a non-positive limit reaching the slice below.
-	if end < 0 {
-		end = 0
 	}
 	var channelList []Channel
 	for _, channel := range allChannels[:end] {
@@ -461,7 +446,6 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	ch.logger.Debug("Got starred channel IDs", zap.Int("count", len(starredIDs)))
 
-	// Fetch muted channels for the is_muted column
 	mutedChannels := make(map[string]bool)
 	if !ch.apiProvider.IsOAuth() {
 		mc, err := ch.apiProvider.Slack().GetMutedChannels(ctx)
@@ -486,7 +470,6 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 			sc.MemberCount = cached.MemberCount
 			sc.ChannelType = classifyChannelType(cached)
 		} else {
-			// Channel not in cache; use the ID as the name, type unknown.
 			sc.ChannelName = id
 			sc.ChannelType = "internal"
 		}
@@ -512,7 +495,6 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	return mcp.NewToolResultText(string(csvBytes)), nil
 }
 
-// classifyChannelType returns "dm", "group_dm", "partner", or "internal" for a cached channel.
 func classifyChannelType(ch provider.Channel) string {
 	if ch.IsIM {
 		return "dm"
@@ -545,7 +527,6 @@ func filterChannelsByQuery(channels []provider.Channel, query string, targetSet 
 func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]provider.Channel, string, error) {
 	logger := zap.L()
 
-	// Always sort by ID for stable cursor-based pagination
 	sort.Slice(channels, func(i, j int) bool {
 		return channels[i].ID < channels[j].ID
 	})
@@ -561,7 +542,6 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 			return nil, "", fmt.Errorf("invalid cursor: %q", cursor)
 		}
 		lastID := string(decoded)
-		// Binary search for the first channel with ID > lastID
 		startIndex = sort.Search(len(channels), func(i int) bool {
 			return channels[i].ID > lastID
 		})

@@ -150,6 +150,9 @@ func (cl *Client) ClientDMs(ctx context.Context) ([]ClientDM, error) {
 		if err := cl.ParseResponse(&r, resp); err != nil {
 			return nil, err
 		}
+		if err := r.validate("client.dms"); err != nil {
+			return nil, err
+		}
 		dms = append(dms, r.IMs...)
 		dms = append(dms, r.MPIMs...)
 		if r.ResponseMetadata.NextCursor == "" {

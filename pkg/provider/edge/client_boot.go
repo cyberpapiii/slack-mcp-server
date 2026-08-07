@@ -42,20 +42,12 @@ func (cl *Client) ClientUserBoot(ctx context.Context) (*ClientUserBootResponse, 
 	if err := cl.ParseResponse(&ub, resp); err != nil {
 		return nil, err
 	}
+	if err := ub.validate("client.userBoot"); err != nil {
+		return nil, err
+	}
 	return &ub, nil
 }
 
-func UnmarshalClientUserBootResponse(data []byte) (ClientUserBootResponse, error) {
-	var r ClientUserBootResponse
-	err := json.Unmarshal(data, &r)
-	return r, err
-}
-
-func (r *ClientUserBootResponse) Marshal() ([]byte, error) {
-	return json.Marshal(r)
-}
-
-// "client.userBoot"
 type ClientUserBootResponse struct {
 	baseResponse
 	Self                     Self              `json:"self"`
@@ -256,27 +248,6 @@ type Self struct {
 	FirstLogin             slack.JSONTime `json:"first_login"`
 	LobSalesHomeEnabled    bool           `json:"lob_sales_home_enabled"`
 	ManualPresence         string         `json:"manual_presence"`
-}
-
-type Profile1 struct {
-	Title                  string `json:"title"`
-	Phone                  string `json:"phone"`
-	Skype                  string `json:"skype"`
-	RealName               string `json:"real_name"`
-	RealNameNormalized     string `json:"real_name_normalized"`
-	DisplayName            string `json:"display_name"`
-	DisplayNameNormalized  string `json:"display_name_normalized"`
-	Fields                 any    `json:"fields"`
-	StatusText             string `json:"status_text"`
-	StatusEmoji            string `json:"status_emoji"`
-	StatusEmojiDisplayInfo []any  `json:"status_emoji_display_info"`
-	StatusExpiration       int64  `json:"status_expiration"`
-	AvatarHash             string `json:"avatar_hash"`
-	Email                  string `json:"email"`
-	FirstName              string `json:"first_name"`
-	LastName               string `json:"last_name"`
-	StatusTextCanonical    string `json:"status_text_canonical"`
-	Team                   string `json:"team"`
 }
 
 type Subteams struct {

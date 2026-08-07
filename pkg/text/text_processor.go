@@ -99,6 +99,10 @@ func attachmentToCompactText(att slack.Attachment) string {
 		parts = append(parts, att.Pretext)
 	}
 
+	if blocksText := BlocksToText(att.Blocks); blocksText != "" {
+		parts = append(parts, blocksText)
+	}
+
 	if len(parts) == 0 {
 		return ""
 	}

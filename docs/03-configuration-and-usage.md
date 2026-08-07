@@ -292,7 +292,7 @@ Write tools (`conversations_add_message`, `reactions_add`, `reactions_remove`, `
 1. Set their specific environment variable (e.g., `SLACK_MCP_ADD_MESSAGE_TOOL`), or
 2. Explicitly list them in `SLACK_MCP_ENABLED_TOOLS`
 
-Usergroups tools (`usergroups_list`, `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update`) are **registered by default**. They require appropriate OAuth scopes (`usergroups:read` for read operations, `usergroups:write` for write operations).
+Usergroups read tools (`usergroups_list`, `usergroups_me`) are **registered by default**. Write tools (`usergroups_create`, `usergroups_update`, `usergroups_users_update`) require `SLACK_MCP_USERGROUPS_WRITE_TOOL` (or listing them in `SLACK_MCP_ENABLED_TOOLS`). All need the matching OAuth scopes (`usergroups:read` / `usergroups:write`).
 
 #### Examples
 

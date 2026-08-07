@@ -72,6 +72,7 @@ func main() {
 
 	if noCache {
 		p.SkipCache()
+		s.RegisterCacheDependentTools()
 		logger.Info("Cache loading disabled via --no-cache flag",
 			zap.String("context", "console"),
 		)
@@ -109,7 +110,7 @@ func main() {
 			port = strconv.Itoa(defaultSsePort)
 		}
 
-		sseServer := s.ServeSSE(":" + port)
+		sseServer := s.ServeSSE(host + ":" + port)
 		logger.Info(
 			fmt.Sprintf("SSE server listening on %s", fmt.Sprintf("%s:%s/sse", host, port)),
 			zap.String("context", "console"),
@@ -146,7 +147,7 @@ func main() {
 			port = strconv.Itoa(defaultSsePort)
 		}
 
-		httpServer := s.ServeHTTP(":" + port)
+		httpServer := s.ServeHTTP(host + ":" + port)
 		logger.Info(
 			fmt.Sprintf("HTTP server listening on %s", fmt.Sprintf("%s:%s", host, port)),
 			zap.String("context", "console"),

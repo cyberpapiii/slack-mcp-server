@@ -27,16 +27,10 @@ func (cl *Client) IMList(ctx context.Context) ([]IM, error) {
 	defer task.End()
 
 	form := imListForm{
-		BaseRequest:  BaseRequest{Token: cl.token},
-		GetLatest:    true,
-		GetReadState: true,
-		WebClientFields: WebClientFields{
-			XReason:  "guided-search-people-empty-state",
-			XMode:    "online",
-			XSonic:   true,
-			XAppName: "client",
-		},
-		Cursor: "",
+		BaseRequest:     BaseRequest{Token: cl.token},
+		GetLatest:       true,
+		GetReadState:    true,
+		WebClientFields: webclientReason("guided-search-people-empty-state"),
 	}
 	lim := limiter.Tier2boost.Limiter()
 	var IMs []IM
@@ -47,6 +41,9 @@ func (cl *Client) IMList(ctx context.Context) ([]IM, error) {
 		}
 		r := imListResponse{}
 		if err := cl.ParseResponse(&r, resp); err != nil {
+			return nil, err
+		}
+		if err := r.validate("im.list"); err != nil {
 			return nil, err
 		}
 		IMs = append(IMs, r.IMs...)

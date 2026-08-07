@@ -174,9 +174,11 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		server.WithRecovery(),
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, true),
-		server.WithToolHandlerMiddleware(buildErrorRecoveryMiddleware(logger)),
-		server.WithToolHandlerMiddleware(buildLoggerMiddleware(logger)),
+		// mcp-go applies middlewares in reverse registration order; register
+		// auth first so it stays outermost and API-key failures stay protocol errors.
 		server.WithToolHandlerMiddleware(auth.BuildMiddleware(provider.ServerTransport(), logger)),
+		server.WithToolHandlerMiddleware(buildLoggerMiddleware(logger)),
+		server.WithToolHandlerMiddleware(buildErrorRecoveryMiddleware(logger)),
 	)
 
 	conversationsHandler := handler.NewConversationsHandler(provider, logger)
@@ -626,36 +628,40 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsUsersUpdateHandler)
 	}
 
-	// Register saved items tools for "Save for Later" panel management.
-	// Requires browser session tokens (xoxc/xoxd); not available for bot or OAuth tokens.
-	if !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolSavedList, enabledTools, "") {
+	// Saved-items tools need browser session tokens (xoxc/xoxd).
+	addSavedList := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolSavedList, enabledTools, "")
+	addSavedUpdate := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolSavedUpdate, enabledTools, "")
+	addSavedClear := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolSavedClearCompleted, enabledTools, "")
+	if addSavedList || addSavedUpdate || addSavedClear {
 		savedHandler := handler.NewSavedHandler(provider, logger, conversationsHandler)
-		s.AddTool(mcp.NewTool(ToolSavedList,
-			mcp.WithDescription("List saved items from Slack's 'Save for Later' panel. Returns items the user has saved, with optional message content. Replaces the deprecated stars.list API. Requires browser session tokens (xoxc/xoxd)."),
-			mcp.WithTitleAnnotation("List Saved Items"),
-			mcp.WithReadOnlyHintAnnotation(true),
-			mcp.WithString("filter",
-				mcp.Description("Filter saved items: 'saved' (active/in-progress, default), 'completed' (marked done), 'archived'."),
-				mcp.DefaultString("saved"),
-			),
-			mcp.WithNumber("limit",
-				mcp.Description("Maximum number of items to return. Auto-paginates. Default is 50."),
-				mcp.DefaultNumber(50),
-			),
-			mcp.WithBoolean("include_messages",
-				mcp.Description("If true (default), fetches the actual saved message content. If false, returns metadata only."),
-				mcp.DefaultBool(true),
-			),
-			mcp.WithNumber("max_messages_per_item",
-				mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
-				mcp.DefaultNumber(5),
-			),
-			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
-			),
-		), savedHandler.SavedListHandler)
+		if addSavedList {
+			s.AddTool(mcp.NewTool(ToolSavedList,
+				mcp.WithDescription("List saved items from Slack's 'Save for Later' panel. Returns items the user has saved, with optional message content. Replaces the deprecated stars.list API. Requires browser session tokens (xoxc/xoxd)."),
+				mcp.WithTitleAnnotation("List Saved Items"),
+				mcp.WithReadOnlyHintAnnotation(true),
+				mcp.WithString("filter",
+					mcp.Description("Filter saved items: 'saved' (active/in-progress, default), 'completed' (marked done), 'archived'."),
+					mcp.DefaultString("saved"),
+				),
+				mcp.WithNumber("limit",
+					mcp.Description("Maximum number of items to return. Auto-paginates. Default is 50."),
+					mcp.DefaultNumber(50),
+				),
+				mcp.WithBoolean("include_messages",
+					mcp.Description("If true (default), fetches the actual saved message content. If false, returns metadata only."),
+					mcp.DefaultBool(true),
+				),
+				mcp.WithNumber("max_messages_per_item",
+					mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
+					mcp.DefaultNumber(5),
+				),
+				mcp.WithString("detail",
+					mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				),
+			), savedHandler.SavedListHandler)
+		}
 
-		if shouldAddTool(ToolSavedUpdate, enabledTools, "") {
+		if addSavedUpdate {
 			s.AddTool(mcp.NewTool(ToolSavedUpdate,
 				mcp.WithDescription("Update a saved item: mark as completed, set a due date, or both. Use item_id and ts values from saved_list output. Replaces the deprecated stars.add/stars.remove APIs."),
 				mcp.WithTitleAnnotation("Update Saved Item"),
@@ -677,7 +683,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			), savedHandler.SavedUpdateHandler)
 		}
 
-		if shouldAddTool(ToolSavedClearCompleted, enabledTools, "") {
+		if addSavedClear {
 			s.AddTool(mcp.NewTool(ToolSavedClearCompleted,
 				mcp.WithDescription("Clear all completed saved items from the 'Save for Later' panel. This is a bulk operation that removes all items with state='completed'."),
 				mcp.WithTitleAnnotation("Clear Completed Saved Items"),
@@ -840,33 +846,35 @@ func (s *MCPServer) registerCacheDependentTools() {
 		), conversationsHandler.ConversationsUnreadsHandler)
 	}
 
-	// Activity tools use the same underlying session/cache state, so register
-	// them alongside the other cache-dependent tools after warm-up completes.
-	if !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolActivityUnreads, enabledTools, "") {
-		guardCacheDependentRegistration(ToolActivityUnreads)
+	addActivityUnreads := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolActivityUnreads, enabledTools, "")
+	addActivityMarkRead := !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolActivityMarkRead, enabledTools, "")
+	if addActivityUnreads || addActivityMarkRead {
 		activityHandler := handler.NewActivityHandler(provider, logger, conversationsHandler)
-		s.server.AddTool(mcp.NewTool(ToolActivityUnreads,
-			mcp.WithDescription("Get unread Activity items (thread replies and @mentions). Returns the same data as Slack's Activity panel Unreads tab. Requires browser session tokens (xoxc/xoxd)."),
-			mcp.WithTitleAnnotation("Get Activity Unreads"),
-			mcp.WithReadOnlyHintAnnotation(true),
-			mcp.WithBoolean("include_messages",
-				mcp.Description("If true (default), fetches unread reply messages per thread. If false, returns summary only."),
-				mcp.DefaultBool(true),
-			),
-			mcp.WithNumber("max_messages_per_thread",
-				mcp.Description("Max messages to fetch per thread when include_messages is true. Default is 10."),
-				mcp.DefaultNumber(10),
-			),
-			mcp.WithNumber("limit",
-				mcp.Description("Max Activity items to return. Default is 30."),
-				mcp.DefaultNumber(30),
-			),
-			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
-			),
-		), activityHandler.ActivityUnreadsHandler)
+		if addActivityUnreads {
+			guardCacheDependentRegistration(ToolActivityUnreads)
+			s.server.AddTool(mcp.NewTool(ToolActivityUnreads,
+				mcp.WithDescription("Get unread Activity items (thread replies and @mentions). Returns the same data as Slack's Activity panel Unreads tab. Requires browser session tokens (xoxc/xoxd)."),
+				mcp.WithTitleAnnotation("Get Activity Unreads"),
+				mcp.WithReadOnlyHintAnnotation(true),
+				mcp.WithBoolean("include_messages",
+					mcp.Description("If true (default), fetches unread reply messages per thread. If false, returns summary only."),
+					mcp.DefaultBool(true),
+				),
+				mcp.WithNumber("max_messages_per_thread",
+					mcp.Description("Max messages to fetch per thread when include_messages is true. Default is 10."),
+					mcp.DefaultNumber(10),
+				),
+				mcp.WithNumber("limit",
+					mcp.Description("Max Activity items to return. Default is 30."),
+					mcp.DefaultNumber(30),
+				),
+				mcp.WithString("detail",
+					mcp.Description("Output fidelity: 'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				),
+			), activityHandler.ActivityUnreadsHandler)
+		}
 
-		if shouldAddTool(ToolActivityMarkRead, enabledTools, "") {
+		if addActivityMarkRead {
 			guardCacheDependentRegistration(ToolActivityMarkRead)
 			s.server.AddTool(mcp.NewTool(ToolActivityMarkRead,
 				mcp.WithDescription("Mark an Activity item as read. Use the key, feed_ts, and type values from activity_unreads output."),

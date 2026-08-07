@@ -18,6 +18,5 @@ func TS2int(ts string) (int64, error) {
 	if i == -1 {
 		return 0, fmt.Errorf("%w: %q", ErrNotATimestamp, ts)
 	}
-	val, err := strconv.Atoi(ts[:i] + ts[i+1:])
-	return int64(val), err
+	return strconv.ParseInt(ts[:i]+ts[i+1:], 10, 64)
 }

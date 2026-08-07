@@ -43,7 +43,6 @@ type UsergroupsHandler struct {
 	logger      *zap.Logger
 }
 
-// newUserGroupFromSlack converts a slack.UserGroup to our output type.
 func newUserGroupFromSlack(g slack.UserGroup) UserGroup {
 	return UserGroup{
 		ID:          g.ID,
@@ -64,7 +63,6 @@ func NewUsergroupsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger)
 	}
 }
 
-// UsergroupsListHandler lists all user groups in the workspace.
 // No IsReady check: usergroup handlers call the Slack API directly and do not
 // depend on the users/channels cache, so cache readiness is not required.
 func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -108,7 +106,6 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 	return mcp.NewToolResultStructured(UsergroupListResult{Usergroups: userGroupList}, string(csvBytes)), nil
 }
 
-// UsergroupsCreateHandler creates a new user group
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsCreateHandler called", request)
 
@@ -159,7 +156,6 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 	return mcp.NewToolResultStructuredOnly(newUserGroupFromSlack(created)), nil
 }
 
-// UsergroupsUpdateHandler updates an existing user group's metadata
 func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsUpdateHandler called", request)
 
@@ -221,7 +217,6 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 	return mcp.NewToolResultStructuredOnly(newUserGroupFromSlack(updated)), nil
 }
 
-// UsergroupsUsersUpdateHandler updates the members of a user group
 func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsUsersUpdateHandler called", request)
 
@@ -268,7 +263,6 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 	return mcp.NewToolResultStructuredOnly(result), nil
 }
 
-// UsergroupsMeHandler allows the current user to list their groups, join or leave a user group
 func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsMeHandler called", request)
 
@@ -359,7 +353,6 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 	}), nil
 }
 
-// handleListMyGroups returns groups where the current user is a member
 func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserID string) (*mcp.CallToolResult, error) {
 	options := []slack.GetUserGroupsOption{
 		slack.GetUserGroupsOptionIncludeUsers(true),
@@ -402,7 +395,6 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 	return mcp.NewToolResultStructured(UsergroupListResult{Usergroups: userGroupList}, string(csvBytes)), nil
 }
 
-// formatJSONTime converts slack.JSONTime (Unix timestamp) to a readable string
 func formatJSONTime(jt slack.JSONTime) string {
 	if int64(jt) == 0 {
 		return ""
@@ -411,7 +403,6 @@ func formatJSONTime(jt slack.JSONTime) string {
 	return t.Format(time.RFC3339)
 }
 
-// parseCommaSeparatedList splits a comma-separated string into a slice of trimmed strings
 func parseCommaSeparatedList(s string) []string {
 	if s == "" {
 		return nil

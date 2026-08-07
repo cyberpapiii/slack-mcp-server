@@ -41,10 +41,7 @@ type authStatusPayload struct {
 	Summary                  string   `json:"summary"`
 }
 
-func (h *AuthStatusHandler) Handler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	_ = ctx
-	_ = request
-
+func (h *AuthStatusHandler) Handler(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	usersReady := h.apiProvider.UsersCacheReady()
 	channelsReady := h.apiProvider.ChannelsCacheReady()
 	browserOK := h.apiProvider.BrowserFeaturesAvailable()
@@ -91,7 +88,7 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 		parts = append(parts, "Browser session auth is healthy for Activity and Saved tools.")
 	} else if degradedReason != "" {
 		parts = append(parts, "Browser session auth is degraded: "+degradedReason+". Refresh Slack in your browser and restart Plug.")
-	} else if !browserOK {
+	} else {
 		parts = append(parts, "Browser-only tools require xoxc/xoxd browser session tokens.")
 	}
 

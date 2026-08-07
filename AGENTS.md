@@ -11,7 +11,7 @@ make test          # all tests except *Integration*, with -race (CI gate)
 make test-integration  # needs Slack/ngrok secrets
 make build         # outputs ./build/slack-mcp-server (read-only: no tidy/format)
 make prepare       # go mod tidy + go fmt, the only targets that rewrite files
-make deploy-local  # build bin/slack-mcp-server + plug reload
+make deploy-local  # build bin/slack-mcp-server + plug server disable/enable slack
 go build -o bin/slack-mcp-server ./cmd/slack-mcp-server  # manual equivalent
 ```
 
@@ -131,4 +131,4 @@ If users or channels cache warm-up fails after the 3 fast attempts, the server r
 - `SLACK_MCP_ENABLED_TOOLS` in Plug may expose fewer tools than the server registers (allowlist vs 31 registered)
 - Upstream v1.3.0 is fully merged (0 behind `origin/master`); ongoing work lands as commits ahead on `master`
 - Local fork intentionally keeps non-blocking stdio startup and browser-auth degradation, while upstream blocks stdio until cache warm
-- Restart Plug's `slack` server or run `plug reload` after rebuilding `bin/slack-mcp-server` so Cursor picks up the new binary
+- Restart Plug's `slack` server after rebuilding `bin/slack-mcp-server` so Cursor picks up the new binary (`make deploy-local` does disable/sleep/enable; `plug reload` alone can leave the old process)

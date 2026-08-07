@@ -387,9 +387,7 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 
 	sendability := checkSendStatus(params.channel)
 
-	// Build the draft preview response.
-	// Use labeled sections instead of delimiter lines to avoid ambiguity
-	// when the message text itself contains delimiter-like patterns.
+	// Labeled sections avoid delimiter ambiguity when message text looks similar.
 	preview := fmt.Sprintf("[Draft message preview]\n"+
 		"Channel: %s\n"+
 		"Thread: %s\n"+
@@ -1152,14 +1150,6 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
 }
 
-// unreadCountFromHistory reports the UnreadCount to record for a channel after
-// its conversations.history fetch. `current` is the count carried over from
-// client.counts (the MentionCount), `msgCount` the number of rows returned, and
-// a non-nil `fetchErr` means the fetch failed and msgCount is meaningless.
-// A zero-row window never destroys information: a positive `current` survives,
-// and only when there is nothing at all to report does the count fall back to
-// the conservative 1. client.counts said HasUnreads, so the tool never renders
-// "0 unread".
 func unreadCountFromHistory(current, msgCount int, fetchErr error) int {
 	if fetchErr != nil {
 		if current == 0 {
@@ -1268,18 +1258,15 @@ func slackTS(t fasttime.Time) string {
 func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts edge.ClientCountsResponse, usersMap *provider.UsersCache, channelsMaps *provider.ChannelsCache) []UnreadChannel {
 	var unreadChannels []UnreadChannel
 
-	// Process regular channels (public, private)
 	for _, snap := range counts.Channels {
 		if !snap.HasUnreads {
 			continue
 		}
 
-		// Skip muted channels (unless include_muted is set)
 		if params.mutedChannels[snap.ID] {
 			continue
 		}
 
-		// Priority Inbox: skip channels without @mentions
 		if params.mentionsOnly && snap.MentionCount == 0 {
 			continue
 		}
@@ -1287,7 +1274,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 		channelName := snap.ID
 		channelType := "internal"
 		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
-			// The cached name may already have # prefix, so handle both cases
+			// Cached name may already include #.
 			name := cached.Name
 			if strings.HasPrefix(name, "#") {
 				channelName = name
@@ -1313,18 +1300,15 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 		})
 	}
 
-	// Process MPIMs (group DMs)
 	for _, snap := range counts.MPIMs {
 		if !snap.HasUnreads {
 			continue
 		}
 
-		// Skip muted channels (unless include_muted is set)
 		if params.mutedChannels[snap.ID] {
 			continue
 		}
 
-		// Priority Inbox: skip channels without @mentions
 		if params.mentionsOnly && snap.MentionCount == 0 {
 			continue
 		}
@@ -1355,18 +1339,15 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 		})
 	}
 
-	// Process IMs (direct messages)
 	for _, snap := range counts.IMs {
 		if !snap.HasUnreads {
 			continue
 		}
 
-		// Skip muted channels (unless include_muted is set)
 		if params.mutedChannels[snap.ID] {
 			continue
 		}
 
-		// Priority Inbox: skip channels without @mentions
 		if params.mentionsOnly && snap.MentionCount == 0 {
 			continue
 		}
@@ -1375,7 +1356,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			continue
 		}
 
-		// Get display name for DM from channel cache or users
 		channelName := snap.ID
 		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
 			if cached.User != "" {
@@ -1566,19 +1546,8 @@ func slackRetryAfter(err error) time.Duration {
 	return 0
 }
 
-// scanTypeGroupForUnreads fetches channels of the given Slack types via users.conversations
-// and checks each for unreads via conversations.info.
-//
-// users.conversations returns only channels the calling user is a member of, which is
-// significantly more efficient than conversations.list (excludes non-member public channels
-// and closed DMs that cannot have unreads).
-//
-// Neither endpoint sorts by activity; channels come back in creation order.
-// Unread channels can appear anywhere in the list, so we scan up to a capped number
-// per type group to keep API call count bounded (each channel costs 1-2 API calls).
-//
-// Returns the discovered unread channels, total API calls made, channels scanned,
-// and the number of channels skipped due to rate limiting.
+// scanTypeGroupForUnreads scans member channels via users.conversations (creation order),
+// capped per type group, checking each with conversations.info.
 func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 	ctx context.Context,
 	params *unreadsParams,
@@ -1593,23 +1562,10 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 	scanned := 0
 	rateLimited := 0
 
-	// Proactive rate limiter for conversations.info (Tier 3: ~50 req/min).
-	// Without this, the scan fires requests as fast as the network allows,
-	// triggering cascading 429s that silently skip channels.
+	// Tier 3 (~50/min); unbounded fire causes cascading 429s that skip channels.
 	rl := limiter.Tier3.Limiter()
 
-	// users.conversations returns channels in creation order (not by activity),
-	// so unread channels can appear anywhere. We scan up to budget*2 channels
-	// per type group, trading coverage against API call count.
-	// Each channel costs 1 API call (DMs: conversations.info returns
-	// unread_count directly) or up to 2 calls (non-DMs: conversations.info
-	// for last_read + conversations.history to detect new messages).
-	//
-	// With the default max_channels=50, this gives:
-	//   DMs:      scan up to 100 channels (~100 API calls)
-	//   MPIMs:    scan up to  50 channels (~100 API calls)
-	//   Channels: scan up to  50 channels (~100 API calls)
-	//   Total:    ~300 API calls max (vs ~2000+ unbounded)
+	// Creation-order listing: cap scan coverage (floor 50).
 	maxScan := budget * 2
 	if maxScan < 50 {
 		maxScan = 50
@@ -1620,18 +1576,10 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 		if len(unreadChannels) >= budget {
 			break
 		}
-		if maxScan > 0 && scanned >= maxScan {
+		if scanned >= maxScan {
 			break
 		}
 
-		// Fetch a page of channels via users.conversations (only channels the
-		// calling user is a member of). This is significantly more efficient than
-		// conversations.list for xoxp tokens because it excludes non-member public
-		// channels and closed DMs, which cannot have unreads.
-		// Empirically tested: 37% fewer channels on a 2700-channel workspace
-		// (1724 vs 2737), with 85% reduction for public channels (156 vs 1046).
-		// Both methods miss the same set of archived channels, so zero real
-		// unreads are lost by this switch.
 		userConvParams := &slack.GetConversationsForUserParameters{
 			Types:           slackTypes,
 			Limit:           200,
@@ -1662,7 +1610,7 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 			if len(unreadChannels) >= budget {
 				break
 			}
-			if maxScan > 0 && scanned >= maxScan {
+			if scanned >= maxScan {
 				break
 			}
 
@@ -1943,10 +1891,7 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully joined %s", channel)), nil
 }
 
-// channelTypePriority ranks the five known ChannelType values. Package-level so
-// it is not rebuilt on every sort call. Keep in sync with the channel_types
-// validation set in parseParamsToolUnreads and the tool's parameter description
-// in pkg/server/server.go.
+// Keep in sync with validUnreadsChannelTypes and tool param docs in pkg/server/server.go.
 var channelTypePriority = map[string]int{
 	"dm":       0,
 	"group_dm": 1,
@@ -1954,18 +1899,10 @@ var channelTypePriority = map[string]int{
 	"internal": 3,
 }
 
-// unknownChannelTypePriority is the rank given to a ChannelType that is not in
-// channelTypePriority, so an unrecognized (or empty) type sorts last rather
-// than tying with "dm" at 0. Must stay strictly larger than the largest value
-// in channelTypePriority.
+// Must exceed all channelTypePriority values.
 const unknownChannelTypePriority = 99
 
-// sortChannelsByPriority sorts channels by type first: dm > group_dm >
-// partner > internal, with any unrecognized or empty ChannelType last. Within a
-// type it sorts by descending UnreadCount, then ascending ChannelID. The type
-// rank stays the primary key on purpose: a silent DM still outranks a busy
-// internal channel. The two tiebreakers only make the order total and
-// reproducible, so the max_channels truncation that follows is deterministic.
+// sortChannelsByPriority: type rank, then UnreadCount desc, ChannelID asc.
 func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel) {
 	rank := func(channelType string) int {
 		if p, ok := channelTypePriority[channelType]; ok {
@@ -2381,14 +2318,7 @@ func isToolInEnabledList(enabledTools, toolName string) bool {
 	return false
 }
 
-// isTruthyEnv reports whether a gate environment variable's value means
-// "enabled". The accepted set matches the SLACK_MCP_ATTACHMENT_TOOL and
-// SLACK_MCP_MARK_TOOL checks and the error text every gate prints: true, 1,
-// yes. Comparison is case-insensitive and ignores surrounding whitespace so
-// that `=True` and `= true` behave as an operator expects.
-//
-// A deliberate copy of this predicate lives in pkg/server/server.go for the
-// registration-time gate; the two must stay in sync.
+// true/1/yes (case-insensitive). Keep in sync with pkg/server/server.go.
 func isTruthyEnv(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "true", "1", "yes":
@@ -2397,11 +2327,7 @@ func isTruthyEnv(value string) bool {
 	return false
 }
 
-// requireToolEnabled reports whether a call-time-gated tool is enabled: either
-// its dedicated envVarName is set to a truthy value (true, 1, or yes,
-// case-insensitive), or toolName is explicitly listed in the
-// SLACK_MCP_ENABLED_TOOLS allowlist. Any other value, including "false",
-// leaves the tool disabled.
+// Dedicated env truthy, or toolName listed in SLACK_MCP_ENABLED_TOOLS.
 func requireToolEnabled(envVarName, toolName string) bool {
 	if isTruthyEnv(os.Getenv(envVarName)) {
 		return true
@@ -2646,19 +2572,7 @@ func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolR
 	}, nil
 }
 
-// validUnreadsChannelTypes is the complete set of channel_types values the
-// unreads pipeline understands. Any other non-empty value matches no branch in
-// collectUnreadChannels or getUnreadsViaConversationsInfo and would silently
-// yield an empty result, so it is rejected at parse time.
-//
-// An empty (or whitespace-only) value means "absent" and defaults to "all":
-// MCP clients differ in how they serialize an omitted optional string, and
-// several send "" rather than dropping the key. GetString cannot tell the two
-// apart, so rejecting "" would break those clients on a request that means
-// "no filter".
-//
-// Keep in sync with channelTypePriority and the tool's parameter description
-// in pkg/server/server.go.
+// Keep in sync with channelTypePriority and tool param docs in pkg/server/server.go.
 var validUnreadsChannelTypes = []string{"all", "dm", "group_dm", "partner", "internal"}
 
 func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolRequest) (*unreadsParams, error) {
@@ -2866,14 +2780,7 @@ func isSlackConversationIDPrefix(s string) bool {
 	return strings.HasPrefix(s, "D") || strings.HasPrefix(s, "G")
 }
 
-// formatConversationFilter resolves a D…/G… conversation ID against the
-// channels cache into the value Slack's `in:` search modifier expects.
-//
-// For a DM the cache stores the peer's user ID, so we emit the same
-// `<@Uxxxx>` form that the documented '@username_dm' input produces, so the two
-// documented spellings of the same conversation build an identical
-// query. For an MPIM (or any other cached conversation) we reuse the
-// filter_in_channel formatting, which is the cached channel Name.
+// formatConversationFilter maps a D…/G… ID to Slack `in:` form via channels cache.
 func formatConversationFilter(cms *provider.ChannelsCache, raw string) (string, error) {
 	if cms != nil {
 		if c, ok := cms.Channels[raw]; ok {

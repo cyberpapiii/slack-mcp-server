@@ -3,6 +3,7 @@ package edge
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/rusq/slack"
@@ -123,7 +124,8 @@ func (cl *Client) GetUsers(ctx context.Context, userID ...string) ([]UserInfo, e
 
 	lim := limiter.Tier3.Limiter()
 	var users []UserInfo
-	for {
+	const maxUsersInfoRounds = 20
+	for round := 0; round < maxUsersInfoRounds; round++ {
 		uiresp, err := cl.UsersInfo(ctx, &UsersInfoRequest{
 			CheckInteraction:        true,
 			IncludeProfileOnlyUsers: true,
@@ -138,17 +140,38 @@ func (cl *Client) GetUsers(ctx context.Context, userID ...string) ([]UserInfo, e
 		if len(uiresp.Results) > 0 {
 			users = append(users, uiresp.Results...)
 		}
-		if len(uiresp.PendingIDS) == 0 {
-			break
+
+		failed := make(map[string]struct{}, len(uiresp.FailedIDS))
+		for _, id := range uiresp.FailedIDS {
+			failed[id] = struct{}{}
 		}
+		updatedFromResults := make(map[string]int64, len(uiresp.Results))
 		for _, ui := range uiresp.Results {
-			updatedIds[ui.ID] = ui.Updated
+			updatedFromResults[ui.ID] = ui.Updated
 		}
+
+		pending := make(map[string]int64, len(uiresp.PendingIDS))
+		for _, id := range uiresp.PendingIDS {
+			if _, bad := failed[id]; bad {
+				continue
+			}
+			if u, ok := updatedFromResults[id]; ok {
+				pending[id] = u
+			} else if u, ok := updatedIds[id]; ok {
+				pending[id] = u
+			} else {
+				pending[id] = 0
+			}
+		}
+		if len(pending) == 0 {
+			return users, nil
+		}
+		updatedIds = pending
 		if err := lim.Wait(ctx); err != nil {
 			return nil, err
 		}
 	}
-	return users, nil
+	return nil, fmt.Errorf("users/info: %d ids still pending after %d rounds", len(updatedIds), maxUsersInfoRounds)
 }
 
 // UsersInfo calls a users.info endpoint.  This endpoint does not return results
@@ -250,6 +273,9 @@ func (cl *Client) publicUserList(ctx context.Context, channelIDs []string, lim *
 	for {
 		var ur UsersListResponse
 		if err := cl.callEdgeAPI(ctx, &ur, "users/list", &req); err != nil {
+			return nil, err
+		}
+		if err := ur.validate("users/list"); err != nil {
 			return nil, err
 		}
 		if len(ur.Results) == 0 && ur.NextMarker == "" {

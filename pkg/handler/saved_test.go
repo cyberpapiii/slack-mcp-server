@@ -47,45 +47,6 @@ func TestUnitSavedItemCSVFormat(t *testing.T) {
 	assert.Contains(t, csvStr, "@john")
 }
 
-func TestUnitSavedItemFieldExtraction(t *testing.T) {
-	item := edge.SavedItem{
-		ItemID:           "C092WJP9Z38",
-		ItemType:         "message",
-		DateCreated:      1772036567,
-		DateDue:          1772521200,
-		DateCompleted:    0,
-		DateUpdated:      1772036567,
-		IsArchived:       false,
-		DateSnoozedUntil: 0,
-		Ts:               "1772034406.593509",
-		State:            "in_progress",
-	}
-
-	assert.Equal(t, "C092WJP9Z38", item.ItemID)
-	assert.Equal(t, "message", item.ItemType)
-	assert.Equal(t, "in_progress", item.State)
-	assert.Equal(t, int64(1772521200), item.DateDue)
-	assert.Equal(t, int64(0), item.DateCompleted)
-	assert.Equal(t, "1772034406.593509", item.Ts)
-	assert.False(t, item.IsArchived)
-}
-
-func TestUnitSavedCountsDeserialization(t *testing.T) {
-	counts := edge.SavedCounts{
-		UncompletedCount:        51,
-		UncompletedOverdueCount: 1,
-		ArchivedCount:           0,
-		CompletedCount:          0,
-		TotalCount:              52,
-	}
-
-	assert.Equal(t, 51, counts.UncompletedCount)
-	assert.Equal(t, 1, counts.UncompletedOverdueCount)
-	assert.Equal(t, 52, counts.TotalCount)
-	assert.Equal(t, 0, counts.CompletedCount)
-	assert.Equal(t, 0, counts.ArchivedCount)
-}
-
 func TestUnitFormatUnixTs(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -115,20 +76,6 @@ func TestUnitFormatUnixTs(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-func TestUnitSavedUpdateParamValidation(t *testing.T) {
-	t.Run("item_id and ts are both required", func(t *testing.T) {
-		assert.NotEmpty(t, "C092WJP9Z38", "item_id must be non-empty")
-		assert.NotEmpty(t, "1772034406.593509", "ts must be non-empty")
-	})
-
-	t.Run("mark values", func(t *testing.T) {
-		validMarks := []string{"completed", ""}
-		for _, m := range validMarks {
-			assert.Contains(t, []string{"completed", ""}, m)
-		}
-	})
 }
 
 // Bug C: the schema documents `date_due: 0` as the way to clear a due date,

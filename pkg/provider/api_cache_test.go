@@ -58,27 +58,3 @@ func TestNullCacheUnmarshal(t *testing.T) {
 			"MarshalIndent(empty slice) should produce '[]'")
 	})
 }
-
-// TestEmptyCacheWriteGuard verifies that we correctly detect when channels
-// should NOT be written to cache (empty/nil slice), preventing the null
-// cache poisoning bug.
-func TestEmptyCacheWriteGuard(t *testing.T) {
-	shouldWriteCache := func(channels []Channel) bool {
-		return len(channels) > 0
-	}
-
-	t.Run("nil slice should not be written", func(t *testing.T) {
-		var channels []Channel
-		assert.False(t, shouldWriteCache(channels))
-	})
-
-	t.Run("empty slice should not be written", func(t *testing.T) {
-		channels := []Channel{}
-		assert.False(t, shouldWriteCache(channels))
-	})
-
-	t.Run("populated slice should be written", func(t *testing.T) {
-		channels := []Channel{{ID: "C1"}}
-		assert.True(t, shouldWriteCache(channels))
-	})
-}

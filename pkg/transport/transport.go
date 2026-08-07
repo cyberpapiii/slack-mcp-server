@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -160,14 +160,20 @@ func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 			switch alpn {
 			case "h2":
-				// Use HTTP/2 transport
 				clientConn, err := t.http2Transport.NewClientConn(conn)
 				if err != nil {
 					conn.Close()
 					return nil, fmt.Errorf("HTTP/2 client connection error: %w", err)
 				}
 				t.logger.Debug("Using HTTP/2 transport for request", zap.String("request", req.URL.String()))
-				return clientConn.RoundTrip(req)
+				resp, err := clientConn.RoundTrip(req)
+				if err != nil {
+					clientConn.Close()
+					return nil, err
+				}
+				// Close the h2 client conn when the response body is drained.
+				resp.Body = &closeAfterBody{ReadCloser: resp.Body, close: clientConn.Close}
+				return resp, nil
 			default:
 				t.logger.Debug("Using HTTP/1.1 transport for request", zap.String("request", req.URL.String()))
 				// Fall through to HTTP/1.1
@@ -192,6 +198,20 @@ func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	return resp, nil
+}
+
+// closeAfterBody closes an underlying resource after the response body is closed.
+type closeAfterBody struct {
+	io.ReadCloser
+	close func() error
+}
+
+func (c *closeAfterBody) Close() error {
+	err := c.ReadCloser.Close()
+	if cerr := c.close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 // dialProxy establishes a connection through an HTTP proxy
@@ -363,7 +383,7 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client 
 	}
 
 	if localCertFile := os.Getenv("SLACK_MCP_SERVER_CA"); localCertFile != "" {
-		certs, err := ioutil.ReadFile(localCertFile)
+		certs, err := os.ReadFile(localCertFile)
 		if err != nil {
 			logger.Fatal("Failed to read local certificate file",
 				zap.String("cert_file", localCertFile),
