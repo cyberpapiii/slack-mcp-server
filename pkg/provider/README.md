@@ -1,3 +1,3 @@
-The "edge" package has been partially copied from `rusq/slackdump`.
+The "edge" package partially copies code from `rusq/slackdump`.
 
-Credits to the https://github.com/rusq.
+Credits to https://github.com/rusq.

@@ -91,9 +91,6 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 		close(resultC)
 	}()
 
-	// Collect results from all goroutines. Individual failures are non-fatal:
-	// we keep channels from sources that succeeded. Only if every source fails
-	// (nothing collected) do we propagate the last error.
 	var seenChannels map[string]struct{}
 	channels, seenChannels, err = collectChannels(resultC)
 	if err != nil {
@@ -101,7 +98,7 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 	}
 
 	// ClientCounts returns MPIM IDs that we haven't seen in the user boot
-	// response. This is supplementary — failures here don't discard the
+	// response. This is supplementary; failures here don't discard the
 	// channels we already collected.
 	cr, err := cl.ClientCounts(ctx)
 	if err != nil {

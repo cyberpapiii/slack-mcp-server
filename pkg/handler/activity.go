@@ -39,7 +39,7 @@ func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, c
 // activity output. It mirrors the search path's "ID (#name)" convention (see
 // convertMessagesFromSearch and the #link_template legend line): the ID stays
 // leading so permalinks and follow-up tool calls remain derivable, with the
-// cached name — which already carries its "#"/"@" prefix — appended. Falls
+// cached name, which already carries its "#"/"@" prefix, appended. Falls
 // back to the bare ID when the channel is not in the cache.
 func activityChannelLabel(channelID string, channels map[string]provider.Channel) string {
 	if cached, ok := channels[channelID]; ok && cached.Name != "" {

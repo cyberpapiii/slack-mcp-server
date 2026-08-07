@@ -124,7 +124,7 @@ func ValidateEnabledTools(tools []string) error {
 // This is a deliberate copy of the identical helper in pkg/handler
 // (conversations.go); pkg/server cannot import pkg/handler's unexported
 // helpers, and a shared package for one six-line predicate is not worth it.
-// The two copies must stay in sync — if a third package ever needs one, that
+// The two copies must stay in sync. If a third package ever needs one, that
 // is the signal to extract a shared package instead.
 func isTruthyEnv(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
@@ -135,7 +135,7 @@ func isTruthyEnv(value string) bool {
 }
 
 // channelListGates are gate variables whose value is a channel allowlist, not
-// a boolean — e.g. "C1234567890,D0987654321" or "!C1234567890". For these, any
+// a boolean, e.g. "C1234567890,D0987654321" or "!C1234567890". For these, any
 // non-empty value means "enabled", because the value IS the configuration.
 // Every other gate variable is a boolean and goes through isTruthyEnv.
 var channelListGates = map[string]bool{
@@ -192,7 +192,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolConversationsOpen, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolConversationsOpen,
-			mcp.WithDescription("Open a direct message (DM) or multi-person direct message (MPIM) conversation with one or more users. Returns the new channel ID of the DM."),
+			mcp.WithDescription("Open a direct message (DM) or multi-person direct message (MPIM) with one or more users. Returns the channel ID of the opened conversation."),
 			mcp.WithTitleAnnotation("Open Conversation"),
 			mcp.WithString("users",
 				mcp.Required(),
@@ -203,56 +203,56 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolConversationsHistory, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolConversationsHistory,
-			mcp.WithDescription("Get messages from the channel (or DM) by channel_id, the last row/column in the response is used as 'cursor' parameter for pagination if not empty"),
+			mcp.WithDescription("Fetch messages from a channel or DM by channel_id. When more messages exist, the cursor value in the last CSV row is the 'cursor' parameter for the next call."),
 			mcp.WithTitleAnnotation("Get Conversation History"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("    - `channel_id` (string): ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
 			),
 			mcp.WithBoolean("include_activity_messages",
-				mcp.Description("If true, the response will include activity messages such as 'channel_join' or 'channel_leave'. Default is boolean false."),
+				mcp.Description("If true, include activity messages such as 'channel_join' or 'channel_leave'. Default is false."),
 				mcp.DefaultBool(false),
 			),
 			mcp.WithString("cursor",
-				mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
+				mcp.Description("Pagination cursor. Pass the cursor value from the last row of the previous response."),
 			),
 			mcp.WithString("limit",
 				mcp.DefaultString("1d"),
-				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 1w - 1 week, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided; any value is ignored when 'cursor' is set."),
+				mcp.Description("How much history to fetch: a time range ('1d' for 1 day, '1w' for 1 week, '30d', '90d' which is the free-tier history limit) or a number of messages (e.g. 50). Default is 1d. Ignored when 'cursor' is set."),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description("'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), conversationsHandler.ConversationsHistoryHandler)
 	}
 
 	if shouldAddTool(ToolConversationsReplies, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolConversationsReplies,
-			mcp.WithDescription("Get a thread of messages posted to a conversation by channelID and thread_ts, the last row/column in the response is used as 'cursor' parameter for pagination if not empty"),
+			mcp.WithDescription("Fetch a thread's messages by channel_id and thread_ts. When more messages exist, the cursor value in the last CSV row is the 'cursor' parameter for the next call."),
 			mcp.WithTitleAnnotation("Get Thread Replies"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
 			),
 			mcp.WithString("thread_ts",
 				mcp.Required(),
-				mcp.Description("Unique identifier of either a thread's parent message or a message in the thread. ts must be the timestamp in format 1234567890.123456 of an existing message with 0 or more replies."),
+				mcp.Description("Timestamp of the thread's parent message, or of any message in the thread, in format 1234567890.123456."),
 			),
 			mcp.WithBoolean("include_activity_messages",
-				mcp.Description("If true, the response will include activity messages such as 'channel_join' or 'channel_leave'. Default is boolean false."),
+				mcp.Description("If true, include activity messages such as 'channel_join' or 'channel_leave'. Default is false."),
 				mcp.DefaultBool(false),
 			),
 			mcp.WithString("cursor",
-				mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
+				mcp.Description("Pagination cursor. Pass the cursor value from the last row of the previous response."),
 			),
 			mcp.WithString("limit",
 				mcp.DefaultString("1d"),
-				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided; any value is ignored when 'cursor' is set."),
+				mcp.Description("How many replies to fetch: a time range ('1d' for 1 day, '30d', '90d' which is the free-tier history limit) or a number of messages (e.g. 50). Default is 1d. Ignored when 'cursor' is set."),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description("'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), conversationsHandler.ConversationsRepliesHandler)
 	}
@@ -264,7 +264,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
 			),
 			mcp.WithString("timestamp",
 				mcp.Required(),
@@ -275,34 +275,34 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolConversationsGetMessage, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolConversationsGetMessage,
-			mcp.WithDescription("Fetch a single message by channel and timestamp. Use the MsgID column from any compact CSV output as the timestamp — e.g. to re-fetch a message with detail: 'full' after seeing an attachment-truncation receipt. Returns the same CSV format as conversations_history."),
+			mcp.WithDescription("Fetch a single message by channel and timestamp. Use the MsgID column from any compact CSV output as the timestamp, for example to re-fetch a message with detail: 'full' after an attachment-truncation receipt. Returns the same CSV format as conversations_history."),
 			mcp.WithTitleAnnotation("Get Single Message"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
 			),
 			mcp.WithString("timestamp",
 				mcp.Required(),
 				mcp.Description("Timestamp of the message to fetch, in format 1234567890.123456."),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description("'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), conversationsHandler.ConversationsGetMessageHandler)
 	}
 
 	if shouldAddTool(ToolConversationsAddMessage, enabledTools, "SLACK_MCP_ADD_MESSAGE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolConversationsAddMessage,
-			mcp.WithDescription("Add a message to a public channel, private channel, or direct message (DM, or IM) conversation by channel_id and thread_ts."),
+			mcp.WithDescription("Post a message to a channel or DM by channel_id. Pass thread_ts to reply in a thread."),
 			mcp.WithTitleAnnotation("Send Message"),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
 			),
 			mcp.WithString("thread_ts",
-				mcp.Description("Unique identifier of either a thread's parent message or a message in the thread_ts must be the timestamp in format 1234567890.123456 of an existing message with 0 or more replies. Optional, if not provided the message will be added to the channel itself, otherwise it will be added to the thread."),
+				mcp.Description("Timestamp of an existing message, in format 1234567890.123456, identifying the thread to reply in. Omit to post to the channel itself."),
 			),
 			mcp.WithString("text",
 				mcp.Description("Message text in specified content_type format. Example: 'Hello, world!' for text/plain or '# Hello, world!' for text/markdown."),
@@ -319,16 +319,16 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolConversationsDraftMessage, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolConversationsDraftMessage,
-			mcp.WithDescription("Draft a message for a public channel, private channel, or direct message (DM, or IM) conversation. Returns a formatted preview of the message without sending it. Use conversations_add_message to send the message after reviewing the draft."),
+			mcp.WithDescription("Preview a message without sending it. Returns the formatted message for review. Send it with conversations_add_message."),
 			mcp.WithTitleAnnotation("Draft Message"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithDestructiveHintAnnotation(false),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
 			),
 			mcp.WithString("thread_ts",
-				mcp.Description("Unique identifier of either a thread's parent message or a message in the thread_ts must be the timestamp in format 1234567890.123456 of an existing message with 0 or more replies. Optional, if not provided the message will be drafted for the channel itself, otherwise it will be drafted as a thread reply."),
+				mcp.Description("Timestamp of an existing message, in format 1234567890.123456, identifying the thread the draft replies to. Omit to draft for the channel itself."),
 			),
 			mcp.WithString("text",
 				mcp.Required(),
@@ -343,11 +343,11 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolReactionsAdd, enabledTools, "SLACK_MCP_REACTION_TOOL") {
 		s.AddTool(mcp.NewTool(ToolReactionsAdd,
-			mcp.WithDescription("Add an emoji reaction to a message in a public channel, private channel, or direct message (DM, or IM) conversation."),
+			mcp.WithDescription("Add an emoji reaction to a message."),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
 			),
 			mcp.WithString("timestamp",
 				mcp.Required(),
@@ -355,18 +355,18 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("emoji",
 				mcp.Required(),
-				mcp.Description("The name of the emoji to add as a reaction (without colons). Example: 'thumbsup', 'heart', 'rocket'."),
+				mcp.Description("Emoji name without colons, e.g. 'thumbsup', 'heart', 'rocket'."),
 			),
 		), conversationsHandler.ReactionsAddHandler)
 	}
 
 	if shouldAddTool(ToolReactionsRemove, enabledTools, "SLACK_MCP_REACTION_TOOL") {
 		s.AddTool(mcp.NewTool(ToolReactionsRemove,
-			mcp.WithDescription("Remove an emoji reaction from a message in a public channel, private channel, or direct message (DM, or IM) conversation."),
+			mcp.WithDescription("Remove an emoji reaction from a message."),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
 			),
 			mcp.WithString("timestamp",
 				mcp.Required(),
@@ -374,7 +374,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("emoji",
 				mcp.Required(),
-				mcp.Description("The name of the emoji to remove as a reaction (without colons). Example: 'thumbsup', 'heart', 'rocket'."),
+				mcp.Description("Emoji name without colons, e.g. 'thumbsup', 'heart', 'rocket'."),
 			),
 		), conversationsHandler.ReactionsRemoveHandler)
 	}
@@ -386,61 +386,61 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("file_id",
 				mcp.Required(),
-				mcp.Description("The ID of the attachment to download, in format Fxxxxxxxxxx. Attachment IDs (with filenames) can be found in the AttachmentIDs field of message metadata when FileCount > 0."),
+				mcp.Description("Attachment ID in format Fxxxxxxxxxx. The AttachmentIDs field of message metadata lists IDs with filenames when FileCount > 0."),
 			),
 		), conversationsHandler.FilesGetHandler)
 	}
 	conversationsSearchTool := mcp.NewTool(ToolConversationsSearchMessages,
-		mcp.WithDescription("Search messages in a public channel, private channel, or direct message (DM, or IM) conversation using filters. All filters are optional, if not provided then search_query is required."),
+		mcp.WithDescription("Search messages across channels and DMs. All filters are optional. If no filter is set, search_query is required."),
 		mcp.WithTitleAnnotation("Search Messages"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("search_query",
-			mcp.Description("Search query to filter messages. Example: 'marketing report' or full URL of Slack message e.g. 'https://slack.com/archives/C1234567890/p1234567890123456', then the tool will return a single message matching given URL, herewith all other parameters will be ignored."),
+			mcp.Description("Search query, e.g. 'marketing report'. A full Slack message URL such as 'https://slack.com/archives/C1234567890/p1234567890123456' returns that single message and ignores all other parameters."),
 		),
 		mcp.WithString("filter_in_channel",
-			mcp.Description("Filter messages in a specific public/private channel by its ID or name. Example: 'C1234567890', 'G1234567890', or '#general'. If not provided, all channels will be searched."),
+			mcp.Description("Limit search to one public or private channel by ID or name, e.g. 'C1234567890', 'G1234567890', or '#general'. Omit to search all channels."),
 		),
 		mcp.WithString("filter_in_im_or_mpim",
-			mcp.Description("Filter messages in a direct message (DM) or multi-person direct message (MPIM) conversation by its ID or name. Example: 'D1234567890' or '@username_dm'. If not provided, all DMs and MPIMs will be searched."),
+			mcp.Description("Limit search to one DM or multi-person DM by ID or name, e.g. 'D1234567890' or '@username_dm'. Omit to search all DMs and MPIMs."),
 		),
 		mcp.WithString("filter_users_with",
-			mcp.Description("Filter messages with a specific user by their ID or display name in threads and DMs. Example: 'U1234567890' or '@username'. If not provided, all threads and DMs will be searched."),
+			mcp.Description("Only messages in threads and DMs with a specific user, by ID or display name, e.g. 'U1234567890' or '@username'. Omit to search all threads and DMs."),
 		),
 		mcp.WithString("filter_users_from",
-			mcp.Description("Filter messages from a specific user by their ID or display name. Example: 'U1234567890' or '@username'. If not provided, all users will be searched."),
+			mcp.Description("Only messages sent by a specific user, by ID or display name, e.g. 'U1234567890' or '@username'. Omit to search all users."),
 		),
 		mcp.WithString("filter_date_before",
-			mcp.Description("Filter messages sent before a specific date in format 'YYYY-MM-DD'. Example: '2023-10-01', 'July', 'Yesterday' or 'Today'. If not provided, all dates will be searched."),
+			mcp.Description("Only messages sent before a date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
 		),
 		mcp.WithString("filter_date_after",
-			mcp.Description("Filter messages sent after a specific date in format 'YYYY-MM-DD'. Example: '2023-10-01', 'July', 'Yesterday' or 'Today'. If not provided, all dates will be searched."),
+			mcp.Description("Only messages sent after a date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
 		),
 		mcp.WithString("filter_date_on",
-			mcp.Description("Filter messages sent on a specific date in format 'YYYY-MM-DD'. Example: '2023-10-01', 'July', 'Yesterday' or 'Today'. If not provided, all dates will be searched."),
+			mcp.Description("Only messages sent on a specific date. Accepts 'YYYY-MM-DD' (e.g. '2023-10-01'), 'July', 'Yesterday', or 'Today'."),
 		),
 		mcp.WithString("filter_date_during",
-			mcp.Description("Filter messages sent during a specific period in format 'YYYY-MM-DD'. Example: 'July', 'Yesterday' or 'Today'. If not provided, all dates will be searched."),
+			mcp.Description("Only messages sent during a named period, e.g. 'July', 'Yesterday', or 'Today'."),
 		),
 		mcp.WithBoolean("filter_threads_only",
-			mcp.Description("If true, the response will include only messages from threads. Default is boolean false."),
+			mcp.Description("If true, return only messages from threads. Default is false."),
 		),
 		mcp.WithString("filter_has",
-			mcp.Description("Filter messages by content type. One of: 'link', 'reaction', 'pin', 'file', or an emoji name like ':eyes:'. Maps to Slack's has: search modifier. If not provided, no content-type filter is applied."),
+			mcp.Description("Only messages containing a given element: 'link', 'reaction', 'pin', 'file', or an emoji name like ':eyes:'. Maps to Slack's has: search modifier."),
 		),
 		mcp.WithString("cursor",
 			mcp.DefaultString(""),
-			mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
+			mcp.Description("Pagination cursor. Pass the cursor value from the last row of the previous response."),
 		),
 		mcp.WithNumber("limit",
 			mcp.DefaultNumber(100),
-			mcp.Description("The maximum number of items to return. Must be an integer between 1 and 100."),
+			mcp.Description("Maximum number of results, an integer between 1 and 100. Default is 100."),
 		),
 		mcp.WithString("sort",
 			mcp.DefaultString("score"),
 			mcp.Description("Sort order: 'score' (default, relevance) or 'timestamp' (most recent first)."),
 		),
 		mcp.WithString("detail",
-			mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
+			mcp.Description("'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
 		),
 	)
 	// Only register search tool for non-bot tokens (bot tokens cannot use search.messages API)
@@ -455,7 +455,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("query",
 				mcp.Required(),
-				mcp.Description("Search query - matches against real name, display name, username, email, or a Slack user ID (e.g. U07VCEPP4N5)."),
+				mcp.Description("Search query. Matches against real name, display name, username, email, or a Slack user ID (e.g. U07VCEPP4N5)."),
 			),
 			mcp.WithNumber("limit",
 				mcp.DefaultNumber(10),
@@ -466,7 +466,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolFilesList, enabledTools, "SLACK_MCP_FILES_LIST_TOOL") {
 		s.AddTool(mcp.NewTool(ToolFilesList,
-			mcp.WithDescription("List files shared in a Slack channel or workspace. Returns file metadata including ID, name, type, size, uploader, and permalink. Use the file_id from results with attachment_get_data to download file content. The last row cursor column is used for pagination."),
+			mcp.WithDescription("List files shared in a Slack channel or workspace. Returns file metadata including ID, name, type, size, uploader, and permalink. Pass a file ID from the results to attachment_get_data to download content. The cursor column of the last row paginates."),
 			mcp.WithTitleAnnotation("List Files"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_id",
@@ -484,7 +484,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("Maximum number of files to return (1-200). Default is 50."),
 			),
 			mcp.WithString("cursor",
-				mcp.Description("Cursor for pagination. Use the value from the last row cursor column returned by the previous request."),
+				mcp.Description("Pagination cursor. Pass the cursor value from the last row of the previous response."),
 			),
 		), conversationsHandler.FilesListHandler)
 	}
@@ -496,7 +496,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.WithDestructiveHintAnnotation(false),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... (e.g., #general, @username)."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @ (e.g. #general, @username)."),
 			),
 			mcp.WithString("ts",
 				mcp.Description("Timestamp of the message to mark as read up to. If not provided, marks all messages as read."),
@@ -511,7 +511,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... (e.g., #general, @username)."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @ (e.g. #general, @username)."),
 			),
 		), conversationsHandler.ConversationsLeaveHandler)
 	}
@@ -523,7 +523,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.WithIdempotentHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
-				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... (e.g., #general)."),
+				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel name starting with # (e.g. #general)."),
 			),
 		), conversationsHandler.ConversationsJoinHandler)
 	}
@@ -533,7 +533,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	// User groups tools
 	if shouldAddTool(ToolUsergroupsList, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsList,
-			mcp.WithDescription("List all user groups (subteams) in the Slack workspace. User groups are mention groups like @engineering or @design that notify all members. Use this to discover available groups, check group membership counts, or find a group's ID before joining/updating it. Returns CSV with columns: id, name, handle, description, user_count, is_external."),
+			mcp.WithDescription("List all user groups (subteams) in the workspace. User groups are mention handles like @engineering that notify all members. Use this to find a group's ID before joining or updating it. Returns CSV with columns: id, name, handle, description, user_count, is_external."),
 			mcp.WithTitleAnnotation("List User Groups"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithBoolean("include_users",
@@ -553,7 +553,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolUsergroupsMe, enabledTools, "") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsMe,
-			mcp.WithDescription("Manage your own user group membership. Use action='list' to see which groups you belong to. Use action='join' with a usergroup_id to add yourself to a group (e.g., to receive @mentions). Use action='leave' with a usergroup_id to remove yourself. This is the easiest way to join/leave groups without needing to know the full member list."),
+			mcp.WithDescription("Manage your own user group membership. action='list' shows the groups you belong to, 'join' adds you to a group, 'leave' removes you. Unlike usergroups_users_update, this needs no full member list."),
 			mcp.WithTitleAnnotation("My User Groups"),
 			mcp.WithString("action",
 				mcp.Required(),
@@ -588,7 +588,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolUsergroupsUpdate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsUpdate,
-			mcp.WithDescription("Update a user group's metadata: name, handle (@mention), description, or default channels. Does NOT change members - use usergroups_users_update for that. At least one field must be provided."),
+			mcp.WithDescription("Update a user group's metadata: name, handle (@mention), description, or default channels. Does NOT change members, use usergroups_users_update for that. At least one field must be provided."),
 			mcp.WithTitleAnnotation("Update User Group"),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithString("usergroup_id",
@@ -612,7 +612,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	if shouldAddTool(ToolUsergroupsUsersUpdate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsUsersUpdate,
-			mcp.WithDescription("Replace all members of a user group with a new list. WARNING: This completely replaces the member list - any user not in the 'users' parameter will be removed. To add/remove just yourself, use usergroups_me instead. To add a single user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
+			mcp.WithDescription("Replace all members of a user group with a new list. WARNING: any user not in the 'users' parameter is removed. To add or remove only yourself, use usergroups_me instead. To add one user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
 			mcp.WithTitleAnnotation("Update User Group Members"),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithString("usergroup_id",
@@ -621,12 +621,12 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("users",
 				mcp.Required(),
-				mcp.Description("Comma-separated user IDs that will become the COMPLETE member list (e.g., 'U0123456789,U9876543210'). All current members not in this list will be removed."),
+				mcp.Description("Comma-separated user IDs forming the COMPLETE new member list (e.g., 'U0123456789,U9876543210'). Current members not in this list are removed."),
 			),
 		), usergroupsHandler.UsergroupsUsersUpdateHandler)
 	}
 
-	// Register saved items tools — "Save for Later" panel management.
+	// Register saved items tools for "Save for Later" panel management.
 	// Requires browser session tokens (xoxc/xoxd); not available for bot or OAuth tokens.
 	if !provider.IsBotToken() && !provider.IsOAuth() && shouldAddTool(ToolSavedList, enabledTools, "") {
 		savedHandler := handler.NewSavedHandler(provider, logger, conversationsHandler)
@@ -651,7 +651,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.DefaultNumber(5),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description("'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), savedHandler.SavedListHandler)
 
@@ -741,7 +741,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	if shouldAddTool(ToolChannelsList, enabledTools, "") {
 		guardCacheDependentRegistration(ToolChannelsList)
 		s.server.AddTool(mcp.NewTool(ToolChannelsList,
-			mcp.WithDescription("Get list of channels"),
+			mcp.WithDescription("List channels in the workspace, filtered by channel_types. Returns CSV; the cursor value in the last row paginates."),
 			mcp.WithTitleAnnotation("List Channels"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_types",
@@ -749,14 +749,14 @@ func (s *MCPServer) registerCacheDependentTools() {
 				mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Example: 'public_channel,private_channel,im'"),
 			),
 			mcp.WithString("sort",
-				mcp.Description("Type of sorting. Allowed values: 'popularity' - sort by number of members/participants in each channel."),
+				mcp.Description("Sort order. Allowed value: 'popularity' sorts by number of members in each channel."),
 			),
 			mcp.WithNumber("limit",
 				mcp.DefaultNumber(100),
-				mcp.Description("The maximum number of items to return. Must be an integer between 1 and 1000 (maximum 999)."),
+				mcp.Description("Maximum number of items to return, an integer between 1 and 999. Default is 100."),
 			),
 			mcp.WithString("cursor",
-				mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
+				mcp.Description("Pagination cursor. Pass the cursor value from the last row of the previous response."),
 			),
 			mcp.WithString("query",
 				mcp.Description("Optional keyword to filter channels. Case-insensitive substring match against the fields specified by query_targets. Example: 'marketing' returns channels like #marketing, #marketing-ops."),
@@ -771,7 +771,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	if shouldAddTool(ToolChannelsMe, enabledTools, "") {
 		guardCacheDependentRegistration(ToolChannelsMe)
 		s.server.AddTool(mcp.NewTool(ToolChannelsMe,
-			mcp.WithDescription("List channels you are a member of. Unlike channels_list which returns all workspace channels, this returns only channels you have joined. Useful on large workspaces where channels_list returns thousands of results."),
+			mcp.WithDescription("List only the channels you have joined, unlike channels_list which returns all workspace channels. Useful on large workspaces where channels_list returns thousands of results."),
 			mcp.WithTitleAnnotation("My Channels"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_types",
@@ -790,7 +790,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	if !provider.IsBotToken() && shouldAddTool(ToolChannelsStarred, enabledTools, "") {
 		guardCacheDependentRegistration(ToolChannelsStarred)
 		s.server.AddTool(mcp.NewTool(ToolChannelsStarred,
-			mcp.WithDescription("List channels and DMs that the user has starred (saved/bookmarked). Returns a curated subset of all channels — useful for focused workflows that only care about high-priority channels."),
+			mcp.WithDescription("List channels and DMs the user has starred (bookmarked). Returns only that subset, not the full channel list."),
 			mcp.WithTitleAnnotation("List Starred Channels"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_types",
@@ -807,7 +807,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	if !provider.IsBotToken() && shouldAddTool(ToolConversationsUnreads, enabledTools, "") {
 		guardCacheDependentRegistration(ToolConversationsUnreads)
 		s.server.AddTool(mcp.NewTool(ToolConversationsUnreads,
-			mcp.WithDescription("Get unread messages across all channels. With browser session tokens (xoxc/xoxd), uses a single API call for complete results. With OAuth user tokens (xoxp), scans a subset of channels per type (limited by max_channels) — results may be partial on large workspaces. Results are prioritized: DMs > group DMs > partner channels > internal channels."),
+			mcp.WithDescription("Get unread messages across all channels. With browser session tokens (xoxc/xoxd), one API call returns complete results. With OAuth user tokens (xoxp), scans up to max_channels channels per type, so results may be partial on large workspaces. Results are prioritized: DMs, then group DMs, then partner channels, then internal channels."),
 			mcp.WithTitleAnnotation("Get Unread Messages"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithBoolean("include_messages",
@@ -835,7 +835,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 				mcp.DefaultBool(false),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description("'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), conversationsHandler.ConversationsUnreadsHandler)
 	}
@@ -862,7 +862,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 				mcp.DefaultNumber(30),
 			),
 			mcp.WithString("detail",
-				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
+				mcp.Description("'standard' (default, compact CSV) or 'full' (all columns, including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."),
 			),
 		), activityHandler.ActivityUnreadsHandler)
 
@@ -891,14 +891,14 @@ func (s *MCPServer) registerCacheDependentTools() {
 	s.server.AddResource(mcp.NewResource(
 		"slack://"+s.workspace+"/channels",
 		"Directory of Slack channels",
-		mcp.WithResourceDescription("This resource provides a directory of Slack channels."),
+		mcp.WithResourceDescription("CSV directory of Slack channels."),
 		mcp.WithMIMEType("text/csv"),
 	), channelsHandler.ChannelsResource)
 
 	s.server.AddResource(mcp.NewResource(
 		"slack://"+s.workspace+"/users",
 		"Directory of Slack users",
-		mcp.WithResourceDescription("This resource provides a directory of Slack users."),
+		mcp.WithResourceDescription("CSV directory of Slack users."),
 		mcp.WithMIMEType("text/csv"),
 	), conversationsHandler.UsersResource)
 

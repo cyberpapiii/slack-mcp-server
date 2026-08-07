@@ -270,7 +270,6 @@ func newLogger(transport string) (*zap.Logger, error) {
 	return logger, err
 }
 
-// shouldUseJSONFormat determines if JSON format should be used
 func shouldUseJSONFormat() bool {
 	if format := os.Getenv("SLACK_MCP_LOG_FORMAT"); format != "" {
 		return strings.ToLower(format) == "json"

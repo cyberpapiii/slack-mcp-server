@@ -139,8 +139,6 @@ func (c *UserBootChannel) SlackChannel() slack.Channel {
 		if len(c.Members) == 1 {
 			userID = c.Members[0]
 		} else if len(c.Members) >= 2 {
-			// Take the second member assuming first is often the current user
-			// But actually, we should take the first non-empty one
 			for _, member := range c.Members {
 				if member != "" {
 					userID = member

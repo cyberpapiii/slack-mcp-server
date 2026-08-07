@@ -35,8 +35,8 @@ const defaultMinRefreshInterval = 30 * time.Second
 // deadline these goroutines can run forever: slack-go's GetUsersContext
 // retries rate limits in an unbounded loop whose only exit is ctx.Done(), and
 // a hung refresh holds fetchUsersMu and leaves refreshingUsers set, so no
-// later refresh can ever start. Sized generously — a large workspace
-// legitimately takes many minutes when Slack is throttling — because the goal
+// later refresh can ever start. Sized generously because a large workspace
+// legitimately takes many minutes when Slack is throttling; the goal
 // is to bound an infinite hang, not to make the refresh fast. It sits well
 // inside the 24h default cache TTL, so a timeout never races the next refresh.
 const defaultBackgroundRefreshTimeout = 15 * time.Minute
@@ -180,7 +180,7 @@ func getMinRefreshInterval() time.Duration {
 // validateAuthAndGetTeamID performs auth validation on startup and returns the TeamID.
 // This ensures tokens are valid before proceeding and enables cache namespacing
 // to prevent cache contamination when using multiple Slack workspaces.
-// Returns an error if authentication fails - the server should not start with invalid credentials.
+// Returns an error if authentication fails; the server should not start with invalid credentials.
 func validateAuthAndGetTeamID(authProvider auth.Provider, logger *zap.Logger) (string, *slack.AuthTestResponse, error) {
 	xoxpToken := os.Getenv("SLACK_MCP_XOXP_TOKEN")
 	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
@@ -249,8 +249,8 @@ func writeBrowserRuntimeStatus(state, reason string, logger *zap.Logger) {
 }
 
 // osascriptNotificationArgs builds the argv for a degradation notification.
-// The message travels as an argument to a fixed script — never interpolated
-// into AppleScript source — so no escaping is needed.
+// The message travels as an argument to a fixed script, never interpolated
+// into AppleScript source, so no escaping is needed.
 func osascriptNotificationArgs(reason string) []string {
 	const maxRunes = 200
 	if r := []rune(reason); len(r) > maxRunes {
@@ -469,9 +469,9 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAut
 	isEnterprise := authResp.EnterpriseID != ""
 	token := authProvider.SlackToken()
 
-	// Token type detection
-	// isOAuth: Official OAuth tokens (xoxp or xoxb) - uses Standard API
-	// isBotToken: Bot token - determines feature availability (e.g., search)
+	// Token type detection.
+	// isOAuth: official OAuth tokens (xoxp or xoxb); uses the standard API.
+	// isBotToken: bot token; determines feature availability (e.g., search).
 	// xoxe.xoxp- and xoxe.xoxb- are token-rotation variants of xoxp/xoxb (same scopes, 12h expiry)
 	isOAuth := strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxp-") || strings.HasPrefix(token, "xoxe.xoxb-")
 	isBotToken := strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxb-")
@@ -706,7 +706,7 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 			return channels, "", nil
 		}
 
-		// Edge API previously failed — use standard API directly.
+		// Edge API previously failed; use the standard API directly.
 		return c.slackClient.GetConversationsContext(ctx, params)
 	}
 
@@ -963,7 +963,6 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 		err          error
 	)
 
-	// Read all environment variables
 	xoxpToken := os.Getenv("SLACK_MCP_XOXP_TOKEN")
 	xoxbToken := os.Getenv("SLACK_MCP_XOXB_TOKEN")
 	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
@@ -990,10 +989,9 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 			}
 			return newWithXOXP(transport, authProvider, logger)
 		}
-		logger.Fatal("Authentication failed - browser-session tokens are invalid and no OAuth fallback is configured", zap.Error(startupErr))
+		logger.Fatal("Authentication failed: browser-session tokens are invalid and no OAuth fallback is configured", zap.Error(startupErr))
 	}
 
-	// Warn if both user and bot tokens are set
 	if xoxpToken != "" && xoxbToken != "" {
 		logger.Warn(
 			"Both SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXB_TOKEN are set. "+
@@ -1040,7 +1038,7 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 
 	ap, startupErr := newWithXOXC(transport, authProvider, "", logger)
 	if startupErr != nil {
-		logger.Fatal("Authentication failed - check your browser-session Slack tokens", zap.Error(startupErr))
+		logger.Fatal("Authentication failed: check your browser-session Slack tokens", zap.Error(startupErr))
 	}
 	return ap
 }
@@ -1053,7 +1051,7 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 
 	teamID, cachedAuth, err := validateAuthAndGetTeamID(authProvider, logger)
 	if err != nil {
-		logger.Fatal("Authentication failed - check your Slack tokens", zap.Error(err))
+		logger.Fatal("Authentication failed: check your Slack tokens", zap.Error(err))
 	}
 
 	usersCache := os.Getenv("SLACK_MCP_USERS_CACHE")
@@ -1089,7 +1087,6 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		usersCachePath:    usersCache,
 		channelsCachePath: channelsCache,
 	}
-	// Initialize with empty snapshots
 	ap.usersSnapshot.Store(&UsersCache{
 		Users:    make(map[string]slack.User),
 		UsersInv: make(map[string]string),
@@ -1164,7 +1161,6 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, oauthFallbackTok
 		usersCachePath:    usersCache,
 		channelsCachePath: channelsCache,
 	}
-	// Initialize with empty snapshots
 	ap.usersSnapshot.Store(&UsersCache{
 		Users:    make(map[string]slack.User),
 		UsersInv: make(map[string]string),
@@ -1207,7 +1203,7 @@ func (ap *ApiProvider) ForceRefreshUsers(ctx context.Context) error {
 // PatchUser fetches a single user by ID from the Slack API and adds them to
 // the in-memory users snapshot. This is much cheaper than a full cache rebuild
 // for a single cache miss (O(1) API call vs O(all users)).
-// Disk persistence is skipped — the next full refresh will persist the entry.
+// Disk persistence is skipped; the next full refresh will persist the entry.
 func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.User, error) {
 	usersInfo, err := ap.client.GetUsersInfo(userID)
 	if err != nil {
@@ -1254,7 +1250,6 @@ func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.Use
 func (ap *ApiProvider) refreshUsersInternal(ctx context.Context, force bool) error {
 	ap.usersMu.Lock()
 
-	// Check if we should use cache (not forced, cache exists)
 	if !force {
 		if data, err := os.ReadFile(ap.usersCachePath); err == nil {
 			var cachedUsers []slack.User
@@ -1267,7 +1262,6 @@ func (ap *ApiProvider) refreshUsersInternal(ctx context.Context, force bool) err
 					zap.String("cache_file", ap.usersCachePath))
 				// Fall through to fetchAndStoreUsers
 			} else {
-				// Build snapshot from cache
 				newSnapshot := &UsersCache{
 					Users:    make(map[string]slack.User, len(cachedUsers)),
 					UsersInv: make(map[string]string, len(cachedUsers)),
@@ -1365,7 +1359,6 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 
 	list = append(list, users...)
 
-	// Build new snapshot
 	newSnapshot := &UsersCache{
 		Users:    make(map[string]slack.User),
 		UsersInv: make(map[string]string),
@@ -1460,7 +1453,6 @@ func (ap *ApiProvider) ForceRefreshChannels(ctx context.Context) error {
 func (ap *ApiProvider) refreshChannelsInternal(ctx context.Context, force bool) error {
 	ap.channelsMu.Lock()
 
-	// Check if we should use cache (not forced, cache exists)
 	if !force {
 		if data, err := os.ReadFile(ap.channelsCachePath); err == nil {
 			var cachedChannels []Channel
@@ -1678,7 +1670,7 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 
 	usersMap := ap.ProvideUsersMap().Users
 	// conversations.list is a standard Web API method, so it is metered at
-	// Slack's documented tier — not at the edge API's boosted rate. The
+	// Slack's documented tier, not at the edge API's boosted rate. The
 	// boosted tier previously used here was a copy-paste from the edge call
 	// sites and ran roughly 10x over budget, which is what made a
 	// mid-pagination 429 likely enough to truncate the cache.
@@ -1686,7 +1678,7 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 
 	for {
 		// CallWithRetry performs the limiter wait itself, so the loop must not
-		// wait again — that would double the pacing. A cancelled context still
+		// wait again; that would double the pacing. A cancelled context still
 		// surfaces here as CallWithRetry's wrapped wait error.
 		page, err := limiter.CallWithRetry(ctx, lim, 2, slackRetryAfter,
 			func() (channelsPageResult, error) {
@@ -1750,7 +1742,6 @@ func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) (
 		return chans, err
 	}
 
-	// Build new snapshot with all fetched channels
 	newSnapshot := &ChannelsCache{
 		Channels:    make(map[string]Channel, len(chans)),
 		ChannelsInv: make(map[string]string, len(chans)),
@@ -1765,12 +1756,12 @@ func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) (
 }
 
 func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
-	// Atomic load - no lock needed, snapshot is immutable
+	// Atomic load; no lock needed, the snapshot is immutable.
 	return ap.usersSnapshot.Load()
 }
 
 func (ap *ApiProvider) ProvideChannelsMaps() *ChannelsCache {
-	// Atomic load - no lock needed, snapshot is immutable
+	// Atomic load; no lock needed, the snapshot is immutable.
 	return ap.channelsSnapshot.Load()
 }
 

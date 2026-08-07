@@ -59,7 +59,7 @@ const attachmentCompactBudget = 300
 
 // No quotes around "full": these strings land inside quoted CSV fields, where
 // literal double quotes get doubled by the CSV encoder and read as noise.
-const attachmentTruncationReceipt = " …[attachment truncated — re-fetch this message with detail: full]"
+const attachmentTruncationReceipt = " …[attachment truncated; re-fetch this message with detail: full]"
 
 // attachmentToCompactText renders bot-attachment content in standard mode up
 // to attachmentCompactBudget characters, in priority order: title+link, then

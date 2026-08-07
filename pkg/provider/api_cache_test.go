@@ -47,7 +47,7 @@ func TestNullCacheUnmarshal(t *testing.T) {
 		data, err := json.MarshalIndent(channels, "", "  ")
 		require.NoError(t, err)
 		assert.Equal(t, "null", string(data),
-			"MarshalIndent(nil slice) should produce 'null' — this is why we guard against writing empty cache")
+			"MarshalIndent(nil slice) should produce 'null'; this is why we guard against writing empty cache")
 	})
 
 	t.Run("empty slice marshals to empty array", func(t *testing.T) {

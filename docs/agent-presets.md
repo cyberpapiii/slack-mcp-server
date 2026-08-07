@@ -1,6 +1,6 @@
 # Agent presets for Slack MCP (Plug)
 
-These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[servers.slack.env]` block. After editing `~/Library/Application Support/plug/config.toml` or changing Go code, run `make deploy-local` from this repo — it builds the binary and restarts Plug's `slack` server. (A bare `plug reload` is not enough: it reloads config but leaves the old server process running.)
+These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[servers.slack.env]` block. After editing `~/Library/Application Support/plug/config.toml` or changing Go code, run `make deploy-local` from this repo. It builds the binary and restarts Plug's `slack` server. (A bare `plug reload` is not enough. It reloads config but leaves the old server process running.)
 
 ## Shared settings
 
@@ -29,21 +29,21 @@ User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor
 - `#users:` maps each distinct human speaker to `UserID=username|Real Name`
   (bots excluded; emitted only for responses with 3+ messages).
 - `#link_template:` lets you construct a message permalink from the Channel
-  and MsgID columns — the search tool's Channel column is `ID (#name)`, use
+  and MsgID columns. The search tool's Channel column is `ID (#name)`, so use
   the leading ID. Example: MsgID `1782935556.396379` in `C041QQ9FNAJ` →
   `.../archives/C041QQ9FNAJ/p1782935556396379`.
 - `Files` is a count of attached files; `AttachmentIDs` carries their
   downloadable IDs.
 - Long bot/link-unfurl attachments render up to a 300-char budget. When cut,
-  the row ends with `…[attachment truncated — re-fetch this message with
-  detail: full]` — attachments have no ID-addressable fetch path, so the
+  the row ends with `…[attachment truncated; re-fetch this message with
+  detail: full]`. Attachments have no ID-addressable fetch path, so the
   `detail: full` re-fetch is the lossless recovery route.
 
 Write tools still require explicit opt-in:
 
-- `SLACK_MCP_ADD_MESSAGE_TOOL` — posting
-- `SLACK_MCP_REACTION_TOOL` — reactions
-- `SLACK_MCP_ATTACHMENT_TOOL` — file download
+- `SLACK_MCP_ADD_MESSAGE_TOOL`: posting
+- `SLACK_MCP_REACTION_TOOL`: reactions
+- `SLACK_MCP_ATTACHMENT_TOOL`: file download
 
 ## Preset: read-only triage
 
@@ -74,6 +74,6 @@ SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations
 
 ## Troubleshooting
 
-1. Call **`slack_auth_status`** — confirms user/channel cache readiness and xoxc/xoxd browser session health.
-2. If caches are not ready, wait for warm-up (up to 3 retries, 30s apart) or restart Plug.
+1. Call **`slack_auth_status`**. It confirms user/channel cache readiness and xoxc/xoxd browser session health.
+2. If caches are not ready, wait for warm-up (up to 3 attempts, 30s apart) or restart Plug.
 3. Activity and Saved tools require browser session tokens; refresh Slack in the browser and restart Plug if degraded.

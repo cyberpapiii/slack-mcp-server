@@ -1,4 +1,4 @@
-## 3. Configuration and Usage
+## 3. Configuration and usage
 
 You can configure the MCP server using command line arguments and environment variables.
 
@@ -9,28 +9,26 @@ For [Claude Desktop](https://claude.ai/download) users, you can use the DXT exte
 1. Open Claude Desktop and go to the `Settings` menu.
 2. Click on the `Extensions` tab.
 3. Drag and drop the downloaded .dxt file to install it and click "Install".
-5. Fill all required configuration fields
+4. Fill in all required configuration fields:
     - Authentication method: `xoxc/xoxd`, `xoxp`, or `xoxb`.
-    - Value for `SLACK_MCP_XOXC_TOKEN` and `SLACK_MCP_XOXD_TOKEN` in case of `xoxc/xoxd` method, `SLACK_MCP_XOXP_TOKEN` in case of `xoxp`, or `SLACK_MCP_XOXB_TOKEN` in case of `xoxb`.
+    - Value for `SLACK_MCP_XOXC_TOKEN` and `SLACK_MCP_XOXD_TOKEN` for the `xoxc/xoxd` method, `SLACK_MCP_XOXP_TOKEN` for `xoxp`, or `SLACK_MCP_XOXB_TOKEN` for `xoxb`.
     - You may also enable `Add Message Tool` to allow posting messages to channels.
-    - You may also change User-Agent if needed if you have Enterprise Slack.
-6. Enable MCP Server.
+    - You may also change the User-Agent if you have Enterprise Slack.
+5. Enable MCP Server.
 
 > [!IMPORTANT]
-> You may need to disable bundled node in Claude Desktop and let it use node from host machine to avoid some startup issues in case you encounter them. It is DXT known bug: https://github.com/anthropics/dxt/issues/45#issuecomment-3050284228
+> If you hit startup issues, you may need to disable the bundled node in Claude Desktop and let it use node from the host machine. This is a known DXT bug: https://github.com/anthropics/dxt/issues/45#issuecomment-3050284228
 
-### Using Cursor Installer
+### Using the Cursor installer
 
-The MCP server can be installed using the Cursor One-Click method.
-
-Below are prepared configurations:
+You can install the MCP server with the Cursor One-Click method. Below are prepared configurations:
 
  - `npx` and `xoxc/xoxd` method: [![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=slack-mcp-server&config=eyJjb21tYW5kIjogIm5weCAteSBzbGFjay1tY3Atc2VydmVyQGxhdGVzdCAtLXRyYW5zcG9ydCBzdGRpbyIsImVudiI6IHsiU0xBQ0tfTUNQX1hPWENfVE9LRU4iOiAieG94Yy0uLi4iLCAiU0xBQ0tfTUNQX1hPWERfVE9LRU4iOiAieG94ZC0uLi4ifSwiZGlzYWJsZWQiOiBmYWxzZSwiYXV0b0FwcHJvdmUiOiBbXX0%3D)
  - `npx` and `xoxp` method: [![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=slack-mcp-server&config=eyJjb21tYW5kIjogIm5weCAteSBzbGFjay1tY3Atc2VydmVyQGxhdGVzdCAtLXRyYW5zcG9ydCBzdGRpbyIsImVudiI6IHsiU0xBQ0tfTUNQX1hPWFBfVE9LRU4iOiAieG94cC0uLi4ifSwiZGlzYWJsZWQiOiBmYWxzZSwiYXV0b0FwcHJvdmUiOiBbXX0%3D)
  - `npx` and `xoxb` method: [![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=slack-mcp-server&config=eyJjb21tYW5kIjogIm5weCAteSBzbGFjay1tY3Atc2VydmVyQGxhdGVzdCAtLXRyYW5zcG9ydCBzdGRpbyIsImVudiI6IHsiU0xBQ0tfTUNQX1hPWEJfVE9LRU4iOiAieG94Yi0uLi4ifSwiZGlzYWJsZWQiOiBmYWxzZSwiYXV0b0FwcHJvdmUiOiBbXX0%3D)
 
 > [!IMPORTANT]
-> Remember to replace tokens in the configuration with your own tokens, as they are just examples.
+> The tokens in these configurations are examples. Replace them with your own.
 
 ### Using npx
 
@@ -39,7 +37,7 @@ If you have npm installed, this is the fastest way to get started with `slack-mc
 Open your `claude_desktop_config.json` and add the mcp server to the list of `mcpServers`:
 
 > [!WARNING]  
-> If you are using Enterprise Slack, you may set `SLACK_MCP_USER_AGENT` environment variable to match your browser's User-Agent string from where you extracted `xoxc` and `xoxd` and enable `SLACK_MCP_CUSTOM_TLS` to enable custom TLS-handshakes to start to look like a real browser. This is required for the server to work properly in some environments with higher security policies.
+> If you are using Enterprise Slack, you may set the `SLACK_MCP_USER_AGENT` environment variable to match the User-Agent string of the browser you extracted `xoxc` and `xoxd` from, and enable `SLACK_MCP_CUSTOM_TLS` so the custom TLS handshake looks like a real browser's. Some environments with higher security policies require this for the server to work properly.
 
 **Option 1: Using XOXP Token**
 ``` json
@@ -161,7 +159,7 @@ Please see [Docker](#Using-Docker) for more information.
 
 ### Using npx with `sse` transport:
 
-In case you would like to run it in `sse` mode, then you  should use `mcp-remote` wrapper for Claude Desktop and deploy/expose MCP server somewhere e.g. with `ngrok` or `docker-compose`.
+To run it in `sse` mode, use the `mcp-remote` wrapper for Claude Desktop and deploy/expose the MCP server somewhere, e.g. with `ngrok` or `docker-compose`.
 
 ```json
 {
@@ -207,11 +205,11 @@ In case you would like to run it in `sse` mode, then you  should use `mcp-remote
 ```
 </details>
 
-### TLS and Exposing to the Internet
+### TLS and exposing to the internet
 
-There are several reasons why you might need to setup HTTPS for your SSE.
-- `mcp-remote` is capable to handle only https schemes;
-- it is generally a good practice to use TLS for any service exposed to the internet;
+Two reasons you might need to set up HTTPS for your SSE endpoint:
+- `mcp-remote` handles only https schemes;
+- TLS is good practice for any service exposed to the internet.
 
 You could use `ngrok`:
 
@@ -221,7 +219,7 @@ ngrok http 3001
 
 and then use the endpoint `https://903d-xxx-xxxx-xxxx-10b4.ngrok-free.app` for your `mcp-remote` argument.
 
-**The server refuses to start in `sse`/`http` mode unless `SLACK_MCP_API_KEY` is set.** Never combine an `ngrok` (or any public) exposure with the `SLACK_MCP_ALLOW_UNAUTHENTICATED` opt-out — that opt-out is for local loopback development only.
+**The server refuses to start in `sse`/`http` mode unless `SLACK_MCP_API_KEY` is set.** Never combine an `ngrok` (or any public) exposure with the `SLACK_MCP_ALLOW_UNAUTHENTICATED` opt-out. That opt-out is for local loopback development only.
 
 ### Using Docker
 
@@ -248,24 +246,24 @@ docker network create app-tier
 docker-compose up -d
 ```
 
-### Console Arguments
+### Console arguments
 
 | Argument                    | Required ? | Description                                                                                                                                                                                                         |
 |-----------------------------|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `--transport` or `-t`       | Yes        | Select transport for the MCP Server, possible values are: `stdio`, `sse`                                                                                                                                            |
-| `--enabled-tools` or `-e`   | No         | Comma-separated list of tools to register. If not set, all tools are registered. Runtime permissions (e.g., `SLACK_MCP_ADD_MESSAGE_TOOL`) are still enforced. Available tools: `conversations_history`, `conversations_replies`, `conversations_add_message`, `conversations_open`, `conversations_draft_message`, `reactions_add`, `reactions_remove`, `reactions_get`, `attachment_get_data`, `conversations_search_messages`, `conversations_join`, `conversations_leave`, `conversations_unreads`, `conversations_mark`, `channels_list`, `channels_me`, `channels_starred`, `usergroups_list`, `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update`, `users_search`, `activity_unreads`, `activity_mark_read`, `saved_list`, `saved_update`, `saved_clear_completed`, `files_list`. |
+| `--enabled-tools` or `-e`   | No         | Comma-separated list of tools to register. If not set, all tools are registered. Runtime permissions (e.g., `SLACK_MCP_ADD_MESSAGE_TOOL`) are still enforced. Available tools: `conversations_history`, `conversations_replies`, `conversations_get_message`, `conversations_add_message`, `conversations_open`, `conversations_draft_message`, `reactions_add`, `reactions_remove`, `reactions_get`, `attachment_get_data`, `conversations_search_messages`, `conversations_join`, `conversations_leave`, `conversations_unreads`, `conversations_mark`, `channels_list`, `channels_me`, `channels_starred`, `usergroups_list`, `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update`, `users_search`, `activity_unreads`, `activity_mark_read`, `saved_list`, `saved_update`, `saved_clear_completed`, `files_list`, `slack_auth_status`. |
 
-### Environment Variables
+### Environment variables
 
 | Variable                          | Required? | Default                   | Description                                                                                                                                                                                                                                                                               |
 |-----------------------------------|-----------|---------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `SLACK_MCP_XOXC_TOKEN`            | Yes*      | `nil`                     | Slack browser token (`xoxc-...`)                                                                                                                                                                                                                                                          |
 | `SLACK_MCP_XOXD_TOKEN`            | Yes*      | `nil`                     | Slack browser cookie `d` (`xoxd-...`)                                                                                                                                                                                                                                                     |
-| `SLACK_MCP_XOXP_TOKEN`            | Yes*      | `nil`                     | User OAuth token (`xoxp-...`) — alternative to xoxc/xoxd                                                                                                                                                                                                                                  |
+| `SLACK_MCP_XOXP_TOKEN`            | Yes*      | `nil`                     | User OAuth token (`xoxp-...`), an alternative to xoxc/xoxd                                                                                                                                                                                                                                  |
 | `SLACK_MCP_PORT`                  | No        | `13080`                   | Port for the MCP server to listen on                                                                                                                                                                                                                                                      |
 | `SLACK_MCP_HOST`                  | No        | `127.0.0.1`               | Host for the MCP server to listen on                                                                                                                                                                                                                                                      |
 | `SLACK_MCP_API_KEY`           | No        | `nil`                     | Bearer token for SSE and HTTP transports                                                                                                                                                                                                                                                            |
-| `SLACK_MCP_ALLOW_UNAUTHENTICATED` | No    | `nil` (unset)             | Only honored by `sse`/`http` transports. When `SLACK_MCP_API_KEY` is not set, the server refuses to start unless this is set to exactly `true`. Strongly discouraged outside of local loopback development — it disables authentication entirely.                                        |
+| `SLACK_MCP_ALLOW_UNAUTHENTICATED` | No    | `nil` (unset)             | Only honored by `sse`/`http` transports. When `SLACK_MCP_API_KEY` is not set, the server refuses to start unless this is set to exactly `true`. Strongly discouraged outside of local loopback development. It disables authentication entirely.                                        |
 | `SLACK_MCP_PROXY`                 | No        | `nil`                     | Proxy URL for outgoing requests                                                                                                                                                                                                                                                           |
 | `SLACK_MCP_USER_AGENT`            | No        | `nil`                     | Custom User-Agent (for Enterprise Slack environments)                                                                                                                                                                                                                                     |
 | `SLACK_MCP_CUSTOM_TLS`            | No        | `nil`                     | Send custom TLS-handshake to Slack servers based on `SLACK_MCP_USER_AGENT` or default User-Agent. (for Enterprise Slack environments)                                                                                                                                                     |
@@ -274,21 +272,21 @@ docker-compose up -d
 | `SLACK_MCP_SERVER_CA_INSECURE`    | No        | `false`                   | Trust all insecure requests (NOT RECOMMENDED)                                                                                                                                                                                                                                             |
 | `SLACK_MCP_ADD_MESSAGE_TOOL`      | No        | `nil`                     | Enable message posting via `conversations_add_message` by setting it to `true` for all channels, a comma-separated list of channel IDs to whitelist specific channels, or use `!` before a channel ID to allow all except specified ones. If empty, the tool is only registered when explicitly listed in `SLACK_MCP_ENABLED_TOOLS`. |
 | `SLACK_MCP_ADD_MESSAGE_MARK`      | No        | `nil`                     | When `conversations_add_message` is enabled (via `SLACK_MCP_ADD_MESSAGE_TOOL` or `SLACK_MCP_ENABLED_TOOLS`), setting this to `true` will automatically mark sent messages as read.                                                                                                        |
-| `SLACK_MCP_ADD_MESSAGE_UNFURLING` | No        | `nil`                     | Enable to let Slack unfurl posted links or set comma-separated list of domains e.g. `github.com,slack.com` to whitelist unfurling only for them. If text contains whitelisted and unknown domain unfurling will be disabled for security reasons.                                         |
+| `SLACK_MCP_ADD_MESSAGE_UNFURLING` | No        | `nil`                     | Enable to let Slack unfurl posted links, or set a comma-separated list of domains, e.g. `github.com,slack.com`, to whitelist unfurling only for them. If the text contains both a whitelisted and an unknown domain, unfurling is disabled for security reasons.                                         |
 | `SLACK_MCP_USERS_CACHE`           | No        | `.users_cache.json`       | Path to the users cache file. Used to cache Slack user information to avoid repeated API calls on startup.                                                                                                                                                                                |
 | `SLACK_MCP_CHANNELS_CACHE`        | No        | `.channels_cache_v2.json` | Path to the channels cache file. Used to cache Slack channel information to avoid repeated API calls on startup.                                                                                                                                                                          |
-| `SLACK_MCP_CACHE_TTL`             | No        | `24h`                     | Cache time-to-live. Supports duration format (`24h`, `30m`) or seconds (`3600`). Set to `0` to disable TTL (cache forever). When the cache expires, stale data is served immediately while a background refresh fetches fresh data.                                                       |
+| `SLACK_MCP_CACHE_TTL`             | No        | `24h`                     | Cache time-to-live. Supports duration format (`24h`, `30m`) or seconds (`3600`). Set to `0` to disable TTL (cache forever). When the cache expires, the server serves stale data immediately while a background refresh fetches fresh data.                                                       |
 | `SLACK_MCP_MIN_REFRESH_INTERVAL`  | No        | `30s`                     | Minimum interval between forced cache refreshes. Prevents API abuse from repeated force-refresh requests. Supports duration format (`30s`, `1m`) or seconds (`60`). Set to `0` to disable rate limiting.                                                                                  |
 | `SLACK_MCP_LOG_LEVEL`             | No        | `info`                    | Log-level for stdout or stderr. Valid values are: `debug`, `info`, `warn`, `error`, `panic` and `fatal`                                                                                                                                                                                   |
-| `SLACK_MCP_ENABLED_TOOLS`         | No        | `nil`                     | Comma-separated list of tools to register. If empty, all read-only tools and usergroups tools are registered; write tools (`conversations_add_message`, `reactions_add`, `reactions_remove`, `attachment_get_data`) require their specific env var to be set OR must be explicitly listed here. When a write tool is listed here, it's enabled without channel restrictions. Available tools: `conversations_history`, `conversations_replies`, `conversations_add_message`, `conversations_open`, `conversations_draft_message`, `reactions_add`, `reactions_remove`, `reactions_get`, `attachment_get_data`, `conversations_search_messages`, `conversations_join`, `conversations_leave`, `conversations_unreads`, `conversations_mark`, `channels_list`, `channels_me`, `channels_starred`, `usergroups_list`, `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update`, `users_search`, `activity_unreads`, `activity_mark_read`, `saved_list`, `saved_update`, `saved_clear_completed`, `files_list`. |
+| `SLACK_MCP_ENABLED_TOOLS`         | No        | `nil`                     | Comma-separated list of tools to register. If empty, all read-only tools and usergroups tools are registered; write tools (`conversations_add_message`, `reactions_add`, `reactions_remove`, `attachment_get_data`) require their specific env var to be set OR must be explicitly listed here. When a write tool is listed here, it's enabled without channel restrictions. Available tools: `conversations_history`, `conversations_replies`, `conversations_get_message`, `conversations_add_message`, `conversations_open`, `conversations_draft_message`, `reactions_add`, `reactions_remove`, `reactions_get`, `attachment_get_data`, `conversations_search_messages`, `conversations_join`, `conversations_leave`, `conversations_unreads`, `conversations_mark`, `channels_list`, `channels_me`, `channels_starred`, `usergroups_list`, `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update`, `users_search`, `activity_unreads`, `activity_mark_read`, `saved_list`, `saved_update`, `saved_clear_completed`, `files_list`, `slack_auth_status`. |
 
-### Tool Registration and Permissions
+### Tool registration and permissions
 
 #### Overview
 
 Tools are controlled at two levels:
-- **Registration** (`SLACK_MCP_ENABLED_TOOLS`) — determines which tools are visible to MCP clients
-- **Runtime permissions** (tool-specific env vars like `SLACK_MCP_ADD_MESSAGE_TOOL`) — channel restrictions for write tools
+- **Registration** (`SLACK_MCP_ENABLED_TOOLS`): determines which tools are visible to MCP clients
+- **Runtime permissions** (tool-specific env vars like `SLACK_MCP_ADD_MESSAGE_TOOL`): channel restrictions for write tools
 
 Write tools (`conversations_add_message`, `reactions_add`, `reactions_remove`, `attachment_get_data`) are **not registered by default** to prevent accidental exposure. To enable them, you must either:
 1. Set their specific environment variable (e.g., `SLACK_MCP_ADD_MESSAGE_TOOL`), or
@@ -349,7 +347,7 @@ Expose only specific tools:
 }
 ```
 
-#### Behavior Matrix
+#### Behavior matrix
 
 | `ENABLED_TOOLS` | Tool-specific env var | Write tool registered? | Channel restrictions |
 |-----------------|----------------------|------------------------|---------------------|
