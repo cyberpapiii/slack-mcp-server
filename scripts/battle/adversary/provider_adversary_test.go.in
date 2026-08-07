@@ -86,6 +86,78 @@ func TestADV001ConcurrentForegroundWarmCoalescesDependencyWork(t *testing.T) {
 	assert.Equal(t, "user_001", snapshot.Users["U001"].Name)
 }
 
+type advChannelsClient struct {
+	SlackAPI
+
+	calls        atomic.Int32
+	firstEnter   chan struct{}
+	firstRelease chan struct{}
+}
+
+func (c *advChannelsClient) GetConversationsContext(ctx context.Context, _ *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+	call := c.calls.Add(1)
+	if call == 1 {
+		close(c.firstEnter)
+		select {
+		case <-c.firstRelease:
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		}
+	}
+
+	var channel slack.Channel
+	channel.ID = fmt.Sprintf("C%03d", call)
+	channel.Name = fmt.Sprintf("channel_%03d", call)
+	return []slack.Channel{channel}, "", nil
+}
+
+func TestADV003OverlappingColdChannelWarmsRepeatDependencyWork(t *testing.T) {
+	const callers = 24
+	client := &advChannelsClient{
+		firstEnter:   make(chan struct{}),
+		firstRelease: make(chan struct{}),
+	}
+	ap := newTestApiProvider(client, emptyUsersCache())
+	ap.channelsCachePath = t.TempDir() + "/channels.json"
+
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var ready sync.WaitGroup
+	var done sync.WaitGroup
+	ready.Add(callers)
+	done.Add(callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			defer done.Done()
+			ready.Done()
+			<-start
+			errs <- ap.RefreshChannels(context.Background())
+		}()
+	}
+	ready.Wait()
+	close(start)
+	select {
+	case <-client.firstEnter:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first channel warm never entered dependency")
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	begin := time.Now()
+	close(client.firstRelease)
+	done.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	elapsed := time.Since(begin)
+	t.Logf("callers=%d channel_api_calls=%d serialized_tail=%s",
+		callers, client.calls.Load(), elapsed)
+	assert.Equal(t, int32(callers), client.calls.Load(),
+		"overlapping cold channel warms repeat dependency work after lock handoff")
+}
+
 func TestADV001CancelledWarmStopsWaitingForSlowDependency(t *testing.T) {
 	client := &advUsersClient{
 		firstEnter:   make(chan struct{}),
