@@ -50,6 +50,7 @@ var validFilterKeys = map[string]struct{}{
 	"after":  {},
 	"on":     {},
 	"during": {},
+	"has":    {},
 }
 
 type Message struct {
@@ -115,6 +116,7 @@ type searchParams struct {
 	query string
 	limit int
 	page  int
+	sort  string
 }
 
 type addMessageParams struct {
@@ -999,7 +1001,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	ch.logger.Debug("Search params parsed", zap.String("query", params.query), zap.Int("limit", params.limit), zap.Int("page", params.page))
 
 	searchParams := slack.SearchParameters{
-		Sort:          slack.DEFAULT_SEARCH_SORT,
+		Sort:          params.sort,
 		SortDirection: slack.DEFAULT_SEARCH_SORT_DIR,
 		Highlight:     false,
 		Count:         params.limit,
@@ -2776,6 +2778,9 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	if req.GetBool("filter_threads_only", false) {
 		addFilter(filters, "is", "thread")
 	}
+	if has := req.GetString("filter_has", ""); has != "" {
+		addFilter(filters, "has", has)
+	}
 	if chName := req.GetString("filter_in_channel", ""); chName != "" {
 		f, err := ch.paramFormatChannel(chName)
 		if err != nil {
@@ -2845,6 +2850,11 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	}
 	cursor := req.GetString("cursor", "")
 
+	sort := req.GetString("sort", "score")
+	if sort != "score" && sort != "timestamp" {
+		return nil, fmt.Errorf("invalid sort: %q (must be 'score' or 'timestamp')", sort)
+	}
+
 	var (
 		page          int
 		decodedCursor []byte
@@ -2878,6 +2888,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		query: finalQuery,
 		limit: limit,
 		page:  page,
+		sort:  sort,
 	}, nil
 }
 
@@ -3360,7 +3371,7 @@ func addFilter(filters map[string][]string, key, val string) {
 func buildQuery(freeText []string, filters map[string][]string) string {
 	var out []string
 	out = append(out, freeText...)
-	for _, key := range []string{"is", "in", "from", "with", "before", "after", "on", "during"} {
+	for _, key := range []string{"is", "in", "from", "with", "before", "after", "on", "during", "has"} {
 		for _, val := range filters[key] {
 			out = append(out, fmt.Sprintf("%s:%s", key, val))
 		}
