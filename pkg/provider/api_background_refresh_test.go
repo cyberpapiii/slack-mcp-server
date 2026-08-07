@@ -49,6 +49,12 @@ func (c *gatedUsersClient) GetUsersContext(ctx context.Context, _ ...slack.GetUs
 	}
 }
 
+func usersRefreshInFlight(ap *ApiProvider) bool {
+	ap.usersRefreshMu.Lock()
+	defer ap.usersRefreshMu.Unlock()
+	return ap.usersRefresh != nil
+}
+
 // Background users refresh cancels at deadline and can spawn again after.
 func TestUnitBackgroundRefresh(t *testing.T) {
 	t.Run("background users refresh gives up at the timeout", func(t *testing.T) {
@@ -74,8 +80,8 @@ func TestUnitBackgroundRefresh(t *testing.T) {
 		}
 
 		require.Eventually(t, func() bool {
-			return !ap.refreshingUsers.Load()
-		}, 2*time.Second, 5*time.Millisecond, "refreshingUsers flag was never released")
+			return !usersRefreshInFlight(ap)
+		}, 2*time.Second, 5*time.Millisecond, "users refresh call was never released")
 	})
 
 	t.Run("a second spawn is skipped while one is in flight, and allowed after", func(t *testing.T) {
@@ -94,7 +100,7 @@ func TestUnitBackgroundRefresh(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			require.FailNow(t, "first background refresh never entered GetUsersContext")
 		}
-		require.True(t, ap.refreshingUsers.Load(), "first refresh should still be in flight")
+		require.True(t, usersRefreshInFlight(ap), "first refresh should still be in flight")
 
 		// A second spawn while the first is in flight must be suppressed.
 		ap.spawnBackgroundUsersRefresh()
@@ -108,8 +114,8 @@ func TestUnitBackgroundRefresh(t *testing.T) {
 		// Let the first refresh finish and confirm the flag clears.
 		close(client.release)
 		require.Eventually(t, func() bool {
-			return !ap.refreshingUsers.Load()
-		}, 2*time.Second, 5*time.Millisecond, "refreshingUsers flag was never released")
+			return !usersRefreshInFlight(ap)
+		}, 2*time.Second, 5*time.Millisecond, "users refresh call was never released")
 
 		// A fresh spawn must now be allowed: this is the recovery half.
 		ap.spawnBackgroundUsersRefresh()

@@ -31,7 +31,7 @@ const defaultCacheTTL = 24 * time.Hour
 const defaultMinRefreshInterval = 30 * time.Second
 
 // Bounds background cache refresh so a hung GetUsersContext (unbounded rate-limit
-// retries) cannot hold fetchUsersMu / refreshingUsers forever.
+// retries) cannot hold the shared users refresh flight forever.
 const defaultBackgroundRefreshTimeout = 15 * time.Minute
 
 var AllChanTypes = []string{MpIMChanType, IMChanType, PubChanType, PrivateChanType}
@@ -342,12 +342,12 @@ type ApiProvider struct {
 	// Test-overridable; production always uses defaultBackgroundRefreshTimeout.
 	backgroundRefreshTimeout time.Duration
 
-	usersSnapshot   atomic.Pointer[UsersCache] // immutable snapshot; atomic load, no copy
-	usersCachePath  string
-	usersReady      atomic.Bool
-	refreshingUsers atomic.Bool  // CAS guard for one background refresh
-	usersMu         sync.RWMutex // refreshUsersInternal load path
-	fetchUsersMu    sync.Mutex   // serialize fetchAndStoreUsers
+	usersSnapshot  atomic.Pointer[UsersCache] // immutable snapshot; atomic load, no copy
+	usersCachePath string
+	usersReady     atomic.Bool
+	usersMu        sync.RWMutex // refreshUsersInternal load path
+	usersRefreshMu sync.Mutex
+	usersRefresh   *usersRefreshCall
 
 	channelsSnapshot          atomic.Pointer[ChannelsCache] // immutable snapshot; atomic load, no copy
 	channelsCachePath         string
@@ -356,6 +356,11 @@ type ApiProvider struct {
 	lastForcedChannelsRefresh time.Time
 	channelsMu                sync.RWMutex // lastForcedChannelsRefresh
 	fetchChannelsMu           sync.Mutex   // serialize fetchAndStoreChannels
+}
+
+type usersRefreshCall struct {
+	done chan struct{}
+	err  error
 }
 
 func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAuth *slack.AuthTestResponse) (*MCPSlackClient, error) {
@@ -1160,31 +1165,75 @@ func (ap *ApiProvider) refreshUsersInternal(ctx context.Context, force bool) err
 	}
 
 	ap.usersMu.Unlock()
-	return ap.fetchAndStoreUsers(ctx)
+	return ap.refreshUsers(ctx)
 }
 
 func (ap *ApiProvider) spawnBackgroundUsersRefresh() {
-	if !ap.refreshingUsers.CompareAndSwap(false, true) {
+	call, leader := ap.beginUsersRefresh()
+	if !leader {
 		ap.logger.Debug("Skipping background users refresh, already in progress")
 		return
 	}
 	go func() {
-		defer ap.refreshingUsers.Store(false)
-
 		ctx, cancel := context.WithTimeout(context.Background(), ap.backgroundRefreshTimeout)
 		defer cancel()
 
-		if err := ap.fetchAndStoreUsers(ctx); err != nil {
+		if err := ap.runUsersRefresh(ctx, call); err != nil {
 			ap.logger.Warn("Background users refresh failed, continuing with stale data",
 				zap.Error(err))
 		}
 	}()
 }
 
-func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
-	ap.fetchUsersMu.Lock()
-	defer ap.fetchUsersMu.Unlock()
+func (ap *ApiProvider) refreshUsers(ctx context.Context) error {
+	for {
+		call, leader := ap.beginUsersRefresh()
+		if leader {
+			return ap.runUsersRefresh(ctx, call)
+		}
 
+		select {
+		case <-call.done:
+			if call.err == nil {
+				return nil
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			// Preserve the old serialized retry behavior after a failed
+			// predecessor while coalescing successful overlapping refreshes.
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (ap *ApiProvider) beginUsersRefresh() (*usersRefreshCall, bool) {
+	ap.usersRefreshMu.Lock()
+	defer ap.usersRefreshMu.Unlock()
+
+	if ap.usersRefresh != nil {
+		return ap.usersRefresh, false
+	}
+
+	call := &usersRefreshCall{done: make(chan struct{})}
+	ap.usersRefresh = call
+	return call, true
+}
+
+func (ap *ApiProvider) runUsersRefresh(ctx context.Context, call *usersRefreshCall) error {
+	err := ap.fetchAndStoreUsers(ctx)
+
+	ap.usersRefreshMu.Lock()
+	call.err = err
+	ap.usersRefresh = nil
+	close(call.done)
+	ap.usersRefreshMu.Unlock()
+
+	return err
+}
+
+func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 	users, err := ap.client.GetUsersContext(ctx, slack.GetUsersOptionLimit(1000))
 	if err != nil {
 		ap.logger.Error("Failed to fetch users", zap.Error(err))

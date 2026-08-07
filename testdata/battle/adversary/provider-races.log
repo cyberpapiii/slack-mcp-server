@@ -1,47 +1,47 @@
-=== RUN   TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=24 connect_enrichment_calls=24 elapsed=6.685625ms
---- PASS: TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork (0.01s)
-=== RUN   TestADV001CancelledWarmWaitsBehindSlowDependency
-    adv001_generated_test.go:123: deadline=25ms still_blocked_after=100.144458ms returned_after_release=100.685833ms dependency_calls=2
---- PASS: TestADV001CancelledWarmWaitsBehindSlowDependency (0.10s)
+=== RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
+    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=1.020417ms
+--- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
+=== RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:124: deadline=25ms returned=25.986083ms dependency_calls=1
+--- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:156: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
-=== RUN   TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=24 connect_enrichment_calls=24 elapsed=6.8635ms
---- PASS: TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork (0.01s)
-=== RUN   TestADV001CancelledWarmWaitsBehindSlowDependency
-    adv001_generated_test.go:123: deadline=25ms still_blocked_after=101.029ms returned_after_release=101.543833ms dependency_calls=2
---- PASS: TestADV001CancelledWarmWaitsBehindSlowDependency (0.10s)
+=== RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
+    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=545.458µs
+--- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
+=== RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:124: deadline=25ms returned=25.741416ms dependency_calls=1
+--- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:156: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
-=== RUN   TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=24 connect_enrichment_calls=24 elapsed=6.068958ms
---- PASS: TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork (0.01s)
-=== RUN   TestADV001CancelledWarmWaitsBehindSlowDependency
-    adv001_generated_test.go:123: deadline=25ms still_blocked_after=100.648916ms returned_after_release=101.189875ms dependency_calls=2
---- PASS: TestADV001CancelledWarmWaitsBehindSlowDependency (0.10s)
+=== RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
+    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=564.125µs
+--- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
+=== RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:124: deadline=25ms returned=25.173792ms dependency_calls=1
+--- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:156: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
-=== RUN   TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=24 connect_enrichment_calls=24 elapsed=7.019791ms
---- PASS: TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork (0.01s)
-=== RUN   TestADV001CancelledWarmWaitsBehindSlowDependency
-    adv001_generated_test.go:123: deadline=25ms still_blocked_after=101.035083ms returned_after_release=101.632916ms dependency_calls=2
---- PASS: TestADV001CancelledWarmWaitsBehindSlowDependency (0.10s)
+=== RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
+    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=525.459µs
+--- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
+=== RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:124: deadline=25ms returned=25.896208ms dependency_calls=1
+--- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:156: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
-=== RUN   TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=24 connect_enrichment_calls=24 elapsed=7.871417ms
---- PASS: TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork (0.01s)
-=== RUN   TestADV001CancelledWarmWaitsBehindSlowDependency
-    adv001_generated_test.go:123: deadline=25ms still_blocked_after=100.747583ms returned_after_release=101.309416ms dependency_calls=2
---- PASS: TestADV001CancelledWarmWaitsBehindSlowDependency (0.10s)
+=== RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
+    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=650.834µs
+--- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
+=== RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
+    adv001_generated_test.go:124: deadline=25ms returned=25.883417ms dependency_calls=1
+--- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:156: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 PASS
-ok  	github.com/korotovsky/slack-mcp-server/pkg/provider	1.925s
+ok  	github.com/korotovsky/slack-mcp-server/pkg/provider	1.518s

@@ -46,7 +46,7 @@ func (c *advUsersClient) ClientUserBoot(context.Context) (*edge.ClientUserBootRe
 	return &edge.ClientUserBootResponse{}, nil
 }
 
-func TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork(t *testing.T) {
+func TestADV001ConcurrentForegroundWarmCoalescesDependencyWork(t *testing.T) {
 	const callers = 24
 	client := &advUsersClient{}
 	ap := newTestApiProvider(client, emptyUsersCache())
@@ -76,13 +76,16 @@ func TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork(t *testing.T) {
 	t.Logf("callers=%d users_api_calls=%d connect_enrichment_calls=%d elapsed=%s",
 		callers, client.calls.Load(), client.bootCalls.Load(), elapsed)
 
-	assert.Equal(t, int32(callers), client.calls.Load(),
-		"measured current behavior: every overlapping foreground warm repeats users API work")
-	assert.Equal(t, int32(callers), client.bootCalls.Load(),
-		"measured current behavior: every overlapping foreground warm repeats enrichment work")
+	assert.Equal(t, int32(1), client.calls.Load(),
+		"overlapping foreground warms should share one users API call")
+	assert.Equal(t, int32(1), client.bootCalls.Load(),
+		"overlapping foreground warms should share one enrichment call")
+	snapshot := ap.usersSnapshot.Load()
+	require.NotNil(t, snapshot)
+	assert.Equal(t, "user_001", snapshot.Users["U001"].Name)
 }
 
-func TestADV001CancelledWarmWaitsBehindSlowDependency(t *testing.T) {
+func TestADV001CancelledWarmStopsWaitingForSlowDependency(t *testing.T) {
 	client := &advUsersClient{
 		firstEnter:   make(chan struct{}),
 		firstRelease: make(chan struct{}),
@@ -110,20 +113,19 @@ func TestADV001CancelledWarmWaitsBehindSlowDependency(t *testing.T) {
 
 	select {
 	case err := <-secondDone:
-		t.Fatalf("cancelled queued warm returned before blocker release: %v", err)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	case <-time.After(100 * time.Millisecond):
+		t.Fatal("cancelled queued warm did not return promptly")
 	}
-	waitedPastDeadline := time.Since(begin)
+	returned := time.Since(begin)
 	close(client.firstRelease)
 
 	require.NoError(t, <-firstDone)
-	err := <-secondDone
-	total := time.Since(begin)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	t.Logf("deadline=25ms still_blocked_after=%s returned_after_release=%s dependency_calls=%d",
-		waitedPastDeadline, total, client.calls.Load())
-	assert.GreaterOrEqual(t, waitedPastDeadline, 90*time.Millisecond,
-		"measured current behavior: mutex wait ignores caller cancellation")
+	t.Logf("deadline=25ms returned=%s dependency_calls=%d",
+		returned, client.calls.Load())
+	assert.Less(t, returned, 100*time.Millisecond)
+	assert.Equal(t, int32(1), client.calls.Load(),
+		"cancelled waiter should not start another dependency call")
 }
 
 type advHostileUsersClient struct {
@@ -145,12 +147,12 @@ func TestADV001HostileDependencyTimeoutRecovers(t *testing.T) {
 
 	ap.spawnBackgroundUsersRefresh()
 	require.Eventually(t, func() bool {
-		return !ap.refreshingUsers.Load()
+		return !usersRefreshInFlight(ap)
 	}, 2*time.Second, 5*time.Millisecond)
 
 	ap.spawnBackgroundUsersRefresh()
 	require.Eventually(t, func() bool {
-		return !ap.refreshingUsers.Load()
+		return !usersRefreshInFlight(ap)
 	}, 2*time.Second, 5*time.Millisecond)
 
 	t.Logf("hostile dependency calls=%d timeout=%s recovery_spawns=2", client.calls.Load(), ap.backgroundRefreshTimeout)
