@@ -60,22 +60,49 @@ than a boolean.
 
 **Every plan is now merged.** No advisor branch remains outstanding.
 
-**Not deployed.** `make deploy-local` has not been run, so `bin/slack-mcp-server`
-is still the pre-merge binary and Plug is still serving it. That step is
-deliberately left to the maintainer: it restarts a live server that Cursor is
-connected to, its success cannot be confirmed from the test suite alone, and
-this repo has already recorded one stale-binary deploy failure
-(`docs/solutions/`). Verify in Cursor after deploying.
+**Deployed and verified.** `make deploy-local` built `bin/slack-mcp-server` from
+`2f87424` and restarted Plug's `slack` server. The binary it replaced dated
+from July 1 and predated all thirty-one plans.
 
-Two deliberate behavior changes are worth re-reading before that deploy. The
-transport gate does not affect the Plug path, which is `stdio`. The boolean
-gate change does: any `SLACK_MCP_*_TOOL` variable currently set to `false` in
-Plug's environment used to enable its tool and now disables it.
+Verification, in the order it was checked:
 
-The per-plan executor worktrees under `.claude/worktrees/` (28 of them, about
-122 MB) are still present, and `.claude/` is now git-ignored. They are safe to
-prune once the merged code has been deployed and verified, but not before — a
-bad merge is much easier to investigate with the original trees intact.
+- `lsof` confirms the running process holds this repo's
+  `bin/slack-mcp-server` open, and its start time matches the binary's mtime.
+  That rules out the stale-binary failure mode recorded in `docs/solutions/`,
+  where `plug reload` left the old process running against a new file.
+- `plug status` reports the `slack` server **Healthy** with 28 tools, which
+  matches `SLACK_MCP_ENABLED_TOOLS` entry for entry.
+- Those 28 include the cache-dependent tools (`channels_list`, `channels_me`,
+  `conversations_unreads`), which only register after warmup succeeds. Warmup
+  therefore completed against the live workspace — the strongest end-to-end
+  signal available without driving the client by hand.
+
+The pre-merge binary was copied aside before the deploy in case a rollback was
+needed. It was not.
+
+**One live-configuration gap remains, and it is not a code change.**
+`conversations_get_message` — the tool plan 004 added — is absent from
+`SLACK_MCP_ENABLED_TOOLS` in `~/Library/Application Support/plug/config.toml`.
+When that allowlist is set it decides registration by itself, so the tool is
+built and registered by the server but never exposed to the client. This
+matters more than a missing tool usually would: the attachment-truncation
+receipt introduced by plan 002 instructs the agent to re-fetch through exactly
+this tool, so until the name is added the receipt points at something the
+client cannot see. Appending `,conversations_get_message` to that line and
+restarting Plug's `slack` server closes it. The config file also holds
+credentials, which is why it was left for the maintainer to edit rather than
+patched in place.
+
+Neither behavior change caused a problem. The transport gate does not affect
+the Plug path, which is `stdio`. The boolean gate change was checked against
+the live config before deploying: `SLACK_MCP_REACTION_TOOL`,
+`SLACK_MCP_ADD_MESSAGE_TOOL` and `SLACK_MCP_ATTACHMENT_TOOL` are all `"true"`,
+and no `SLACK_MCP_*_TOOL` variable was set to `false`.
+
+The 27 per-plan executor worktrees under `.claude/worktrees/` were removed
+after the deploy was verified, reclaiming about 122 MB. All 28 `advisor/*`
+branches survive and every one is merged into `master`; the worktrees were
+only checkouts. `.claude/` is now git-ignored.
 
 ## Execution order & status
 
