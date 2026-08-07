@@ -1,0 +1,165 @@
+package server
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+)
+
+func TestADV001ConcurrentToolPath(t *testing.T) {
+	const goroutines = 48
+	const callsPerGoroutine = 20
+	var handled atomic.Int64
+	var recoveredErrors atomic.Int64
+	client := setupMCPClientServer(t,
+		[]mcpserver.ServerOption{
+			mcpserver.WithToolHandlerMiddleware(buildErrorRecoveryMiddleware(zap.NewNop())),
+		},
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			n := handled.Add(1)
+			if n%17 == 0 {
+				return nil, fmt.Errorf("hostile synthetic failure %d", n)
+			}
+			return mcp.NewToolResultText(req.Params.Name), nil
+		},
+	)
+
+	start := make(chan struct{})
+	errs := make(chan error, goroutines*callsPerGoroutine)
+	var wg sync.WaitGroup
+	begin := time.Now()
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < callsPerGoroutine; j++ {
+				var req mcp.CallToolRequest
+				req.Params.Name = "test_tool"
+				result, err := client.CallTool(context.Background(), req)
+				if err != nil {
+					errs <- err
+					continue
+				}
+				if result == nil {
+					errs <- fmt.Errorf("nil result")
+					continue
+				}
+				if result.IsError {
+					recoveredErrors.Add(1)
+				}
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	elapsed := time.Since(begin)
+	total := int64(goroutines * callsPerGoroutine)
+	t.Logf("calls=%d goroutines=%d handled=%d recovered_errors=%d elapsed=%s calls_per_second=%.0f",
+		total, goroutines, handled.Load(), recoveredErrors.Load(), elapsed, float64(total)/elapsed.Seconds())
+	assert.Equal(t, total, handled.Load())
+	assert.Equal(t, total/17, recoveredErrors.Load())
+}
+
+func TestADV001ConcurrentCacheToolRegistration(t *testing.T) {
+	base := mcpserver.NewMCPServer(
+		"adv-server",
+		"1.0.0",
+		mcpserver.WithToolCapabilities(true),
+		mcpserver.WithResourceCapabilities(true, true),
+	)
+	srv := &MCPServer{
+		server:    base,
+		logger:    zap.NewNop(),
+		workspace: "adv-workspace",
+		provider:  &provider.ApiProvider{},
+	}
+
+	const callers = 128
+	var wg sync.WaitGroup
+	begin := time.Now()
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			srv.RegisterCacheDependentTools()
+		}()
+	}
+	wg.Wait()
+	elapsed := time.Since(begin)
+
+	tools := srv.server.ListTools()
+	t.Logf("registration_callers=%d registered_tools=%d elapsed=%s", callers, len(tools), elapsed)
+	assert.Len(t, tools, 4)
+	assert.Contains(t, tools, ToolChannelsList)
+	assert.Contains(t, tools, ToolChannelsMe)
+	assert.Contains(t, tools, ToolConversationsUnreads)
+	assert.Contains(t, tools, ToolChannelsStarred)
+}
+
+func TestADV001CancelThenRestartInProcess(t *testing.T) {
+	entered := make(chan struct{})
+	sawCancel := make(chan struct{})
+	var once sync.Once
+	first := setupMCPClientServer(t, nil,
+		func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			once.Do(func() { close(entered) })
+			<-ctx.Done()
+			close(sawCancel)
+			return nil, ctx.Err()
+		},
+	)
+
+	callCtx, cancel := context.WithCancel(context.Background())
+	firstDone := make(chan error, 1)
+	go func() {
+		var req mcp.CallToolRequest
+		req.Params.Name = "test_tool"
+		_, err := first.CallTool(callCtx, req)
+		firstDone <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first server call never entered handler")
+	}
+	cancel()
+	require.Error(t, <-firstDone)
+	select {
+	case <-sawCancel:
+		t.Fatal("server handler unexpectedly observed client call cancellation")
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	second := setupMCPClientServer(t, nil,
+		func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText("fresh server healthy"), nil
+		},
+	)
+	var req mcp.CallToolRequest
+	req.Params.Name = "test_tool"
+	result, err := second.CallTool(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, result.Content, 1)
+	content, ok := result.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	assert.Equal(t, "fresh server healthy", content.Text)
+	t.Log("client call cancelled; old server handler still running after 150ms; fresh in-process server accepted next call")
+}

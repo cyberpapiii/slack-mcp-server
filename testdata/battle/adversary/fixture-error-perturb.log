@@ -1,0 +1,22 @@
+--- FAIL: TestBattleContractErrorTaxonomy (0.00s)
+    battle_contract_test.go:81: contract drift in ../../testdata/battle/contracts/error-taxonomy.json
+        --- want ---
+        {
+          "class": "handler_error",
+          "protocol_error": false,
+          "is_error": false,
+          "content_type": "text",
+          "text": "simulated tool error: invalid channel ID"
+        }
+        
+        --- got ---
+        {
+          "class": "handler_error",
+          "protocol_error": false,
+          "is_error": true,
+          "content_type": "text",
+          "text": "simulated tool error: invalid channel ID"
+        }
+FAIL
+FAIL	github.com/korotovsky/slack-mcp-server/pkg/server	0.010s
+FAIL

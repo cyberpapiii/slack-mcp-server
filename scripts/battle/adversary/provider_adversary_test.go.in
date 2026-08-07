@@ -1,0 +1,158 @@
+package provider
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
+	"github.com/slack-go/slack"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+type advUsersClient struct {
+	SlackAPI
+
+	calls       atomic.Int32
+	bootCalls   atomic.Int32
+	firstEnter  chan struct{}
+	firstRelease chan struct{}
+}
+
+func (c *advUsersClient) GetUsersContext(ctx context.Context, _ ...slack.GetUsersOption) ([]slack.User, error) {
+	call := c.calls.Add(1)
+	if call == 1 && c.firstEnter != nil {
+		close(c.firstEnter)
+		select {
+		case <-c.firstRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return []slack.User{{ID: fmt.Sprintf("U%03d", call), Name: fmt.Sprintf("user_%03d", call)}}, nil
+	}
+}
+
+func (c *advUsersClient) ClientUserBoot(context.Context) (*edge.ClientUserBootResponse, error) {
+	c.bootCalls.Add(1)
+	return &edge.ClientUserBootResponse{}, nil
+}
+
+func TestADV001ConcurrentForegroundWarmDuplicatesDependencyWork(t *testing.T) {
+	const callers = 24
+	client := &advUsersClient{}
+	ap := newTestApiProvider(client, emptyUsersCache())
+	ap.usersCachePath = t.TempDir() + "/users.json"
+
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- ap.RefreshUsers(context.Background())
+		}()
+	}
+
+	begin := time.Now()
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	elapsed := time.Since(begin)
+	t.Logf("callers=%d users_api_calls=%d connect_enrichment_calls=%d elapsed=%s",
+		callers, client.calls.Load(), client.bootCalls.Load(), elapsed)
+
+	assert.Equal(t, int32(callers), client.calls.Load(),
+		"measured current behavior: every overlapping foreground warm repeats users API work")
+	assert.Equal(t, int32(callers), client.bootCalls.Load(),
+		"measured current behavior: every overlapping foreground warm repeats enrichment work")
+}
+
+func TestADV001CancelledWarmWaitsBehindSlowDependency(t *testing.T) {
+	client := &advUsersClient{
+		firstEnter:   make(chan struct{}),
+		firstRelease: make(chan struct{}),
+	}
+	ap := newTestApiProvider(client, emptyUsersCache())
+	ap.usersCachePath = t.TempDir() + "/users.json"
+
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- ap.RefreshUsers(context.Background())
+	}()
+	select {
+	case <-client.firstEnter:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first warm never entered dependency")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	secondDone := make(chan error, 1)
+	begin := time.Now()
+	go func() {
+		secondDone <- ap.RefreshUsers(ctx)
+	}()
+
+	select {
+	case err := <-secondDone:
+		t.Fatalf("cancelled queued warm returned before blocker release: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	waitedPastDeadline := time.Since(begin)
+	close(client.firstRelease)
+
+	require.NoError(t, <-firstDone)
+	err := <-secondDone
+	total := time.Since(begin)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	t.Logf("deadline=25ms still_blocked_after=%s returned_after_release=%s dependency_calls=%d",
+		waitedPastDeadline, total, client.calls.Load())
+	assert.GreaterOrEqual(t, waitedPastDeadline, 90*time.Millisecond,
+		"measured current behavior: mutex wait ignores caller cancellation")
+}
+
+type advHostileUsersClient struct {
+	SlackAPI
+	calls atomic.Int32
+}
+
+func (c *advHostileUsersClient) GetUsersContext(ctx context.Context, _ ...slack.GetUsersOption) ([]slack.User, error) {
+	c.calls.Add(1)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestADV001HostileDependencyTimeoutRecovers(t *testing.T) {
+	client := &advHostileUsersClient{}
+	ap := newTestApiProvider(client, emptyUsersCache())
+	ap.usersCachePath = t.TempDir() + "/users.json"
+	ap.backgroundRefreshTimeout = 30 * time.Millisecond
+
+	ap.spawnBackgroundUsersRefresh()
+	require.Eventually(t, func() bool {
+		return !ap.refreshingUsers.Load()
+	}, 2*time.Second, 5*time.Millisecond)
+
+	ap.spawnBackgroundUsersRefresh()
+	require.Eventually(t, func() bool {
+		return !ap.refreshingUsers.Load()
+	}, 2*time.Second, 5*time.Millisecond)
+
+	t.Logf("hostile dependency calls=%d timeout=%s recovery_spawns=2", client.calls.Load(), ap.backgroundRefreshTimeout)
+	assert.Equal(t, int32(2), client.calls.Load())
+}

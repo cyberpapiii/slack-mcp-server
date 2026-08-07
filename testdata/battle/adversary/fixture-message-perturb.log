@@ -1,0 +1,24 @@
+--- FAIL: TestBattleContractMessageCSVLegend (0.00s)
+    battle_contract_test.go:42: contract drift in ../../testdata/battle/contracts/message-csv-legend.txt
+        --- want ---
+        #users: U03BMAR2R50=robdezendorf|rob dezendorf, U04CNAS3S61=alicew|Alice Wonderland
+        #link_template: https://loop.slack.com/archives/{CHANNEL_ID}/p{MsgID with "." removed}  (Channel column may contain "ID (#name)"; use the leading ID)
+        User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor
+        rob dezendorf,C039NRB81UL,hello,2026-05-20T13:40:20Z,1782935556.396379,1782935556.396379,fire:1,F123 (deck.pdf),1,
+        Alice Wonderland,C039NRB81UL,hello,2026-05-20T13:40:20Z,1782935556.396380,1782935556.396379,fire:1,F123 (deck.pdf),1,
+        GitHub (bot),C039NRB81UL,hello,2026-05-20T13:40:20Z,1782935556.396381,1782935556.396379,fire:1,F123 (deck.pdf),1,
+        Alice Wonderland,C039NRB81UL,hello,2026-05-20T13:40:20Z,1782935556.396382,1782935556.396379,fire:1,F123 (deck.pdf),1,
+        
+        # ADV-001 perturbation
+        
+        --- got ---
+        #users: U03BMAR2R50=robdezendorf|rob dezendorf, U04CNAS3S61=alicew|Alice Wonderland
+        #link_template: https://loop.slack.com/archives/{CHANNEL_ID}/p{MsgID with "." removed}  (Channel column may contain "ID (#name)"; use the leading ID)
+        User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor
+        rob dezendorf,C039NRB81UL,hello,2026-05-20T13:40:20Z,1782935556.396379,1782935556.396379,fire:1,F123 (deck.pdf),1,
+        Alice Wonderland,C039NRB81UL,hello,2026-05-20T13:40:20Z,1782935556.396380,1782935556.396379,fire:1,F123 (deck.pdf),1,
+        GitHub (bot),C039NRB81UL,hello,2026-05-20T13:40:20Z,1782935556.396381,1782935556.396379,fire:1,F123 (deck.pdf),1,
+        Alice Wonderland,C039NRB81UL,hello,2026-05-20T13:40:20Z,1782935556.396382,1782935556.396379,fire:1,F123 (deck.pdf),1,
+FAIL
+FAIL	github.com/korotovsky/slack-mcp-server/pkg/handler	0.013s
+FAIL
