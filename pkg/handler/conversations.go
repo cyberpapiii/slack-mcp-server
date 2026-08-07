@@ -517,7 +517,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		zap.String("timestamp", timestamp),
 	)
 
-	msg, err := ch.fetchMessageForReactions(ctx, channel, timestamp)
+	msg, err := ch.fetchMessageByTimestamp(ctx, channel, timestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -546,13 +546,13 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 	return mcp.NewToolResultText(buf.String()), nil
 }
 
-// fetchMessageForReactions retrieves a single message by timestamp using conversations.replies.
+// fetchMessageByTimestamp retrieves a single message by timestamp using conversations.replies.
 // This works for top-level messages, thread parents, and thread replies alike — no additional
 // scopes beyond channels:history required.
 //
 // Note: Slack's reactions.get API is purpose-built for this but requires the reactions:read scope.
 // We use conversations.replies instead to avoid introducing a new scope requirement.
-func (ch *ConversationsHandler) fetchMessageForReactions(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
+func (ch *ConversationsHandler) fetchMessageByTimestamp(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
 	msgs, _, _, err := ch.apiProvider.Slack().GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 		ChannelID: channel,
 		Timestamp: timestamp,
@@ -569,6 +569,44 @@ func (ch *ConversationsHandler) fetchMessageForReactions(ctx context.Context, ch
 	}
 
 	return &msgs[0], nil
+}
+
+// ConversationsGetMessageHandler fetches a single message by channel + timestamp.
+// It exists so agents holding a MsgID (e.g. from compact CSV rows, or after an
+// attachment-truncation receipt) can re-read exactly one message, optionally
+// with detail: full, instead of re-paging conversations_history.
+func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	ch.logger.Debug("ConversationsGetMessageHandler called", zap.Any("params", request.Params))
+
+	rawChannel := request.GetString("channel_id", "")
+	if rawChannel == "" {
+		return nil, errors.New("channel_id is required")
+	}
+	timestamp := request.GetString("timestamp", "")
+	if timestamp == "" {
+		return nil, errors.New("timestamp is required")
+	}
+	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	if err != nil {
+		return nil, err
+	}
+
+	channel, err := ch.resolveChannelID(ctx, rawChannel)
+	if err != nil {
+		ch.logger.Error("Channel not found", zap.String("channel", rawChannel), zap.Error(err))
+		return nil, err
+	}
+
+	msg, err := ch.fetchMessageByTimestamp(ctx, channel, timestamp)
+	if err != nil {
+		return nil, err
+	}
+	if msg == nil {
+		return mcp.NewToolResultText("No message found at the specified timestamp"), nil
+	}
+
+	messages := ch.convertMessagesFromHistory(ctx, []slack.Message{*msg}, channel, true, mode)
+	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
 }
 
 func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

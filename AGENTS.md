@@ -36,13 +36,13 @@ The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is se
 
 ## Tool surface
 
-Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **30** tools; upstream README documents fewer.
+Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **31** tools; upstream README documents fewer.
 
 The full set, grouped (★ = local-only or fork-extended):
 
 | Group | Tools |
 |-------|-------|
-| Messages | `conversations_history`, `conversations_replies`, `conversations_search_messages`, `conversations_add_message`, ★`conversations_draft_message` |
+| Messages | `conversations_history`, `conversations_replies`, ★`conversations_get_message`, `conversations_search_messages`, `conversations_add_message`, ★`conversations_draft_message` |
 | Conversations | ★`conversations_open`, ★`conversations_unreads`, `conversations_mark`, `conversations_join`, `conversations_leave` |
 | Channels | `channels_list`, ★`channels_starred`, ★`channels_me` |
 | Reactions | `reactions_add`, `reactions_remove`, ★`reactions_get` |
@@ -52,6 +52,8 @@ The full set, grouped (★ = local-only or fork-extended):
 | Saved items | ★`saved_list`, ★`saved_update`, ★`saved_clear_completed` |
 | Files | ★`files_list`, `attachment_get_data` |
 | Diagnostics | ★`slack_auth_status` — cache and browser-session health (call before activity/saved tools) |
+
+`conversations_get_message` fetches a single message by channel and timestamp — the recovery path for an attachment-truncation receipt.
 
 Output is compact CSV by default (keeps MsgID/ThreadTs for follow-up actions). Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode may prepend `#users:`/`#link_template:` legend lines and truncates long attachments with a re-fetch receipt — see `docs/agent-presets.md`.
 

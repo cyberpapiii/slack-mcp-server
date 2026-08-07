@@ -2074,3 +2074,27 @@ func TestUnitUnreadCountFromHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestUnitConversationsGetMessageParamValidation(t *testing.T) {
+	ch := &ConversationsHandler{logger: zap.NewNop()}
+
+	// missing channel_id
+	req := mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"timestamp": "1234567890.123456"}
+	_, err := ch.ConversationsGetMessageHandler(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "channel_id")
+
+	// missing timestamp
+	req = mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"channel_id": "C0123456789"}
+	_, err = ch.ConversationsGetMessageHandler(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timestamp")
+
+	// invalid detail value
+	req = mcp.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"channel_id": "C0123456789", "timestamp": "1234567890.123456", "detail": "bogus"}
+	_, err = ch.ConversationsGetMessageHandler(context.Background(), req)
+	require.Error(t, err)
+}

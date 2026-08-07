@@ -37,6 +37,7 @@ const (
 	ToolReactionsAdd                = "reactions_add"
 	ToolReactionsRemove             = "reactions_remove"
 	ToolReactionsGet                = "reactions_get"
+	ToolConversationsGetMessage     = "conversations_get_message"
 	ToolAttachmentGetData           = "attachment_get_data"
 	ToolConversationsSearchMessages = "conversations_search_messages"
 	ToolConversationsUnreads        = "conversations_unreads"
@@ -65,6 +66,7 @@ const (
 var ValidToolNames = []string{
 	ToolConversationsHistory,
 	ToolConversationsReplies,
+	ToolConversationsGetMessage,
 	ToolConversationsAddMessage,
 	ToolConversationsDraftMessage,
 	ToolReactionsAdd,
@@ -269,6 +271,25 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 				mcp.Description("Timestamp of the message to get reactions for, in format 1234567890.123456."),
 			),
 		), conversationsHandler.ReactionsGetHandler)
+	}
+
+	if shouldAddTool(ToolConversationsGetMessage, enabledTools, "") {
+		s.AddTool(mcp.NewTool(ToolConversationsGetMessage,
+			mcp.WithDescription("Fetch a single message by channel and timestamp. Use the MsgID column from any compact CSV output as the timestamp — e.g. to re-fetch a message with detail: 'full' after seeing an attachment-truncation receipt. Returns the same CSV format as conversations_history."),
+			mcp.WithTitleAnnotation("Get Single Message"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithString("channel_id",
+				mcp.Required(),
+				mcp.Description("ID of the channel in format Cxxxxxxxxxx or its name starting with #... or @... aka #general or @username_dm."),
+			),
+			mcp.WithString("timestamp",
+				mcp.Required(),
+				mcp.Description("Timestamp of the message to fetch, in format 1234567890.123456."),
+			),
+			mcp.WithString("detail",
+				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
+			),
+		), conversationsHandler.ConversationsGetMessageHandler)
 	}
 
 	if shouldAddTool(ToolConversationsAddMessage, enabledTools, "SLACK_MCP_ADD_MESSAGE_TOOL") {
