@@ -35,8 +35,21 @@ func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, c
 	return &ActivityHandler{apiProvider: apiProvider, logger: logger, convHandler: convHandler}
 }
 
+// activityChannelLabel renders a channel for the Message.Channel column of
+// activity output. It mirrors the search path's "ID (#name)" convention (see
+// convertMessagesFromSearch and the #link_template legend line): the ID stays
+// leading so permalinks and follow-up tool calls remain derivable, with the
+// cached name — which already carries its "#"/"@" prefix — appended. Falls
+// back to the bare ID when the channel is not in the cache.
+func activityChannelLabel(channelID string, channels map[string]provider.Channel) string {
+	if cached, ok := channels[channelID]; ok && cached.Name != "" {
+		return fmt.Sprintf("%s (%s)", channelID, cached.Name)
+	}
+	return channelID
+}
+
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("ActivityUnreadsHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "ActivityUnreadsHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -47,7 +60,13 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 
 	includeMessages := request.GetBool("include_messages", true)
 	maxMsgsPerThread := request.GetInt("max_messages_per_thread", 10)
+	if maxMsgsPerThread <= 0 {
+		maxMsgsPerThread = 10
+	}
 	limit := request.GetInt("limit", 30)
+	if limit <= 0 {
+		limit = 30
+	}
 
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
 	if err != nil {
@@ -61,7 +80,6 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	}
 
 	channelsMaps := h.apiProvider.ProvideChannelsMaps()
-	usersMap := h.apiProvider.ProvideUsersMap()
 
 	var items []ActivityItem
 	for _, fi := range feedResp.Items {
@@ -166,15 +184,12 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			continue
 		}
 
-		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, t.ChannelID, false, mode)
+		// Label the thread's channel by name so the rendered rows read
+		// "C0123ABC (#general)" instead of a bare ID. Resolved before the
+		// conversion so it lands in every message's Channel column.
+		channelLabel := activityChannelLabel(t.ChannelID, channelsMaps.Channels)
 
-		// Annotate with channel name
-		channelName := t.ChannelID
-		if cached, ok := channelsMaps.Channels[t.ChannelID]; ok {
-			channelName = cached.Name
-		}
-		_ = channelName
-		_ = usersMap
+		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, channelLabel, false, mode)
 
 		allMessages = append(allMessages, msgs...)
 	}
@@ -195,7 +210,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("ActivityMarkReadHandler called", zap.Any("params", request.Params))
+	logToolCall(h.logger, "ActivityMarkReadHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {

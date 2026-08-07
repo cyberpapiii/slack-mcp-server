@@ -257,3 +257,108 @@ func TestIntegrationPrivateChannelsList(t *testing.T) {
 
 	runChannelTest(t, env, "private_channel", expectedChannels)
 }
+
+func TestUnitPaginateChannelsInvalidCursor(t *testing.T) {
+	channels := []provider.Channel{
+		{ID: "C01", Name: "#one"},
+		{ID: "C02", Name: "#two"},
+	}
+
+	paged, nextCursor, err := paginateChannels(channels, "!!!not-base64!!!", 2)
+
+	require.Error(t, err, "an undecodable cursor must be rejected, not silently restarted")
+	assert.Contains(t, err.Error(), "invalid cursor")
+	assert.Empty(t, paged, "no rows should be returned for a bad cursor")
+	assert.Empty(t, nextCursor, "no next cursor should be handed back for a bad cursor")
+}
+
+func TestUnitPaginateChannelsRoundTrip(t *testing.T) {
+	channels := []provider.Channel{
+		{ID: "C01", Name: "#one"},
+		{ID: "C02", Name: "#two"},
+		{ID: "C03", Name: "#three"},
+		{ID: "C04", Name: "#four"},
+		{ID: "C05", Name: "#five"},
+	}
+
+	page1, cursor1, err := paginateChannels(channels, "", 2)
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
+	assert.Equal(t, []string{"C01", "C02"}, channelIDs(page1))
+	require.NotEmpty(t, cursor1, "more rows remain, so a cursor is expected")
+
+	page2, cursor2, err := paginateChannels(channels, cursor1, 2)
+	require.NoError(t, err)
+	require.Len(t, page2, 2)
+	assert.Equal(t, []string{"C03", "C04"}, channelIDs(page2),
+		"page 2 must resume exactly after page 1 with no rows skipped or repeated")
+	require.NotEmpty(t, cursor2)
+
+	page3, cursor3, err := paginateChannels(channels, cursor2, 2)
+	require.NoError(t, err)
+	require.Len(t, page3, 1)
+	assert.Equal(t, []string{"C05"}, channelIDs(page3))
+	assert.Empty(t, cursor3, "the final page must not advertise another page")
+}
+
+// TestUnitPaginateChannelsNonPositiveLimit pins the backstop that keeps a
+// non-positive limit from panicking the slice expression. mcp's GetInt only
+// substitutes its default for an absent key, so `limit: -5` used to reach
+// channels[0:-5] and take down the stdio server.
+func TestUnitPaginateChannelsNonPositiveLimit(t *testing.T) {
+	channels := []provider.Channel{
+		{ID: "C01", Name: "#one"},
+		{ID: "C02", Name: "#two"},
+		{ID: "C03", Name: "#three"},
+	}
+
+	for _, limit := range []int{-5, -1, 0} {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
+			paged, nextCursor, err := paginateChannels(channels, "", limit)
+
+			require.NoError(t, err)
+			assert.Empty(t, paged, "a non-positive limit yields an empty page, not a panic")
+			assert.Empty(t, nextCursor, "an empty page must not advertise a cursor to resume from")
+		})
+	}
+}
+
+func channelIDs(channels []provider.Channel) []string {
+	ids := make([]string, len(channels))
+	for i, c := range channels {
+		ids[i] = c.ID
+	}
+	return ids
+}
+
+// TestUnitNextPageSize covers the page-size arithmetic behind the channels_me
+// fetch loop: it must never request more rows than the caller asked for
+// (over-requesting strands the surplus behind the returned cursor) and never
+// exceed Slack's 200-row maximum.
+func TestUnitNextPageSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		limit    int
+		have     int
+		expected int
+	}{
+		{name: "default limit fits in one page", limit: 100, have: 0, expected: 100},
+		{name: "oversized limit caps at slack max", limit: 250, have: 0, expected: 200},
+		{name: "second request asks only for the remainder", limit: 250, have: 200, expected: 50},
+		{name: "max limit caps at slack max", limit: 999, have: 0, expected: 200},
+		{name: "exactly slack max", limit: 200, have: 0, expected: 200},
+		{name: "one row still missing", limit: 5, have: 4, expected: 1},
+		{name: "nothing missing floors at one", limit: 100, have: 100, expected: 1},
+		{name: "over-fetched floors at one", limit: 10, have: 25, expected: 1},
+		{name: "nonpositive limit floors at one", limit: 0, have: 0, expected: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := nextPageSize(tt.limit, tt.have)
+			assert.Equal(t, tt.expected, got)
+			assert.GreaterOrEqual(t, got, 1, "a request for <1 row is meaningless to Slack")
+			assert.LessOrEqual(t, got, slackMaxChannelsPageSize, "Slack will not serve more than 200 per page")
+		})
+	}
+}

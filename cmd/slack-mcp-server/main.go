@@ -9,6 +9,7 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server"
+	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
 	"github.com/mattn/go-isatty"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -92,6 +93,13 @@ func main() {
 			)
 		}
 	case "sse":
+		if err := auth.RequireAPIKeyOrOptOut(logger); err != nil {
+			logger.Fatal("Server error",
+				zap.String("context", "console"),
+				zap.Error(err),
+			)
+		}
+
 		host := os.Getenv("SLACK_MCP_HOST")
 		if host == "" {
 			host = defaultSseHost
@@ -122,6 +130,13 @@ func main() {
 			)
 		}
 	case "http":
+		if err := auth.RequireAPIKeyOrOptOut(logger); err != nil {
+			logger.Fatal("Server error",
+				zap.String("context", "console"),
+				zap.Error(err),
+			)
+		}
+
 		host := os.Getenv("SLACK_MCP_HOST")
 		if host == "" {
 			host = defaultSseHost

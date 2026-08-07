@@ -221,6 +221,8 @@ ngrok http 3001
 
 and then use the endpoint `https://903d-xxx-xxxx-xxxx-10b4.ngrok-free.app` for your `mcp-remote` argument.
 
+**The server refuses to start in `sse`/`http` mode unless `SLACK_MCP_API_KEY` is set.** Never combine an `ngrok` (or any public) exposure with the `SLACK_MCP_ALLOW_UNAUTHENTICATED` opt-out — that opt-out is for local loopback development only.
+
 ### Using Docker
 
 For detailed information about all environment variables, see [Environment Variables](https://github.com/korotovsky/slack-mcp-server?tab=readme-ov-file#environment-variables).
@@ -263,6 +265,7 @@ docker-compose up -d
 | `SLACK_MCP_PORT`                  | No        | `13080`                   | Port for the MCP server to listen on                                                                                                                                                                                                                                                      |
 | `SLACK_MCP_HOST`                  | No        | `127.0.0.1`               | Host for the MCP server to listen on                                                                                                                                                                                                                                                      |
 | `SLACK_MCP_API_KEY`           | No        | `nil`                     | Bearer token for SSE and HTTP transports                                                                                                                                                                                                                                                            |
+| `SLACK_MCP_ALLOW_UNAUTHENTICATED` | No    | `nil` (unset)             | Only honored by `sse`/`http` transports. When `SLACK_MCP_API_KEY` is not set, the server refuses to start unless this is set to exactly `true`. Strongly discouraged outside of local loopback development — it disables authentication entirely.                                        |
 | `SLACK_MCP_PROXY`                 | No        | `nil`                     | Proxy URL for outgoing requests                                                                                                                                                                                                                                                           |
 | `SLACK_MCP_USER_AGENT`            | No        | `nil`                     | Custom User-Agent (for Enterprise Slack environments)                                                                                                                                                                                                                                     |
 | `SLACK_MCP_CUSTOM_TLS`            | No        | `nil`                     | Send custom TLS-handshake to Slack servers based on `SLACK_MCP_USER_AGENT` or default User-Agent. (for Enterprise Slack environments)                                                                                                                                                     |

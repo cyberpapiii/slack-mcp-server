@@ -214,6 +214,34 @@ func TestUnitActivityMarkReadParams(t *testing.T) {
 	})
 }
 
+func TestUnitActivityChannelLabel(t *testing.T) {
+	channels := map[string]provider.Channel{
+		"C092WJP9Z38": {ID: "C092WJP9Z38", Name: "#wg-maas-internal"},
+		"D0118S60VFD": {ID: "D0118S60VFD", Name: "@ada"},
+		"C0BLANKNAME": {ID: "C0BLANKNAME", Name: ""},
+	}
+
+	t.Run("resolvable channel renders as ID (#name)", func(t *testing.T) {
+		assert.Equal(t, "C092WJP9Z38 (#wg-maas-internal)", activityChannelLabel("C092WJP9Z38", channels))
+	})
+
+	t.Run("DM keeps the cached @ prefix", func(t *testing.T) {
+		assert.Equal(t, "D0118S60VFD (@ada)", activityChannelLabel("D0118S60VFD", channels))
+	})
+
+	t.Run("unknown channel falls back to the bare ID", func(t *testing.T) {
+		assert.Equal(t, "C099MEPGF43", activityChannelLabel("C099MEPGF43", channels))
+	})
+
+	t.Run("cached entry with an empty name falls back to the bare ID", func(t *testing.T) {
+		assert.Equal(t, "C0BLANKNAME", activityChannelLabel("C0BLANKNAME", channels))
+	})
+
+	t.Run("nil cache falls back to the bare ID", func(t *testing.T) {
+		assert.Equal(t, "C092WJP9Z38", activityChannelLabel("C092WJP9Z38", nil))
+	})
+}
+
 func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
 	h := NewActivityHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
 	ctx := context.Background()

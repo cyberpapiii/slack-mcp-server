@@ -51,7 +51,7 @@ func NewChannelsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *
 }
 
 func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-	ch.logger.Debug("ChannelsResource called", zap.Any("params", request.Params))
+	logResourceCall(ch.logger, "ChannelsResource called", request)
 
 	// mark3labs/mcp-go does not support middlewares for resources.
 	if authenticated, err := auth.IsAuthenticated(ctx, ch.apiProvider.ServerTransport(), ch.logger); !authenticated {
@@ -152,7 +152,9 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 
 	ch.logger.Debug("Validated channel types", zap.Strings("types", channelTypes))
 
-	if limit == 0 {
+	// GetInt only substitutes its default when the key is absent, so a caller
+	// passing limit: -5 gets -5 here. Treat non-positive exactly like absent.
+	if limit <= 0 {
 		limit = 100
 		ch.logger.Debug("Limit not provided, using default", zap.Int("limit", limit))
 	}
@@ -187,16 +189,15 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		ch.logger.Debug("Channels after keyword filter", zap.Int("count", len(channels)))
 	}
 
-	var (
-		chans   []provider.Channel
-		nextcur string
-	)
-
-	chans, nextcur = paginateChannels(
+	chans, nextcur, err := paginateChannels(
 		channels,
 		cursor,
 		limit,
 	)
+	if err != nil {
+		ch.logger.Error("Failed to paginate channels", zap.Error(err))
+		return nil, err
+	}
 
 	ch.logger.Debug("Pagination results",
 		zap.Int("returned_count", len(chans)),
@@ -241,6 +242,26 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	), nil
 }
 
+// slackMaxChannelsPageSize is the largest page users.conversations will serve
+// in a single call.
+const slackMaxChannelsPageSize = 200
+
+// nextPageSize returns how many channels to ask Slack for on the next call:
+// exactly the number still missing to reach limit, capped at Slack's maximum
+// page size. Never over-requesting is what keeps the cursor Slack returns
+// aligned with the last row we actually hand back — asking for more would
+// leave the surplus rows unreachable by any later page.
+func nextPageSize(limit, have int) int {
+	remaining := limit - have
+	if remaining > slackMaxChannelsPageSize {
+		return slackMaxChannelsPageSize
+	}
+	if remaining < 1 {
+		return 1
+	}
+	return remaining
+}
+
 func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	ch.logger.Debug("ChannelsMeHandler called")
 
@@ -248,7 +269,9 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 	cursor := request.GetString("cursor", "")
 	limit := request.GetInt("limit", 0)
 
-	if limit == 0 {
+	// Non-positive is treated exactly like absent: GetInt's default only applies
+	// to a missing key, so a negative limit would otherwise reach the slice below.
+	if limit <= 0 {
 		limit = 100
 	}
 	if limit > 999 {
@@ -281,7 +304,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 	for {
 		params := &slack.GetConversationsForUserParameters{
 			Types:           channelTypes,
-			Limit:           200,
+			Limit:           nextPageSize(limit, len(allChannels)),
 			Cursor:          apiCursor,
 			ExcludeArchived: true,
 		}
@@ -295,8 +318,18 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 			allChannels = append(allChannels, provider.MapChannelFromSlack(c, usersMap))
 		}
 
-		// Early exit: stop paginating through the Slack API once we have enough.
+		// Early exit: stop paginating through the Slack API once we have
+		// enough. Because every request asked for exactly the rows still
+		// missing, the API cannot have returned more than we hand back, so
+		// nextCursor is positioned right after the last row we return.
 		if len(allChannels) >= limit {
+			slackNextCursor = nextCursor
+			break
+		}
+
+		// Zero-progress guard: an empty page paired with a non-empty cursor
+		// would otherwise spin forever.
+		if len(channels) == 0 {
 			slackNextCursor = nextCursor
 			break
 		}
@@ -309,10 +342,15 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 
 	ch.logger.Debug("Fetched member channels", zap.Int("count", len(allChannels)))
 
-	// Truncate to limit and use the Slack API cursor.
+	// Truncate to limit and use the Slack API cursor. With per-request sizing
+	// above this slice is a no-op safeguard against a server that over-serves.
 	end := limit
 	if end > len(allChannels) {
 		end = len(allChannels)
+	}
+	// Backstop against a non-positive limit reaching the slice below.
+	if end < 0 {
+		end = 0
 	}
 	var channelList []Channel
 	for _, channel := range allChannels[:end] {
@@ -390,7 +428,7 @@ type StarredChannel struct {
 }
 
 func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ch.logger.Debug("ChannelsStarredHandler called", zap.Any("params", request.Params))
+	logToolCall(ch.logger, "ChannelsStarredHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
@@ -406,6 +444,9 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	channelTypesFilter := request.GetString("channel_types", "all")
 	limit := request.GetInt("limit", 100)
+	if limit <= 0 {
+		limit = 100
+	}
 
 	ch.logger.Debug("Request parameters",
 		zap.String("channel_types", channelTypesFilter),
@@ -501,7 +542,10 @@ func filterChannelsByQuery(channels []provider.Channel, query string, targetSet 
 	return result
 }
 
-func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]provider.Channel, string) {
+// paginateChannels returns one page of channels plus the cursor for the next
+// page. An undecodable cursor is an error, not a silent restart at page one:
+// restarting would hand a paginating agent the first page forever.
+func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]provider.Channel, string, error) {
 	logger := zap.L()
 
 	// Always sort by ID for stable cursor-based pagination
@@ -511,34 +555,41 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 
 	startIndex := 0
 	if cursor != "" {
-		if decoded, err := base64.StdEncoding.DecodeString(cursor); err == nil {
-			lastID := string(decoded)
-			// Binary search for the first channel with ID > lastID
-			startIndex = sort.Search(len(channels), func(i int) bool {
-				return channels[i].ID > lastID
-			})
-			logger.Debug("Decoded cursor",
-				zap.String("cursor", cursor),
-				zap.String("decoded_id", lastID),
-				zap.Int("start_index", startIndex),
-			)
-		} else {
-			logger.Warn("Failed to decode cursor",
+		decoded, err := base64.StdEncoding.DecodeString(cursor)
+		if err != nil {
+			logger.Error("Failed to decode cursor",
 				zap.String("cursor", cursor),
 				zap.Error(err),
 			)
+			return nil, "", fmt.Errorf("invalid cursor: %q", cursor)
 		}
+		lastID := string(decoded)
+		// Binary search for the first channel with ID > lastID
+		startIndex = sort.Search(len(channels), func(i int) bool {
+			return channels[i].ID > lastID
+		})
+		logger.Debug("Decoded cursor",
+			zap.String("cursor", cursor),
+			zap.String("decoded_id", lastID),
+			zap.Int("start_index", startIndex),
+		)
 	}
 
 	endIndex := startIndex + limit
 	if endIndex > len(channels) {
 		endIndex = len(channels)
 	}
+	// Backstop: a non-positive limit would put endIndex behind startIndex and
+	// panic the slice below. Every caller clamps, but a panic here would take
+	// down the whole stdio server, so do not rely on that alone.
+	if endIndex < startIndex {
+		endIndex = startIndex
+	}
 
 	paged := channels[startIndex:endIndex]
 
 	var nextCursor string
-	if endIndex < len(channels) {
+	if endIndex > 0 && endIndex < len(channels) {
 		nextCursor = base64.StdEncoding.EncodeToString([]byte(channels[endIndex-1].ID))
 		logger.Debug("Generated next cursor",
 			zap.String("last_id", channels[endIndex-1].ID),
@@ -554,5 +605,5 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 		zap.Bool("has_more", nextCursor != ""),
 	)
 
-	return paged, nextCursor
+	return paged, nextCursor, nil
 }

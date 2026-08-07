@@ -115,6 +115,32 @@ func ValidateEnabledTools(tools []string) error {
 	return nil
 }
 
+// isTruthyEnv reports whether a boolean gate environment variable's value means
+// "enabled": true, 1, or yes, case-insensitive and whitespace-tolerant. Any
+// other value, including "false", leaves the tool unregistered.
+//
+// This is a deliberate copy of the identical helper in pkg/handler
+// (conversations.go); pkg/server cannot import pkg/handler's unexported
+// helpers, and a shared package for one six-line predicate is not worth it.
+// The two copies must stay in sync — if a third package ever needs one, that
+// is the signal to extract a shared package instead.
+func isTruthyEnv(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "yes":
+		return true
+	}
+	return false
+}
+
+// channelListGates are gate variables whose value is a channel allowlist, not
+// a boolean — e.g. "C1234567890,D0987654321" or "!C1234567890". For these, any
+// non-empty value means "enabled", because the value IS the configuration.
+// Every other gate variable is a boolean and goes through isTruthyEnv.
+var channelListGates = map[string]bool{
+	"SLACK_MCP_ADD_MESSAGE_TOOL": true,
+	"SLACK_MCP_REACTION_TOOL":    true,
+}
+
 func shouldAddTool(name string, enabledTools []string, envVarName string) bool {
 	if envVarName == "" {
 		if len(enabledTools) == 0 {
@@ -128,7 +154,11 @@ func shouldAddTool(name string, enabledTools []string, envVarName string) bool {
 	}
 
 	if len(enabledTools) == 0 {
-		return os.Getenv(envVarName) != ""
+		value := os.Getenv(envVarName)
+		if channelListGates[envVarName] {
+			return value != ""
+		}
+		return isTruthyEnv(value)
 	}
 
 	return false
@@ -187,7 +217,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("limit",
 				mcp.DefaultString("1d"),
-				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 1w - 1 week, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided."),
+				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 1w - 1 week, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided; any value is ignored when 'cursor' is set."),
 			),
 			mcp.WithString("detail",
 				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
@@ -217,7 +247,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			),
 			mcp.WithString("limit",
 				mcp.DefaultString("1d"),
-				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided."),
+				mcp.Description("Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided; any value is ignored when 'cursor' is set."),
 			),
 			mcp.WithString("detail",
 				mcp.Description("Output fidelity: 'standard' (default; compact agent-oriented CSV) or 'full' (verbose CSV with all columns including UserID and Permalink where available). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (construct message permalinks from Channel + MsgID) comment lines before the CSV header."),
@@ -378,7 +408,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			mcp.Description("Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request."),
 		),
 		mcp.WithNumber("limit",
-			mcp.DefaultNumber(20),
+			mcp.DefaultNumber(100),
 			mcp.Description("The maximum number of items to return. Must be an integer between 1 and 100."),
 		),
 		mcp.WithString("detail",
@@ -431,7 +461,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), conversationsHandler.FilesListHandler)
 	}
 	// Register mark tool - marks a channel as read
-	if shouldAddTool(ToolConversationsMark, enabledTools, "") {
+	if shouldAddTool(ToolConversationsMark, enabledTools, "SLACK_MCP_MARK_TOOL") {
 		s.AddTool(mcp.NewTool(ToolConversationsMark,
 			mcp.WithDescription("Mark a channel or DM as read. If no timestamp is provided, marks all messages as read."),
 			mcp.WithTitleAnnotation("Mark as Read"),
@@ -446,7 +476,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), conversationsHandler.ConversationsMarkHandler)
 	}
 
-	if shouldAddTool(ToolConversationsLeave, enabledTools, "") {
+	if shouldAddTool(ToolConversationsLeave, enabledTools, "SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL") {
 		s.AddTool(mcp.NewTool(ToolConversationsLeave,
 			mcp.WithDescription("Leave a channel, group conversation, or DM. Cannot leave the #general channel."),
 			mcp.WithTitleAnnotation("Leave Channel"),
@@ -458,7 +488,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), conversationsHandler.ConversationsLeaveHandler)
 	}
 
-	if shouldAddTool(ToolConversationsJoin, enabledTools, "") {
+	if shouldAddTool(ToolConversationsJoin, enabledTools, "SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL") {
 		s.AddTool(mcp.NewTool(ToolConversationsJoin,
 			mcp.WithDescription("Join a public channel. Use channels_list or channels_me to find channel IDs."),
 			mcp.WithTitleAnnotation("Join Channel"),
@@ -507,7 +537,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsMeHandler)
 	}
 
-	if shouldAddTool(ToolUsergroupsCreate, enabledTools, "") {
+	if shouldAddTool(ToolUsergroupsCreate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsCreate,
 			mcp.WithDescription("Create a new user group (mention group) in the Slack workspace. After creation, use usergroups_users_update to add members, or users can join themselves with usergroups_me. The handle becomes the @mention (e.g., handle='engineering' creates @engineering)."),
 			mcp.WithTitleAnnotation("Create User Group"),
@@ -528,7 +558,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsCreateHandler)
 	}
 
-	if shouldAddTool(ToolUsergroupsUpdate, enabledTools, "") {
+	if shouldAddTool(ToolUsergroupsUpdate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsUpdate,
 			mcp.WithDescription("Update a user group's metadata: name, handle (@mention), description, or default channels. Does NOT change members - use usergroups_users_update for that. At least one field must be provided."),
 			mcp.WithTitleAnnotation("Update User Group"),
@@ -552,7 +582,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsUpdateHandler)
 	}
 
-	if shouldAddTool(ToolUsergroupsUsersUpdate, enabledTools, "") {
+	if shouldAddTool(ToolUsergroupsUsersUpdate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsUsersUpdate,
 			mcp.WithDescription("Replace all members of a user group with a new list. WARNING: This completely replaces the member list - any user not in the 'users' parameter will be removed. To add/remove just yourself, use usergroups_me instead. To add a single user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
 			mcp.WithTitleAnnotation("Update User Group Members"),
