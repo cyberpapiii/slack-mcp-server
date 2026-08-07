@@ -1334,30 +1334,35 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 	// Store intermediate snapshot so GetSlackConnect can read current users
 	ap.usersSnapshot.Store(newSnapshot)
 
-	connectUsers, err := ap.GetSlackConnect(ctx)
-	if err != nil {
-		ap.logger.Error("Failed to fetch users from Slack Connect", zap.Error(err))
-		return err
-	}
-	list = append(list, connectUsers...)
+	if ap.IsOAuth() {
+		ap.logger.Debug("Skipping Slack Connect enrichment (OAuth token, browser features unavailable)")
+	} else {
+		connectUsers, err := ap.GetSlackConnect(ctx)
+		if err != nil {
+			ap.logger.Warn("Slack Connect enrichment failed; continuing with standard user list",
+				zap.Error(err))
+		} else {
+			list = append(list, connectUsers...)
 
-	// Add Slack Connect users to a new snapshot (since maps are shared)
-	if len(connectUsers) > 0 {
-		finalSnapshot := &UsersCache{
-			Users:    make(map[string]slack.User, len(newSnapshot.Users)+len(connectUsers)),
-			UsersInv: make(map[string]string, len(newSnapshot.UsersInv)+len(connectUsers)),
+			// Add Slack Connect users to a new snapshot (since maps are shared)
+			if len(connectUsers) > 0 {
+				finalSnapshot := &UsersCache{
+					Users:    make(map[string]slack.User, len(newSnapshot.Users)+len(connectUsers)),
+					UsersInv: make(map[string]string, len(newSnapshot.UsersInv)+len(connectUsers)),
+				}
+				for k, v := range newSnapshot.Users {
+					finalSnapshot.Users[k] = v
+				}
+				for k, v := range newSnapshot.UsersInv {
+					finalSnapshot.UsersInv[k] = v
+				}
+				for _, user := range connectUsers {
+					finalSnapshot.Users[user.ID] = user
+					finalSnapshot.UsersInv[user.Name] = user.ID
+				}
+				ap.usersSnapshot.Store(finalSnapshot)
+			}
 		}
-		for k, v := range newSnapshot.Users {
-			finalSnapshot.Users[k] = v
-		}
-		for k, v := range newSnapshot.UsersInv {
-			finalSnapshot.UsersInv[k] = v
-		}
-		for _, user := range connectUsers {
-			finalSnapshot.Users[user.ID] = user
-			finalSnapshot.UsersInv[user.Name] = user.ID
-		}
-		ap.usersSnapshot.Store(finalSnapshot)
 	}
 
 	if data, err := json.MarshalIndent(list, "", "  "); err != nil {
