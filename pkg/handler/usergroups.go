@@ -277,7 +277,6 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 		return nil, errors.New("action must be 'list', 'join', or 'leave'")
 	}
 
-	// Get current user ID
 	authResp, err := h.apiProvider.Slack().AuthTest()
 	if err != nil {
 		h.logger.Error("AuthTest failed", zap.Error(err))
@@ -286,12 +285,10 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 	currentUserID := authResp.UserID
 	h.logger.Debug("Current user ID", zap.String("user_id", currentUserID))
 
-	// Handle list action
 	if action == "list" {
 		return h.handleListMyGroups(ctx, currentUserID)
 	}
 
-	// For join/leave, usergroup_id is required
 	usergroupID := request.GetString("usergroup_id", "")
 	if usergroupID == "" {
 		return nil, errors.New("usergroup_id is required for join/leave actions")
@@ -302,7 +299,6 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 		zap.String("action", action),
 	)
 
-	// Get current members of the group
 	members, err := h.apiProvider.Slack().GetUserGroupMembersContext(ctx, usergroupID)
 	if err != nil {
 		h.logger.Error("GetUserGroupMembersContext failed", zap.Error(err))
@@ -311,7 +307,6 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 
 	h.logger.Debug("Current group members", zap.Int("count", len(members)), zap.Strings("members", members))
 
-	// Check current membership
 	isMember := false
 	memberIndex := -1
 	for i, uid := range members {
@@ -339,12 +334,10 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 				UsergroupMeActionResult{Message: "You are not a member of this user group.", GroupID: usergroupID},
 			), nil
 		}
-		// Remove current user from members
 		newMembers = append(members[:memberIndex], members[memberIndex+1:]...)
 		resultMessage = "Successfully left the user group."
 	}
 
-	// Update the group members
 	membersStr := strings.Join(newMembers, ",")
 	updated, err := h.apiProvider.Slack().UpdateUserGroupMembersContext(ctx, usergroupID, membersStr)
 	if err != nil {

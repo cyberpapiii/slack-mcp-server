@@ -1,31 +1,31 @@
 # Slack MCP Server
 [![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/korotovsky/slack-mcp-server)](https://archestra.ai/mcp-catalog/korotovsky__slack-mcp-server)
 
-Model Context Protocol (MCP) server for Slack Workspaces. The most powerful MCP Slack server — supports Stdio, SSE and HTTP transports, proxy settings, DMs, Group DMs, Smart History fetch (by date or count), may work via OAuth or in complete stealth mode with no permissions and scopes in Workspace 😏.
+Model Context Protocol (MCP) server for Slack Workspaces. It supports Stdio, SSE and HTTP transports, proxy settings, DMs, Group DMs, and Smart History fetch (by date or count), and it works via OAuth or in stealth mode with no permissions and scopes in the Workspace.
 
 > [!IMPORTANT]  
-> We need your support! Each month, over 30,000 engineers visit this repository, and more than 9,000 are already using it.
+> Each month, over 30,000 engineers visit this repository, and more than 9,000 already use it.
 > 
-> If you appreciate the work our [contributors](https://github.com/korotovsky/slack-mcp-server/graphs/contributors) have put into this project, please consider giving the repository a star.
+> If the work our [contributors](https://github.com/korotovsky/slack-mcp-server/graphs/contributors) have put into this project has been useful to you, consider giving the repository a star.
 
-This feature-rich Slack MCP Server has:
-- **Stealth and OAuth Modes**: Run the server without requiring additional permissions or bot installations (stealth mode), or use secure OAuth tokens for access without needing to refresh or extract tokens from the browser (OAuth mode).
-- **Enterprise Workspaces Support**: Possibility to integrate with Enterprise Slack setups.
-- **Channel and Thread Support with `#Name` `@Lookup`**: Fetch messages from channels and threads, including activity messages, and retrieve channels using their names (e.g., #general) as well as their IDs.
-- **Smart History**: Fetch messages with pagination by date (d1, 7d, 1m) or message count.
-- **Unread Messages**: Get all unread messages across channels efficiently with priority sorting (DMs > partner channels > internal), @mention filtering, and mark-as-read support.
-- **Search Messages**: Search messages in channels, threads, and DMs using various filters like date, user, and content.
-- **Safe Message Posting**: The `conversations_add_message` tool is disabled by default for safety. Enable it via an environment variable, with optional channel restrictions.
-- **DM and Group DM support**: Retrieve direct messages and group direct messages.
-- **Embedded user information**: Embed user information in messages, for better context.
-- **Cache support**: Cache users and channels for faster access.
-- **Stdio/SSE/HTTP Transports & Proxy Support**: Use the server with any MCP client that supports Stdio, SSE or HTTP transports, and configure it to route outgoing requests through a proxy if needed.
+What the server does:
+- **Stealth and OAuth modes**: Stealth mode runs on browser session tokens without extra permissions or a bot installation. OAuth mode uses standard tokens you never have to refresh or extract from the browser.
+- **Enterprise workspaces**: Works with Enterprise Slack setups.
+- **Channels and threads with `#Name` and `@Lookup`**: Fetch messages from channels and threads, including activity messages, and address channels by name (e.g., #general) as well as by ID.
+- **Smart History**: Fetch messages with pagination by date (1d, 7d, 1m) or message count.
+- **Unread messages**: Get unread messages across channels with priority sorting (DMs > partner channels > internal), @mention filtering, and mark-as-read support.
+- **Search messages**: Search messages in channels, threads, and DMs, filtering by date, user, and content.
+- **Safe message posting**: The `conversations_add_message` tool is disabled by default. Enable it via an environment variable, with optional channel restrictions.
+- **DMs and Group DMs**: Read both one-on-one and group direct message conversations.
+- **Embedded user information**: Messages carry user details, so the model knows who said what.
+- **Caching**: Users and channels are cached locally, so startup doesn't repeat the same API calls.
+- **Stdio/SSE/HTTP transports and proxy support**: Works with any MCP client that speaks Stdio, SSE or HTTP, and can route outgoing requests through a proxy.
 
-### Analytics Demo
+### Analytics demo
 
 ![Analytics](images/feature-1.gif)
 
-### Add Message Demo
+### Add message demo
 
 ![Add Message](images/feature-2.gif)
 
@@ -34,7 +34,7 @@ This feature-rich Slack MCP Server has:
 ### 1. conversations_history:
 Get messages from the channel (or DM) by channel_id, the last row/column in the response is used as 'cursor' parameter for pagination if not empty
 - **Parameters:**
-  - `channel_id` (string, required):     - `channel_id` (string): ID of the channel in format Cxxxxxxxxxx or its name starting with `#...` or `@...` aka `#general` or `@username_dm`.
+  - `channel_id` (string, required): ID of the channel in format `Cxxxxxxxxxx` or its name starting with `#...` or `@...` aka `#general` or `@username_dm`.
   - `include_activity_messages` (boolean, default: false): If true, the response will include activity messages such as `channel_join` or `channel_leave`. Default is boolean false.
   - `cursor` (string, optional): Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request.
   - `limit` (string, default: "1d"): Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 1w - 1 week, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided.
@@ -43,7 +43,7 @@ Get messages from the channel (or DM) by channel_id, the last row/column in the 
 Get a thread of messages posted to a conversation by channelID and `thread_ts`, the last row/column in the response is used as `cursor` parameter for pagination if not empty.
 - **Parameters:**
   - `channel_id` (string, required): ID of the channel in format `Cxxxxxxxxxx` or its name starting with `#...` or `@...` aka `#general` or `@username_dm`.
-  - `thread_ts` (string, required): Unique identifier of either a thread’s parent message or a message in the thread. ts must be the timestamp in format `1234567890.123456` of an existing message with 0 or more replies.
+  - `thread_ts` (string, required): Unique identifier of either a thread's parent message or a message in the thread. ts must be the timestamp in format `1234567890.123456` of an existing message with 0 or more replies.
   - `include_activity_messages` (boolean, default: false): If true, the response will include activity messages such as 'channel_join' or 'channel_leave'. Default is boolean false.
   - `cursor` (string, optional): Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request.
   - `limit` (string, default: "1d"): Limit of messages to fetch in format of maximum ranges of time (e.g. 1d - 1 day, 1w - 1 week, 30d - 30 days, 90d - 90 days which is a default limit for free tier history) or number of messages (e.g. 50). Must be empty when 'cursor' is provided.
@@ -57,7 +57,7 @@ Add a message to a public channel, private channel, or direct message (DM, or IM
 
 - **Parameters:**
   - `channel_id` (string, required): ID of the channel in format `Cxxxxxxxxxx` or its name starting with `#...` or `@...` aka `#general` or `@username_dm`.
-  - `thread_ts` (string, optional): Unique identifier of either a thread’s parent message or a message in the thread_ts must be the timestamp in format `1234567890.123456` of an existing message with 0 or more replies. Optional, if not provided the message will be added to the channel itself, otherwise it will be added to the thread.
+  - `thread_ts` (string, optional): Unique identifier of either a thread's parent message or a message in the thread. thread_ts must be the timestamp in format `1234567890.123456` of an existing message with 0 or more replies. Optional, if not provided the message will be added to the channel itself, otherwise it will be added to the thread.
   - `payload` (string, required): Message payload in specified content_type format. Example: 'Hello, world!' for text/plain or '# Hello, world!' for text/markdown.
   - `content_type` (string, default: "text/markdown"): Content type of the message. Default is 'text/markdown'. Allowed values: 'text/markdown', 'text/plain'.
 
@@ -93,7 +93,7 @@ Get list of channels
   - `limit` (number, default: 100): The maximum number of items to return. Must be an integer between 1 and 1000 (maximum 999).
   - `cursor` (string, optional): Cursor for pagination. Use the value of the last row and column in the response as next_cursor field returned from the previous request.
 
-### 6. reactions_add:
+### 7. reactions_add:
 Add an emoji reaction to a message in a public channel, private channel, or direct message (DM, or IM) conversation.
 
 > **Note:** Adding reactions is disabled by default for safety. To enable, set the `SLACK_MCP_REACTION_TOOL` environment variable. If set to a comma-separated list of channel IDs, reactions are enabled only for those specific channels. See the Environment Variables section below for details.
@@ -103,7 +103,7 @@ Add an emoji reaction to a message in a public channel, private channel, or dire
   - `timestamp` (string, required): Timestamp of the message to add reaction to, in format `1234567890.123456`.
   - `emoji` (string, required): The name of the emoji to add as a reaction (without colons). Example: `thumbsup`, `heart`, `rocket`.
 
-### 7. reactions_remove:
+### 8. reactions_remove:
 Remove an emoji reaction from a message in a public channel, private channel, or direct message (DM, or IM) conversation.
 
 > **Note:** Removing reactions follows the same permission model as `reactions_add`. To enable, set the `SLACK_MCP_REACTION_TOOL` environment variable.
@@ -113,7 +113,7 @@ Remove an emoji reaction from a message in a public channel, private channel, or
   - `timestamp` (string, required): Timestamp of the message to remove reaction from, in format `1234567890.123456`.
   - `emoji` (string, required): The name of the emoji to remove as a reaction (without colons). Example: `thumbsup`, `heart`, `rocket`.
 
-### 8. users_search:
+### 9. users_search:
 Search for users by name, email, or display name. Returns user details and DM channel ID if available.
 
 > **Note:** For OAuth tokens (`xoxp`/`xoxb`), this tool searches the local users cache using pattern matching. For browser session tokens (`xoxc`/`xoxd`), it uses the Slack edge API for real-time search.
@@ -131,7 +131,7 @@ Search for users by name, email, or display name. Returns user details and DM ch
   - `Title`: User's job title
   - `DMChannelID`: DM channel ID if available in cache (for quick messaging)
 
-### 9. usergroups_list:
+### 10. usergroups_list:
 List all user groups (subteams) in the workspace.
 
 - **Parameters:**
@@ -143,7 +143,7 @@ List all user groups (subteams) in the workspace.
 
 > **Required OAuth scopes:** `usergroups:read`
 
-### 10. usergroups_create:
+### 11. usergroups_create:
 Create a new user group in the workspace.
 
 - **Parameters:**
@@ -156,7 +156,7 @@ Create a new user group in the workspace.
 
 > **Required OAuth scopes:** `usergroups:write`
 
-### 11. usergroups_update:
+### 12. usergroups_update:
 Update an existing user group's metadata.
 
 - **Parameters:**
@@ -170,7 +170,7 @@ Update an existing user group's metadata.
 
 > **Required OAuth scopes:** `usergroups:write`
 
-### 12. usergroups_users_update:
+### 13. usergroups_users_update:
 Update the members of a user group. This replaces all existing members.
 
 - **Parameters:**
@@ -181,7 +181,7 @@ Update the members of a user group. This replaces all existing members.
 
 > **Required OAuth scopes:** `usergroups:write`
 
-### 13. usergroups_me:
+### 14. usergroups_me:
 Manage your user group membership: list groups you're in, join a group, or leave a group.
 
 - **Parameters:**
@@ -194,8 +194,8 @@ Manage your user group membership: list groups you're in, join a group, or leave
 
 > **Required OAuth scopes:** `usergroups:read` (for list), `usergroups:read` + `usergroups:write` (for join/leave)
 
-### 14. conversations_unreads
-Get unread messages across all channels efficiently. Uses a single API call to identify channels with unreads, then fetches only those messages. Results are prioritized: DMs > partner channels (Slack Connect) > internal channels.
+### 15. conversations_unreads
+Get unread messages across all channels. Uses a single API call to identify channels with unreads, then fetches only those messages. Results are prioritized: DMs > partner channels (Slack Connect) > internal channels.
 
 > **Note:** This tool works best with browser session tokens (`xoxc`/`xoxd`), which use the efficient `client.counts` API. For standard OAuth tokens (`xoxp`), a fallback method using `conversations.info` is used, which requires one API call per channel and may be slower for large workspaces. Not available with bot tokens (`xoxb`).
 
@@ -206,7 +206,7 @@ Get unread messages across all channels efficiently. Uses a single API call to i
   - `max_messages_per_channel` (number, default: 10): Maximum messages to fetch per channel.
   - `mentions_only` (boolean, default: false): If true, only returns channels where you have @mentions. Note: This filter only works with browser tokens; OAuth tokens will return all unread channels.
 
-### 15. conversations_mark
+### 16. conversations_mark
 Mark a channel or DM as read.
 
 > **Note:** Marking messages as read is disabled by default for safety. To enable, set the `SLACK_MCP_MARK_TOOL` environment variable to `true` or `1`. See the Environment Variables section below for details.
@@ -215,8 +215,8 @@ Mark a channel or DM as read.
   - `channel_id` (string, required): ID of the channel in format `Cxxxxxxxxxx` or its name starting with `#...` or `@...` (e.g., `#general`, `@username`).
   - `ts` (string, optional): Timestamp of the message to mark as read up to. If not provided, marks all messages as read.
 
-### 16. activity_unreads
-Get unread Activity items — thread replies you're following and @mentions in threads. Returns the same data as Slack's Activity panel "Unreads" tab. Zero false positives.
+### 17. activity_unreads
+Get unread Activity items: thread replies you're following and @mentions in threads. Returns the same data as Slack's Activity panel "Unreads" tab. Zero false positives.
 
 > **Note:** This tool requires browser session tokens (`xoxc`/`xoxd`). It is not available with standard OAuth (`xoxp`) or bot (`xoxb`) tokens.
 
@@ -225,7 +225,7 @@ Get unread Activity items — thread replies you're following and @mentions in t
   - `max_messages_per_thread` (number, default `10`): Max messages to fetch per thread when `include_messages` is true.
   - `limit` (number, default `30`): Max Activity items to return.
 
-### 17. activity_mark_read
+### 18. activity_mark_read
 Mark an Activity item as read. Use the `key`, `feed_ts`, and `type` values from `activity_unreads` output.
 
 > **Note:** This tool requires browser session tokens (`xoxc`/`xoxd`). It is not available with standard OAuth (`xoxp`) or bot (`xoxb`) tokens.
@@ -237,9 +237,9 @@ Mark an Activity item as read. Use the `key`, `feed_ts`, and `type` values from 
 
 ## Resources
 
-The Slack MCP Server exposes two special directory resources for easy access to workspace metadata:
+The Slack MCP Server exposes two directory resources with workspace metadata:
 
-### 1. `slack://<workspace>/channels` — Directory of Channels
+### 1. Channels directory: `slack://<workspace>/channels`
 
 Fetches a CSV directory of all channels in the workspace, including public channels, private channels, DMs, and group DMs.
 
@@ -252,7 +252,7 @@ Fetches a CSV directory of all channels in the workspace, including public chann
   - `purpose`: Channel purpose/description
   - `memberCount`: Number of members in the channel
 
-### 2. `slack://<workspace>/users` — Directory of Users
+### 2. Users directory: `slack://<workspace>/users`
 
 Fetches a CSV directory of all users in the workspace.
 
@@ -261,22 +261,22 @@ Fetches a CSV directory of all users in the workspace.
 - **Fields:**
   - `userID`: User ID (e.g., `U1234567890`)
   - `userName`: Slack username (e.g., `john`)
-  - `realName`: User’s real name (e.g., `John Doe`)
+  - `realName`: User's real name (e.g., `John Doe`)
 
-## Setup Guide
+## Setup guide
 
 - [Authentication Setup](docs/01-authentication-setup.md)
 - [Installation](docs/02-installation.md)
 - [Configuration and Usage](docs/03-configuration-and-usage.md)
 
-### Environment Variables (Quick Reference)
+### Environment variables (quick reference)
 
 | Variable                          | Required? | Default                   | Description                                                                                                                                                                                                                                                                               |
 |-----------------------------------|-----------|---------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `SLACK_MCP_XOXC_TOKEN`            | Yes*      | `nil`                     | Slack browser token (`xoxc-...`)                                                                                                                                                                                                                                                          |
 | `SLACK_MCP_XOXD_TOKEN`            | Yes*      | `nil`                     | Slack browser cookie `d` (`xoxd-...`)                                                                                                                                                                                                                                                     |
-| `SLACK_MCP_XOXP_TOKEN`            | Yes*      | `nil`                     | User OAuth token (`xoxp-...`) — alternative to xoxc/xoxd                                                                                                                                                                                                                                  |
-| `SLACK_MCP_XOXB_TOKEN`            | Yes*      | `nil`                     | Bot token (`xoxb-...`) — alternative to xoxp/xoxc/xoxd. Bot has limited access (invited channels only, no search)                                                                                                                                                                         |
+| `SLACK_MCP_XOXP_TOKEN`            | Yes*      | `nil`                     | User OAuth token (`xoxp-...`), an alternative to xoxc/xoxd                                                                                                                                                                                                                                  |
+| `SLACK_MCP_XOXB_TOKEN`            | Yes*      | `nil`                     | Bot token (`xoxb-...`), an alternative to xoxp/xoxc/xoxd. Bot has limited access (invited channels only, no search)                                                                                                                                                                         |
 | `SLACK_MCP_PORT`                  | No        | `13080`                   | Port for the MCP server to listen on                                                                                                                                                                                                                                                      |
 | `SLACK_MCP_HOST`                  | No        | `127.0.0.1`               | Host for the MCP server to listen on                                                                                                                                                                                                                                                      |
 | `SLACK_MCP_API_KEY`               | No        | `nil`                     | Bearer token for SSE and HTTP transports                                                                                                                                                                                                                                                            |
@@ -300,7 +300,7 @@ Fetches a CSV directory of all users in the workspace.
 
 *You need one of: `xoxp` (user), `xoxb` (bot), or both `xoxc`/`xoxd` tokens for authentication.
 
-### Limitations matrix & Cache
+### Limitations matrix and cache
 
 | Users Cache        | Channels Cache     | Limitations                                                                                                                                                                                                                                                                                                                  |
 |--------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -308,7 +308,7 @@ Fetches a CSV directory of all users in the workspace.
 | :white_check_mark: | :x:                | No channels cache, tool `channels_list` will be fully not functional. Tools `conversations_*` will have limited capabilities and you won't be able to search messages by `@userHandle` or `#channel-name`, getting messages by `@userHandle` or `#channel-name` won't be available either.                                   |
 | :white_check_mark: | :white_check_mark: | No limitations, fully functional Slack MCP Server.                                                                                                                                                                                                                                                                           |
 
-### Debugging Tools
+### Debugging tools
 
 ```bash
 # Run the inspector with stdio transport
@@ -325,4 +325,4 @@ tail -n 20 -f ~/Library/Logs/Claude/mcp*.log
 
 ## License
 
-Licensed under MIT - see [LICENSE](LICENSE) file. This is not an official Slack product.
+Licensed under MIT. See the [LICENSE](LICENSE) file. This is not an official Slack product.

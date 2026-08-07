@@ -1,6 +1,6 @@
 ### 1. Authentication Setup
 
-Open up your Slack in your browser and login.
+Open Slack in your browser and log in.
 
 > **Note**: You only need one of the following: an `xoxp-*` User OAuth token, an `xoxb-*` Bot token, or both `xoxc-*` and `xoxd-*` session tokens. User/Bot tokens are more secure and do not require a browser session. If multiple are provided, priority is `xoxp` > `xoxb` > `xoxc/xoxd`.
 
@@ -17,15 +17,15 @@ Open up your Slack in your browser and login.
 - Paste the following snippet and press ENTER to execute:
   `JSON.parse(localStorage.localConfig_v2).teams[document.location.pathname.match(/^\/client\/([A-Z0-9]+)/)[1]].token`
 
-Token value is printed right after the executed command (it starts with
-`xoxc-`), save it somewhere for now.
+The token value prints right after the executed command (it starts with
+`xoxc-`). Save it somewhere for now.
 
 ##### Lookup `SLACK_MCP_XOXD_TOKEN`
 
 - Switch to "Application" tab and select "Cookies" in the left navigation pane.
 - Find the cookie with the name `d`.  That's right, just the letter `d`.
 - Double-click the Value of this cookie.
-- Press Ctrl+C or Cmd+C to copy it's value to clipboard.
+- Press Ctrl+C or Cmd+C to copy its value to the clipboard.
 - Save it for later.
 
 #### Option 2: Using `SLACK_MCP_XOXP_TOKEN` (User OAuth)
@@ -40,10 +40,10 @@ Instead of using browser-based tokens (`xoxc`/`xoxd`), you can use a User OAuth 
     - `groups:read` - View basic information about private channels
     - `im:history` - View messages in direct messages.
     - `im:read` - View basic information about direct messages
-    - `im:write` - Start direct messages with people on a user’s behalf (new since `v1.1.18`)
+    - `im:write` - Start direct messages with people on a user's behalf (new since `v1.1.18`)
     - `mpim:history` - View messages in group direct messages
     - `mpim:read` - View basic information about group direct messages
-    - `mpim:write` - Start group direct messages with people on a user’s behalf (new since `v1.1.18`)
+    - `mpim:write` - Start group direct messages with people on a user's behalf (new since `v1.1.18`)
     - `users:read` - View people in a workspace.
     - `chat:write` - Send messages on a user's behalf. (new since `v1.1.18`)
     - `search:read` - Search a workspace's content. (new since `v1.1.18`)

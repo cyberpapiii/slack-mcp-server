@@ -249,7 +249,7 @@ const slackMaxChannelsPageSize = 200
 // nextPageSize returns how many channels to ask Slack for on the next call:
 // exactly the number still missing to reach limit, capped at Slack's maximum
 // page size. Never over-requesting is what keeps the cursor Slack returns
-// aligned with the last row we actually hand back — asking for more would
+// aligned with the last row we actually hand back. Asking for more would
 // leave the surplus rows unreachable by any later page.
 func nextPageSize(limit, have int) int {
 	remaining := limit - have
@@ -453,7 +453,6 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 		zap.Int("limit", limit),
 	)
 
-	// Get starred channel IDs from Slack API
 	starredIDs, err := ch.apiProvider.Slack().GetStarredChannelIDs(ctx, limit)
 	if err != nil {
 		ch.logger.Error("Failed to get starred channel IDs", zap.Error(err))
@@ -473,7 +472,6 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 		}
 	}
 
-	// Resolve channel details from cache
 	channelsMaps := ch.apiProvider.ProvideChannelsMaps()
 
 	var result []StarredChannel
@@ -488,12 +486,11 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 			sc.MemberCount = cached.MemberCount
 			sc.ChannelType = classifyChannelType(cached)
 		} else {
-			// Channel not in cache — use ID as name, type unknown
+			// Channel not in cache; use the ID as the name, type unknown.
 			sc.ChannelName = id
 			sc.ChannelType = "internal"
 		}
 
-		// Apply channel_types filter
 		if channelTypesFilter != "all" && sc.ChannelType != channelTypesFilter {
 			continue
 		}

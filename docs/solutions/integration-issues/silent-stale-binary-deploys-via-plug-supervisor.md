@@ -31,18 +31,18 @@ tags:
 
 ## Problem
 
-Local deploys of `slack-mcp-server` silently failed to take effect: `make deploy-local` reported success, but the old server process kept serving MCP requests while the freshly built binary sat unused on disk. The root cause was that the deploy recipe never actually restarted the running server subprocess — first because it used the wrong Plug verb, and then because a corrected restart raced against Plug's supervisor.
+Local deploys of `slack-mcp-server` silently failed to take effect: `make deploy-local` reported success, but the old server process kept serving MCP requests while the freshly built binary sat unused on disk. The root cause was that the deploy recipe never actually restarted the running server subprocess, first because it used the wrong Plug verb, and then because a corrected restart raced against Plug's supervisor.
 
 ## Symptoms
 
 - After deploying a change that replaced the compact CSV columns, a live `conversations_history` MCP call still returned the OLD header (`User,Channel,Text,Time,Reactions,Cursor`) instead of the new one (`User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor`). The observable output format was the deployment canary, and it never changed.
 - A later fix still showed a just-fixed string in live output: a truncation receipt rendered with CSV-doubled quotes (`""full""`) that the new binary renders as `full`. The bug that had supposedly been deployed was still on screen.
 - The deploy commands all exited 0. `plug reload` succeeded, and both `plug server disable slack` and `plug server enable slack` succeeded, so nothing in the command output signaled a problem.
-- The decisive symptom was in process metadata, not stdout. `ps -eo pid,lstart,command | grep "[s]lack-mcp-server --transport"` showed the serving process had started at 16:58 — hours before the 18:50 rebuild. Later, the running process's start time (`ps -o lstart=`: 19:05:49) PREDATED the new binary's build timestamp (19:06:13, from the `-ldflags` BuildTime). A running process cannot be older than the binary it supposedly executes, which proved the swap had not happened.
+- The decisive symptom was in process metadata, not stdout. `ps -eo pid,lstart,command | grep "[s]lack-mcp-server --transport"` showed the serving process had started at 16:58, hours before the 18:50 rebuild. Later, the running process's start time (`ps -o lstart=`: 19:05:49) PREDATED the new binary's build timestamp (19:06:13, from the `-ldflags` BuildTime). A running process cannot be older than the binary it supposedly executes, which proved the swap had not happened.
 
 ## What Didn't Work
 
-### Layer 1 — `plug reload` does not restart server subprocesses
+### Layer 1: `plug reload` does not restart server subprocesses
 
 The original recipe was:
 
@@ -51,11 +51,11 @@ go build ... -o ./bin/slack-mcp-server ./cmd/slack-mcp-server
 plug reload && echo "Plug reloaded"
 ```
 
-`plug reload` re-reads Plug's config from disk but leaves running stdio server children untouched. The new binary was built, the config was re-read, and the echo printed "Plug reloaded" — but the process that had been spawned at 16:58 kept serving the old CSV header indefinitely.
+`plug reload` re-reads Plug's config from disk but leaves running stdio server children untouched. The new binary was built, the config was re-read, and the echo printed "Plug reloaded", but the process that had been spawned at 16:58 kept serving the old CSV header indefinitely.
 
-How it was detected: a live `conversations_history` call still returned the old header after a successful deploy. `ps -eo pid,lstart,command | grep "[s]lack-mcp-server --transport"` showed the serving process predated the rebuild by hours. The manual workaround that actually swapped the process during debugging was `plug server disable slack`, wait about two seconds, then `plug server enable slack` — which kills and respawns the subprocess.
+How it was detected: a live `conversations_history` call still returned the old header after a successful deploy. `ps -eo pid,lstart,command | grep "[s]lack-mcp-server --transport"` showed the serving process predated the rebuild by hours. The manual workaround that actually swapped the process during debugging was `plug server disable slack`, wait about two seconds, then `plug server enable slack`, which kills and respawns the subprocess.
 
-### Layer 2 — back-to-back `disable && enable` races the supervisor
+### Layer 2: back-to-back `disable && enable` races the supervisor
 
 The first Makefile fix encoded the manual workaround but dropped the pause:
 
@@ -63,7 +63,7 @@ The first Makefile fix encoded the manual workaround but dropped the pause:
 plug server disable slack && plug server enable slack
 ```
 
-With no delay between them, the `disable` had not finished tearing down the child when `enable` ran, so Plug kept the old process alive. Both commands exited 0 and the echo printed "restarted", so the failure was completely invisible in the command output — strictly worse than failing loudly, because it looked like success.
+With no delay between them, the `disable` had not finished tearing down the child when `enable` ran, so Plug kept the old process alive. Both commands exited 0 and the echo printed "restarted", so the failure was completely invisible in the command output, strictly worse than failing loudly because it looked like success.
 
 How it was detected: live MCP output still showed the just-fixed `""full""` truncation string, and the decisive check was that the running process's start time (19:05:49) predated the new binary's build time (19:06:13). The earlier manual bounces had only worked because a human-scale pause happened to sit between the disable and the enable; automating the sequence removed that incidental delay and resurrected the bug.
 
@@ -87,13 +87,13 @@ go build $(COMMON_BUILD_ARGS) -o ./bin/slack-mcp-server ./cmd/slack-mcp-server
     plug server disable slack && sleep 2 && plug server enable slack \
         && echo "Plug slack server restarted with new binary"; \
 else \
-    echo "plug not in PATH — restart Plug manually"; \
+    echo "plug not in PATH: restart Plug manually"; \
 fi
 @sleep 3; NEW_PID=$$(pgrep -f 'bin/slack-mcp-server --transport' | head -1); \
 if [ -n "$$NEW_PID" ]; then \
     echo "slack-mcp-server running as PID $$NEW_PID (started $$(ps -o lstart= -p $$NEW_PID))"; \
 else \
-    echo "WARNING: no slack-mcp-server process found — check plug status"; \
+    echo "WARNING: no slack-mcp-server process found, check plug status"; \
 fi
 ```
 
@@ -125,5 +125,5 @@ The trailing `sleep 3` plus `pgrep`/`ps -o lstart=` block turns a silent failure
 
 ## Related Issues
 
-- None — this is the first entry in `docs/solutions/`. GitHub issue search skipped: the failure is in local Plug deployment tooling, which does not exist in the upstream repository.
+- None. This is the first entry in `docs/solutions/`. GitHub issue search skipped: the failure is in local Plug deployment tooling, which does not exist in the upstream repository.
 - Related repo docs: the deploy procedure is documented in `docs/agent-presets.md` (header note) and the `deploy-local` target lives in the root `Makefile`.

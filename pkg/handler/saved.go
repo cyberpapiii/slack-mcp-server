@@ -128,7 +128,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 					allMessages = append(allMessages, Message{
 						MsgID:   item.Ts,
 						Channel: channelName,
-						Text:    "[message content unavailable — channel access denied]",
+						Text:    "[message content unavailable: channel access denied]",
 						Time:    formatUnixTs(item.DateCreated),
 					})
 					continue
@@ -170,7 +170,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 						allMessages = append(allMessages, Message{
 							MsgID:   item.Ts,
 							Channel: channelName,
-							Text:    "[saved item — message not found in channel history]",
+							Text:    "[saved item: message not found in channel history]",
 							Time:    formatUnixTs(item.DateCreated),
 						})
 					}

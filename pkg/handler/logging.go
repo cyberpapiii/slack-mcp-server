@@ -27,7 +27,7 @@ func logGatedParams(logger *zap.Logger, event string, params any) {
 
 // logToolCall logs a tool invocation. The full request params are included
 // only when SLACK_MCP_LOG_PARAMS=debug, mirroring the HTTP middleware gate
-// in pkg/server — params can contain message text and search queries.
+// in pkg/server; params can contain message text and search queries.
 func logToolCall(logger *zap.Logger, event string, request mcp.CallToolRequest) {
 	logGatedParams(logger, event, request.Params)
 }

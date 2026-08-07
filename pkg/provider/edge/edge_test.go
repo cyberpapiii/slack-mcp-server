@@ -18,7 +18,7 @@ import (
 
 // fakeAuthProvider satisfies auth.Provider without any real credentials.
 // Note that Test returns the rusq/slack AuthTestResponse, while NewWithInfo
-// takes the slack-go one — two different packages, hence the import alias.
+// takes the slack-go one, two different packages, hence the import alias.
 type fakeAuthProvider struct{ cl *http.Client }
 
 func (f fakeAuthProvider) SlackToken() string      { return "xoxc-test" }
@@ -658,7 +658,7 @@ func TestUnitUsersListConcurrentBuckets(t *testing.T) {
 	if len(uu) != 2 {
 		t.Fatalf("got %d users, want 2: %+v", len(uu), uu)
 	}
-	// Public-channel users come first, DM users after — the order the old
+	// Public-channel users come first, DM users after, the order the old
 	// sequential-in-practice code produced.
 	if uu[0].ID != "U-PUB" || uu[1].ID != "U-DM" {
 		t.Errorf("user IDs = %q, %q; want U-PUB then U-DM", uu[0].ID, uu[1].ID)

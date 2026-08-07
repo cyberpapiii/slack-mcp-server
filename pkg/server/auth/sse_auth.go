@@ -41,7 +41,7 @@ func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
 	}
 
 	if strings.EqualFold(os.Getenv("SLACK_MCP_ALLOW_UNAUTHENTICATED"), "true") {
-		logger.Warn("serving WITHOUT authentication — every client that can reach this server gets full Slack access",
+		logger.Warn("serving WITHOUT authentication: every client that can reach this server gets full Slack access",
 			zap.String("context", "console"),
 		)
 		return nil

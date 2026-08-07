@@ -390,7 +390,7 @@ func TestStaleWhileRevalidateReadyFlag(t *testing.T) {
 	// Simulate the stale-while-revalidate logic from refreshUsersInternal:
 	// 1. Read and unmarshal cache
 	// 2. Build snapshot and set ready flag
-	// 3. Check TTL — expired means we'd spawn background refresh
+	// 3. Check TTL; expired means we'd spawn background refresh
 	var usersReady atomic.Bool
 	var usersSnapshot atomic.Pointer[UsersCache]
 
@@ -523,7 +523,7 @@ func TestEmptyAPIResultGuard(t *testing.T) {
 	// The guard should prevent overwriting the cache file
 	// (In production code: if len(users) == 0 { return nil })
 	if len(emptyUsers) == 0 {
-		// Don't write to cache — verify original data is preserved
+		// Do not write to cache, verify original data is preserved
 		preserved, err := os.ReadFile(cacheFile)
 		require.NoError(t, err)
 

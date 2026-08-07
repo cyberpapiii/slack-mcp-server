@@ -219,19 +219,16 @@ func sendProgress(ctx context.Context, request mcp.CallToolRequest, current, tot
 func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	logResourceCall(ch.logger, "UsersResource called", request)
 
-	// authentication
 	if authenticated, err := auth.IsAuthenticated(ctx, ch.apiProvider.ServerTransport(), ch.logger); !authenticated {
 		ch.logger.Error("Authentication failed for users resource", zap.Error(err))
 		return nil, err
 	}
 
-	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
-	// Slack auth test
 	ar, err := ch.apiProvider.Slack().AuthTest()
 	if err != nil {
 		ch.logger.Error("Slack AuthTest failed", zap.Error(err))
@@ -247,7 +244,6 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 		return nil, fmt.Errorf("failed to parse workspace from URL: %v", err)
 	}
 
-	// collect users
 	usersMaps := ch.apiProvider.ProvideUsersMap()
 	users := usersMaps.Users
 	usersList := make([]User, 0, len(users))
@@ -259,7 +255,6 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 		})
 	}
 
-	// marshal CSV
 	csvBytes, err := gocsv.MarshalBytes(&usersList)
 	if err != nil {
 		ch.logger.Error("Failed to marshal users to CSV", zap.Error(err))
@@ -279,7 +274,6 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ConversationsAddMessageHandler called", request)
 
-	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
 		return nil, err
@@ -298,7 +292,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 
 	if params.blocks != nil {
 		// Raw blocks provided: use them directly. If text is also provided, it
-		// serves as the notification/fallback text.
+		// becomes the notification/fallback text.
 		options = append(options, slack.MsgOptionBlocks(params.blocks...))
 		if params.text != "" {
 			options = append(options, slack.MsgOptionText(params.text, false))
@@ -362,7 +356,6 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ConversationsDraftMessageHandler called", request)
 
-	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
 		return nil, err
@@ -420,7 +413,6 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ReactionsAddHandler called", request)
 
-	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
 		return nil, err
@@ -456,7 +448,6 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ReactionsRemoveHandler called", request)
 
-	// provider readiness
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Error("API provider not ready", zap.Error(err))
 		return nil, err
@@ -549,8 +540,8 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 }
 
 // fetchMessageByTimestamp retrieves a single message by timestamp using conversations.replies.
-// This works for top-level messages, thread parents, and thread replies alike — no additional
-// scopes beyond channels:history required.
+// This works for top-level messages, thread parents, and thread replies alike, and needs no
+// scopes beyond channels:history.
 //
 // Note: Slack's reactions.get API is purpose-built for this but requires the reactions:read scope.
 // We use conversations.replies instead to avoid introducing a new scope requirement.
@@ -1052,7 +1043,6 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 		return nil, err
 	}
 
-	// Fetch muted channels unless the caller wants them included
 	if !params.includeMuted {
 		mutedChannels, err := ch.apiProvider.Slack().GetMutedChannels(ctx)
 		if err != nil {
@@ -1067,7 +1057,7 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 	// Route based on token type:
 	// - xoxc/xoxd (browser session): use fast client.counts API
 	// - xoxp (OAuth user): fall back to conversations.info/history approach
-	// - xoxb (bot): not supported — unreads is a user-level concept
+	// - xoxb (bot): not supported; unreads is a user-level concept
 	if ch.apiProvider.IsOAuth() {
 		if ch.apiProvider.IsBotToken() {
 			return nil, fmt.Errorf(
@@ -1098,7 +1088,6 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		zap.Int("mpims", len(counts.MPIMs)),
 		zap.Int("ims", len(counts.IMs)))
 
-	// Get users map and channels map for resolving names
 	usersMap := ch.apiProvider.ProvideUsersMap()
 	channelsMaps := ch.apiProvider.ProvideChannelsMaps()
 
@@ -1110,12 +1099,10 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		return mcp.NewToolResultError("cancelled"), nil
 	}
 
-	// If not including messages, just return channel summary
 	if !params.includeMessages {
 		return ch.marshalUnreadChannelsToCSV(unreadChannels)
 	}
 
-	// Fetch messages for each unread channel
 	var allMessages []Message
 
 	for i := range unreadChannels {
@@ -1156,7 +1143,6 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		// no usable last-read timestamp) still reports 1, since HasUnreads was true.
 		unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, len(history.Messages), nil)
 
-		// Convert messages
 		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, unreadChannels[i].ChannelName, false, mode)
 		allMessages = append(allMessages, channelMessages...)
 	}
@@ -1172,7 +1158,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 // a non-nil `fetchErr` means the fetch failed and msgCount is meaningless.
 // A zero-row window never destroys information: a positive `current` survives,
 // and only when there is nothing at all to report does the count fall back to
-// the conservative 1 — client.counts said HasUnreads, so the tool never renders
+// the conservative 1. client.counts said HasUnreads, so the tool never renders
 // "0 unread".
 func unreadCountFromHistory(current, msgCount int, fetchErr error) int {
 	if fetchErr != nil {
@@ -1210,7 +1196,7 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 
 	// Backfill real unread counts for channels where client.counts only gave us
 	// HasUnreads=true but MentionCount=0 (unreads without @mentions).
-	// DMs and group DMs don't need this — every DM message counts as a mention.
+	// DMs and group DMs don't need this; every DM message counts as a mention.
 	//
 	// NOTE: conversations.info does not return unread_count with browser tokens
 	// (xoxc/xoxd), so we use conversations.history to count messages since the
@@ -1277,10 +1263,9 @@ func slackTS(t fasttime.Time) string {
 }
 
 // collectUnreadChannels turns a client.counts snapshot into the sorted, limited
-// list of unread channels. Pure: no API calls — the caller supplies the cache
+// list of unread channels. Pure: no API calls. The caller supplies the cache
 // snapshots.
 func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts edge.ClientCountsResponse, usersMap *provider.UsersCache, channelsMaps *provider.ChannelsCache) []UnreadChannel {
-	// Collect channels with unreads
 	var unreadChannels []UnreadChannel
 
 	// Process regular channels (public, private)
@@ -1299,7 +1284,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			continue
 		}
 
-		// Get channel info from cache to determine type and name
 		channelName := snap.ID
 		channelType := "internal"
 		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
@@ -1310,13 +1294,11 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			} else {
 				channelName = "#" + name
 			}
-			// Check if it's a partner/external channel using Slack's metadata
 			if cached.IsExtShared {
 				channelType = "partner"
 			}
 		}
 
-		// Filter by requested channel types
 		if params.channelTypes != "all" && channelType != params.channelTypes {
 			continue
 		}
@@ -1347,7 +1329,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			continue
 		}
 
-		// Filter by requested channel types
 		if params.channelTypes != "all" && params.channelTypes != "group_dm" {
 			continue
 		}
@@ -1390,7 +1371,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			continue
 		}
 
-		// Filter by requested channel types
 		if params.channelTypes != "all" && params.channelTypes != "dm" {
 			continue
 		}
@@ -1417,7 +1397,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 		})
 	}
 
-	// Sort by priority: DMs > partner channels > internal
 	ch.sortChannelsByPriority(unreadChannels)
 
 	// Limit channels. The maxChannels > 0 guard is a backstop: a non-positive
@@ -1468,7 +1447,6 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 		}
 		sendProgress(ctx, request, gi+1, len(groups), fmt.Sprintf("Scanning channel type group %d of %d", gi+1, len(groups)))
 
-		// Apply channel_types filter: skip groups that don't match the requested filter.
 		if params.channelTypes != "all" {
 			match := false
 			switch params.channelTypes {
@@ -1508,11 +1486,11 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	}
 	rateLimitNote := ""
 	if totalRateLimited > 0 {
-		rateLimitNote = fmt.Sprintf("WARNING: %d channels were skipped due to Slack rate limiting (even after retries) — results are degraded. Try again after a brief cooldown. ", totalRateLimited)
+		rateLimitNote = fmt.Sprintf("WARNING: %d channels were skipped because Slack rate-limited the scan even after retries, so results are degraded. Try again after a brief cooldown. ", totalRateLimited)
 	}
 	xoxpNote := fmt.Sprintf(
 		"[xoxp token: scanned %d channels (%d API calls), found %d with unreads. %s%s"+
-			"Results may be incomplete — increase max_channels for broader coverage, "+
+			"Results may be incomplete. Increase max_channels for broader coverage, "+
 			"or use xoxc/xoxd browser tokens for complete results.]\n\n",
 		totalScanned, totalAPIcalls, len(unreadChannels), rateLimitNote, mutedNote,
 	)
@@ -1522,7 +1500,6 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 		if err != nil {
 			return nil, err
 		}
-		// Prepend the xoxp note to the CSV output
 		if len(result.Content) > 0 {
 			if tc, ok := result.Content[0].(mcp.TextContent); ok {
 				tc.Text = xoxpNote + tc.Text
@@ -1532,7 +1509,6 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 		return result, nil
 	}
 
-	// Fetch actual unread messages for each discovered channel
 	rl := limiter.Tier3.Limiter()
 	var allMessages []Message
 	for i, uc := range unreadChannels {
@@ -1570,7 +1546,6 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	// Prepend the xoxp note to the messages CSV output
 	if len(result.Content) > 0 {
 		if tc, ok := result.Content[0].(mcp.TextContent); ok {
 			tc.Text = xoxpNote + tc.Text
@@ -1598,7 +1573,7 @@ func slackRetryAfter(err error) time.Duration {
 // significantly more efficient than conversations.list (excludes non-member public channels
 // and closed DMs that cannot have unreads).
 //
-// Neither endpoint sorts by activity — channels are returned in creation order.
+// Neither endpoint sorts by activity; channels come back in creation order.
 // Unread channels can appear anywhere in the list, so we scan up to a capped number
 // per type group to keep API call count bounded (each channel costs 1-2 API calls).
 //
@@ -1625,7 +1600,7 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 
 	// users.conversations returns channels in creation order (not by activity),
 	// so unread channels can appear anywhere. We scan up to budget*2 channels
-	// per type group — a trade-off between coverage and API call count.
+	// per type group, trading coverage against API call count.
 	// Each channel costs 1 API call (DMs: conversations.info returns
 	// unread_count directly) or up to 2 calls (non-DMs: conversations.info
 	// for last_read + conversations.history to detect new messages).
@@ -1652,7 +1627,7 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 		// Fetch a page of channels via users.conversations (only channels the
 		// calling user is a member of). This is significantly more efficient than
 		// conversations.list for xoxp tokens because it excludes non-member public
-		// channels and closed DMs — channels that cannot have unreads.
+		// channels and closed DMs, which cannot have unreads.
 		// Empirically tested: 37% fewer channels on a 2700-channel workspace
 		// (1724 vs 2737), with 85% reduction for public channels (156 vs 1046).
 		// Both methods miss the same set of archived channels, so zero real
@@ -1691,7 +1666,6 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 				break
 			}
 
-			// Skip muted channels
 			if params.mutedChannels[channel.ID] {
 				continue
 			}
@@ -1723,7 +1697,6 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 				continue
 			}
 
-			// Determine if channel has unreads
 			hasUnreads := false
 			unreadCount := 0
 
@@ -1739,7 +1712,7 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 				// with conversations.history to detect unreads.
 				//
 				// last_read values:
-				//   ""                    → never visited (skip — noise on large workspaces)
+				//   ""                    → never visited (skip; noise on large workspaces)
 				//   "0000000000.000000"   → never read (Slack sentinel, treat as "never visited")
 				//   "<timestamp>"         → last read position
 				lastRead := info.LastRead
@@ -1748,7 +1721,7 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 				if neverVisited && groupType != "group_dm" {
 					// For regular channels: skip if never visited/read. On large
 					// workspaces this includes hundreds of auto-joined or dormant
-					// channels — skip to avoid flooding results with stale unreads.
+					// channels; skip to avoid flooding results with stale unreads.
 					// MPIMs are always intentional (someone added you), so check them.
 					continue
 				}
@@ -1789,10 +1762,8 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 				continue
 			}
 
-			// Determine channel type and display name
 			channelType := groupType
 			if channelType == "" {
-				// For public/private channels, categorize as internal or partner
 				if info.IsExtShared {
 					channelType = "partner"
 				} else {
@@ -1800,7 +1771,6 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 				}
 			}
 
-			// Apply channel_types filter for internal vs partner
 			if params.channelTypes != "all" && params.channelTypes != channelType {
 				continue
 			}
@@ -1822,7 +1792,6 @@ func (ch *ConversationsHandler) scanTypeGroupForUnreads(
 			})
 		}
 
-		// Move to next page if available
 		if nextCursor == "" {
 			break
 		}
@@ -1875,7 +1844,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 	ts := params.ts
 
 	if ts == "" {
-		// Fetch the latest message to get its timestamp
+		// No explicit ts: mark the channel read up to its newest message.
 		historyParams := slack.GetConversationHistoryParameters{
 			ChannelID: channel,
 			Limit:     1,
@@ -1888,12 +1857,10 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		if len(history.Messages) > 0 {
 			ts = history.Messages[0].Timestamp
 		} else {
-			// No messages in channel, nothing to mark
 			return mcp.NewToolResultText("No messages to mark as read"), nil
 		}
 	}
 
-	// Mark the conversation as read
 	err = ch.apiProvider.Slack().MarkConversationContext(ctx, channel, ts)
 	if err != nil {
 		ch.logger.Error("Failed to mark conversation", zap.Error(err))
@@ -1993,9 +1960,9 @@ var channelTypePriority = map[string]int{
 // in channelTypePriority.
 const unknownChannelTypePriority = 99
 
-// sortChannelsByPriority sorts channels by type first — dm > group_dm >
-// partner > internal, with any unrecognized or empty ChannelType last — then by
-// descending UnreadCount within a type, then by ascending ChannelID. The type
+// sortChannelsByPriority sorts channels by type first: dm > group_dm >
+// partner > internal, with any unrecognized or empty ChannelType last. Within a
+// type it sorts by descending UnreadCount, then ascending ChannelID. The type
 // rank stays the primary key on purpose: a silent DM still outranks a busy
 // internal channel. The two tiebreakers only make the order total and
 // reproducible, so the max_channels truncation that follows is deterministic.
@@ -2072,14 +2039,13 @@ func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel st
 		return channel, nil
 	}
 
-	// First attempt: try to resolve from current cache
 	channelsMaps := ch.apiProvider.ProvideChannelsMaps()
 	chn, ok := channelsMaps.ChannelsInv[channel]
 	if ok {
 		return channelsMaps.Channels[chn].ID, nil
 	}
 
-	// Channel not found - try refreshing cache and retry once
+	// Not in the cache; refresh it and retry the lookup once.
 	ch.logger.Debug("Channel not found in cache, attempting refresh",
 		zap.String("channel", channel))
 
@@ -2093,14 +2059,13 @@ func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel st
 		return "", fmt.Errorf("channel %q not found and cache refresh failed: %w", channel, refreshErr)
 	}
 
-	// If rate-limited, cache wasn't refreshed - no point in a second lookup
+	// If rate-limited, the cache wasn't refreshed, so a second lookup is pointless.
 	if wasRateLimited {
 		ch.logger.Warn("Channel not found; cache refresh was rate-limited",
 			zap.String("channel", channel))
 		return "", fmt.Errorf("channel %q not found (cache refresh was rate-limited, try again later)", channel)
 	}
 
-	// Second attempt after successful refresh
 	channelsMaps = ch.apiProvider.ProvideChannelsMaps()
 	chn, ok = channelsMaps.ChannelsInv[channel]
 	if !ok {
@@ -2192,7 +2157,7 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		if warn && errors.Is(err, provider.ErrUsersNotReady) {
 			ch.logger.Warn(
-				"WARNING: Slack users sync is not ready yet, you may experience some limited functionality and see UIDs instead of resolved names as well as unable to query users by their @handles. Users sync is part of channels sync and operations on channels depend on users collection (IM, MPIM). Please wait until users are synced and try again",
+				"Slack users sync is not ready yet: names may render as raw UIDs and @handle lookups will fail. Users sync runs as part of channels sync, and IM/MPIM channel operations need the users collection. Wait for the sync to finish and try again.",
 				zap.Error(err),
 			)
 		}
@@ -2277,7 +2242,7 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 		// The schema's advertised default limit is "1d", but the same schema
 		// forbids a limit alongside 'cursor'. Sending both a cursor and a
 		// duration window makes pagination silently return nothing, so honour
-		// the cursor and drop the window — matching what the numeric branch
+		// the cursor and drop the window, matching what the numeric branch
 		// already does when a cursor is present.
 		ch.logger.Debug("Ignoring duration limit because a cursor was provided",
 			zap.String("limit", limit),
@@ -2301,13 +2266,13 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 		if ready, err := ch.apiProvider.IsReady(); !ready {
 			if errors.Is(err, provider.ErrUsersNotReady) {
 				ch.logger.Warn(
-					"WARNING: Slack users sync is not ready yet, you may experience some limited functionality and see UIDs instead of resolved names as well as unable to query users by their @handles. Users sync is part of channels sync and operations on channels depend on users collection (IM, MPIM). Please wait until users are synced and try again",
+					"Slack users sync is not ready yet: names may render as raw UIDs and @handle lookups will fail. Users sync runs as part of channels sync, and IM/MPIM channel operations need the users collection. Wait for the sync to finish and try again.",
 					zap.Error(err),
 				)
 			}
 			if errors.Is(err, provider.ErrChannelsNotReady) {
 				ch.logger.Warn(
-					"WARNING: Slack channels sync is not ready yet, you may experience some limited functionality and be able to request conversation only by Channel ID, not by its name. Please wait until channels are synced and try again.",
+					"Slack channels sync is not ready yet: channels can only be requested by ID, not by name, until the sync finishes. Wait and try again.",
 					zap.Error(err),
 				)
 			}
@@ -2433,7 +2398,7 @@ func isTruthyEnv(value string) bool {
 }
 
 // requireToolEnabled reports whether a call-time-gated tool is enabled: either
-// its dedicated envVarName is set to a truthy value (true, 1, yes —
+// its dedicated envVarName is set to a truthy value (true, 1, or yes,
 // case-insensitive), or toolName is explicitly listed in the
 // SLACK_MCP_ENABLED_TOOLS allowlist. Any other value, including "false",
 // leaves the tool disabled.
@@ -2552,7 +2517,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 				blocksJSON = []byte(v)
 			}
 		default:
-			// Raw JSON array/object passed directly - re-marshal to bytes
+			// Raw JSON array/object passed directly; re-marshal to bytes.
 			var err error
 			blocksJSON, err = json.Marshal(v)
 			if err != nil {
@@ -2570,7 +2535,6 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 		}
 	}
 
-	// Require either text or blocks
 	if msgText == "" && blocks == nil {
 		ch.logger.Error("Message text and blocks both missing")
 		return nil, errors.New("either text or blocks must be provided")
@@ -2753,7 +2717,6 @@ func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest)
 		return nil, errors.New("channel_id is required")
 	}
 
-	// Resolve channel name to ID if needed
 	if strings.HasPrefix(channel, "#") || strings.HasPrefix(channel, "@") {
 		channelsMaps := ch.apiProvider.ProvideChannelsMaps()
 		chn, ok := channelsMaps.ChannelsInv[channel]
@@ -2907,8 +2870,8 @@ func isSlackConversationIDPrefix(s string) bool {
 // channels cache into the value Slack's `in:` search modifier expects.
 //
 // For a DM the cache stores the peer's user ID, so we emit the same
-// `<@Uxxxx>` form that the documented '@username_dm' input produces — the two
-// documented spellings of the same conversation therefore build an identical
+// `<@Uxxxx>` form that the documented '@username_dm' input produces, so the two
+// documented spellings of the same conversation build an identical
 // query. For an MPIM (or any other cached conversation) we reuse the
 // filter_in_channel formatting, which is the cached channel Name.
 func formatConversationFilter(cms *provider.ChannelsCache, raw string) (string, error) {
@@ -3074,7 +3037,7 @@ func buildLegendHeader(messages []Message, workspaceURL string) string {
 			base += "/"
 		}
 		sb.WriteString(fmt.Sprintf(
-			"#link_template: %sarchives/{CHANNEL_ID}/p{MsgID with \".\" removed}  (Channel column may contain \"ID (#name)\" — use the leading ID)\n",
+			"#link_template: %sarchives/{CHANNEL_ID}/p{MsgID with \".\" removed}  (Channel column may contain \"ID (#name)\"; use the leading ID)\n",
 			base,
 		))
 	}

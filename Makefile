@@ -33,8 +33,8 @@ CLEAN_TARGETS += $(foreach os,$(OSES),$(foreach arch,$(ARCHS),./npm/$(BINARY_NAM
 CLEAN_TARGETS += ./npm/slack-mcp-server/.npmrc build/extension.dxt/manifest.json build/extension.dxt/icon.png
 CLEAN_TARGETS += ./build/slack-mcp-server.dxt ./build/slack-mcp-server-$(NPM_VERSION).dxt
 
-# The help will print out all targets with their descriptions organized bellow their categories. The categories are represented by `##@` and the target descriptions by `##`.
-# The awk commands is responsible to read the entire set of makefiles included in this invocation, looking for lines of the file as xyz: ## something, and then pretty-format the target and help. Then, if there's a line with ##@ something, that gets pretty-printed as a category.
+# The help will print out all targets with their descriptions organized below their categories. The categories are represented by `##@` and the target descriptions by `##`.
+# The awk command is responsible to read the entire set of makefiles included in this invocation, looking for lines of the file as xyz: ## something, and then pretty-format the target and help. Then, if there's a line with ##@ something, that gets pretty-printed as a category.
 # More info over the usage of ANSI control characters for terminal formatting: https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
 # More info over awk command: http://linuxcommand.org/lc3_adv_awk.php
 #
@@ -46,7 +46,7 @@ help: ## Display this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9\/\.-]+:.*?##/ { printf "  \033[36m%-21s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 .PHONY: clean
-clean: ## Clean up all build artifacts
+clean: ## Remove build artifacts
 	rm -rf $(CLEAN_TARGETS)
 
 .PHONY: build
@@ -60,7 +60,7 @@ build-all-platforms: clean ## Build the project for all platforms (read-only: ru
 	))
 
 .PHONY: build-dxt
-build-dxt: ## Build DTX extension
+build-dxt: ## Build DXT extension
 	$(foreach os,$(OSES),$(foreach arch,$(ARCHS), \
 		EXECUTABLE=$(BINARY_NAME)-$(os)-$(arch)$(if $(findstring windows,$(os)),.exe,); \
 		DIRNAME=$(BINARY_NAME)-$(os)-$(arch); \
@@ -125,13 +125,13 @@ deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plu
 		plug server disable slack && sleep 2 && plug server enable slack \
 			&& echo "Plug slack server restarted with new binary"; \
 	else \
-		echo "plug not in PATH — restart Plug manually"; \
+		echo "plug not in PATH: restart Plug manually"; \
 	fi
 	@sleep 3; NEW_PID=$$(pgrep -f 'bin/slack-mcp-server --transport' | head -1); \
 	if [ -n "$$NEW_PID" ]; then \
 		echo "slack-mcp-server running as PID $$NEW_PID (started $$(ps -o lstart= -p $$NEW_PID))"; \
 	else \
-		echo "WARNING: no slack-mcp-server process found — check plug status"; \
+		echo "WARNING: no slack-mcp-server process found, check plug status"; \
 	fi
 
 .PHONY: format
@@ -139,16 +139,16 @@ format: ## Format the code
 	$(GO) fmt ./...
 
 .PHONY: tidy
-tidy: ## Tidy up the go modules
+tidy: ## Tidy the go modules
 	$(GO) mod tidy
 
 .PHONY: prepare
 prepare: tidy format ## Tidy modules and format the code (the mutating half of the old `build`)
 
 .PHONY: release
-release: ## Create release tag. Usage: make tag TAG=v1.2.3
+release: ## Create release tag. Usage: make release TAG=v1.2.3
 	@if [ -z "$(TAG)" ]; then \
-	  echo "Usage: make tag TAG=vX.Y.Z"; exit 1; \
+	  echo "Usage: make release TAG=vX.Y.Z"; exit 1; \
 	fi
 	git tag -a "$(TAG)" -m "Release $(TAG)"
 	git push origin "$(TAG)"

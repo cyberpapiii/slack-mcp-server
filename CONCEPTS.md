@@ -1,6 +1,6 @@
 # Concepts
 
-Shared domain vocabulary for this project — entities, named processes, and status concepts with project-specific meaning. Seeded with core domain vocabulary, then accretes as ce-compound and ce-compound-refresh process learnings; direct edits are fine. Glossary only, not a spec or catch-all.
+Shared domain vocabulary for this project: entities, named processes, and status concepts with project-specific meaning. Seeded with core domain vocabulary, then grows as ce-compound and ce-compound-refresh capture process learnings; direct edits are fine. Glossary only, not a spec or catch-all.
 
 ## Runtime & deployment
 
@@ -8,7 +8,7 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 The MCP multiplexer that supervises this project's server as a child subprocess and exposes it to MCP clients. Plug distinguishes reloading its configuration from restarting a child: a config reload leaves a running server untouched, so picking up a newly built binary requires an explicit restart (disable, wait for teardown, enable) of the server.
 
 ### Deployment canary
-An observable change in the server's live output — a new column header, a changed rendering of a known string — used to confirm from the outside that newly deployed code is actually serving. Complements process-level checks: a running server whose start time predates its binary's build time was never actually redeployed.
+An observable change in the server's live output, such as a new column header or a changed rendering of a known string, used to confirm from the outside that newly deployed code is actually serving. Complements process-level checks: a running server whose start time predates its binary's build time was never actually redeployed.
 
 ## Output modes
 

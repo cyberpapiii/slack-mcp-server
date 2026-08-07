@@ -16,7 +16,7 @@ import (
 // the error is retryable; it should return a positive duration to retry after,
 // or 0 (or negative) to indicate a non-retryable error.
 //
-// This keeps the limiter package free of slack-go dependencies — the caller
+// This keeps the limiter package free of slack-go dependencies. The caller
 // provides the retry classification logic via the retryAfter callback.
 //
 // Example usage with slack-go:
@@ -43,7 +43,7 @@ func CallWithRetry[T any](
 	var err error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Proactive rate limiting — wait for a token before calling the API.
+		// Proactive rate limiting: wait for a token before calling the API.
 		if waitErr := rl.Wait(ctx); waitErr != nil {
 			return result, fmt.Errorf("rate limiter context cancelled: %w", waitErr)
 		}
@@ -56,12 +56,12 @@ func CallWithRetry[T any](
 		// Check if this is a retryable error.
 		backoff := retryAfter(err)
 		if backoff <= 0 {
-			// Non-retryable error — return immediately.
+			// Non-retryable error, return immediately.
 			return result, err
 		}
 
 		if attempt == maxRetries {
-			// Exhausted retries — return the error as-is.
+			// Exhausted retries, return the error as-is.
 			return result, err
 		}
 

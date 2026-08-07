@@ -121,7 +121,7 @@ func logStartupAuthStatus(p *provider.ApiProvider, logger *zap.Logger) {
 	}
 	reason := p.BrowserDegradedReason()
 	if reason != "" {
-		logger.Warn("Browser session auth degraded — activity and saved tools may fail until Slack is refreshed in the browser and Plug is restarted",
+		logger.Warn("Browser session auth degraded: activity and saved tools may fail until Slack is refreshed in the browser and Plug is restarted",
 			zap.String("context", "console"),
 			zap.String("reason", reason),
 		)

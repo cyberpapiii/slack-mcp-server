@@ -985,7 +985,7 @@ func compactCSVFixtureMessagesN(n int) []Message {
 		m := base
 		m.MsgID = fmt.Sprintf("1782935556.%06d", 396379+i)
 		if i%3 == 2 {
-			// Every third message is a bot message — excluded from the legend.
+			// Every third message is a bot message, excluded from the legend.
 			m.UserID = ""
 			m.UserName = ""
 			m.RealName = ""
@@ -1334,7 +1334,7 @@ func TestUnitParseParamsToolConversationsCursorBeatsDurationLimit(t *testing.T) 
 }
 
 // ---------------------------------------------------------------------------
-// conversations_unreads pipeline — characterization tests.
+// conversations_unreads pipeline characterization tests.
 //
 // These pin the behavior of the client.counts -> channel resolution -> backfill
 // -> CSV pipeline as it stands today. They are deliberately descriptive, not

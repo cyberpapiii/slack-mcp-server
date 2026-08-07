@@ -21,7 +21,7 @@ type channelsPage struct {
 }
 
 // fakeChannelsClient replays a fixed script of conversations.list pages so a
-// test can make page 1 succeed and page 2 fail — the mid-pagination failure
+// test can make page 1 succeed and page 2 fail, the mid-pagination failure
 // that used to truncate the cache silently.
 type fakeChannelsClient struct {
 	SlackAPI // embed interface to satisfy all methods; only override what we need

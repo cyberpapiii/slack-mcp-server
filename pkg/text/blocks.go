@@ -186,7 +186,6 @@ func MergeBlocksWithText(msgText string, blocks slack.Blocks) string {
 	if msgText == "" {
 		return blockText
 	}
-	// If the text field already contains the block content, skip
 	if strings.Contains(msgText, blockText) {
 		return msgText
 	}
