@@ -152,7 +152,9 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 
 	ch.logger.Debug("Validated channel types", zap.Strings("types", channelTypes))
 
-	if limit == 0 {
+	// GetInt only substitutes its default when the key is absent, so a caller
+	// passing limit: -5 gets -5 here. Treat non-positive exactly like absent.
+	if limit <= 0 {
 		limit = 100
 		ch.logger.Debug("Limit not provided, using default", zap.Int("limit", limit))
 	}
@@ -267,7 +269,9 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 	cursor := request.GetString("cursor", "")
 	limit := request.GetInt("limit", 0)
 
-	if limit == 0 {
+	// Non-positive is treated exactly like absent: GetInt's default only applies
+	// to a missing key, so a negative limit would otherwise reach the slice below.
+	if limit <= 0 {
 		limit = 100
 	}
 	if limit > 999 {
@@ -343,6 +347,10 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 	end := limit
 	if end > len(allChannels) {
 		end = len(allChannels)
+	}
+	// Backstop against a non-positive limit reaching the slice below.
+	if end < 0 {
+		end = 0
 	}
 	var channelList []Channel
 	for _, channel := range allChannels[:end] {
@@ -436,6 +444,9 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	channelTypesFilter := request.GetString("channel_types", "all")
 	limit := request.GetInt("limit", 100)
+	if limit <= 0 {
+		limit = 100
+	}
 
 	ch.logger.Debug("Request parameters",
 		zap.String("channel_types", channelTypesFilter),
@@ -568,11 +579,17 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 	if endIndex > len(channels) {
 		endIndex = len(channels)
 	}
+	// Backstop: a non-positive limit would put endIndex behind startIndex and
+	// panic the slice below. Every caller clamps, but a panic here would take
+	// down the whole stdio server, so do not rely on that alone.
+	if endIndex < startIndex {
+		endIndex = startIndex
+	}
 
 	paged := channels[startIndex:endIndex]
 
 	var nextCursor string
-	if endIndex < len(channels) {
+	if endIndex > 0 && endIndex < len(channels) {
 		nextCursor = base64.StdEncoding.EncodeToString([]byte(channels[endIndex-1].ID))
 		logger.Debug("Generated next cursor",
 			zap.String("last_id", channels[endIndex-1].ID),

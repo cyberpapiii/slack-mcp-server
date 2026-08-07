@@ -60,7 +60,13 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 
 	includeMessages := request.GetBool("include_messages", true)
 	maxMsgsPerThread := request.GetInt("max_messages_per_thread", 10)
+	if maxMsgsPerThread <= 0 {
+		maxMsgsPerThread = 10
+	}
 	limit := request.GetInt("limit", 30)
+	if limit <= 0 {
+		limit = 30
+	}
 
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
 	if err != nil {

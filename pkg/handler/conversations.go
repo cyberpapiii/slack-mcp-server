@@ -1339,8 +1339,9 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 	// Sort by priority: DMs > partner channels > internal
 	ch.sortChannelsByPriority(unreadChannels)
 
-	// Limit channels
-	if len(unreadChannels) > params.maxChannels {
+	// Limit channels. The maxChannels > 0 guard is a backstop: a non-positive
+	// value would otherwise slice with a negative bound and panic.
+	if params.maxChannels > 0 && len(unreadChannels) > params.maxChannels {
 		unreadChannels = unreadChannels[:params.maxChannels]
 	}
 
@@ -2556,11 +2557,23 @@ func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolR
 }
 
 func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolRequest) *unreadsParams {
+	// GetInt only substitutes its default for an absent key, so a caller-supplied
+	// non-positive value survives. maxChannels reaches a slice expression in
+	// collectUnreadChannels, so treat non-positive exactly like absent.
+	maxChannels := request.GetInt("max_channels", 50)
+	if maxChannels <= 0 {
+		maxChannels = 50
+	}
+	maxMessagesPerChannel := request.GetInt("max_messages_per_channel", 10)
+	if maxMessagesPerChannel <= 0 {
+		maxMessagesPerChannel = 10
+	}
+
 	return &unreadsParams{
 		includeMessages:       request.GetBool("include_messages", true),
 		channelTypes:          request.GetString("channel_types", "all"),
-		maxChannels:           request.GetInt("max_channels", 50),
-		maxMessagesPerChannel: request.GetInt("max_messages_per_channel", 10),
+		maxChannels:           maxChannels,
+		maxMessagesPerChannel: maxMessagesPerChannel,
 		mentionsOnly:          request.GetBool("mentions_only", false),
 		includeMuted:          request.GetBool("include_muted", false),
 	}

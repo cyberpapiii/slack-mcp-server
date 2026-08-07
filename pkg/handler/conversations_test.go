@@ -1138,6 +1138,40 @@ func TestUnitParseParamsToolSearchLimit(t *testing.T) {
 	}
 }
 
+// TestUnitParseParamsToolUnreadsClamps pins the non-positive clamp on the two
+// unreads size parameters. mcp's GetInt substitutes its default only for an
+// absent key, so an explicit -1 used to survive all the way to a slice bound.
+func TestUnitParseParamsToolUnreadsClamps(t *testing.T) {
+	ch := &ConversationsHandler{logger: zap.NewNop()}
+
+	tests := []struct {
+		name                      string
+		args                      map[string]any
+		wantMaxChannels           int
+		wantMaxMessagesPerChannel int
+	}{
+		{"absent uses defaults", map[string]any{}, 50, 10},
+		{"negative max_channels uses default", map[string]any{"max_channels": -1}, 50, 10},
+		{"zero max_channels uses default", map[string]any{"max_channels": 0}, 50, 10},
+		{"negative max_messages_per_channel uses default", map[string]any{"max_messages_per_channel": -3}, 50, 10},
+		{"zero max_messages_per_channel uses default", map[string]any{"max_messages_per_channel": 0}, 50, 10},
+		{"valid values pass through unchanged", map[string]any{"max_channels": 7, "max_messages_per_channel": 3}, 7, 3},
+		{"both negative use defaults", map[string]any{"max_channels": -100, "max_messages_per_channel": -100}, 50, 10},
+		{"json float encoding clamps too", map[string]any{"max_channels": float64(-1)}, 50, 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := mcp.CallToolRequest{}
+			req.Params.Arguments = tt.args
+
+			params := ch.parseParamsToolUnreads(req)
+			assert.Equal(t, tt.wantMaxChannels, params.maxChannels)
+			assert.Equal(t, tt.wantMaxMessagesPerChannel, params.maxMessagesPerChannel)
+		})
+	}
+}
+
 // Bug B: a documented 'D1234567890' filter_in_im_or_mpim value is a
 // conversation ID, not a user ID, and must never yield "user ... not found".
 func TestUnitIsSlackConversationIDPrefix(t *testing.T) {
@@ -1626,6 +1660,21 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		got := ch.collectUnreadChannels(p, c, users, channelsCache)
 		require.Len(t, got, 2)
 		assert.Equal(t, "D_ALICE", got[0].ChannelID, "the DM survives truncation because sorting runs first")
+	})
+
+	t.Run("a non-positive max_channels does not panic and truncates nothing", func(t *testing.T) {
+		c := counts()
+		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true}}
+
+		for _, maxChannels := range []int{-1, 0} {
+			p := defaultUnreadsParams()
+			p.maxChannels = maxChannels
+
+			got := ch.collectUnreadChannels(p, c, users, channelsCache)
+			assert.ElementsMatch(t, []string{"D_ALICE", "C_MENTION", "C_SILENT"}, unreadIDs(got),
+				"a non-positive limit slices with a negative bound unless guarded; "+
+					"the guard skips truncation entirely rather than returning nothing")
+		}
 	})
 
 	t.Run("nothing unread yields a nil slice", func(t *testing.T) {

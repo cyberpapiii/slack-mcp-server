@@ -301,6 +301,28 @@ func TestUnitPaginateChannelsRoundTrip(t *testing.T) {
 	assert.Empty(t, cursor3, "the final page must not advertise another page")
 }
 
+// TestUnitPaginateChannelsNonPositiveLimit pins the backstop that keeps a
+// non-positive limit from panicking the slice expression. mcp's GetInt only
+// substitutes its default for an absent key, so `limit: -5` used to reach
+// channels[0:-5] and take down the stdio server.
+func TestUnitPaginateChannelsNonPositiveLimit(t *testing.T) {
+	channels := []provider.Channel{
+		{ID: "C01", Name: "#one"},
+		{ID: "C02", Name: "#two"},
+		{ID: "C03", Name: "#three"},
+	}
+
+	for _, limit := range []int{-5, -1, 0} {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
+			paged, nextCursor, err := paginateChannels(channels, "", limit)
+
+			require.NoError(t, err)
+			assert.Empty(t, paged, "a non-positive limit yields an empty page, not a panic")
+			assert.Empty(t, nextCursor, "an empty page must not advertise a cursor to resume from")
+		})
+	}
+}
+
 func channelIDs(channels []provider.Channel) []string {
 	ids := make([]string, len(channels))
 	for i, c := range channels {

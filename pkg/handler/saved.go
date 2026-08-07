@@ -46,8 +46,14 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 
 	filter := request.GetString("filter", "saved")
 	limit := request.GetInt("limit", 50)
+	if limit <= 0 {
+		limit = 50
+	}
 	includeMessages := request.GetBool("include_messages", true)
 	maxMsgsPerItem := request.GetInt("max_messages_per_item", 5)
+	if maxMsgsPerItem <= 0 {
+		maxMsgsPerItem = 5
+	}
 
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
 	if err != nil {
