@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge/fasttime"
 	"github.com/korotovsky/slack-mcp-server/pkg/test/util"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -22,6 +25,7 @@ import (
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -1249,6 +1253,576 @@ func TestUnitParseParamsToolConversationsCursorBeatsDurationLimit(t *testing.T) 
 				assert.Empty(t, params.oldest)
 				assert.Empty(t, params.latest)
 			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// conversations_unreads pipeline — characterization tests.
+//
+// These pin the behavior of the client.counts -> channel resolution -> backfill
+// -> CSV pipeline as it stands today. They are deliberately descriptive, not
+// prescriptive: where the current behavior looks wrong it is marked with a
+// "NOTE: characterizes current behavior, possibly wrong" comment and pinned
+// anyway, so a future change shows up as a diff here.
+// ---------------------------------------------------------------------------
+
+// newUnreadsTestHandler builds a handler with no apiProvider. Only helpers that
+// do not touch ch.apiProvider may be exercised with it.
+func newUnreadsTestHandler() *ConversationsHandler {
+	return &ConversationsHandler{logger: zap.NewNop()}
+}
+
+// ftime converts a Slack timestamp string into the edge fasttime.Time that
+// ChannelSnapshot carries.
+func ftime(t *testing.T, ts string) fasttime.Time {
+	t.Helper()
+	i, err := fasttime.TS2int(ts)
+	require.NoError(t, err)
+	return fasttime.Time(fasttime.Int2Time(i))
+}
+
+func unreadTypes(channels []UnreadChannel) []string {
+	out := make([]string, 0, len(channels))
+	for _, c := range channels {
+		out = append(out, c.ChannelType)
+	}
+	return out
+}
+
+func unreadIDs(channels []UnreadChannel) []string {
+	out := make([]string, 0, len(channels))
+	for _, c := range channels {
+		out = append(out, c.ChannelID)
+	}
+	return out
+}
+
+// TestUnitSortChannelsByPriority pins the ONLY sort key the implementation uses:
+// the channel-type priority dm(0) < group_dm(1) < partner(2) < internal(3).
+//
+// NOTE: characterizes current behavior, possibly wrong: there is no secondary
+// key at all. Mention counts and latest-activity timestamps are ignored, and
+// sort.Slice is not a stable sort, so the relative order of two channels of the
+// same type is unspecified. Tests below therefore assert the type sequence
+// exactly and only the membership of each equal-type run.
+func TestUnitSortChannelsByPriority(t *testing.T) {
+	ch := newUnreadsTestHandler()
+
+	t.Run("empty slice does not panic", func(t *testing.T) {
+		var channels []UnreadChannel
+		ch.sortChannelsByPriority(channels)
+		assert.Empty(t, channels)
+	})
+
+	t.Run("single element", func(t *testing.T) {
+		channels := []UnreadChannel{{ChannelID: "C1", ChannelType: "internal"}}
+		ch.sortChannelsByPriority(channels)
+		assert.Equal(t, []string{"C1"}, unreadIDs(channels))
+	})
+
+	t.Run("reversed input sorts dm, group_dm, partner, internal", func(t *testing.T) {
+		channels := []UnreadChannel{
+			{ChannelID: "C_internal", ChannelType: "internal"},
+			{ChannelID: "C_partner", ChannelType: "partner"},
+			{ChannelID: "G_mpim", ChannelType: "group_dm"},
+			{ChannelID: "D_dm", ChannelType: "dm"},
+		}
+		ch.sortChannelsByPriority(channels)
+		assert.Equal(t, []string{"D_dm", "G_mpim", "C_partner", "C_internal"}, unreadIDs(channels))
+	})
+
+	t.Run("mention count and timestamps are not sort keys", func(t *testing.T) {
+		// A silent DM still outranks a heavily-mentioned, more-recent channel.
+		channels := []UnreadChannel{
+			{ChannelID: "C_busy", ChannelType: "internal", UnreadCount: 99, Latest: "1800000000.000000"},
+			{ChannelID: "D_quiet", ChannelType: "dm", UnreadCount: 0, Latest: "1000000000.000000"},
+		}
+		ch.sortChannelsByPriority(channels)
+		assert.Equal(t, []string{"D_quiet", "C_busy"}, unreadIDs(channels))
+	})
+
+	t.Run("unknown channel type gets priority 0 and sorts with dms", func(t *testing.T) {
+		// NOTE: characterizes current behavior, possibly wrong: an unrecognized
+		// (or empty) ChannelType misses the priority map and defaults to 0, i.e.
+		// the same rank as a DM — ahead of partner and internal channels.
+		channels := []UnreadChannel{
+			{ChannelID: "C_internal", ChannelType: "internal"},
+			{ChannelID: "C_partner", ChannelType: "partner"},
+			{ChannelID: "X_unknown", ChannelType: "totally-made-up"},
+			{ChannelID: "Y_empty", ChannelType: ""},
+		}
+		ch.sortChannelsByPriority(channels)
+
+		assert.ElementsMatch(t, []string{"X_unknown", "Y_empty"}, unreadIDs(channels)[:2],
+			"the two priority-0 entries lead, in unspecified relative order")
+		assert.Equal(t, []string{"partner", "internal"}, unreadTypes(channels)[2:])
+	})
+}
+
+// TestUnitMarshalUnreadChannelsToCSV pins the exact wire contract of the
+// summary (include_messages=false) output.
+func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
+	ch := newUnreadsTestHandler()
+
+	// NOTE: characterizes current behavior, possibly wrong: UnreadChannel carries
+	// only `json:` tags, and gocsv ignores those. The header is therefore the Go
+	// field names (ChannelID, ...), not the json names (channelID, ...).
+	const header = "ChannelID,ChannelName,ChannelType,UnreadCount,LastRead,Latest\n"
+
+	t.Run("three channels, comma in a name is quoted", func(t *testing.T) {
+		channels := []UnreadChannel{
+			{
+				ChannelID:   "D111",
+				ChannelName: "@alice",
+				ChannelType: "dm",
+				UnreadCount: 2,
+				LastRead:    "1700000000.000100",
+				Latest:      "1700000900.000200",
+			},
+			{
+				ChannelID:   "C222",
+				ChannelName: "#eng, product",
+				ChannelType: "partner",
+				UnreadCount: 7,
+				LastRead:    "1700000100.000000",
+				Latest:      "1700000800.000000",
+			},
+			{
+				ChannelID:   "C333",
+				ChannelName: "#general",
+				ChannelType: "internal",
+				UnreadCount: 0,
+				LastRead:    "",
+				Latest:      "",
+			},
+		}
+
+		res, err := ch.marshalUnreadChannelsToCSV(channels)
+		require.NoError(t, err)
+		require.Len(t, res.Content, 1)
+		got := res.Content[0].(mcp.TextContent).Text
+
+		assert.Equal(t, header+
+			"D111,@alice,dm,2,1700000000.000100,1700000900.000200\n"+
+			"C222,\"#eng, product\",partner,7,1700000100.000000,1700000800.000000\n"+
+			"C333,#general,internal,0,,\n",
+			got)
+	})
+
+	t.Run("empty and nil slices still emit the header row", func(t *testing.T) {
+		for _, channels := range [][]UnreadChannel{nil, {}} {
+			res, err := ch.marshalUnreadChannelsToCSV(channels)
+			require.NoError(t, err)
+			require.Len(t, res.Content, 1)
+			assert.Equal(t, header, res.Content[0].(mcp.TextContent).Text)
+		}
+	})
+}
+
+// defaultUnreadsParams mirrors the defaults of parseParamsToolUnreads.
+func defaultUnreadsParams() *unreadsParams {
+	return &unreadsParams{
+		includeMessages:       true,
+		channelTypes:          "all",
+		maxChannels:           50,
+		maxMessagesPerChannel: 10,
+	}
+}
+
+// TestUnitCollectUnreadChannels pins the client.counts -> []UnreadChannel
+// resolution step: which snapshots survive filtering, what they get named, and
+// what UnreadCount they carry before any history backfill.
+func TestUnitCollectUnreadChannels(t *testing.T) {
+	ch := newUnreadsTestHandler()
+
+	users := &provider.UsersCache{Users: map[string]slack.User{
+		"U_ALICE": {ID: "U_ALICE", Name: "alice", RealName: "Alice A"},
+	}}
+	channelsCache := &provider.ChannelsCache{Channels: map[string]provider.Channel{
+		"C_MENTION": {ID: "C_MENTION", Name: "mentions"},
+		"C_SILENT":  {ID: "C_SILENT", Name: "silent"},
+		"C_READ":    {ID: "C_READ", Name: "read"},
+		"C_EXT":     {ID: "C_EXT", Name: "vendor", IsExtShared: true},
+		"C_HASHED":  {ID: "C_HASHED", Name: "#already-hashed"},
+		"G_MPIM":    {ID: "G_MPIM", Name: "mpdm-alice--bob-1", IsMpIM: true},
+		"D_ALICE":   {ID: "D_ALICE", Name: "alice", IsIM: true, User: "U_ALICE"},
+		"D_GHOST":   {ID: "D_GHOST", Name: "ghost", IsIM: true, User: "U_NOT_CACHED"},
+		"D_NOUSER":  {ID: "D_NOUSER", Name: "nouser", IsIM: true},
+	}}
+
+	counts := func() edge.ClientCountsResponse {
+		return edge.ClientCountsResponse{
+			Channels: []edge.ChannelSnapshot{
+				{ID: "C_MENTION", HasUnreads: true, MentionCount: 3,
+					LastRead: ftime(t, "1700000000.000100"), Latest: ftime(t, "1700000900.000200")},
+				{ID: "C_SILENT", HasUnreads: true, MentionCount: 0,
+					LastRead: ftime(t, "1700000100.000000"), Latest: ftime(t, "1700000800.000000")},
+				{ID: "C_READ", HasUnreads: false, MentionCount: 0,
+					LastRead: ftime(t, "1700000200.000000"), Latest: ftime(t, "1700000200.000000")},
+			},
+		}
+	}
+
+	t.Run("read channel excluded, mention count preserved, silent channel kept at zero", func(t *testing.T) {
+		got := ch.collectUnreadChannels(defaultUnreadsParams(), counts(), users, channelsCache)
+
+		require.Len(t, got, 2)
+		assert.ElementsMatch(t, []string{"C_MENTION", "C_SILENT"}, unreadIDs(got),
+			"HasUnreads=false is dropped; both unread channels survive")
+
+		byID := map[string]UnreadChannel{}
+		for _, u := range got {
+			byID[u.ChannelID] = u
+		}
+		assert.Equal(t, 3, byID["C_MENTION"].UnreadCount, "mention channel keeps its MentionCount")
+		assert.Equal(t, 0, byID["C_SILENT"].UnreadCount,
+			"a zero-mention unread channel leaves collect with UnreadCount 0; it is the "+
+				"backfill (summary mode) or the message fetch (include_messages) that fills it in")
+
+		// Timestamps round-trip through fasttime.SlackString().
+		assert.Equal(t, "1700000000.000100", byID["C_MENTION"].LastRead)
+		assert.Equal(t, "1700000900.000200", byID["C_MENTION"].Latest)
+	})
+
+	t.Run("names, types and cache misses", func(t *testing.T) {
+		c := edge.ClientCountsResponse{
+			Channels: []edge.ChannelSnapshot{
+				{ID: "C_SILENT", HasUnreads: true},
+				{ID: "C_EXT", HasUnreads: true},
+				{ID: "C_HASHED", HasUnreads: true},
+				{ID: "C_UNKNOWN", HasUnreads: true},
+			},
+		}
+		got := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
+		require.Len(t, got, 4)
+
+		byID := map[string]UnreadChannel{}
+		for _, u := range got {
+			byID[u.ChannelID] = u
+		}
+		assert.Equal(t, "#silent", byID["C_SILENT"].ChannelName, "cached name gets a # prefix")
+		assert.Equal(t, "internal", byID["C_SILENT"].ChannelType)
+		assert.Equal(t, "#already-hashed", byID["C_HASHED"].ChannelName, "an existing # is not doubled")
+		assert.Equal(t, "#vendor", byID["C_EXT"].ChannelName)
+		assert.Equal(t, "partner", byID["C_EXT"].ChannelType, "IsExtShared maps to partner")
+		// NOTE: characterizes current behavior, possibly wrong: a channel missing
+		// from the cache falls back to its raw ID with NO # prefix, so the agent
+		// sees a bare "C_UNKNOWN" in the ChannelName column.
+		assert.Equal(t, "C_UNKNOWN", byID["C_UNKNOWN"].ChannelName)
+		assert.Equal(t, "internal", byID["C_UNKNOWN"].ChannelType)
+	})
+
+	t.Run("mpim and im naming", func(t *testing.T) {
+		c := edge.ClientCountsResponse{
+			MPIMs: []edge.ChannelSnapshot{
+				{ID: "G_MPIM", HasUnreads: true, MentionCount: 2},
+				{ID: "G_UNKNOWN", HasUnreads: true},
+			},
+			IMs: []edge.ChannelSnapshot{
+				{ID: "D_ALICE", HasUnreads: true, MentionCount: 1},
+				{ID: "D_GHOST", HasUnreads: true},
+				{ID: "D_NOUSER", HasUnreads: true},
+				{ID: "D_UNKNOWN", HasUnreads: true},
+			},
+		}
+		got := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
+		require.Len(t, got, 6)
+
+		byID := map[string]UnreadChannel{}
+		for _, u := range got {
+			byID[u.ChannelID] = u
+		}
+		// NOTE: characterizes current behavior, possibly wrong: MPIM names are
+		// taken verbatim from the cache with no prefix at all, unlike regular
+		// channels (#) and DMs (@).
+		assert.Equal(t, "mpdm-alice--bob-1", byID["G_MPIM"].ChannelName)
+		assert.Equal(t, "group_dm", byID["G_MPIM"].ChannelType)
+		assert.Equal(t, "G_UNKNOWN", byID["G_UNKNOWN"].ChannelName)
+
+		assert.Equal(t, "@alice", byID["D_ALICE"].ChannelName, "IM resolves via the users cache")
+		assert.Equal(t, "dm", byID["D_ALICE"].ChannelType)
+		assert.Equal(t, "@U_NOT_CACHED", byID["D_GHOST"].ChannelName, "unknown user falls back to @<userID>")
+		// NOTE: characterizes current behavior, possibly wrong: a cached IM with an
+		// empty User field, and an IM missing from the cache entirely, both fall
+		// through to the bare channel ID with no @ prefix.
+		assert.Equal(t, "D_NOUSER", byID["D_NOUSER"].ChannelName)
+		assert.Equal(t, "D_UNKNOWN", byID["D_UNKNOWN"].ChannelName)
+	})
+
+	t.Run("muted channels are dropped", func(t *testing.T) {
+		p := defaultUnreadsParams()
+		p.mutedChannels = map[string]bool{"C_MENTION": true}
+		got := ch.collectUnreadChannels(p, counts(), users, channelsCache)
+		assert.Equal(t, []string{"C_SILENT"}, unreadIDs(got))
+
+		// NOTE: characterizes current behavior: collect only consults
+		// params.mutedChannels. include_muted=true is honored upstream, by
+		// ConversationsUnreadsHandler simply never populating that map.
+		p2 := defaultUnreadsParams()
+		p2.includeMuted = true
+		p2.mutedChannels = map[string]bool{"C_MENTION": true}
+		got2 := ch.collectUnreadChannels(p2, counts(), users, channelsCache)
+		assert.Equal(t, []string{"C_SILENT"}, unreadIDs(got2),
+			"include_muted alone does not undo an already-populated mutedChannels map")
+	})
+
+	t.Run("mentions_only drops zero-mention channels", func(t *testing.T) {
+		p := defaultUnreadsParams()
+		p.mentionsOnly = true
+		c := counts()
+		c.MPIMs = []edge.ChannelSnapshot{{ID: "G_MPIM", HasUnreads: true, MentionCount: 0}}
+		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true, MentionCount: 1}}
+
+		got := ch.collectUnreadChannels(p, c, users, channelsCache)
+		assert.Equal(t, []string{"D_ALICE", "C_MENTION"}, unreadIDs(got),
+			"the zero-mention channel and the zero-mention MPIM are both dropped")
+	})
+
+	t.Run("channel_types filter", func(t *testing.T) {
+		c := counts()
+		c.Channels = append(c.Channels, edge.ChannelSnapshot{ID: "C_EXT", HasUnreads: true})
+		c.MPIMs = []edge.ChannelSnapshot{{ID: "G_MPIM", HasUnreads: true}}
+		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true}}
+
+		for _, tc := range []struct {
+			channelTypes string
+			wantIDs      []string
+		}{
+			{"dm", []string{"D_ALICE"}},
+			{"group_dm", []string{"G_MPIM"}},
+			{"partner", []string{"C_EXT"}},
+			{"internal", []string{"C_MENTION", "C_SILENT"}},
+			// NOTE: characterizes current behavior, possibly wrong: an unrecognized
+			// channel_types value is not rejected — it silently matches nothing.
+			{"nonsense", nil},
+		} {
+			t.Run(tc.channelTypes, func(t *testing.T) {
+				p := defaultUnreadsParams()
+				p.channelTypes = tc.channelTypes
+				got := ch.collectUnreadChannels(p, c, users, channelsCache)
+				assert.ElementsMatch(t, tc.wantIDs, unreadIDs(got))
+			})
+		}
+
+		t.Run("all", func(t *testing.T) {
+			p := defaultUnreadsParams()
+			got := ch.collectUnreadChannels(p, c, users, channelsCache)
+			require.Len(t, got, 5)
+			// Equal-priority internal channels have an unspecified relative order
+			// (sort.Slice is not stable), so compare the prefix exactly and the
+			// trailing internal run as a set.
+			assert.Equal(t, []string{"D_ALICE", "G_MPIM", "C_EXT"}, unreadIDs(got)[:3])
+			assert.ElementsMatch(t, []string{"C_MENTION", "C_SILENT"}, unreadIDs(got)[3:])
+		})
+	})
+
+	t.Run("max_channels truncates after sorting", func(t *testing.T) {
+		c := counts()
+		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true}}
+		p := defaultUnreadsParams()
+		p.maxChannels = 2
+
+		got := ch.collectUnreadChannels(p, c, users, channelsCache)
+		require.Len(t, got, 2)
+		assert.Equal(t, "D_ALICE", got[0].ChannelID, "the DM survives truncation because sorting runs first")
+	})
+
+	t.Run("nothing unread yields a nil slice", func(t *testing.T) {
+		got := ch.collectUnreadChannels(defaultUnreadsParams(), edge.ClientCountsResponse{}, users, channelsCache)
+		assert.Nil(t, got)
+	})
+
+	t.Run("a snapshot with no last_read renders a year-1 timestamp, not an empty string", func(t *testing.T) {
+		// NOTE: characterizes current behavior, possibly wrong: fasttime.Time's
+		// zero value is time.Time{} (year 1), and SlackString() formats that as a
+		// large negative Slack ts rather than "". Downstream this means the
+		// `LastRead == ""` guard in backfillUnreadCounts is unreachable for
+		// edge-sourced channels, and conversations.history is called with
+		// Oldest="-62135596800.000000" — effectively unbounded.
+		c := edge.ClientCountsResponse{
+			Channels: []edge.ChannelSnapshot{{ID: "C_SILENT", HasUnreads: true}},
+		}
+		got := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
+		require.Len(t, got, 1)
+		assert.Equal(t, "-62135596800.000000", got[0].LastRead)
+		assert.Equal(t, "-62135596800.000000", got[0].Latest)
+	})
+}
+
+// fakeHistoryFetcher is a historyFetcher that records every call and replays
+// canned results keyed by channel ID.
+type fakeHistoryFetcher struct {
+	byChannel map[string]*slack.GetConversationHistoryResponse
+	errs      map[string]error
+	calls     []slack.GetConversationHistoryParameters
+}
+
+func (f *fakeHistoryFetcher) GetConversationHistoryContext(_ context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
+	f.calls = append(f.calls, *params)
+	if err, ok := f.errs[params.ChannelID]; ok {
+		return nil, err
+	}
+	if resp, ok := f.byChannel[params.ChannelID]; ok {
+		return resp, nil
+	}
+	return &slack.GetConversationHistoryResponse{}, nil
+}
+
+func historyWith(n int) *slack.GetConversationHistoryResponse {
+	resp := &slack.GetConversationHistoryResponse{}
+	for i := 0; i < n; i++ {
+		resp.Messages = append(resp.Messages, slack.Message{})
+	}
+	return resp
+}
+
+// TestUnitBackfillUnreadCounts pins the summary-mode unread-count backfill,
+// including the call-count contract that keeps include_messages=true from
+// issuing a redundant conversations.history round per channel.
+func TestUnitBackfillUnreadCounts(t *testing.T) {
+	ch := newUnreadsTestHandler()
+	req := mcp.CallToolRequest{}
+
+	t.Run("include_messages=true issues zero history calls", func(t *testing.T) {
+		fake := &fakeHistoryFetcher{}
+		channels := []UnreadChannel{
+			{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: "1700000000.000000"},
+			{ChannelID: "C_MENTION", UnreadCount: 3, LastRead: "1700000000.000000"},
+		}
+		p := defaultUnreadsParams() // includeMessages defaults to true
+
+		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
+		assert.Empty(t, fake.calls,
+			"the message-fetch loop re-issues the same conversations.history call, so the "+
+				"backfill must not run in include_messages mode")
+		assert.Equal(t, 0, channels[0].UnreadCount, "counts are left untouched for the message loop to set")
+		assert.Equal(t, 3, channels[1].UnreadCount)
+	})
+
+	t.Run("include_messages=false backfills only zero-count channels", func(t *testing.T) {
+		fake := &fakeHistoryFetcher{
+			byChannel: map[string]*slack.GetConversationHistoryResponse{
+				"C_SILENT": historyWith(4),
+			},
+		}
+		channels := []UnreadChannel{
+			{ChannelID: "D_ALICE", UnreadCount: 2, LastRead: "1700000000.000000"},
+			{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: "1700000100.000000"},
+		}
+		p := defaultUnreadsParams()
+		p.includeMessages = false
+
+		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
+
+		require.Len(t, fake.calls, 1, "exactly one history call: the already-counted DM is skipped")
+		assert.Equal(t, slack.GetConversationHistoryParameters{
+			ChannelID: "C_SILENT",
+			Oldest:    "1700000100.000000",
+			Limit:     20,
+			Inclusive: false,
+		}, fake.calls[0], "the backfill window is bounded by LastRead and capped at 20 rows")
+
+		assert.Equal(t, 2, channels[0].UnreadCount, "a positive MentionCount is left alone")
+		assert.Equal(t, 4, channels[1].UnreadCount, "the row count replaces the zero")
+	})
+
+	t.Run("empty LastRead short-circuits to a conservative 1 with no call", func(t *testing.T) {
+		fake := &fakeHistoryFetcher{}
+		channels := []UnreadChannel{{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: ""}}
+		p := defaultUnreadsParams()
+		p.includeMessages = false
+
+		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
+		assert.Empty(t, fake.calls)
+		assert.Equal(t, 1, channels[0].UnreadCount)
+		// See TestUnitCollectUnreadChannels: edge-sourced channels never actually
+		// reach this branch, because a missing last_read stringifies to a year-1
+		// timestamp rather than "".
+	})
+
+	t.Run("history failure leaves the count at zero and the loop continues", func(t *testing.T) {
+		// NOTE: characterizes current behavior, possibly wrong: in summary mode a
+		// failed fetch leaves UnreadCount at 0, so the CSV renders "0" for a
+		// channel client.counts reported as unread. The include_messages path
+		// applies a conservative 1 in the same situation (see
+		// TestUnitUnreadCountFromHistory).
+		fake := &fakeHistoryFetcher{
+			errs:      map[string]error{"C_BROKEN": errors.New("boom")},
+			byChannel: map[string]*slack.GetConversationHistoryResponse{"C_OK": historyWith(2)},
+		}
+		channels := []UnreadChannel{
+			{ChannelID: "C_BROKEN", UnreadCount: 0, LastRead: "1700000000.000000"},
+			{ChannelID: "C_OK", UnreadCount: 0, LastRead: "1700000000.000000"},
+		}
+		p := defaultUnreadsParams()
+		p.includeMessages = false
+
+		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
+		require.Len(t, fake.calls, 2, "a failure on one channel does not abort the loop")
+		assert.Equal(t, 0, channels[0].UnreadCount)
+		assert.Equal(t, 2, channels[1].UnreadCount)
+	})
+
+	t.Run("zero rows in the unread window leaves the count at zero", func(t *testing.T) {
+		// NOTE: characterizes current behavior, possibly wrong: same asymmetry as
+		// above — summary mode reports 0, include_messages mode reports 1.
+		fake := &fakeHistoryFetcher{
+			byChannel: map[string]*slack.GetConversationHistoryResponse{"C_SILENT": historyWith(0)},
+		}
+		channels := []UnreadChannel{{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: "1700000000.000000"}}
+		p := defaultUnreadsParams()
+		p.includeMessages = false
+
+		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
+		require.Len(t, fake.calls, 1)
+		assert.Equal(t, 0, channels[0].UnreadCount)
+	})
+
+	t.Run("cancelled context reports false before any call", func(t *testing.T) {
+		fake := &fakeHistoryFetcher{}
+		channels := []UnreadChannel{{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: "1700000000.000000"}}
+		p := defaultUnreadsParams()
+		p.includeMessages = false
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		assert.False(t, ch.backfillUnreadCounts(ctx, req, fake, p, channels))
+		assert.Empty(t, fake.calls)
+		assert.Equal(t, 0, channels[0].UnreadCount)
+	})
+}
+
+// TestUnitUnreadCountFromHistory pins the two conservative fallbacks the
+// include_messages path applies after fetching a channel's history.
+//
+// NOTE: these fallbacks are currently NOT observable in tool output: the
+// include_messages path returns marshalMessagesToCSV(allMessages, ...) and never
+// marshals unreadChannels, so the corrected UnreadCount is discarded.
+func TestUnitUnreadCountFromHistory(t *testing.T) {
+	boom := errors.New("boom")
+
+	tests := []struct {
+		name     string
+		current  int
+		msgCount int
+		err      error
+		want     int
+	}{
+		{"fetch failed with no prior count reports 1", 0, 0, boom, 1},
+		{"fetch failed keeps a positive prior count", 5, 0, boom, 5},
+		{"row count replaces a zero", 0, 3, nil, 3},
+		{"row count replaces a positive prior count", 5, 3, nil, 3},
+		{"zero rows reports 1", 0, 0, nil, 1},
+		// NOTE: characterizes current behavior, possibly wrong: a successful fetch
+		// that returns no rows overwrites a positive MentionCount with 1.
+		{"zero rows overwrites a positive prior count with 1", 5, 0, nil, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, unreadCountFromHistory(tt.current, tt.msgCount, tt.err))
 		})
 	}
 }
