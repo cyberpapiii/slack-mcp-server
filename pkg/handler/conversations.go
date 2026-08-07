@@ -679,11 +679,16 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 	// can render them directly without base64-in-JSON overflow.
 	if isImageMimetype(fileInfo.Mimetype) {
 		imageData := base64.StdEncoding.EncodeToString(content)
-		metadata := fmt.Sprintf(`{"file_id":"%s","filename":"%s","mimetype":"%s","size":%d}`,
-			fileInfo.ID,
-			escapeJSON(fileInfo.Name),
-			escapeJSON(fileInfo.Mimetype),
-			len(content))
+		metadata, err := marshalFileMetadata(fileMetadataPayload{
+			FileID:   fileInfo.ID,
+			Filename: fileInfo.Name,
+			Mimetype: fileInfo.Mimetype,
+			Size:     len(content),
+		})
+		if err != nil {
+			ch.logger.Error("Failed to marshal attachment metadata", zap.Error(err))
+			return nil, err
+		}
 		return mcp.NewToolResultImage(metadata, imageData, fileInfo.Mimetype), nil
 	}
 
@@ -697,15 +702,56 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 		encoding = "base64"
 	}
 
-	result := fmt.Sprintf(`{"file_id":"%s","filename":"%s","mimetype":"%s","size":%d,"encoding":"%s","content":"%s"}`,
-		fileInfo.ID,
-		escapeJSON(fileInfo.Name),
-		escapeJSON(fileInfo.Mimetype),
-		len(content),
-		encoding,
-		escapeJSON(contentStr))
+	result, err := marshalFileResult(fileResultPayload{
+		FileID:   fileInfo.ID,
+		Filename: fileInfo.Name,
+		Mimetype: fileInfo.Mimetype,
+		Size:     len(content),
+		Encoding: encoding,
+		Content:  contentStr,
+	})
+	if err != nil {
+		ch.logger.Error("Failed to marshal attachment result", zap.Error(err))
+		return nil, err
+	}
 
 	return mcp.NewToolResultText(result), nil
+}
+
+// fileMetadataPayload is the 4-key shape emitted alongside native MCP image
+// content by attachment_get_data.
+type fileMetadataPayload struct {
+	FileID   string `json:"file_id"`
+	Filename string `json:"filename"`
+	Mimetype string `json:"mimetype"`
+	Size     int    `json:"size"`
+}
+
+// fileResultPayload is the 6-key shape emitted for text and binary files by
+// attachment_get_data. Encoding is always present, including when it is "none".
+type fileResultPayload struct {
+	FileID   string `json:"file_id"`
+	Filename string `json:"filename"`
+	Mimetype string `json:"mimetype"`
+	Size     int    `json:"size"`
+	Encoding string `json:"encoding"`
+	Content  string `json:"content"`
+}
+
+func marshalFileMetadata(p fileMetadataPayload) (string, error) {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func marshalFileResult(p fileResultPayload) (string, error) {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 func (ch *ConversationsHandler) parseParamsToolFilesList(request mcp.CallToolRequest) (*filesListParams, error) {
@@ -809,15 +855,6 @@ func isTextMimetype(mimetype string) bool {
 		"application/x-sh":       true,
 	}
 	return textMimetypes[mimetype]
-}
-
-func escapeJSON(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, "\n", `\n`)
-	s = strings.ReplaceAll(s, "\r", `\r`)
-	s = strings.ReplaceAll(s, "\t", `\t`)
-	return s
 }
 
 // ConversationsHistoryHandler streams conversation history as CSV
