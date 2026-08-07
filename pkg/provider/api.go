@@ -31,6 +31,16 @@ const defaultUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/5
 const defaultCacheTTL = 24 * time.Hour
 const defaultMinRefreshInterval = 30 * time.Second
 
+// defaultBackgroundRefreshTimeout bounds a background cache refresh. Without a
+// deadline these goroutines can run forever: slack-go's GetUsersContext
+// retries rate limits in an unbounded loop whose only exit is ctx.Done(), and
+// a hung refresh holds fetchUsersMu and leaves refreshingUsers set, so no
+// later refresh can ever start. Sized generously — a large workspace
+// legitimately takes many minutes when Slack is throttling — because the goal
+// is to bound an infinite hang, not to make the refresh fast. It sits well
+// inside the 24h default cache TTL, so a timeout never races the next refresh.
+const defaultBackgroundRefreshTimeout = 15 * time.Minute
+
 var AllChanTypes = []string{MpIMChanType, IMChanType, PubChanType, PrivateChanType}
 
 const (
@@ -389,6 +399,11 @@ type ApiProvider struct {
 
 	cacheTTL           time.Duration
 	minRefreshInterval time.Duration
+
+	// backgroundRefreshTimeout bounds spawnBackgroundUsersRefresh and
+	// spawnBackgroundChannelsRefresh. Always defaultBackgroundRefreshTimeout in
+	// production; a field only so tests can shorten it.
+	backgroundRefreshTimeout time.Duration
 
 	// Users cache: atomic pointer to immutable snapshot (no copy on read)
 	usersSnapshot          atomic.Pointer[UsersCache]
@@ -1069,6 +1084,8 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 		cacheTTL:           getCacheTTL(),
 		minRefreshInterval: getMinRefreshInterval(),
 
+		backgroundRefreshTimeout: defaultBackgroundRefreshTimeout,
+
 		usersCachePath:    usersCache,
 		channelsCachePath: channelsCache,
 	}
@@ -1141,6 +1158,8 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, oauthFallbackTok
 
 		cacheTTL:           getCacheTTL(),
 		minRefreshInterval: getMinRefreshInterval(),
+
+		backgroundRefreshTimeout: defaultBackgroundRefreshTimeout,
 
 		usersCachePath:    usersCache,
 		channelsCachePath: channelsCache,
@@ -1306,7 +1325,11 @@ func (ap *ApiProvider) spawnBackgroundUsersRefresh() {
 	}
 	go func() {
 		defer ap.refreshingUsers.Store(false)
-		if err := ap.fetchAndStoreUsers(context.Background()); err != nil {
+
+		ctx, cancel := context.WithTimeout(context.Background(), ap.backgroundRefreshTimeout)
+		defer cancel()
+
+		if err := ap.fetchAndStoreUsers(ctx); err != nil {
 			ap.logger.Warn("Background users refresh failed, continuing with stale data",
 				zap.Error(err))
 		}
@@ -1519,7 +1542,11 @@ func (ap *ApiProvider) spawnBackgroundChannelsRefresh() {
 	}
 	go func() {
 		defer ap.refreshingChannels.Store(false)
-		if err := ap.fetchAndStoreChannels(context.Background()); err != nil {
+
+		ctx, cancel := context.WithTimeout(context.Background(), ap.backgroundRefreshTimeout)
+		defer cancel()
+
+		if err := ap.fetchAndStoreChannels(ctx); err != nil {
 			ap.logger.Warn("Background channels refresh failed, continuing with stale data",
 				zap.Error(err))
 		}
