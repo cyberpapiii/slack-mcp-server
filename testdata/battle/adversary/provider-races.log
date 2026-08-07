@@ -1,47 +1,77 @@
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=1.020417ms
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=925.167µs
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:124: deadline=25ms returned=25.986083ms dependency_calls=1
+    adv001_generated_test.go:125: deadline=25ms returned=26.442583ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
+=== RUN   TestADV002LeaderDeadlineOwnsSharedDependency
+    adv001_generated_test.go:205: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=53.748666ms
+--- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
+=== RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
+    adv001_generated_test.go:274: callers=24 persistent_failure_dependency_calls=24 serialized_tail=185.666µs
+--- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:307: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=545.458µs
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=518.125µs
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:124: deadline=25ms returned=25.741416ms dependency_calls=1
+    adv001_generated_test.go:125: deadline=25ms returned=25.741917ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
+=== RUN   TestADV002LeaderDeadlineOwnsSharedDependency
+    adv001_generated_test.go:205: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=51.138125ms
+--- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
+=== RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
+    adv001_generated_test.go:274: callers=24 persistent_failure_dependency_calls=24 serialized_tail=379.375µs
+--- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:307: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=564.125µs
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=872.416µs
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:124: deadline=25ms returned=25.173792ms dependency_calls=1
+    adv001_generated_test.go:125: deadline=25ms returned=25.751708ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
+=== RUN   TestADV002LeaderDeadlineOwnsSharedDependency
+    adv001_generated_test.go:205: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=53.431084ms
+--- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
+=== RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
+    adv001_generated_test.go:274: callers=24 persistent_failure_dependency_calls=24 serialized_tail=454.584µs
+--- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:307: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=525.459µs
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=1.815ms
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:124: deadline=25ms returned=25.896208ms dependency_calls=1
+    adv001_generated_test.go:125: deadline=25ms returned=25.704584ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
+=== RUN   TestADV002LeaderDeadlineOwnsSharedDependency
+    adv001_generated_test.go:205: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=54.241333ms
+--- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.06s)
+=== RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
+    adv001_generated_test.go:274: callers=24 persistent_failure_dependency_calls=24 serialized_tail=312.25µs
+--- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:307: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 === RUN   TestADV001ConcurrentForegroundWarmCoalescesDependencyWork
-    adv001_generated_test.go:76: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=650.834µs
+    adv001_generated_test.go:77: callers=24 users_api_calls=1 connect_enrichment_calls=1 elapsed=1.340375ms
 --- PASS: TestADV001ConcurrentForegroundWarmCoalescesDependencyWork (0.00s)
 === RUN   TestADV001CancelledWarmStopsWaitingForSlowDependency
-    adv001_generated_test.go:124: deadline=25ms returned=25.883417ms dependency_calls=1
+    adv001_generated_test.go:125: deadline=25ms returned=27.283209ms dependency_calls=1
 --- PASS: TestADV001CancelledWarmStopsWaitingForSlowDependency (0.03s)
+=== RUN   TestADV002LeaderDeadlineOwnsSharedDependency
+    adv001_generated_test.go:205: leader_deadline=25ms waiters=23 dependency_calls=2 waiter_completion=53.343458ms
+--- PASS: TestADV002LeaderDeadlineOwnsSharedDependency (0.05s)
+=== RUN   TestADV002PersistentFailureSerializesOneAttemptPerCaller
+    adv001_generated_test.go:274: callers=24 persistent_failure_dependency_calls=24 serialized_tail=599.083µs
+--- PASS: TestADV002PersistentFailureSerializesOneAttemptPerCaller (0.05s)
 === RUN   TestADV001HostileDependencyTimeoutRecovers
-    adv001_generated_test.go:158: hostile dependency calls=2 timeout=30ms recovery_spawns=2
+    adv001_generated_test.go:307: hostile dependency calls=2 timeout=30ms recovery_spawns=2
 --- PASS: TestADV001HostileDependencyTimeoutRecovers (0.07s)
 PASS
-ok  	github.com/korotovsky/slack-mcp-server/pkg/provider	1.518s
+ok  	github.com/korotovsky/slack-mcp-server/pkg/provider	2.076s

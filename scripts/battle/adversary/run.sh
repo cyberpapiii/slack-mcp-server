@@ -64,7 +64,7 @@ expect_contract_failure() {
 	fi
 }
 
-run_case provider-races go test -race -count=5 -v -run '^TestADV001' ./pkg/provider
+run_case provider-races go test -race -count=5 -v -run '^TestADV00[12]' ./pkg/provider
 run_case server-tool-paths go test -race -count=5 -v -run '^TestADV001' ./pkg/server
 
 awk 'NR == 1 { first = $0; next } NR == 2 { print; print first; next } { print }' \

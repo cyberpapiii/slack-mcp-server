@@ -66,5 +66,5 @@
         files_list
         slack_auth_status
 FAIL
-FAIL	github.com/korotovsky/slack-mcp-server/pkg/server	0.010s
+FAIL	github.com/korotovsky/slack-mcp-server/pkg/server	0.009s
 FAIL

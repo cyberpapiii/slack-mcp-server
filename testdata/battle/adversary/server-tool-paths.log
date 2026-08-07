@@ -1,44 +1,44 @@
 === RUN   TestADV001ConcurrentToolPath
-    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=57.832541ms calls_per_second=16600
+    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=54.971625ms calls_per_second=17464
 --- PASS: TestADV001ConcurrentToolPath (0.06s)
 === RUN   TestADV001ConcurrentCacheToolRegistration
-    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=352.417µs
+    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=318.792µs
 --- PASS: TestADV001ConcurrentCacheToolRegistration (0.00s)
 === RUN   TestADV001CancelThenRestartInProcess
     adv001_generated_test.go:164: client call cancelled; old server handler still running after 150ms; fresh in-process server accepted next call
 --- PASS: TestADV001CancelThenRestartInProcess (0.15s)
 === RUN   TestADV001ConcurrentToolPath
-    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=56.440333ms calls_per_second=17009
+    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=57.095333ms calls_per_second=16814
 --- PASS: TestADV001ConcurrentToolPath (0.06s)
 === RUN   TestADV001ConcurrentCacheToolRegistration
-    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=279.791µs
+    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=327.459µs
 --- PASS: TestADV001ConcurrentCacheToolRegistration (0.00s)
 === RUN   TestADV001CancelThenRestartInProcess
     adv001_generated_test.go:164: client call cancelled; old server handler still running after 150ms; fresh in-process server accepted next call
 --- PASS: TestADV001CancelThenRestartInProcess (0.15s)
 === RUN   TestADV001ConcurrentToolPath
-    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=57.87025ms calls_per_second=16589
+    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=58.218834ms calls_per_second=16490
 --- PASS: TestADV001ConcurrentToolPath (0.06s)
 === RUN   TestADV001ConcurrentCacheToolRegistration
-    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=274.583µs
+    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=599.167µs
 --- PASS: TestADV001ConcurrentCacheToolRegistration (0.00s)
 === RUN   TestADV001CancelThenRestartInProcess
     adv001_generated_test.go:164: client call cancelled; old server handler still running after 150ms; fresh in-process server accepted next call
 --- PASS: TestADV001CancelThenRestartInProcess (0.15s)
 === RUN   TestADV001ConcurrentToolPath
-    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=57.777708ms calls_per_second=16615
+    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=58.390958ms calls_per_second=16441
 --- PASS: TestADV001ConcurrentToolPath (0.06s)
 === RUN   TestADV001ConcurrentCacheToolRegistration
-    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=292.459µs
+    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=209.917µs
 --- PASS: TestADV001ConcurrentCacheToolRegistration (0.00s)
 === RUN   TestADV001CancelThenRestartInProcess
     adv001_generated_test.go:164: client call cancelled; old server handler still running after 150ms; fresh in-process server accepted next call
 --- PASS: TestADV001CancelThenRestartInProcess (0.15s)
 === RUN   TestADV001ConcurrentToolPath
-    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=57.842291ms calls_per_second=16597
+    adv001_generated_test.go:73: calls=960 goroutines=48 handled=960 recovered_errors=56 elapsed=58.491666ms calls_per_second=16413
 --- PASS: TestADV001ConcurrentToolPath (0.06s)
 === RUN   TestADV001ConcurrentCacheToolRegistration
-    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=276.208µs
+    adv001_generated_test.go:107: registration_callers=128 registered_tools=4 elapsed=217.25µs
 --- PASS: TestADV001ConcurrentCacheToolRegistration (0.00s)
 === RUN   TestADV001CancelThenRestartInProcess
     adv001_generated_test.go:164: client call cancelled; old server handler still running after 150ms; fresh in-process server accepted next call
