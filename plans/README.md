@@ -6,6 +6,10 @@ compact") to keep compact-mode token efficiency while eliminating its
 capability losses (no permalinks, no user IDs, silent attachment truncation)
 and its process-wide-env-var control plane.
 
+Plans 004–006 came from a 2026-07-02 direction audit; plans 007–022 from a
+2026-08-07 full standard-effort audit (4 parallel category audits, findings
+personally vetted), all stamped at commit `adbae97`.
+
 Execute in the order below unless dependencies say otherwise. Each executor:
 read the plan fully before starting, honor its STOP conditions, and update
 your row when done.
@@ -17,6 +21,35 @@ your row when done.
 | 001  | Per-call `detail` parameter; thread OutputMode through render pipeline | P1 | M | — | DONE (reviewed & approved; commit `b335266` on `advisor/001-per-call-detail-parameter`, worktree `.claude/worktrees/advisor-001`; merged to master 2026-07-01) |
 | 002  | Attachment truncate-with-receipt rendering in standard mode | P1 | S | 001 | DONE (reviewed & approved; commit `4e9c456` on `advisor/002-attachment-truncate-with-receipt`, worktree `.claude/worktrees/agent-a80e51d8c31f3c5db`; branched from `b335266`; merged to master 2026-07-01) |
 | 003  | Legend header (`#users:`, `#link_template:`) + `Files` count column | P2 | M | 001 | DONE (reviewed & approved; commit `3f6d2a0` on `advisor/003-legend-header-and-link-template`, worktree `.claude/worktrees/agent-a6e8d53f48819fd1b`; branched from `b335266`; merged to master 2026-07-01) |
+| 004  | Add `conversations_get_message` tool (fetch one message by channel + ts) | P2 | S | — | DONE (reviewed & approved 2026-07-02; commit `c930942` on `advisor/004-single-message-fetch-tool`, worktree `.claude/worktrees/advisor-004`; branched from `adbae97`; not merged) |
+| 005  | Search recency sort + pass `has:` modifiers through (was searched literally) | P2 | S | — | DONE (reviewed & approved 2026-07-02; commit `2b832e1` on `advisor/005-search-sort-and-has-modifiers`, worktree `.claude/worktrees/agent-ae3d4bb78872d2691`; branched from `adbae97`; not merged) |
+| 006  | Cache-warmup self-heal: slow indefinite retry instead of give-up-after-3 | P2 | M | — | DONE (reviewed & approved 2026-07-02; commit `1ae6630` on `advisor/006-warmup-selfheal-slow-retry`, worktree `.claude/worktrees/advisor-006-warmup`; branched from `adbae97`; not merged) |
+| 007  | OAuth warmup: soft-fail `GetSlackConnect` so users cache loads on xoxp tokens | P1 | S | — | DONE (reviewed & approved 2026-08-07; commit `33e850b` on `advisor/007-oauth-warmup-slack-connect-softfail`, worktree `.claude/worktrees/agent-a1ab368bed9774984`; branched from `adbae97`; not merged) |
+| 008  | Edge client: nil-response guard in `ParseResponse`; correct 429 retry (rebuild body, close resp, ctx-aware wait) | P1 | S | — | DONE (reviewed & approved 2026-08-07; commit `0a4dc06` on `advisor/008-edge-client-nil-guard`, worktree `.claude/worktrees/agent-a1867483e5e957d26`; stacked on 017; not merged. **First attempt STOPPED on a genuine plan defect** — `req.GetBody` is always nil because `recorder()` TeeReader-wraps every body; plan gained Step 2a and was re-run. See post-execution notes) |
+| 009  | Param contract fixes: search limit default/clamp, IM filter D-prefix, `date_due:0` clear, duration-limit vs cursor | P1 | S | — | DONE (reviewed & approved 2026-08-07; commit `5c59667` on `advisor/009-param-contract-fixes`, worktree `.claude/worktrees/agent-a5bab4948ac7304ce`; stacked on 010; not merged. **Behavior change, since REVERSED by plan 023**: this plan dropped `conversations_search_messages`'s default limit from 100 to 20 to match its own schema's `DefaultNumber(20)`. Wrong side moved — the maintainer wants 100, and the schema number was the stale one. Plan 023 restores 100 on both sides. The clamp half of this plan (reject `<= 0`, cap at 100) was correct and stands) |
+| 010  | Channel pagination: `channels_me` cursor row loss; `channels_list` error on bad cursor | P1 | S | — | DONE (reviewed & approved 2026-08-07; commit `035ce35` on `advisor/010-channel-pagination-correctness`, worktree `.claude/worktrees/agent-a494360058fb50dc6`; stacked on 016; not merged. Executor added a zero-progress guard beyond the plan — reviewed and kept. Open follow-up surfaced: `ChannelsMeHandler` panics on a negative `limit` (pre-existing, see "surfaced, not planned")) |
+| 011  | `conversations_unreads`: skip redundant backfill when messages are fetched anyway | P2 | S | after 009 | DONE (reviewed & approved 2026-08-07; commit `9dc0eb3` on `advisor/011-unreads-skip-redundant-backfill`, worktree `.claude/worktrees/agent-a99937220b72b7c8c`; stacked on 009; not merged. Halves `conversations.history` calls on the default `include_messages=true` path. The two `UnreadCount = 1` fallbacks in the message loop are currently unobservable — that path marshals messages, not channels — see plan 020) |
+| 012  | `attachment_get_data`: emit JSON via `json.Marshal`, delete incomplete `escapeJSON` | P2 | S | after 009/011 | DONE (reviewed & approved 2026-08-07; commit `7579400` on `advisor/012-attachment-json-marshal`, worktree `.claude/worktrees/agent-a626e1fd4523c2cfb`; stacked on 011; not merged. Wire-byte note: `json.Marshal` HTML-escapes the three characters `<`, `>`, `&` into `u003c`-style unicode escapes (backslash-u form) — round-trip decoding is byte-exact, only the raw wire bytes for markup files differ. Flip to an `Encoder` with `SetEscapeHTML(false)` if that ever matters) |
+| 013  | `PatchUser`: CAS retry loop so concurrent patches/refreshes can't lose updates | P2 | S | before 018 | DONE (reviewed & approved 2026-08-07; commit `dc6db10` on `advisor/013-patchuser-cas`, worktree `.claude/worktrees/agent-acc1df22e67c862a0`; stacked on 007; not merged) |
+| 014  | Registration-time gates for mark/join/leave/usergroups-write; exact-match enabled-tools checks | P1 | S–M | before 021 | DONE (reviewed & approved 2026-08-07; commits `432434a`+`4c49070` on `advisor/014-registration-time-gating`, worktree `.claude/worktrees/agent-ad61b5fe9d4382519`; branched from `adbae97`; not merged) |
+| 015  | Gate `zap.Any("params", ...)` handler logging behind `SLACK_MCP_LOG_PARAMS=debug` (~30 sites) | P2 | S | after 009/011/012/014 | DONE (reviewed & approved 2026-08-07; commit `cf8f432` on `advisor/015-param-logging-gate`, worktree `.claude/worktrees/agent-acb84e993e737be15`; stacked on 020; **Track B tip**; not merged. 29 sites swept, not the plan's "~30" — the plan's prose was off by one against its own file:line list. Two wrappers, not one: resource reads take `mcp.ReadResourceRequest` and mcp-go has no resource middleware, so they need the handler-level gate) |
+| 016  | Network transports refuse to start without an API key (explicit opt-out only) | P2 | S | — | DONE (reviewed & approved 2026-08-07; commit `21bf8d4` on `advisor/016-sse-key-required`, worktree `.claude/worktrees/agent-a74d184d758f40245`; stacked on 014; not merged. **Breaking for anyone running sse/http without a key** — stdio unaffected. `.env.dist` handed to 021. Plan excerpt was corrected mid-run — see post-execution notes) |
+| 017  | osascript notifier: pass message as argv, never interpolated AppleScript source | P3 | S | — | DONE (reviewed & approved 2026-08-07; commit `ea8ace3` on `advisor/017-osascript-notifier-args`, worktree `.claude/worktrees/agent-adad7628f2e7e3ed8`; stacked on 013; not merged. Plan excerpt was corrected mid-run — see post-execution notes) |
+| 018  | Makefile: `-race` on test, new `lint` target, `build` stops mutating the tree | P2 | S | 013 merged first | DONE (reviewed & approved 2026-08-07; commit `569e010` on `advisor/018-makefile-race-lint`, worktree `.claude/worktrees/agent-a380d8fbd83783c4c`; **stacked on Track A tip 019** — `-race` needs 013's CAS loop + `TestUnitPatchUserConcurrent` in the base; not merged. `-race` found no races. New `prepare: tidy format` absorbs the mutating half of the old `build`. Suite 1.3s → 6.4s) |
+| 019  | Edge client: fix `NewWithClient` tape.txt/ignored-options bugs; fixture tests; delete tautological cache tests | P2 | M | 008 | DONE (reviewed & approved 2026-08-07; commits `79895d7`+`550fed2`+`060b6ef` on `advisor/019-edge-fixture-tests`, worktree `.claude/worktrees/agent-ae12c40515a50f6db`; stacked on 008; not merged. Credential-on-disk hazard removed: `NewWithClient` no longer creates `tape.txt`) |
+| 020  | Characterization tests for the `conversations_unreads` pipeline + pure helpers | P2 | M | after 009 & 011 | DONE (reviewed & approved 2026-08-07; commit `588f55e` on `advisor/020-unreads-characterization-tests`, worktree `.claude/worktrees/agent-af85a8f39702244b8`; stacked on 022; not merged. Seam exceeded the plan's ~10-line budget — three behavior-preserving extractions from `processClientCountsResponse` (`collectUnreadChannels`, `backfillUnreadCounts`, `unreadCountFromHistory`); verified as a move. **Pinned 8 pre-existing surprises — see below**) |
+| 021  | Docs sync: AGENTS.md tool count/gate list, `.env.dist` key names + gate block | P3 | S | 014, 016, 018 (run last) | DONE (reviewed & approved 2026-08-07; commit `2ab41b7` on `advisor/021-docs-sync`, worktree `.claude/worktrees/agent-a453e35015619b72f`; stacked on 015 (**Track B tip**); not merged. All counts re-derived from code: 30 tools (was documented as 29), 7 gate vars (AGENTS.md listed 3). Makefile/build docs deliberately skipped — 018 owns that section on Track A) |
+| 022  | Activity thread bundles: wire computed channel names into output; delete dead `getUserInfo`/`UnreadMessage` | P3 | S | after 012 | DONE (reviewed & approved 2026-08-07; commit `8a545af` on `advisor/022-dead-code-and-activity-channel-names`, worktree `.claude/worktrees/agent-a5f9e0b31ef0c9c70`; stacked on 012; not merged. Executor chose the `ID (#name)` form over the plan's bare-name reading — verified correct: `Message.Channel`'s convention is set by `convertMessagesFromSearch` (`conversations.go:2090`) and the `#link_template` legend needs the leading ID. Uses `%s (%s)` because cached `Channel.Name` already carries its `#`/`@` prefix (`api.go:1841-1867`)) |
+| 023  | Restore `conversations_search_messages` default limit to 100 (reverses 009's default; keeps its clamp) | P1 | XS | after 009 | DONE (reviewed & approved 2026-08-07; commit `727b517` on `advisor/023-search-limit-default-100`, worktree `.claude/worktrees/agent-a658b53efd980a399`; stacked on 021 (**new Track B tip**); not merged. Moves both sides to 100: `mcp.DefaultNumber(100)` in `server.go` and `defaultSearchMessagesLimit = 100` in `conversations.go`. `maxSearchMessagesLimit` and the clamp are byte-unchanged. Also fixed three stale comments and `README.md:86` (`default: 20` → `100`) — that doc line was the only other place in the repo asserting 20) |
+| 024  | Clamp non-positive numeric tool params — three reachable panics | P1 | S | after 023 | DONE (reviewed & approved 2026-08-07; commit `c037e11` on `advisor/024-negative-numeric-params`, worktree `.claude/worktrees/agent-ae229da6d68cb782a`; stacked on 023; not merged. `GetInt` only substitutes its default for an ABSENT key, so `limit: -5` survives into three slice expressions. Executor confirmed two panics empirically on the real functions and the third on the extracted arithmetic. Added one guard beyond plan scope — `endIndex > 0 &&` in `paginateChannels`, because the plan's own guard only moved the panic to `channels[endIndex-1]`) |
+| 025  | Boolean tool gates validate their value (`=false` no longer enables) | P1 | S | after 024 | DONE (reviewed & approved 2026-08-07; commit `47c8c10` on `advisor/025-tool-gate-truthiness`, worktree `.claude/worktrees/agent-a1d49b15a64580c35`; stacked on 024; not merged. **Behavior change, fails safe.** **First attempt correctly STOPPED on a plan defect** — the plan's caller table omitted `SLACK_MCP_ADD_MESSAGE_TOOL` (`server.go:244`) and `SLACK_MCP_REACTION_TOOL` (`:293`, `:312`), which are channel-list vars sharing the same `shouldAddTool` line; blanket truthiness would have unregistered them. Plan gained a `channelListGates` exemption set and was re-run. `pkg/server/server_test.go` is additive-only — the channel-list tests pass unmodified, which is the regression proof) |
+| 026  | Unreads: zero `last_read` sent to Slack as unbounded `Oldest`; count fallbacks disagreed | P1 | M | after 025 | DONE (reviewed & approved 2026-08-07; commit `b481c1b` on `advisor/026-unreads-zero-timestamp-and-counts`, worktree `.claude/worktrees/agent-ab6b94feb21517b3f`; stacked on 025; not merged. Fixes surprises 4, 5 and 6 of plan 020's eight. `fasttime.Time`'s zero value renders as `-62135596800.000000`, not `""` — executor demonstrated this rather than assuming it — so the `LastRead == ""` guard was dead and `conversations.history` ran unbounded. New `slackTS` helper keeps the fix inside `pkg/handler`; `pkg/provider/edge/fasttime/` untouched. 3 characterization tests rewritten, 10 left alone) |
+| 027  | Unreads: nondeterministic sort, unknown types outranking real ones, silent bad filters | P2 | S | after 026 | DONE (reviewed & approved 2026-08-07; commit `b507108` on `advisor/027-unreads-sort-and-type-filter`, worktree `.claude/worktrees/agent-a0c2ac6f926fcde5e`; stacked on 026; **Track B tip**; not merged. Fixes surprises 1, 2, 7 and 8, plus the failed-fetch asymmetry 026 handed over. `sort.SliceStable` with unknown-type rank 99 and two tiebreakers; `channel_types` validated at parse time; MPIM names normalized. Reviewer amended one decision: an explicit empty `channel_types` defaults to `all` rather than erroring, since MCP clients differ on whether an omitted optional string is dropped or sent as `""`) |
+| 028  | Makefile: `build-all-platforms` still mutated the tree; `clean` deleted npm docs | P3 | XS | after 018 | DONE (reviewed & approved 2026-08-07; commit `420e4d1` on `advisor/028-makefile-purity`, worktree `.claude/worktrees/agent-a31ffe35492d55d45`; stacked on 018 — **Track A**, not Track B; not merged. Finishes plan 018, whose scope named only the `build` target. Verified entirely with `make -n`; no mutating target was ever run. Executor confirmed `.gitignore:18-19` already enforces the untracked-npm-docs invariant the plan only assumed) |
+| 029  | `edge.UsersList`: data race on the shared result slice; two independent limiters against one token budget | P2 | S | after 019 + 018 (both in base) | DONE (reviewed & approved 2026-08-07; commit `5c936ec` on `advisor/029-userslist-race-and-shared-limiter`, stacked on 028 — **Track A tip**; not merged. Two goroutines `append`ed into the same `uu`; fix removes the shared variable rather than adding a mutex, and threads one `Tier3` limiter through both helpers. **Step 4 confirmed the race empirically** — reintroducing the old form tripped `WARNING: DATA RACE` under `-race` within ten runs, plus an ordering flip. Fixture test needed no degradation: both buckets return a user, and public-then-DM order is asserted. **Two plan defects, both caught by the executor — see below.** Executor was handed the main checkout instead of a worktree; see the branch-hygiene note) |
+| 030  | Rate-limiter architecture: findings + four options | P2/P3 | XS–L | none | **DECISION DOC — not executable, do not dispatch.** All 13 `limiter.TierN.Limiter()` call sites build a fresh per-invocation limiter, so the process has no global budget and every handler call starts with a full burst. Sharpest concrete finding: `pkg/provider/api.go:1596` paces `conversations.list` — a standard Web API method — with `Tier2boost` (200/min), roughly 10× its tier. That fix is a one-liner but an observable ~10× latency change, so it is raised as a question, not planned. Recommendation: land 029, decide the `conversations.list` tier explicitly, defer the rest. **The tier question is now ANSWERED by plan 031** — the "10× latency" cost was retracted as wrong in absolute terms (5–21 requests total, so 6–52 seconds, not minutes). Rest of the document stands) |
+| 031  | One 429 mid-pagination silently truncates the channel cache, in memory and on disk | P1 | M | none (on Track A tip `5c936ec`) | DONE (reviewed & approved 2026-08-07; commit `0bd7766` on `advisor/031-partial-channel-cache-poisoning`, stacked on 029 — **Track A tip**; not merged. First dispatch to run under enforced worktree isolation; main checkout untouched throughout. **Step 6 proved the regression test**: with the guard removed, `partial fetch does not replace the snapshot` failed with the exact corruption — a good two-channel cache replaced by a one-channel truncation. Only the Step 3 guard was needed; no second corruption route. **Three plan defects, all caught by the executor — see below.**) `getChannelsMultiType` returns partial pages with a **nil error** on failure; `GetChannels` then unconditionally `channelsSnapshot.Store`s the truncated list and `fetchAndStoreChannels` — which guards only `len == 0` — writes it to disk and marks the cache ready. Survives restarts. Same bug class as the "null cache poisoning" fix already recorded in `api_cache_test.go`, which guarded the empty case and left the partial case open. Likely root cause of unreads surprise 7 (bare `C_UNKNOWN` IDs). Fix: `Tier2boost` → `Tier2`, `CallWithRetry` around the page fetch, `([]Channel, error)` through three signatures, and extend the existing zero-channel guard to cover "incomplete". Users-cache path assumed to have the same shape — **that assumption turned out to be wrong**, see below |
+| 032  | Background users refresh can hang forever on a 429 storm | P1 | S | after 031 | DONE (reviewed & approved 2026-08-07; commit `fc3d29a` on `advisor/032-background-refresh-unbounded-hang`, stacked on 031 — **Track A tip**; not merged. Worktree isolation held; main checkout untouched. **Step 4**: with `context.Background()` restored, subtest 1 failed **by assertion at 2.00s**, not by binary timeout — "background refresh context was never cancelled; the fetch has no deadline". Tests add 0.108s, measured over three paired runs. Executor rewrote the plan's sketched mock for subtest 2 — `close(started)` panics on a second call and a timeout-driven mock made the CAS assertion racy; replaced with an explicit release channel and a 30s timeout that never fires. Correct call, removes the flakiness rather than papering it. One latent trap found — see below). Found while checking plan 031's incorrect users-path assumption. `fetchAndStoreUsers` delegates pagination to slack-go's `GetUsersContext`, which loops `for err == nil` and on a `*RateLimitedError` sleeps `RetryAfter` then sets `err = nil` — **unbounded retry**, escapable only by context cancellation (`users.go:415-430` in slack-go v0.19.0). `spawnBackgroundUsersRefresh` passes `context.Background()`, which has no deadline. A sustained 429 storm therefore hangs the goroutine indefinitely while holding `fetchUsersMu` and keeping `refreshingUsers` true, so no later refresh can ever start — a permanent stall until process restart. The channels path had the same `context.Background()` but 031 bounded its retries at 2, so it terminates |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
@@ -29,6 +62,34 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   `renderOptions` struct carrying the workspace URL.
 - 002 and 003 are independent of each other and may run in parallel on
   separate branches, but both merge cleaner after 001.
+- 004, 005, and 006 (direction batch, planned 2026-07-02 at `adbae97`) are
+  mutually independent; all branch from `adbae97`. 004 and 005 both edit
+  `pkg/handler/conversations.go` and `pkg/server/server.go` in nearby but
+  non-overlapping regions — merge serially and expect at most trivial
+  conflicts (004 also adds an AGENTS.md bullet that 006's AGENTS.md edit
+  does not touch).
+- **Decide 004–006 first (2026-08-07 batch prerequisite)**: plans 007–022 are
+  stamped at `adbae97`, but branches `advisor/004…006` sit approved-and-
+  unmerged, and several new plans edit the same regions (009 overlaps 005's
+  search-param area; 014/021 overlap 004's server.go/AGENTS.md edits). Merge
+  or explicitly park 004–006 before dispatching the new batch; if they merge,
+  every plan's drift check will catch the movement (they instruct executors
+  to locate code by excerpt).
+- 007–022 recommended execution order:
+  `007 → 008 → 010 → 013 → 014 → 009 → 011 → 012 → 022 → 015 → 016 → 017 → 018 → 019 → 020 → 021`.
+  The constraints behind it:
+  - `conversations.go` serial chain: 009 → 011 → 012 → 022 → 015 (same file;
+    serialize merges, 015 touches every handler so it goes after the rest).
+  - 013 (PatchUser CAS) must merge before 018 (which turns on `-race`).
+  - 008 before 019 (both restructure `edge.go`).
+  - 020 after 009 and 011 (it pins post-fix behavior).
+  - 021 runs last — it documents what 014/016/018 changed.
+  - 007, 010, 016, 017 are independent and can slot anywhere.
+- 014 and 016 are deliberate behavior changes (tools disappear from
+  `tools/list` without their env gates; sse/http refuse to start without a
+  key). Neither affects this machine's stdio-under-Plug deployment unless
+  Plug's `SLACK_MCP_ENABLED_TOOLS` list names the newly gated tools —
+  check Plug's env before merging 014.
 
 ## Findings considered and rejected
 
@@ -45,7 +106,408 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   full mode (`convertMessagesFromHistory` doesn't populate the field).
 - **`#channels:` legend line**: deferred until there's evidence agents need
   channel-name resolution beyond what the Channel column already carries
-  (search rows embed `ID (#name)`).
+  (search rows embed `ID (#name)`). Re-checked in the 2026-07-02 direction
+  audit: the only bare-ID output (history/replies) is single-channel and
+  caller-chosen; multi-channel outputs already carry names. Stays deferred.
+- **README tool-table for 11 undocumented fork tools** (2026-07-02): personal
+  fork, AGENTS.md already covers agents; not worth maintaining a second list.
+- **Compact `detail` treatment for legacy list tools** (channels_list,
+  files_list, users_search, usergroups_list, reactions_get) — real finding,
+  deliberately NOT planned yet (2026-07-02): do it after 004/005 prove the
+  patterns; re-audit will re-surface it.
+- **Write-pair gaps** (`saved_add`, `usergroups_disable`, `conversations_close`)
+  — surfaced 2026-07-02, not selected; value unproven and `saved_add`
+  feasibility depends on Slack's saved-items API surface.
+- **`slack_auth_status` as a warmup re-trigger**: rejected within plan 006 —
+  would add a second concurrent caller of the refresh path; the slow-retry
+  loop keeps a single warmup owner.
+
+### 2026-08-07 full audit — rejected
+
+- **slackauth dependency trim**: the dependency is load-bearing for browser
+  auth; "trim" had no concrete shape. Not worth doing.
+- **Fork CI (GitHub Actions)**: personal fork, nothing pushed by policy;
+  `make lint && make test` (plan 018) is the whole gate, run locally.
+- **uTLS connection-leak suspicion**: could not be confirmed from code
+  reading; deferred rather than planned — needs live evidence first.
+- **Micro-optimizations** (string builder tweaks, map prealloc in hot-ish
+  paths): suite runs <1s, tool latency is Slack-API-bound; noise.
+
+### 2026-08-07 full audit — surfaced but not selected (may re-audit later)
+
+- Split `conversations.go` (~2700 lines) into focused files — real debt,
+  but every selected correctness plan edits it; splitting first would
+  invalidate all their excerpts. Revisit after this batch merges.
+- Rate-limiter concurrency rework (PERF-03) — the global limiter serializes
+  some parallelizable fetches; needs a design pass, not a patch.
+- Consolidations: shared CSV renderer, unified cursor scheme, error-wrap
+  conventions — each surfaced by the audit; none selected (broad blast
+  radius, low urgency).
+- CSV formula-injection sanitization (SECURITY-06) — output cells beginning
+  with `=`/`+`/`-`/`@` are not escaped; only matters if CSV output is ever
+  opened in a spreadsheet, which no current consumer does. Surfaced, not
+  selected, not rejected.
+- Dependency-update verification pass (DEPS-01) — verify-first workflow per
+  the fork's update policy; not a code plan.
+- **FIXED by plan 025.** ~~Three tool gates accept any non-empty value,
+  contradicting their own error messages~~ — found by plan 021's executor while re-deriving the gate table,
+  verified by the reviewer. `SLACK_MCP_ATTACHMENT_TOOL` and
+  `SLACK_MCP_MARK_TOOL` validate against `true|1|yes` and reject anything else.
+  But `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL`, `SLACK_MCP_USERGROUPS_WRITE_TOOL`
+  and `SLACK_MCP_FILES_LIST_TOOL` go through `requireToolEnabled` /
+  `shouldAddTool`, which test only `os.Getenv(...) != ""` — so
+  `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL=false` **enables** the tool, while their
+  error text says "set to true or 1". A security-relevant surprise on
+  write-capable tools. Small follow-up plan; the docs now describe the code's
+  real behavior, not the error message's claim.
+- **FIXED by plan 028.** ~~`build-all-platforms` still mutates the tree~~ — plan 018 removed `tidy
+  format` from `build` but its scope named only that target, so
+  `build-all-platforms: clean tidy format` survives. Release-path target, small
+  exposure, one-line follow-up.
+- **FIXED by plan 028.** ~~`make clean` `rm -rf`s
+  `./npm/slack-mcp-server/{LICENSE,README.md}`~~ — untracked today (copied in
+  by `npm-publish`), so `build`'s new purity holds only as long as they stay
+  untracked. Pre-existing; noted by plan 018's executor. Plan 028 dropped both
+  from `CLEAN_TARGETS`; its executor also found `.gitignore:18-19` already
+  enforces the untracked invariant, so the risk was smaller than recorded here.
+- **Eight `conversations_unreads` surprises pinned by plan 020's characterization
+  tests** (all pre-existing at `adbae97`, all locked in by tests marked
+  `// NOTE: characterizes current behavior, possibly wrong:`). **Six of the
+  eight are now fixed by plans 026 and 027**, which rewrote the corresponding
+  tests deliberately. Two remain, deliberately — see below:
+  1. **FIXED (027)** `sortChannelsByPriority` sorted on channel **type alone** —
+     no secondary key, and `sort.Slice` (not stable), so equal-type ordering was
+     unspecified and the `max_channels` truncation was nondeterministic. Now
+     `sort.SliceStable`, type still primary (a silent DM still outranks a busy
+     channel — that part is deliberate), then `UnreadCount` descending, then
+     `ChannelID` ascending.
+  2. **FIXED (027)** An unknown/empty `ChannelType` got priority 0 (map miss →
+     zero value), tying with `dm`. Now ranked 99 and sorts last.
+  3. **CLOSED — nothing to fix.** The summary CSV header uses Go field names,
+     not the json tags: gocsv ignores `json:"channelID"`, so the header is
+     `ChannelID,ChannelName,…` while `UnreadChannel`'s tags spell the lowercase
+     forms. The recorded worry was that some doc asserted the lowercase names.
+     Checked at `b507108` — grepped `channelID|channelName|channelType|
+     unreadCount|lastRead` across `docs/`, `README.md` and `AGENTS.md` and
+     **no doc documents them**. The one hit, `README.md:43`, is unrelated
+     prose about `conversations_replies`. So there is no stale doc to correct,
+     and the header stays as gocsv emits it — changing it would alter the
+     output contract for no benefit. The unused `json:` tags on
+     `UnreadChannel` are cosmetic; left alone.
+  4. **FIXED (026)** — was the most consequential. A snapshot with no `last_read`
+     did not yield `""`.
+     `fasttime.Time`'s zero value renders via `SlackString()` as
+     `-62135596800.000000`, so the `LastRead == ""` branch in
+     `backfillUnreadCounts` is **unreachable for edge-sourced channels**, and
+     `conversations.history` was called with an effectively unbounded `Oldest`.
+     Plan 026 added a `slackTS` helper mapping the zero `fasttime.Time` to `""`.
+  5. **FIXED (026 + 027)** Summary mode and message mode disagreed on the
+     zero-unread fallback. 026 unified the successful-zero-row case; 027 closed
+     the remaining failed-fetch case it had handed over.
+  6. **FIXED (026)** On the message path a successful zero-row fetch overwrote a
+     positive `MentionCount` with 1. `unreadCountFromHistory` now preserves a
+     positive prior count.
+  7. **PARTLY FIXED (027)** MPIM names now get the same `#` normalization every
+     other branch applies. **Still open, deliberately**: cache misses render
+     bare IDs with no sigil (`C_UNKNOWN`, `D_NOUSER`). Judged correct as-is — a
+     bare ID is not a name, and `#C_UNKNOWN` would be a lie.
+  8. **FIXED (027)** An unrecognized `channel_types` value was silently accepted
+     and matched nothing. Now rejected at parse time with an error naming the
+     value and the accepted set. An explicit empty string defaults to `all`.
+- **FIXED by plan 024.** ~~`ChannelsMeHandler` panics on a negative `limit`~~ —
+  found by plan 010's executor, pre-existing at `adbae97`, left out of 010's scope.
+  `request.GetInt("limit", 0)` only substitutes the default when the value is
+  exactly `0`, so `limit = -5` survives; `end := limit` stays negative (the
+  `end > len(allChannels)` guard doesn't catch it) and `allChannels[:end]`
+  panics. Reachable from tool input. Small, self-contained follow-up plan —
+  worth writing, but not folded into 010 (scope discipline).
+
+### 2026-08-07 post-execution notes (plans 007–022)
+
+All 16 plans executed by dispatched executors and reviewed. Two branch stacks,
+both rooted at `adbae97`, kept separate so same-file plans merge trivially:
+
+- **Track A** (`pkg/provider/`, plus the Makefile): 007 → 013 → 017 → 008 →
+  019 `060b6ef` → 018 `569e010` (it needs 013's CAS loop in-base for `-race`
+  to be meaningful) → 028 `420e4d1`, the current Track A tip.
+- **Track B** (`pkg/handler/`, `pkg/server/`, `cmd/`): 014 → 016 → 010 → 009 →
+  011 → 012 → 022 → 020 → 015, tip `cf8f432`. Then 021 `2ab41b7` → 023
+  `727b517` → 024 `c037e11` → 025 `47c8c10` → 026 `b481c1b` → 027 `b507108`,
+  the current Track B tip.
+
+Track A then gained 029 `5c936ec` on top of 028, then 031 `0bd7766`, then 032
+`fc3d29a` — that is now the Track A tip.
+
+Nothing merged, nothing pushed. Merge order is the user's call.
+
+**A fourth defect, caught by the user rather than an executor.** Plan 009 found
+`conversations_search_messages`'s schema (`DefaultNumber(20)`) disagreeing with
+its handler (`GetInt("limit", 100)`) and resolved it by moving the handler to
+20 — silently changing how many results the tool returns by default. The
+maintainer wanted 100. Plan 023 reverses it. The lesson for future plans: when
+a schema and its implementation disagree about a **default**, that is not a
+detail to settle by picking whichever side looks more authoritative — it is an
+observable behavior change and belongs in the findings table as its own
+question for the maintainer, not buried inside a bug-fix plan.
+
+**Three plan defects the executors caught — all correct STOPs or deviations:**
+
+1. **Plan 008 was wrong and its first executor proved it.** The plan told the
+   executor to rebuild the retry body via `req.GetBody`, but `GetBody` is
+   *always* nil: `recorder()` TeeReader-wraps every body (`cl.tape` is never
+   nil — `NewWithInfo` sets `nopTape{}`), and `http.NewRequestWithContext` only
+   derives `GetBody` from a bare `*bytes.Reader`/`*strings.Reader`/`*bytes.Buffer`.
+   The guard was a permanent no-op. The executor wrote the test, watched it
+   fail with an empty second body, and stopped rather than improvising a
+   buffering layer. Plan gained a Step 2a (set `GetBody` explicitly at both
+   construction sites) and was re-run.
+2. **Three plans quoted code that did not exist** — 017 (wrong signature,
+   phantom `runtime.GOOS` guard), 016 (a `ValidateSSEAPIKey` HTTP middleware
+   that was never in the codebase), 019 (wrong `NewWithClient` signature). All
+   three were corrected against the real code before dispatch. Root cause:
+   excerpts taken from subagent audit reports rather than from a direct read.
+   The skill says to read every cited file yourself before writing a plan —
+   that rule is load-bearing, and skipping it cost three re-writes.
+3. **Plan 020's test seam could not exist as specified.** `apiProvider` is a
+   concrete `*provider.ApiProvider` with unexported fields, constructible only
+   via `New()` (live `AuthTest`), so neither the "fake at the HTTP layer" nor
+   the "parameter interface" route works. Executor made three behavior-
+   preserving extractions instead of taking the escape hatch. Right call.
+
+**Worktree mechanics (repeat of the July incident — keep this in the file):**
+
+- Harness worktrees come up at `origin/master`, NOT at local `HEAD`. Every
+  dispatch prompt needs a STEP ZERO block: assert `pwd` contains
+  `/.claude/worktrees/`, assert `git status --porcelain` is empty,
+  `git checkout -B <branch> <base>`, verify HEAD, verify
+  `git merge-base --is-ancestor adbae97 HEAD`.
+- **Never resume a stopped worktree agent** — the worktree is gone and `pwd`
+  falls back to the main checkout. Both resumed agents correctly refused to run
+  git there. Dispatch a fresh agent instead.
+- Free the branch name first (`git worktree remove --force` + `git branch -D`)
+  or the re-dispatched executor cannot `checkout -B`.
+
+### 2026-08-07 post-execution notes (plans 024–028)
+
+Second batch, written and executed after the maintainer asked to clear the
+surfaced-but-not-selected backlog. Five plans, all approved. 024–027 stack
+serially on Track B (they all touch `pkg/handler/`); 028 is Track A on top of
+018.
+
+**Two plan defects, both caught by executors before any damage:**
+
+1. **Plan 025's caller table was incomplete and its executor STOPPed.** The
+   plan told the executor to apply truthiness to `shouldAddTool`'s shared
+   `os.Getenv(envVarName) != ""` line, having enumerated the callers by
+   grepping the five *boolean* gate names. That grep structurally could not
+   find `SLACK_MCP_ADD_MESSAGE_TOOL` or `SLACK_MCP_REACTION_TOOL`, which are
+   channel-list variables on the same code path. The change would have
+   unregistered both tools for anyone using a channel allowlist — and an
+   existing test already pinned it. Fix: enumerate by `grep 'shouldAddTool('`,
+   not by variable name, and add an explicit `channelListGates` exemption set.
+   **The lesson: enumerate callers from the callee, not from a guess about who
+   calls it.**
+2. **Plan 024's backstop guard was insufficient and its executor extended it.**
+   The plan's `if endIndex < startIndex { endIndex = startIndex }` guard in
+   `paginateChannels` only moved the panic four lines down to
+   `channels[endIndex-1]`. The plan's own required test caught it. Executor
+   added `endIndex > 0 &&` — unreachable for any valid limit.
+
+**One reviewer amendment after approval**: plan 027 initially made an explicit
+`channel_types: ""` an error. MCP clients differ on whether an omitted optional
+string is dropped or sent as `""`, so empty now defaults to `all`; only
+non-empty unrecognized values error.
+
+**Deliberately left unfixed**, recorded above in the surprises list: bare
+cache-miss IDs (surprise 7 — judged correct as-is). Surprise 3 was **closed as
+a non-issue** on re-check: its premise was that some doc asserted the lowercase
+CSV field names, and no such doc exists.
+
+### 2026-08-07 backlog close-out (plans 029–030)
+
+After 024–028 cleared the selected backlog, the two remaining items worth
+touching were re-examined directly rather than re-audited.
+
+- **`conversations.go` split — still deferred, and the original reason still
+  holds.** It was deferred with "revisit after this batch merges"; **nothing
+  has merged**, and plans 004–006 are parked unmerged against that same file.
+  Splitting it now would force painful rebases on three parked branches for no
+  behavioral gain. Revisit after an actual merge.
+- **Rate-limiter rework — investigated, written up as plan 030.** That
+  investigation turned up a genuine, unrelated concurrency bug in
+  `edge.UsersList` (unsynchronized `append` from two `errgroup` goroutines,
+  plus two independent limiters against one token budget), which became plan
+  029. 030 itself is a decision document, not an executable plan: the sharpest
+  finding in it — `conversations.list` paced ~10× over its tier — is a one-line
+  fix with an observable ~10× latency cost, so it is raised for a decision
+  rather than planned unilaterally. That restraint is the plan-009 lesson
+  applied: flag observable behavior changes *before* landing them.
+
+Still untouched from the older backlog, unchanged in status: the
+consolidations, CSV formula-injection escaping, and DEPS-01 — design work or
+output-format changes rather than bug fixes.
+
+**Plan 029's outcome, and two more plan defects.** The fix landed clean at
+`5c936ec` and Step 4 proved the test earns its keep: with the old shared-`uu`
+form temporarily restored, `go test -count=10 -race` reported
+`WARNING: DATA RACE` on the write at `userlist.go:204`, plus an ordering flip
+(`U-DM, U-PUB`). Both of the plan's grep-count Done criteria were wrong, and
+the executor was right to override them:
+
+1. **`grep -c 'limiter.Tier3.Limiter()' → 1`** was impossible. The file has
+   *three* Tier3 constructions at base, not two — `GetUsers`
+   (`userlist.go:124`) has one as well, and the plan explicitly puts it out of
+   scope. The correct post-fix count is 2.
+2. **`grep -c 'uu = append' → 0`** contradicted the plan's own Step 1 text.
+   `publicUserList`'s single-goroutine pagination loop legitimately uses
+   `uu = append(uu, ur.Results...)`, and the plan instructs preserving it. The
+   criterion should have grepped the racy pattern `uu = append(uu, u...)`,
+   which is correctly 0.
+
+Both are the same failure as plan 026's: a Done criterion written from the
+*intent* of a change rather than checked against the file the change lands in.
+A `grep -c` expectation must be run against the base commit first — if it does
+not already produce the pre-fix number you expect, the criterion is wrong, not
+the code. **Third instance this session; treat grep-count criteria as
+suspect by default.**
+
+Minor: the plan cited the sole caller as `slacker.go:117`; at `420e4d1` it is
+`slacker.go:133`. The 117 was read from the Track B tip. Same cross-track line
+drift plan 030 warns about, made while writing the warning.
+
+**Branch-hygiene incident — resolved.** Plan 029's executor was given the
+repository's **main checkout** rather than a disposable worktree. It followed
+the plan's STEP ZERO correctly, but that ran
+`git checkout -B advisor/029-... 420e4d1` in the user's own tree, moving it off
+`master`/`adbae97`. No work was lost: `adbae97..5c936ec` changes no file under
+`plans/`, so the uncommitted `plans/` edits were never at risk. Restored with
+`git checkout master` at the user's direction — main checkout is back on
+`master`/`adbae97` with `advisor/029-...` still at `5c936ec`.
+
+**Preventive measure**: every subsequent dispatch passes an explicit worktree
+isolation flag and opens with a guard instructing the executor to abort if
+`git rev-parse --show-toplevel` is the main checkout path. Plan 031's dispatch
+is the first to carry it.
+
+### 2026-08-07 plan 031 — following a finding to its real cost
+
+Plan 030 left the `conversations.list` tier as a maintainer decision, priced at
+"~10× latency". Chasing the actual consequence of a 429 on that path changed
+both the price and the priority:
+
+- The latency estimate was **wrong in absolute terms**. The loop uses
+  `Limit: 999` against a 1000/page cap, so it is 5 requests on a 5,000-channel
+  workspace and 21 on a 20,000-channel one. The correction costs 6–52 seconds
+  on a background refresh, not minutes. Retracted in 030.
+- The real defect was downstream. `getChannelsMultiType` returns partial pages
+  with a nil error; `GetChannels` stores them over a good snapshot;
+  `fetchAndStoreChannels` guards only `len == 0` and writes the truncation to
+  disk as a success. One rate-limit hit on page 3 of 5 corrupts the channel
+  cache persistently.
+
+**The lesson: a rate-limit finding priced as a latency tradeoff was actually a
+data-integrity bug. Follow the failure path before pricing the knob.** Related:
+the repo had already fixed the `len == 0` half of this exact bug class and
+stopped there — when a guard handles the degenerate case, check whether the
+partial case is the more likely one.
+
+**Plan 031's outcome, and three more plan defects.** Landed at `0bd7766`;
+Step 6 confirmed the regression test earns its keep. The executor caught three
+things wrong with the plan:
+
+1. **The plan contradicted its own Done criterion.** Step 2's suggested comment
+   text contained the literal string `Tier2boost`, while the Done criteria
+   require `grep -n 'Tier2boost' pkg/provider/api.go` to return nothing.
+   Writing the suggested comment verbatim fails the check. Executor reworded to
+   "the boosted tier previously used here". **Fourth self-contradictory Done
+   criterion this session** — after 026's and 029's two. The pattern is always
+   the same: a `grep` written from the intent of the change without re-reading
+   what the change actually leaves in the file, *including the plan's own
+   suggested comment text*.
+2. **The fast-test guidance was insufficient and would have produced a 3-second
+   test.** Step 5 warned only about real `RetryAfter` sleeps. The actual cost
+   came from the limiter: `Tier2` is burst 3, so a page-1-success-then-
+   rate-limited-page-2 test makes four total calls and the fourth blocks a full
+   3s waiting for a token. Executor restructured so the failure lands on page 1,
+   keeping all three attempts inside the burst — 0.00s. **When a plan changes a
+   rate tier, its test-timing advice has to account for the new burst, not just
+   for sleeps.**
+3. **The users-cache assumption was wrong.** The plan and its maintenance notes
+   asserted the users path "has the same shape and very likely the same bug".
+   Verified independently: it does not. `fetchAndStoreUsers` (`api.go:1329-1332`)
+   returns early on error and never reaches `usersSnapshot.Store` or
+   `atomicWriteFile`. slack-go's `GetUsersContext` really does return partial
+   results alongside a non-nil error, so the dangerous value exists — this repo
+   just discards it correctly. **Asserting a parallel bug by structural analogy
+   without reading the second site is the same error class as plan 025's caller
+   table.** One claim in the executor's report did not survive checking either:
+   it suggested the mid-function "intermediate snapshot" can diverge from the
+   on-disk cache. Traced through all three branches — enrichment failing,
+   succeeding with zero users, succeeding with some — the snapshot and `list`
+   stay consistent in every case. No divergence.
+
+That third item is what produced plan 032: reading the users path properly
+turned up a different and worse defect there. See its row above.
+
+### 2026-08-07 plan 032 outcome — and an open trip-wire
+
+Landed at `fc3d29a`. Every pre-fix grep count the plan claimed was verified
+correct at `0bd7766` — the first plan this session with no self-contradictory
+Done criterion, because it was audited for one before dispatch. The executor
+explicitly re-checked whether the plan's own suggested comment text would
+inflate its own counts (it would not: the field comment writes
+`backgroundRefreshTimeout bounds ...` with no colon). **That audit should be a
+standing step: before dispatch, run every `grep -c` criterion against the base
+commit AND check whether any comment the plan tells the executor to write would
+change the count.**
+
+**Open trip-wire, deliberately not fixed.** `newTestApiProvider`
+(`pkg/provider/api_patch_test.go:41`) builds an `ApiProvider` by struct literal
+and does not set `backgroundRefreshTimeout`:
+
+```go
+func newTestApiProvider(client SlackAPI, snapshot *UsersCache) *ApiProvider {
+	ap := &ApiProvider{
+		client: client,
+		logger: zap.NewNop(),
+	}
+	ap.usersSnapshot.Store(snapshot)
+	return ap
+}
+```
+
+So any test built through it gets a zero timeout — which makes
+`context.WithTimeout` expire immediately, exactly the failure plan 032 warns
+about for the production constructors. Verified harmless today: the only
+`spawnBackground*Refresh` callers in the whole test suite are plan 032's own
+new tests, and both set the field explicitly. The durable fix is one line
+defaulting the field inside the helper. **Not worth its own plan** — fold it
+into whichever plan next touches `pkg/provider/` tests.
+
+**Still open, and the real remaining work on this path**: the users fetch
+delegates pagination, retry and pacing entirely to slack-go. It uses none of
+the repo's limiter tiers, and slack-go retries rate limits without bound. Plan
+032 bounds the damage at 15 minutes; it does not fix the cause, and a goroutine
+spinning `fetch → 429 → sleep → fetch` for 15 minutes while holding
+`fetchUsersMu` is still bad — and actively worsens the throttling it is
+reacting to. The thorough fix is to paginate with `GetUsersPaginated` behind
+the repo's own `limiter` + `CallWithRetry`, exactly as plan 031 did for
+channels. That is a design change to a hot path and should be its own plan,
+written deliberately rather than bolted on here.
+
+### 2026-08-07 direction items (maintainer decisions, not plans)
+
+- **`channels_search` spike**: fuzzy channel finding is the most common
+  agent stumble the audit inferred; would be a new tool — needs a
+  direction decision before planning.
+- **Tape harness as an opt-in debugging Option**: plan 019 removes the
+  always-on `tape.txt` recorder; a deliberate `OptionTape(w io.Writer)`
+  could preserve the capability safely if ever wanted.
+- **Expose-or-delete the six unused edge exports** (`ClientDMs`,
+  `ChannelsMembership`, `GetUsersInConversationContext`, `GetUsers`,
+  `ConversationsView`, `ConversationsGenericInfo`): they are either future
+  tool surface or dead weight. Plan 022 deliberately leaves them; next
+  audit should not re-report them as findings — this row is the record.
 
 ## Post-execution notes (2026-07-01)
 
@@ -65,3 +527,38 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - Consciously accepted per 002's maintenance note: a message with ~10
   attachments can now render ~3KB in standard mode (300-char budget is
   per-attachment, not per-message).
+
+## Post-execution notes (2026-07-02, plans 004–006)
+
+- Worktree provisioning incident: all three executor worktrees were initially
+  cut at `origin/master` (`b88c0de`, upstream tip) instead of local HEAD
+  (`adbae97`) — 62 commits behind, missing the whole fork. All three
+  executors correctly hit STOP conditions rather than improvising on the
+  wrong codebase, and were re-pointed at `adbae97` by the reviewer. Lesson
+  for future dispatches: verify the worktree's HEAD matches the plan's
+  `Planned at` SHA as step zero.
+- Collateral from the recovery: exec-004's original worktree had been
+  garbage-collected, so its authorized `git reset --hard adbae97` ran in the
+  main checkout (cwd fallback). Master was already at `adbae97` so no commits
+  or source moved, but the reset wiped the then-uncommitted status edits to
+  this file (rewritten afterward). Untracked plan files were unaffected.
+- Plan 004 calibration bug: the done criterion `grep -c
+  "conversations_get_message" pkg/server/server.go ≥ 2` was unmeetable by
+  design — registration uses the `ToolConversationsGetMessage` constant, so
+  the raw string appears once. The executor flagged it instead of gaming the
+  grep; the constant appears 4× (definition, ValidToolNames, guard,
+  registration). Reviewer accepted intent-satisfied.
+- Plan 004 documented deviation (accepted): pre-existing pinned test
+  `TestValidToolNames` in `pkg/server/server_test.go` required updating for
+  the 31st tool — same class of test-expectation update as plan 002's
+  resolved STOP.
+- Plan 005 note: `"has"` appears 3× in `conversations.go` (whitelist,
+  `filter_has` wiring, `buildQuery` ordered list) vs the criterion's
+  predicted 2 — the third occurrence is Step 2's legitimate addition.
+- Plan 006 worktree lives at `.claude/worktrees/advisor-006-warmup`
+  (recreated after harness cleanup), not an agent-suffixed path.
+- Merge decision is the maintainer's; nothing merged or pushed as of
+  2026-07-02. After merging, deploy requires adding `conversations_get_message`
+  to Plug's `SLACK_MCP_ENABLED_TOOLS` and running `make deploy-local`, then a
+  live smoke of the new tool, `filter_has`/`sort` on search, and normal
+  startup logging.
