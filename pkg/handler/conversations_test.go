@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/test/util"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -21,6 +22,7 @@ import (
 	"github.com/openai/openai-go/responses"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestIntegrationConversations(t *testing.T) {
@@ -999,4 +1001,154 @@ func TestUnitRequireToolEnabled(t *testing.T) {
 
 		assert.False(t, requireToolEnabled(envVar, toolName))
 	})
+}
+
+// Bug A: the search tool schema declares DefaultNumber(20) and a documented
+// 1..100 range; the parser must default and clamp to match.
+func TestUnitParseParamsToolSearchLimit(t *testing.T) {
+	ch := &ConversationsHandler{logger: zap.NewNop()}
+
+	tests := []struct {
+		name string
+		args map[string]any
+		want int
+	}{
+		{"absent limit uses schema default", map[string]any{"search_query": "hello"}, 20},
+		{"explicit zero uses schema default", map[string]any{"search_query": "hello", "limit": 0}, 20},
+		{"negative uses schema default", map[string]any{"search_query": "hello", "limit": -5}, 20},
+		{"above max clamps to 100", map[string]any{"search_query": "hello", "limit": 500}, 100},
+		{"in-range value passes through", map[string]any{"search_query": "hello", "limit": 50}, 50},
+		{"max value passes through", map[string]any{"search_query": "hello", "limit": 100}, 100},
+		{"json float encoding clamps too", map[string]any{"search_query": "hello", "limit": float64(500)}, 100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := mcp.CallToolRequest{}
+			req.Params.Arguments = tt.args
+
+			params, err := ch.parseParamsToolSearch(context.Background(), req)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, params.limit)
+		})
+	}
+}
+
+// Bug B: a documented 'D1234567890' filter_in_im_or_mpim value is a
+// conversation ID, not a user ID, and must never yield "user ... not found".
+func TestUnitIsSlackConversationIDPrefix(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"D1234567890", true},
+		{"G1234567890", true},
+		{"U1234567890", false},
+		{"W1234567890", false},
+		{"C1234567890", false},
+		{"@username_dm", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, isSlackConversationIDPrefix(tt.input))
+		})
+	}
+}
+
+func TestUnitFormatConversationFilter(t *testing.T) {
+	cms := &provider.ChannelsCache{
+		Channels: map[string]provider.Channel{
+			"D1234567890": {ID: "D1234567890", Name: "@alice", IsIM: true, User: "U0000000001"},
+			"D2222222222": {ID: "D2222222222", Name: "@bob", IsIM: true},
+			"G1234567890": {ID: "G1234567890", Name: "@mpdm-alice--bob--carol", IsMpIM: true},
+		},
+		ChannelsInv: map[string]string{},
+	}
+
+	tests := []struct {
+		name    string
+		cms     *provider.ChannelsCache
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"DM resolves to the peer user link", cms, "D1234567890", "<@U0000000001>", false},
+		{"DM without a peer falls back to the cached name", cms, "D2222222222", "@bob", false},
+		{"MPIM resolves to the cached name", cms, "G1234567890", "@mpdm-alice--bob--carol", false},
+		{"unknown conversation errors", cms, "D9999999999", "", true},
+		{"nil cache errors", nil, "D1234567890", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := formatConversationFilter(tt.cms, tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				// Never the misleading users-map error.
+				assert.NotContains(t, err.Error(), "user ")
+				assert.Contains(t, err.Error(), "not found in cache")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Bug D: the history schema advertises limit "1d" by default while forbidding
+// a limit alongside 'cursor'; the cursor must win over the duration window.
+func TestUnitParseParamsToolConversationsCursorBeatsDurationLimit(t *testing.T) {
+	ch := &ConversationsHandler{logger: zap.NewNop()}
+
+	tests := []struct {
+		name       string
+		args       map[string]any
+		wantLimit  int
+		wantWindow bool
+	}{
+		{
+			name:       "duration limit with cursor is ignored",
+			args:       map[string]any{"channel_id": "C1234567890", "limit": "1d", "cursor": "abc"},
+			wantLimit:  0,
+			wantWindow: false,
+		},
+		{
+			name:       "duration limit without cursor sets the window",
+			args:       map[string]any{"channel_id": "C1234567890", "limit": "1d"},
+			wantLimit:  100,
+			wantWindow: true,
+		},
+		{
+			name:       "numeric limit with cursor is ignored (existing behavior)",
+			args:       map[string]any{"channel_id": "C1234567890", "limit": "50", "cursor": "abc"},
+			wantLimit:  0,
+			wantWindow: false,
+		},
+		{
+			name:       "numeric limit without cursor is honored",
+			args:       map[string]any{"channel_id": "C1234567890", "limit": "50"},
+			wantLimit:  50,
+			wantWindow: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := mcp.CallToolRequest{}
+			req.Params.Arguments = tt.args
+
+			params, err := ch.parseParamsToolConversations(context.Background(), req)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantLimit, params.limit)
+			if tt.wantWindow {
+				assert.NotEmpty(t, params.oldest)
+				assert.NotEmpty(t, params.latest)
+			} else {
+				assert.Empty(t, params.oldest)
+				assert.Empty(t, params.latest)
+			}
+		})
+	}
 }

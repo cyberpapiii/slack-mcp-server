@@ -189,6 +189,29 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	return mcp.NewToolResultText(string(csvBytes)), nil
 }
 
+// parseSavedUpdateParams extracts and validates the saved_update parameters.
+//
+// The tool schema documents `date_due: 0` as the way to clear a due date, so
+// an explicitly supplied zero must be distinguishable from an absent key:
+// the "at least one of mark or date_due" check keys off key presence, not
+// value truthiness.
+func parseSavedUpdateParams(request mcp.CallToolRequest) (itemID, ts, mark string, dateDue int64, err error) {
+	itemID = request.GetString("item_id", "")
+	ts = request.GetString("ts", "")
+	mark = request.GetString("mark", "")
+	dateDue = int64(request.GetInt("date_due", 0))
+
+	_, dateDueProvided := request.GetArguments()["date_due"]
+
+	if itemID == "" || ts == "" {
+		return "", "", "", 0, fmt.Errorf("item_id and ts are required parameters")
+	}
+	if mark == "" && !dateDueProvided {
+		return "", "", "", 0, fmt.Errorf("at least one of mark or date_due must be provided")
+	}
+	return itemID, ts, mark, dateDue, nil
+}
+
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	h.logger.Debug("SavedUpdateHandler called", zap.Any("params", request.Params))
 	if !h.apiProvider.BrowserFeaturesAvailable() {
@@ -199,19 +222,12 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 		return nil, fmt.Errorf("browser-session Slack auth is no longer valid; stable Slack tools remain available; refresh browser tokens to restore Saved tools (%s)", reason)
 	}
 
-	itemID := request.GetString("item_id", "")
-	ts := request.GetString("ts", "")
-	mark := request.GetString("mark", "")
-	dateDue := int64(request.GetInt("date_due", 0))
-
-	if itemID == "" || ts == "" {
-		return nil, fmt.Errorf("item_id and ts are required parameters")
-	}
-	if mark == "" && dateDue == 0 {
-		return nil, fmt.Errorf("at least one of mark or date_due must be provided")
+	itemID, ts, mark, dateDue, err := parseSavedUpdateParams(request)
+	if err != nil {
+		return nil, err
 	}
 
-	err := h.apiProvider.Slack().SavedUpdate(ctx, "message", itemID, ts, mark, dateDue)
+	err = h.apiProvider.Slack().SavedUpdate(ctx, "message", itemID, ts, mark, dateDue)
 	if err != nil {
 		h.logger.Error("SavedUpdate failed",
 			zap.String("item_id", itemID),

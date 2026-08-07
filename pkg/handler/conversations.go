@@ -32,6 +32,11 @@ const (
 	defaultConversationsNumericLimit    = 50
 	defaultConversationsExpressionLimit = "1d"
 	maxFileSizeBytes                    = 5 * 1024 * 1024 // 5MB limit
+
+	// Search `limit` bounds, mirroring the tool schema's DefaultNumber(20) and
+	// its "Must be an integer between 1 and 100" description.
+	defaultSearchMessagesLimit = 20
+	maxSearchMessagesLimit     = 100
 )
 
 var validFilterKeys = map[string]struct{}{
@@ -2071,7 +2076,18 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 		paramLatest string
 		err         error
 	)
-	if strings.HasSuffix(limit, "d") || strings.HasSuffix(limit, "w") || strings.HasSuffix(limit, "m") {
+	isDurationLimit := strings.HasSuffix(limit, "d") || strings.HasSuffix(limit, "w") || strings.HasSuffix(limit, "m")
+	if isDurationLimit && cursor != "" {
+		// The schema's advertised default limit is "1d", but the same schema
+		// forbids a limit alongside 'cursor'. Sending both a cursor and a
+		// duration window makes pagination silently return nothing, so honour
+		// the cursor and drop the window — matching what the numeric branch
+		// already does when a cursor is present.
+		ch.logger.Debug("Ignoring duration limit because a cursor was provided",
+			zap.String("limit", limit),
+			zap.String("cursor", cursor),
+		)
+	} else if isDurationLimit {
 		paramLimit, paramOldest, paramLatest, err = limitByExpression(limit, defaultConversationsExpressionLimit)
 		if err != nil {
 			ch.logger.Error("Invalid duration limit", zap.String("limit", limit), zap.Error(err))
@@ -2519,8 +2535,19 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 			return nil, err
 		}
 		addFilter(filters, "in", f)
-	} else if im := req.GetString("filter_in_im_or_mpim", ""); im != "" {
-		f, err := ch.paramFormatUser(ctx, im)
+	} else if im := strings.TrimSpace(req.GetString("filter_in_im_or_mpim", "")); im != "" {
+		var (
+			f   string
+			err error
+		)
+		// The tool description documents the 'D1234567890' conversation-ID
+		// form, which is not a user ID and must be resolved via the channels
+		// cache rather than the users map.
+		if isSlackConversationIDPrefix(im) {
+			f, err = formatConversationFilter(ch.apiProvider.ProvideChannelsMaps(), im)
+		} else {
+			f, err = ch.paramFormatUser(ctx, im)
+		}
 		if err != nil {
 			ch.logger.Error("Invalid IM/MPIM filter", zap.String("filter", im), zap.Error(err))
 			return nil, err
@@ -2559,7 +2586,15 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	}
 
 	finalQuery := buildQuery(freeText, filters)
-	limit := req.GetInt("limit", 100)
+	// The tool schema declares a default of 20 and a documented range of
+	// 1..100; clamp so out-of-range values are never forwarded to Slack.
+	limit := req.GetInt("limit", defaultSearchMessagesLimit)
+	if limit <= 0 {
+		limit = defaultSearchMessagesLimit
+	}
+	if limit > maxSearchMessagesLimit {
+		limit = maxSearchMessagesLimit
+	}
 	cursor := req.GetString("cursor", "")
 
 	var (
@@ -2601,6 +2636,34 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 // Slack user IDs may begin with U or W: https://docs.slack.dev/changelog/2016/08/11/user-id-format-changes
 func isSlackUserIDPrefix(s string) bool {
 	return strings.HasPrefix(s, "U") || strings.HasPrefix(s, "W")
+}
+
+// isSlackConversationIDPrefix reports whether s looks like a DM (D…) or
+// group/MPIM (G…) conversation ID rather than a user ID or an @handle.
+func isSlackConversationIDPrefix(s string) bool {
+	return strings.HasPrefix(s, "D") || strings.HasPrefix(s, "G")
+}
+
+// formatConversationFilter resolves a D…/G… conversation ID against the
+// channels cache into the value Slack's `in:` search modifier expects.
+//
+// For a DM the cache stores the peer's user ID, so we emit the same
+// `<@Uxxxx>` form that the documented '@username_dm' input produces — the two
+// documented spellings of the same conversation therefore build an identical
+// query. For an MPIM (or any other cached conversation) we reuse the
+// filter_in_channel formatting, which is the cached channel Name.
+func formatConversationFilter(cms *provider.ChannelsCache, raw string) (string, error) {
+	if cms != nil {
+		if c, ok := cms.Channels[raw]; ok {
+			if c.IsIM && c.User != "" {
+				return fmt.Sprintf("<@%s>", c.User), nil
+			}
+			if c.Name != "" {
+				return c.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("conversation %q not found in cache; pass the '@username' form instead", raw)
 }
 
 func (ch *ConversationsHandler) paramFormatUser(ctx context.Context, raw string) (string, error) {

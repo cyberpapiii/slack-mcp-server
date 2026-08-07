@@ -131,6 +131,77 @@ func TestUnitSavedUpdateParamValidation(t *testing.T) {
 	})
 }
 
+// Bug C: the schema documents `date_due: 0` as the way to clear a due date,
+// so an explicit zero must be distinguishable from an absent key.
+func TestUnitParseSavedUpdateParams(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        map[string]any
+		wantErr     string
+		wantMark    string
+		wantDateDue int64
+	}{
+		{
+			name:        "explicit date_due 0 with no mark clears the due date",
+			args:        map[string]any{"item_id": "C1", "ts": "1.0", "date_due": 0},
+			wantMark:    "",
+			wantDateDue: 0,
+		},
+		{
+			name:        "explicit date_due 0 as json float clears the due date",
+			args:        map[string]any{"item_id": "C1", "ts": "1.0", "date_due": float64(0)},
+			wantMark:    "",
+			wantDateDue: 0,
+		},
+		{
+			name:    "neither mark nor date_due is rejected",
+			args:    map[string]any{"item_id": "C1", "ts": "1.0"},
+			wantErr: "at least one of mark or date_due must be provided",
+		},
+		{
+			name:        "mark alone is accepted",
+			args:        map[string]any{"item_id": "C1", "ts": "1.0", "mark": "completed"},
+			wantMark:    "completed",
+			wantDateDue: 0,
+		},
+		{
+			name:        "date_due alone is accepted",
+			args:        map[string]any{"item_id": "C1", "ts": "1.0", "date_due": 1772521200},
+			wantMark:    "",
+			wantDateDue: 1772521200,
+		},
+		{
+			name:    "missing item_id is rejected",
+			args:    map[string]any{"ts": "1.0", "mark": "completed"},
+			wantErr: "item_id and ts are required parameters",
+		},
+		{
+			name:    "missing ts is rejected",
+			args:    map[string]any{"item_id": "C1", "mark": "completed"},
+			wantErr: "item_id and ts are required parameters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := mcp.CallToolRequest{}
+			req.Params.Arguments = tt.args
+
+			itemID, ts, mark, dateDue, err := parseSavedUpdateParams(req)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, "C1", itemID)
+			assert.Equal(t, "1.0", ts)
+			assert.Equal(t, tt.wantMark, mark)
+			assert.Equal(t, tt.wantDateDue, dateDue)
+		})
+	}
+}
+
 func TestUnitSavedListResponseParsing(t *testing.T) {
 	resp := edge.SavedListResponse{
 		SavedItems: []edge.SavedItem{
