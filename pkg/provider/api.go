@@ -1189,22 +1189,30 @@ func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.Use
 	}
 
 	user := (*usersInfo)[0]
-	current := ap.usersSnapshot.Load()
 
-	newSnapshot := &UsersCache{
-		Users:    make(map[string]slack.User, len(current.Users)+1),
-		UsersInv: make(map[string]string, len(current.UsersInv)+1),
-	}
-	for k, v := range current.Users {
-		newSnapshot.Users[k] = v
-	}
-	for k, v := range current.UsersInv {
-		newSnapshot.UsersInv[k] = v
-	}
-	newSnapshot.Users[user.ID] = user
-	newSnapshot.UsersInv[user.Name] = user.ID
+	for {
+		current := ap.usersSnapshot.Load()
 
-	ap.usersSnapshot.Store(newSnapshot)
+		newSnapshot := &UsersCache{
+			Users:    make(map[string]slack.User, len(current.Users)+1),
+			UsersInv: make(map[string]string, len(current.UsersInv)+1),
+		}
+		for k, v := range current.Users {
+			newSnapshot.Users[k] = v
+		}
+		for k, v := range current.UsersInv {
+			newSnapshot.UsersInv[k] = v
+		}
+		newSnapshot.Users[user.ID] = user
+		newSnapshot.UsersInv[user.Name] = user.ID
+
+		if ap.usersSnapshot.CompareAndSwap(current, newSnapshot) {
+			break
+		}
+		// Lost the race to another writer (a concurrent PatchUser or a
+		// background refresh snapshot store); retry from the fresh snapshot.
+	}
+
 	ap.logger.Debug("Patched user into cache",
 		zap.String("user_id", user.ID),
 		zap.String("user_name", user.Name))
