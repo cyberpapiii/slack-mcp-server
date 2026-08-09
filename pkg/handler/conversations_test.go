@@ -1559,6 +1559,11 @@ func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, res.Content, 1)
 		got := res.Content[0].(mcp.TextContent).Text
+		structured, ok := res.StructuredContent.(ToolResult[UnreadPageData])
+		require.True(t, ok)
+		require.NotNil(t, structured.Data)
+		assert.Equal(t, channels, structured.Data.Channels)
+		assert.Equal(t, TrustUntrusted, structured.Meta.Provenance.Trust)
 
 		assert.Equal(t, header+
 			"D111,@alice,dm,2,1700000000.000100,1700000900.000200\n"+

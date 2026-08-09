@@ -25,6 +25,11 @@ func TestUnitAuthStatusHandler_ReturnsJSONSummary(t *testing.T) {
 		}
 	}
 	require.NotEmpty(t, body)
+	require.NotNil(t, result.StructuredContent)
+	structured, ok := result.StructuredContent.(ToolResult[AuthStatusData])
+	require.True(t, ok)
+	require.NotNil(t, structured.Data)
+	assert.Equal(t, TrustSystem, structured.Meta.Provenance.Trust)
 	assert.Contains(t, body, "users_cache_ready")
 	assert.Contains(t, body, "catalog_version")
 	assert.Contains(t, body, "provider_identity")

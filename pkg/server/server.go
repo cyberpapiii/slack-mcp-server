@@ -151,10 +151,8 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	authStatusHandler := handler.NewAuthStatusHandler(provider, logger)
 
 	if shouldAddTool(ToolSlackAuthStatus, enabledTools, "") {
-		s.AddTool(mcp.NewTool(ToolSlackAuthStatus,
+		s.AddTool(newDailyPowerTool(ToolSlackAuthStatus,
 			mcp.WithDescription("Report Slack auth, cache readiness, and browser-session health. Use before activity or saved tools when auth may have expired."),
-			mcp.WithTitleAnnotation("Auth & Cache Status"),
-			mcp.WithReadOnlyHintAnnotation(true),
 		), authStatusHandler.Handler)
 	}
 
@@ -244,10 +242,8 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	}
 
 	if shouldAddTool(ToolConversationsGetMessage, enabledTools, "") {
-		s.AddTool(mcp.NewTool(ToolConversationsGetMessage,
+		s.AddTool(newDailyPowerTool(ToolConversationsGetMessage,
 			mcp.WithDescription("Fetch a single message by channel and timestamp. Use the MsgID column from any compact CSV output as the timestamp, for example to re-fetch a message with detail: 'full' after an attachment-truncation receipt. Returns the same CSV format as conversations_history."),
-			mcp.WithTitleAnnotation("Get Single Message"),
-			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("channel_id",
 				mcp.Required(),
 				mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel or DM name starting with # or @, e.g. #general or @username_dm."),
@@ -501,10 +497,8 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	usergroupsHandler := handler.NewUsergroupsHandler(provider, logger)
 
 	if shouldAddTool(ToolUsergroupsList, enabledTools, "") {
-		s.AddTool(mcp.NewTool(ToolUsergroupsList,
+		s.AddTool(newDailyPowerTool(ToolUsergroupsList,
 			mcp.WithDescription("List all user groups (subteams) in the workspace. User groups are mention handles like @engineering that notify all members. Use this to find a group's ID before joining or updating it. Returns CSV with columns: id, name, handle, description, user_count, is_external, date_create, date_update; when include_users=true also users (semicolon-separated user IDs)."),
-			mcp.WithTitleAnnotation("List User Groups"),
-			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithBoolean("include_users",
 				mcp.Description("Include semicolon-separated user IDs in the users CSV column. Default is false."),
 				mcp.DefaultBool(false),
@@ -602,10 +596,8 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	if addSavedList || addSavedUpdate || addSavedClear {
 		savedHandler := handler.NewSavedHandler(provider, logger, conversationsHandler)
 		if addSavedList {
-			s.AddTool(mcp.NewTool(ToolSavedList,
+			s.AddTool(newDailyPowerTool(ToolSavedList,
 				mcp.WithDescription("List saved items from Slack's 'Save for Later' panel. Returns items the user has saved, with optional message content. Replaces the deprecated stars.list API. Requires browser session tokens (xoxc/xoxd)."),
-				mcp.WithTitleAnnotation("List Saved Items"),
-				mcp.WithReadOnlyHintAnnotation(true),
 				mcp.WithString("filter",
 					mcp.Description("Filter saved items: 'saved' (active/in-progress, default), 'completed' (marked done), 'archived'."),
 					mcp.DefaultString("saved"),
@@ -781,10 +773,8 @@ func (s *MCPServer) registerCacheDependentTools() {
 
 	if !provider.IsBotToken() && shouldAddTool(ToolConversationsUnreads, enabledTools, "") {
 		guardCacheDependentRegistration(ToolConversationsUnreads)
-		s.server.AddTool(mcp.NewTool(ToolConversationsUnreads,
+		s.server.AddTool(newDailyPowerTool(ToolConversationsUnreads,
 			mcp.WithDescription("Get unread messages across all channels. With browser session tokens (xoxc/xoxd), one API call returns complete results. With OAuth user tokens (xoxp), scans up to max_channels channels per type, so results may be partial on large workspaces. Results are prioritized: DMs, then group DMs, then partner channels, then internal channels."),
-			mcp.WithTitleAnnotation("Get Unread Messages"),
-			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithBoolean("include_messages",
 				mcp.Description("If true (default), returns the actual unread messages. If false, returns only a summary of channels with unreads."),
 				mcp.DefaultBool(true),
@@ -822,10 +812,8 @@ func (s *MCPServer) registerCacheDependentTools() {
 		activityHandler := handler.NewActivityHandler(provider, logger, conversationsHandler)
 		if addActivityUnreads {
 			guardCacheDependentRegistration(ToolActivityUnreads)
-			s.server.AddTool(mcp.NewTool(ToolActivityUnreads,
+			s.server.AddTool(newDailyPowerTool(ToolActivityUnreads,
 				mcp.WithDescription("Get unread Activity items (thread replies and @mentions). Returns the same data as Slack's Activity panel Unreads tab. Requires browser session tokens (xoxc/xoxd)."),
-				mcp.WithTitleAnnotation("Get Activity Unreads"),
-				mcp.WithReadOnlyHintAnnotation(true),
 				mcp.WithBoolean("include_messages",
 					mcp.Description("If true (default), fetches unread reply messages per thread. If false, returns summary only."),
 					mcp.DefaultBool(true),
@@ -946,7 +934,7 @@ func buildErrorRecoveryMiddleware(logger *zap.Logger) server.ToolHandlerMiddlewa
 					zap.String("tool", req.Params.Name),
 					zap.Error(err),
 				)
-				return mcp.NewToolResultError(err.Error()), nil
+				return handler.NewTypedErrorResult(err), nil
 			}
 			return res, nil
 		}

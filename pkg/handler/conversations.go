@@ -55,21 +55,21 @@ var validFilterKeys = map[string]struct{}{
 }
 
 type Message struct {
-	MsgID         string `json:"msgID"`
-	UserID        string `json:"userID"`
-	UserName      string `json:"userUser"`
-	RealName      string `json:"realName"`
-	Channel       string `json:"channelID"`
-	ThreadTs      string `json:"ThreadTs"`
+	MsgID         string `json:"message_id"`
+	UserID        string `json:"user_id"`
+	UserName      string `json:"user_name"`
+	RealName      string `json:"real_name"`
+	Channel       string `json:"channel"`
+	ThreadTs      string `json:"thread_ts,omitempty"`
 	Text          string `json:"text"`
 	Time          string `json:"time"`
 	Permalink     string `json:"permalink,omitempty"`
 	Reactions     string `json:"reactions,omitempty"`
-	BotName       string `json:"botName,omitempty"`
-	FileCount     int    `json:"fileCount,omitempty"`
-	AttachmentIDs string `json:"attachmentIDs,omitempty"`
-	HasMedia      bool   `json:"hasMedia,omitempty"`
-	Cursor        string `json:"cursor"`
+	BotName       string `json:"bot_name,omitempty"`
+	FileCount     int    `json:"file_count,omitempty"`
+	AttachmentIDs string `json:"attachment_ids,omitempty"`
+	HasMedia      bool   `json:"has_media,omitempty"`
+	Cursor        string `json:"cursor,omitempty"`
 }
 
 // CompactMessage is the default agent-oriented CSV shape: readable columns plus the
@@ -585,11 +585,23 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 		return nil, err
 	}
 	if msg == nil {
-		return mcp.NewToolResultText("No message found at the specified timestamp"), nil
+		return NewStructuredResult(
+			MessageData{Found: false},
+			SlackResultMeta("", false, ""),
+			"No message found at the specified timestamp",
+		), nil
 	}
 
 	messages := ch.convertMessagesFromHistory(ctx, []slack.Message{*msg}, channel, true, mode)
-	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	rendered, err := marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	if err != nil {
+		return nil, err
+	}
+	data := MessageData{Found: len(messages) > 0}
+	if len(messages) > 0 {
+		data.Message = &messages[0]
+	}
+	return NewStructuredResult(data, SlackResultMeta("", false, ""), ResultText(rendered)), nil
 }
 
 func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1009,11 +1021,11 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 
 // UnreadChannel represents a channel with unread messages
 type UnreadChannel struct {
-	ChannelID   string `json:"channelID"`
-	ChannelName string `json:"channelName"`
-	ChannelType string `json:"channelType"` // "dm", "group_dm", "partner", "internal"
-	UnreadCount int    `json:"unreadCount"`
-	LastRead    string `json:"lastRead"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	ChannelType string `json:"channel_type"` // "dm", "group_dm", "partner", "internal"
+	UnreadCount int    `json:"unread_count"`
+	LastRead    string `json:"last_read"`
 	Latest      string `json:"latest"`
 }
 
@@ -1135,7 +1147,15 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 
 	ch.logger.Debug("Fetched unread messages", zap.Int("total", len(allMessages)))
 
-	return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	rendered, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	if err != nil {
+		return nil, err
+	}
+	return NewStructuredResult(
+		UnreadPageData{Channels: unreadChannels, Messages: allMessages},
+		SlackResultMeta("", params.mutedUnavailable, "muted-channel preferences unavailable"),
+		ResultText(rendered),
+	), nil
 }
 
 func unreadCountFromHistory(current, msgCount int, fetchErr error) int {
@@ -1455,7 +1475,11 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 				result.Content[0] = tc
 			}
 		}
-		return result, nil
+		return NewStructuredResult(
+			UnreadPageData{Channels: unreadChannels},
+			SlackResultMeta("", true, "OAuth unread scan may not cover every channel"),
+			ResultText(result),
+		), nil
 	}
 
 	rl := limiter.Tier3.Limiter()
@@ -1501,7 +1525,11 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 			result.Content[0] = tc
 		}
 	}
-	return result, nil
+	return NewStructuredResult(
+		UnreadPageData{Channels: unreadChannels, Messages: allMessages},
+		SlackResultMeta("", true, "OAuth unread scan may not cover every channel"),
+		ResultText(result),
+	), nil
 }
 
 // slackRetryAfter checks if an error is a Slack rate limit error and returns
@@ -1894,7 +1922,11 @@ func (ch *ConversationsHandler) marshalUnreadChannelsToCSV(channels []UnreadChan
 	if err != nil {
 		return nil, err
 	}
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	return NewStructuredResult(
+		UnreadPageData{Channels: channels},
+		SlackResultMeta("", false, ""),
+		string(csvBytes),
+	), nil
 }
 
 func isChannelAllowedForConfig(channel, config string) bool {

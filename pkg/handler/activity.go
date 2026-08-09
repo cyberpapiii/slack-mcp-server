@@ -15,14 +15,14 @@ import (
 )
 
 type ActivityItem struct {
-	Type        string `csv:"Type"`
-	ChannelID   string `csv:"ChannelID"`
-	ChannelName string `csv:"ChannelName"`
-	ThreadTs    string `csv:"ThreadTs"`
-	UnreadCount int    `csv:"UnreadCount"`
-	FeedTs      string `csv:"FeedTs"`
-	Key         string `csv:"Key"`
-	MinUnreadTs string `csv:"MinUnreadTs"`
+	Type        string `csv:"Type" json:"type"`
+	ChannelID   string `csv:"ChannelID" json:"channel_id"`
+	ChannelName string `csv:"ChannelName" json:"channel_name"`
+	ThreadTs    string `csv:"ThreadTs" json:"thread_ts,omitempty"`
+	UnreadCount int    `csv:"UnreadCount" json:"unread_count"`
+	FeedTs      string `csv:"FeedTs" json:"feed_ts"`
+	Key         string `csv:"Key" json:"key"`
+	MinUnreadTs string `csv:"MinUnreadTs" json:"min_unread_ts,omitempty"`
 }
 
 type ActivityHandler struct {
@@ -123,7 +123,11 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal activity items: %v", err)
 		}
-		return mcp.NewToolResultText(string(csvBytes)), nil
+		return NewStructuredResult(
+			ActivityPageData{Items: items},
+			SlackResultMeta("", false, ""),
+			string(csvBytes),
+		), nil
 	}
 
 	type threadKey struct {
@@ -191,10 +195,22 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			return nil, fmt.Errorf("failed to marshal activity items: %v", err)
 		}
 		sb.Write(csvBytes)
-		return mcp.NewToolResultText(sb.String()), nil
+		return NewStructuredResult(
+			ActivityPageData{Items: items},
+			SlackResultMeta("", true, "activity messages could not be fetched"),
+			sb.String(),
+		), nil
 	}
 
-	return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+	rendered, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+	if err != nil {
+		return nil, err
+	}
+	return NewStructuredResult(
+		ActivityPageData{Items: items, Messages: allMessages},
+		SlackResultMeta("", false, ""),
+		ResultText(rendered),
+	), nil
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

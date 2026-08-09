@@ -15,13 +15,13 @@ import (
 )
 
 type SavedItemRow struct {
-	ItemID      string `csv:"ItemID"`
-	ChannelID   string `csv:"ChannelID"`
-	ChannelName string `csv:"ChannelName"`
-	Ts          string `csv:"Ts"`
-	DateCreated string `csv:"DateCreated"`
-	DateDue     string `csv:"DateDue"`
-	State       string `csv:"State"`
+	ItemID      string `csv:"ItemID" json:"item_id"`
+	ChannelID   string `csv:"ChannelID" json:"channel_id"`
+	ChannelName string `csv:"ChannelName" json:"channel_name"`
+	Ts          string `csv:"Ts" json:"ts"`
+	DateCreated string `csv:"DateCreated" json:"date_created"`
+	DateDue     string `csv:"DateDue" json:"date_due,omitempty"`
+	State       string `csv:"State" json:"state"`
 }
 
 type SavedHandler struct {
@@ -66,6 +66,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	var allItems []SavedItemRow
 	var allMessages []Message
 	cursor := ""
+	nextCursor := ""
 	fetched := 0
 	pageSize := limit
 	if pageSize > 50 {
@@ -85,6 +86,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 			h.logger.Error("SavedList failed", zap.Error(err))
 			return nil, fmt.Errorf("failed to list saved items: %v", err)
 		}
+		nextCursor = resp.ResponseMetadata.NextCursor
 
 		for _, item := range resp.SavedItems {
 			if fetched >= limit {
@@ -185,14 +187,26 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	}
 
 	if includeMessages && len(allMessages) > 0 {
-		return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+		rendered, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+		if err != nil {
+			return nil, err
+		}
+		return NewStructuredResult(
+			SavedPageData{Items: allItems, Messages: allMessages},
+			SlackResultMeta("", nextCursor != "", "result stopped at the requested item limit"),
+			ResultText(rendered),
+		), nil
 	}
 
 	csvBytes, err := gocsv.MarshalBytes(&allItems)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal saved items: %v", err)
 	}
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	return NewStructuredResult(
+		SavedPageData{Items: allItems},
+		SlackResultMeta("", nextCursor != "", "result stopped at the requested item limit"),
+		string(csvBytes),
+	), nil
 }
 
 // parseSavedUpdateParams: schema uses date_due:0 to clear; key presence (not truthiness) gates the required-field check.

@@ -419,6 +419,12 @@ func TestErrorRecoveryMiddleware(t *testing.T) {
 		textContent, ok := result.Content[0].(mcp.TextContent)
 		require.True(t, ok, "content should be TextContent")
 		assert.Contains(t, textContent.Text, "simulated tool error: invalid channel ID")
+		require.NotNil(t, result.StructuredContent)
+		structured, ok := result.StructuredContent.(map[string]any)
+		require.True(t, ok)
+		errorPayload, ok := structured["error"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "tool_error", errorPayload["code"])
 	})
 
 	t.Run("without middleware handler error becomes JSON-RPC error", func(t *testing.T) {

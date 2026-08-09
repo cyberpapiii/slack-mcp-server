@@ -44,6 +44,22 @@ func TestPresetsSeparateCanonicalAndLegacyTools(t *testing.T) {
 	}
 }
 
+func TestDailyPowerToolsHaveNeutralBehaviorContracts(t *testing.T) {
+	for _, tool := range DailyPowerLocalTools() {
+		behavior, ok := BehaviorForLocalTool(tool)
+		if !ok {
+			t.Fatalf("daily-power tool %q has no behavior contract", tool)
+		}
+		if behavior.Title == "" || !behavior.ReadOnly || behavior.Destructive || !behavior.Idempotent || !behavior.OpenWorld {
+			t.Fatalf("unexpected daily-power behavior for %q: %#v", tool, behavior)
+		}
+		entry, ok := EntryForLocalTool(tool)
+		if !ok || entry.Confirmation != ConfirmationNone {
+			t.Fatalf("confirmation policy missing or mixed into behavior for %q: %#v", tool, entry)
+		}
+	}
+}
+
 func TestVerifyInventoryRejectsDuplicateMissingAndIdentityMismatch(t *testing.T) {
 	official := InventorySnapshot{
 		CatalogVersion: CatalogVersion,

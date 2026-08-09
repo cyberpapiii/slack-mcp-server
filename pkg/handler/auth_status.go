@@ -29,7 +29,7 @@ func NewAuthStatusHandler(apiProvider *provider.ApiProvider, logger *zap.Logger)
 	return &AuthStatusHandler{apiProvider: apiProvider, logger: logger}
 }
 
-type authStatusPayload struct {
+type AuthStatusData struct {
 	CatalogVersion           string                         `json:"catalog_version"`
 	ProviderIdentity         provider.ProviderIdentity      `json:"provider_identity"`
 	OAuthCredential          provider.OAuthCredentialStatus `json:"oauth_credential"`
@@ -56,7 +56,7 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 	degradedReason := h.apiProvider.BrowserDegradedReason()
 	browserBlocked := !browserOK && degradedReason != ""
 
-	payload := authStatusPayload{
+	payload := AuthStatusData{
 		CatalogVersion:           capability.CatalogVersion,
 		ProviderIdentity:         h.apiProvider.Identity(),
 		OAuthCredential:          h.apiProvider.OAuthCredentialStatus(),
@@ -79,7 +79,7 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 		return nil, fmt.Errorf("marshal auth status: %w", err)
 	}
 
-	return mcp.NewToolResultText(string(raw)), nil
+	return NewStructuredResult(payload, SystemResultMeta(), string(raw)), nil
 }
 
 func capabilityAvailability(standardOAuth, browserOK bool, degradedReason string) map[string]string {

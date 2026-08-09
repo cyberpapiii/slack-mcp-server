@@ -25,10 +25,6 @@ type UserGroup struct {
 	Users       string `csv:"users,omitempty" json:"users,omitempty" jsonschema_description:"Semicolon-separated user IDs when include_users=true"`
 }
 
-type UsergroupListResult struct {
-	Usergroups []UserGroup `json:"usergroups" jsonschema_description:"List of user groups"`
-}
-
 type UsergroupMeActionResult struct {
 	Message   string `json:"message" jsonschema_description:"Result message"`
 	GroupID   string `json:"group_id" jsonschema_description:"User group ID"`
@@ -100,7 +96,7 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 		return nil, err
 	}
 
-	return mcp.NewToolResultStructured(UsergroupListResult{Usergroups: userGroupList}, string(csvBytes)), nil
+	return NewStructuredResult(UsergroupPageData{Usergroups: userGroupList}, SlackResultMeta("", false, ""), string(csvBytes)), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -363,7 +359,7 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 		return nil, err
 	}
 
-	return mcp.NewToolResultStructured(UsergroupListResult{Usergroups: userGroupList}, string(csvBytes)), nil
+	return NewStructuredResult(UsergroupPageData{Usergroups: userGroupList}, SlackResultMeta("", false, ""), string(csvBytes)), nil
 }
 
 func formatJSONTime(jt slack.JSONTime) string {

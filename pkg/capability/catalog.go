@@ -42,6 +42,16 @@ const (
 	MigrationLegacy  MigrationState = "legacy-only"
 )
 
+// ToolBehavior contains MCP-neutral behavior hints. Confirmation remains on
+// Entry because user approval policy and MCP destructive semantics differ.
+type ToolBehavior struct {
+	Title       string `json:"title"`
+	ReadOnly    bool   `json:"read_only"`
+	Destructive bool   `json:"destructive"`
+	Idempotent  bool   `json:"idempotent"`
+	OpenWorld   bool   `json:"open_world"`
+}
+
 type Entry struct {
 	ID              string           `json:"id"`
 	Owner           Owner            `json:"owner"`
@@ -129,6 +139,30 @@ var catalog = []Entry{
 	local("list.item.manage", "lists_items_manage", "list_item_mutation", ConfirmationChange, AuthOAuth, MigrationPlanned, "lists:read", "lists:write"),
 	local("dnd.manage", "dnd_manage", "dnd_state", ConfirmationChange, AuthOAuth, MigrationPlanned, "dnd:write"),
 	{ID: "draft.persisted.manage", Owner: OwnerLocalBrowser, LocalTool: "drafts_manage", Auth: AuthBrowser, Confirmation: ConfirmationNone, ResultType: "draft", Migration: MigrationPlanned, BrowserOptional: true},
+}
+
+var dailyPowerToolBehavior = map[string]ToolBehavior{
+	"activity_unreads":          {Title: "Get Activity Unreads", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"conversations_get_message": {Title: "Get Single Message", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"conversations_unreads":     {Title: "Get Unread Messages", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"saved_list":                {Title: "List Saved Items", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"slack_auth_status":         {Title: "Auth & Cache Status", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"usergroups_list":           {Title: "List User Groups", ReadOnly: true, Idempotent: true, OpenWorld: true},
+}
+
+func BehaviorForLocalTool(tool string) (ToolBehavior, bool) {
+	behavior, ok := dailyPowerToolBehavior[tool]
+	return behavior, ok
+}
+
+func EntryForLocalTool(tool string) (Entry, bool) {
+	for _, entry := range catalog {
+		if entry.LocalTool == tool && entry.Owner != OwnerOfficial && entry.Migration == MigrationActive {
+			entry.RequiredScopes = append([]string(nil), entry.RequiredScopes...)
+			return entry, true
+		}
+	}
+	return Entry{}, false
 }
 
 func Entries() []Entry {
