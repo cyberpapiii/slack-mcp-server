@@ -12,6 +12,9 @@ An observable change in the server's live output, such as a new column header or
 
 ## Output modes
 
+### Canonical capability
+The single visible tool selected for one user intent across Slack's official MCP and this local server. Provider ownership may change as Slack adds or improves tools, but overlapping official and local defaults must not be exposed together.
+
 ### Standard mode
 The default output level for message-returning tools: compact CSV designed for agent consumption, keeping identifiers needed for follow-up actions while dropping verbose columns. May prepend a Legend and truncate long attachments with a Truncation receipt. Callers select modes per call via the `detail` parameter; a server-wide default applies when the call doesn't specify one.
 
