@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,13 +38,7 @@ func NewKeychainCredentialStore(account string) (*KeychainCredentialStore, error
 }
 
 func keychainCommandRunner() commandRunner {
-	return func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, name, args...)
-		if len(stdin) != 0 {
-			cmd.Stdin = bytes.NewReader(stdin)
-		}
-		return cmd.Output()
-	}
+	return platformKeychainCommandRunner()
 }
 
 func (s *KeychainCredentialStore) Load(ctx context.Context) (OAuthTokenRecord, error) {
