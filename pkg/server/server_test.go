@@ -136,6 +136,20 @@ func TestValidToolNames(t *testing.T) {
 	})
 }
 
+func TestCapabilityPresets(t *testing.T) {
+	daily, err := ResolveToolPreset("daily-power")
+	require.NoError(t, err)
+	assert.Contains(t, daily, ToolSlackAuthStatus)
+	assert.NotContains(t, daily, ToolConversationsAddMessage)
+
+	legacy, err := ResolveToolPreset("legacy-full")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, ValidToolNames, legacy)
+
+	_, err = ResolveToolPreset("unknown")
+	require.Error(t, err)
+}
+
 func TestValidateEnabledTools(t *testing.T) {
 	t.Run("empty list is valid", func(t *testing.T) {
 		err := ValidateEnabledTools([]string{})

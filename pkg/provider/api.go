@@ -358,6 +358,14 @@ type ApiProvider struct {
 	channelsRefresh           *channelsRefreshCall
 }
 
+type ProviderIdentity struct {
+	TeamID       string `json:"team_id,omitempty"`
+	UserID       string `json:"user_id,omitempty"`
+	EnterpriseID string `json:"enterprise_id,omitempty"`
+	ActorType    string `json:"actor_type"`
+	TokenMode    string `json:"token_mode"`
+}
+
 type usersRefreshCall struct {
 	done chan struct{}
 	err  error
@@ -1677,6 +1685,31 @@ func (ap *ApiProvider) Slack() SlackAPI {
 func (ap *ApiProvider) IsBotToken() bool {
 	client, ok := ap.client.(*MCPSlackClient)
 	return ok && client != nil && client.IsBotToken()
+}
+
+func (ap *ApiProvider) Identity() ProviderIdentity {
+	identity := ProviderIdentity{ActorType: "unknown", TokenMode: "unknown"}
+	client, ok := ap.client.(*MCPSlackClient)
+	if !ok || client == nil {
+		return identity
+	}
+	if authResponse := client.AuthResponse(); authResponse != nil {
+		identity.TeamID = authResponse.TeamID
+		identity.UserID = authResponse.UserID
+		identity.EnterpriseID = authResponse.EnterpriseID
+	}
+	switch {
+	case client.IsBotToken():
+		identity.ActorType = "bot"
+		identity.TokenMode = "bot-oauth"
+	case client.IsOAuth():
+		identity.ActorType = "user"
+		identity.TokenMode = "user-oauth"
+	default:
+		identity.ActorType = "user"
+		identity.TokenMode = "browser-session"
+	}
+	return identity
 }
 
 func (ap *ApiProvider) IsOAuth() bool {

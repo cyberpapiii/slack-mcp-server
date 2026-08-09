@@ -22,26 +22,25 @@ var defaultSsePort = 13080
 func main() {
 	var transport string
 	var enabledToolsFlag string
+	var toolPreset string
 	var noCache bool
 	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio, sse or http)")
 	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio, sse or http)")
-	flag.StringVar(&enabledToolsFlag, "e", "", "Comma-separated list of enabled tools (empty = all tools)")
-	flag.StringVar(&enabledToolsFlag, "enabled-tools", "", "Comma-separated list of enabled tools (empty = all tools)")
+	flag.StringVar(&enabledToolsFlag, "e", "", "Comma-separated list of enabled tools (overrides tool preset)")
+	flag.StringVar(&enabledToolsFlag, "enabled-tools", "", "Comma-separated list of enabled tools (overrides tool preset)")
+	flag.StringVar(&toolPreset, "tool-preset", "", "Tool preset: daily-power (default) or legacy-full")
 	flag.BoolVar(&noCache, "no-cache", false, "Skip user/channel cache loading on startup for faster initialization. Lookups by #channel-name or @username will not work; use channel/user IDs instead.")
 	flag.Parse()
 
 	if enabledToolsFlag == "" {
 		enabledToolsFlag = os.Getenv("SLACK_MCP_ENABLED_TOOLS")
 	}
-
-	var enabledTools []string
-	if enabledToolsFlag != "" {
-		for _, tool := range strings.Split(enabledToolsFlag, ",") {
-			tool = strings.TrimSpace(tool)
-			if tool != "" {
-				enabledTools = append(enabledTools, tool)
-			}
-		}
+	if toolPreset == "" {
+		toolPreset = os.Getenv("SLACK_MCP_TOOL_PRESET")
+	}
+	enabledTools, err := resolveEnabledTools(enabledToolsFlag, toolPreset)
+	if err != nil {
+		panic(err)
 	}
 
 	logger, err := newLogger(transport)
@@ -175,6 +174,22 @@ func main() {
 			zap.String("allowed", "stdio, sse, http"),
 		)
 	}
+}
+
+func resolveEnabledTools(explicit, preset string) ([]string, error) {
+	if explicit != "" {
+		var tools []string
+		for _, tool := range strings.Split(explicit, ",") {
+			if tool = strings.TrimSpace(tool); tool != "" {
+				tools = append(tools, tool)
+			}
+		}
+		return tools, nil
+	}
+	if preset == "" {
+		preset = "daily-power"
+	}
+	return server.ResolveToolPreset(preset)
 }
 
 func listenHostPort() (host, port string) {

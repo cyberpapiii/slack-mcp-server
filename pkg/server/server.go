@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -66,38 +67,17 @@ const (
 	toolDetailDescription = "Output fidelity: 'standard' (compact CSV) or 'full' (all columns, including UserID and Permalink where available). When omitted, follows SLACK_MCP_COMPACT_OUTPUT (compact/standard unless that env is false/0/no, then full). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."
 )
 
-var ValidToolNames = []string{
-	ToolConversationsHistory,
-	ToolConversationsReplies,
-	ToolConversationsGetMessage,
-	ToolConversationsAddMessage,
-	ToolConversationsDraftMessage,
-	ToolReactionsAdd,
-	ToolReactionsRemove,
-	ToolReactionsGet,
-	ToolAttachmentGetData,
-	ToolConversationsSearchMessages,
-	ToolConversationsUnreads,
-	ToolConversationsMark,
-	ToolConversationsOpen,
-	ToolConversationsLeave,
-	ToolConversationsJoin,
-	ToolChannelsList,
-	ToolChannelsStarred,
-	ToolChannelsMe,
-	ToolUsergroupsList,
-	ToolUsergroupsMe,
-	ToolUsergroupsCreate,
-	ToolUsergroupsUpdate,
-	ToolUsergroupsUsersUpdate,
-	ToolUsersSearch,
-	ToolActivityUnreads,
-	ToolActivityMarkRead,
-	ToolSavedList,
-	ToolSavedUpdate,
-	ToolSavedClearCompleted,
-	ToolFilesList,
-	ToolSlackAuthStatus,
+var ValidToolNames = capability.LegacyFullLocalTools()
+
+func ResolveToolPreset(name string) ([]string, error) {
+	switch name {
+	case "daily-power":
+		return capability.DailyPowerLocalTools(), nil
+	case "legacy-full":
+		return capability.LegacyFullLocalTools(), nil
+	default:
+		return nil, fmt.Errorf("unknown tool preset %q (valid: daily-power, legacy-full)", name)
+	}
 }
 
 func ValidateEnabledTools(tools []string) error {

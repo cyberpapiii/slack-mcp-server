@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
@@ -29,16 +30,19 @@ func NewAuthStatusHandler(apiProvider *provider.ApiProvider, logger *zap.Logger)
 }
 
 type authStatusPayload struct {
-	UsersCacheReady          bool     `json:"users_cache_ready"`
-	ChannelsCacheReady       bool     `json:"channels_cache_ready"`
-	CacheFullyReady          bool     `json:"cache_fully_ready"`
-	BrowserFeaturesAvailable bool     `json:"browser_features_available"`
-	BrowserDegradedReason    string   `json:"browser_degraded_reason,omitempty"`
-	IsOAuth                  bool     `json:"is_oauth"`
-	IsBotToken               bool     `json:"is_bot_token"`
-	BrowserOnlyTools         []string `json:"browser_only_tools"`
-	BrowserOnlyToolsBlocked  bool     `json:"browser_only_tools_blocked"`
-	Summary                  string   `json:"summary"`
+	CatalogVersion           string                    `json:"catalog_version"`
+	ProviderIdentity         provider.ProviderIdentity `json:"provider_identity"`
+	CapabilityAvailability   map[string]string         `json:"capability_availability"`
+	UsersCacheReady          bool                      `json:"users_cache_ready"`
+	ChannelsCacheReady       bool                      `json:"channels_cache_ready"`
+	CacheFullyReady          bool                      `json:"cache_fully_ready"`
+	BrowserFeaturesAvailable bool                      `json:"browser_features_available"`
+	BrowserDegradedReason    string                    `json:"browser_degraded_reason,omitempty"`
+	IsOAuth                  bool                      `json:"is_oauth"`
+	IsBotToken               bool                      `json:"is_bot_token"`
+	BrowserOnlyTools         []string                  `json:"browser_only_tools"`
+	BrowserOnlyToolsBlocked  bool                      `json:"browser_only_tools_blocked"`
+	Summary                  string                    `json:"summary"`
 }
 
 func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -51,6 +55,9 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 	browserBlocked := !browserOK && degradedReason != ""
 
 	payload := authStatusPayload{
+		CatalogVersion:           capability.CatalogVersion,
+		ProviderIdentity:         h.apiProvider.Identity(),
+		CapabilityAvailability:   capabilityAvailability(h.apiProvider.IsOAuth() || h.apiProvider.IsBotToken(), browserOK, degradedReason),
 		UsersCacheReady:          usersReady,
 		ChannelsCacheReady:       channelsReady,
 		CacheFullyReady:          usersReady && channelsReady,
@@ -69,6 +76,25 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 	}
 
 	return mcp.NewToolResultText(string(raw)), nil
+}
+
+func capabilityAvailability(standardOAuth, browserOK bool, degradedReason string) map[string]string {
+	availability := map[string]string{
+		"standard_oauth": "not_configured",
+		"slack_lists":    "unverified",
+		"host_curation":  "unverified",
+	}
+	if standardOAuth {
+		availability["standard_oauth"] = "available"
+	}
+	if browserOK {
+		availability["browser_session"] = "available"
+	} else if degradedReason != "" {
+		availability["browser_session"] = "degraded"
+	} else {
+		availability["browser_session"] = "not_configured"
+	}
+	return availability
 }
 
 func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason string) string {
