@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -66,6 +67,13 @@ func TestUnitKeychainStorePassesCredentialOnlyThroughStdin(t *testing.T) {
 	var capturedArgs []string
 	store.run = func(_ context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
 		assert.Equal(t, "security", name)
+		if len(args) != 0 && args[0] == "find-generic-password" {
+			current, marshalErr := json.Marshal(OAuthTokenRecord{
+				Version: oauthRecordVersion, AccessToken: "initial", Generation: 0,
+			})
+			require.NoError(t, marshalErr)
+			return current, nil
+		}
 		capturedStdin = append([]byte(nil), stdin...)
 		capturedArgs = append([]string(nil), args...)
 		return nil, nil
@@ -79,4 +87,46 @@ func TestUnitKeychainStorePassesCredentialOnlyThroughStdin(t *testing.T) {
 	assert.Contains(t, string(capturedStdin), "sentinel-refresh")
 	assert.NotContains(t, strings.Join(capturedArgs, " "), "sentinel")
 	assert.Equal(t, "-w", capturedArgs[len(capturedArgs)-1])
+}
+
+func TestUnitKeychainStoreChecksGenerationZeroBeforeOverwrite(t *testing.T) {
+	store, err := NewKeychainCredentialStore("workspace-user")
+	require.NoError(t, err)
+	current, err := json.Marshal(OAuthTokenRecord{
+		Version: oauthRecordVersion, AccessToken: "existing", Generation: 1,
+	})
+	require.NoError(t, err)
+	writeCalled := false
+	store.run = func(_ context.Context, _ []byte, _ string, args ...string) ([]byte, error) {
+		if len(args) != 0 && args[0] == "find-generic-password" {
+			return current, nil
+		}
+		writeCalled = true
+		return nil, nil
+	}
+
+	err = store.SaveIfGeneration(context.Background(), 0, OAuthTokenRecord{
+		Version: oauthRecordVersion, AccessToken: "replacement", Generation: 1,
+	})
+	assert.ErrorIs(t, err, ErrCredentialGenerationChanged)
+	assert.False(t, writeCalled)
+}
+
+func TestUnitKeychainStoreAllowsGenerationZeroOnlyWhenMissing(t *testing.T) {
+	store, err := NewKeychainCredentialStore("workspace-user")
+	require.NoError(t, err)
+	writes := 0
+	store.run = func(_ context.Context, _ []byte, _ string, args ...string) ([]byte, error) {
+		if len(args) != 0 && args[0] == "find-generic-password" {
+			return nil, ErrCredentialNotFound
+		}
+		writes++
+		return nil, nil
+	}
+
+	err = store.SaveIfGeneration(context.Background(), 0, OAuthTokenRecord{
+		Version: oauthRecordVersion, AccessToken: "first", Generation: 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, writes)
 }

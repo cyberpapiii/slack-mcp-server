@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
+	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +43,43 @@ func TestDailyPowerToolContractsAreComplete(t *testing.T) {
 			assert.Equal(t, behavior.OpenWorld, *tool.Annotations.OpenWorldHint)
 		})
 	}
+}
+
+func TestListsWriteToolsDeclareObjectArrayContracts(t *testing.T) {
+	server := mcpserver.NewMCPServer("test", "1", mcpserver.WithToolCapabilities(false))
+	enabled := []string{ToolListsCreate, ToolListsUpdate, ToolListsItemsCreate, ToolListsItemsUpdate}
+	registerListsTools(server, &handler.ListsHandler{}, enabled)
+	tools := server.ListTools()
+
+	assertObjectItems := func(toolName, property string) map[string]any {
+		tool, ok := tools[toolName]
+		require.True(t, ok)
+		array, ok := tool.Tool.InputSchema.Properties[property].(map[string]any)
+		require.True(t, ok, "%s.%s must be an array schema", toolName, property)
+		items, ok := array["items"].(map[string]any)
+		require.True(t, ok, "%s.%s must declare item schema", toolName, property)
+		assert.Equal(t, "object", items["type"])
+		return items
+	}
+
+	column := assertObjectItems(ToolListsCreate, "schema")
+	assert.NotEmpty(t, column["properties"])
+	assert.ElementsMatch(t, []string{"key", "name", "type"}, column["required"])
+	assertObjectItems(ToolListsCreate, "description_blocks")
+	assertObjectItems(ToolListsUpdate, "description_blocks")
+
+	initial := assertObjectItems(ToolListsItemsCreate, "initial_fields")
+	assert.NotEmpty(t, initial["properties"])
+	assert.ElementsMatch(t, []string{"column_id"}, initial["required"])
+	assert.Len(t, initial["oneOf"], 10)
+
+	cells := assertObjectItems(ToolListsItemsUpdate, "cells")
+	assert.NotEmpty(t, cells["properties"])
+	assert.ElementsMatch(t, []string{"column_id", "row_id"}, cells["required"])
+	assert.Len(t, cells["oneOf"], 10)
+	properties := cells["properties"].(map[string]any)
+	link := properties["link"].(map[string]any)["items"].(map[string]any)
+	assert.ElementsMatch(t, []string{"original_url"}, link["required"])
 }
 
 func TestDailyPowerContractsDoNotClaimLegacyTools(t *testing.T) {

@@ -158,10 +158,13 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 
 	rl := limiter.Tier3.Limiter()
 	var allMessages []Message
+	failedThreads := 0
+	stoppedEarly := false
 
 	for _, t := range threads {
 		if err := rl.Wait(ctx); err != nil {
 			h.logger.Warn("Rate limiter wait failed, stopping fetch", zap.Error(err))
+			stoppedEarly = true
 			break
 		}
 
@@ -179,6 +182,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 				zap.String("channel", t.ChannelID),
 				zap.String("thread_ts", t.ThreadTs),
 				zap.Error(err))
+			failedThreads++
 			continue
 		}
 
@@ -206,9 +210,17 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	if err != nil {
 		return nil, err
 	}
+	partial := failedThreads > 0 || stoppedEarly
+	partialReason := ""
+	if partial {
+		partialReason = fmt.Sprintf("%d activity threads could not be fetched", failedThreads)
+		if stoppedEarly {
+			partialReason = "activity message fetch stopped before all threads were attempted"
+		}
+	}
 	return NewStructuredResult(
 		ActivityPageData{Items: items, Messages: allMessages},
-		SlackResultMeta("", false, ""),
+		SlackResultMeta("", partial, partialReason),
 		ResultText(rendered),
 	), nil
 }

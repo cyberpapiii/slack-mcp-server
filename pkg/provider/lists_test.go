@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -103,7 +103,6 @@ func TestUnitListsItemsPaginationAndFieldRoundTrip(t *testing.T) {
 		_, _ = writer.Write([]byte(`{
 			"ok":true,
 			"items":[{"id":"Rec1","list_id":"F1","updated_timestamp":"123.456","fields":[{"column_id":"ColText","text":"Task","select":["doing"],"user":["U1"],"date":["2026-08-09"]}]}],
-			"list_metadata":{"name":"Sprint","schema":[{"id":"ColText","key":"title","name":"Title","type":"text"}]},
 			"response_metadata":{"next_cursor":"after"}
 		}`))
 	}))
@@ -114,7 +113,6 @@ func TestUnitListsItemsPaginationAndFieldRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "after", page.NextCursor)
 	assert.Equal(t, "Task", page.Items[0].Fields[0].Text)
-	assert.Equal(t, "Sprint", page.ListMetadata.Name)
 }
 
 func TestUnitListsClientTypedErrors(t *testing.T) {
@@ -160,10 +158,6 @@ func TestUnitListsRejectUnsupportedFieldTypeBeforeHTTP(t *testing.T) {
 	require.ErrorAs(t, err, &unsupported)
 	assert.Equal(t, "quantum", unsupported.Type)
 
-	_, _, err = client.ListLists(context.Background(), "", 100)
-	assert.True(t, errors.Is(err, ErrListEnumerationUnsupported))
-	_, err = client.GetList(context.Background(), "F1")
-	assert.True(t, errors.Is(err, ErrListInfoUnsupported))
 }
 
 func TestUnitListsPartialFailureIsNotBlindlyRetryable(t *testing.T) {
@@ -175,15 +169,83 @@ func TestUnitListsPartialFailureIsNotBlindlyRetryable(t *testing.T) {
 }
 
 func TestUnitListsOfficialFixtureCompatibility(t *testing.T) {
-	fixture := `{"id":"Rec018ALE9718","list_id":"F1234567","date_created":1758744345,"created_by":"W0AB1CDE2","updated_by":"W0AB1CDE2","updated_timestamp":"1758744346","fields":[{"key":"status","value":"completed","select":["completed"],"column_id":"Col018AL7649G"}]}`
+	fixture := `{"id":"Rec018ALE9718","list_id":"F1234567","date_created":1758744345,"created_by":"W0AB1CDE2","updated_by":"W0AB1CDE2","updated_timestamp":"1758744346","fields":[{"key":"ready","value":true,"checkbox":[true],"column_id":"ColBool"},{"key":"estimate","value":3,"number":[3],"column_id":"ColNumber"},{"key":"empty","value":null,"column_id":"ColEmpty"},{"key":"website","value":"Slack","link":[{"originalUrl":"https://docs.slack.dev/","attachment":null,"displayAsUrl":false,"displayName":"Slack Developer Docs"}],"column_id":"ColLink"}]}`
 	var item ListItem
 	require.NoError(t, json.Unmarshal([]byte(fixture), &item))
 	raw, err := json.Marshal(item)
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"updated_timestamp":"1758744346"`)
-	require.NotNil(t, item.Fields[0].Select)
-	assert.Equal(t, []string{"completed"}, *item.Fields[0].Select)
+	assert.JSONEq(t, `true`, string(item.Fields[0].Value))
+	assert.JSONEq(t, `3`, string(item.Fields[1].Value))
+	assert.Equal(t, "null", string(item.Fields[2].Value))
+	require.NotNil(t, item.Fields[3].Link)
+	link := (*item.Fields[3].Link)[0]
+	assert.Equal(t, "https://docs.slack.dev/", link.OriginalURL)
+	require.NotNil(t, link.DisplayAsURL)
+	assert.False(t, *link.DisplayAsURL)
+	assert.Equal(t, "Slack Developer Docs", link.DisplayName)
 	assert.NotContains(t, strings.ToLower(string(raw)), "token")
+}
+
+func TestUnitListsMutationResponseFailuresReportUnknownOutcome(t *testing.T) {
+	tests := []struct {
+		name   string
+		client *http.Client
+		invoke func(*ListsClient) error
+	}{
+		{
+			name: "body read",
+			client: &http.Client{Transport: listsRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Body: readErrorBody{}}, nil
+			})},
+			invoke: func(client *ListsClient) error {
+				return client.UpdateList(context.Background(), UpdateListRequest{ID: "F1", Name: "Renamed"})
+			},
+		},
+		{
+			name:   "envelope decode",
+			client: fixtureHTTPClient(`{"ok":true`),
+			invoke: func(client *ListsClient) error {
+				return client.UpdateList(context.Background(), UpdateListRequest{ID: "F1", Name: "Renamed"})
+			},
+		},
+		{
+			name:   "result decode",
+			client: fixtureHTTPClient(`{"ok":true,"item":{"fields":"invalid"}}`),
+			invoke: func(client *ListsClient) error {
+				_, err := client.CreateItem(context.Background(), CreateListItemRequest{ListID: "F1"})
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &ListsClient{HTTPClient: test.client, Token: "xoxp-test", APIBase: "http://127.0.0.1:1/"}
+			err := test.invoke(client)
+			var typed *ListsAPIError
+			require.ErrorAs(t, err, &typed)
+			assert.Equal(t, "outcome_unknown", typed.SlackCode)
+			assert.True(t, typed.MayHaveMutated)
+			assert.False(t, typed.Retryable())
+		})
+	}
+}
+
+type readErrorBody struct{}
+
+func (readErrorBody) Read([]byte) (int, error) { return 0, fmt.Errorf("fixture read failure") }
+func (readErrorBody) Close() error             { return nil }
+
+type listsRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function listsRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func fixtureHTTPClient(body string) *http.Client {
+	return &http.Client{Transport: listsRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}
 }
 
 func stringValues(values ...string) *[]string { return &values }

@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	scheduledExcerptRunes = 24
-	maxScheduledPageSize  = 100
+	scheduledExcerptRunes   = 24
+	maxScheduledPageSize    = 100
+	maxScheduledLookupPages = 10
 )
 
 type ScheduledService interface {
@@ -60,7 +61,7 @@ func NewScheduledHandler(service ScheduledService, approvals *approval.Store, id
 }
 
 func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("ScheduledListHandler called")
+	logToolCall(h.logger, "ScheduledListHandler called", request)
 	limit := request.GetInt("limit", 50)
 	if limit < 1 || limit > maxScheduledPageSize {
 		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "limit must be between 1 and 100"}), nil
@@ -87,7 +88,7 @@ func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest
 }
 
 func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	h.logger.Debug("ScheduledCancelHandler called")
+	logToolCall(h.logger, "ScheduledCancelHandler called", request)
 	if !requireToolEnabled("SLACK_MCP_SCHEDULED_MESSAGE_TOOL", "scheduled_message_cancel") {
 		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "scheduled_message_cancel is disabled"}), nil
 	}
@@ -159,7 +160,8 @@ func scheduledBinding(identity provider.ProviderIdentity, target provider.Schedu
 
 func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, scheduledMessageID string) (provider.ScheduledMessage, error) {
 	cursor := ""
-	for pageNumber := 0; pageNumber < 100; pageNumber++ {
+	lookupLimitReached := false
+	for pageNumber := 0; pageNumber < maxScheduledLookupPages; pageNumber++ {
 		page, err := h.service.ListScheduled(ctx, provider.ScheduledListRequest{ChannelID: channelID, Cursor: cursor, Limit: maxScheduledPageSize})
 		if err != nil {
 			return provider.ScheduledMessage{}, err
@@ -170,9 +172,13 @@ func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, schedul
 			}
 		}
 		if page.NextCursor == "" || page.NextCursor == cursor {
-			break
+			return provider.ScheduledMessage{}, &ToolError{Code: "not_found", Message: "scheduled message was not found or is no longer pending"}
 		}
 		cursor = page.NextCursor
+		lookupLimitReached = pageNumber == maxScheduledLookupPages-1
+	}
+	if lookupLimitReached {
+		return provider.ScheduledMessage{}, &ToolError{Code: "lookup_limit_exceeded", Message: "scheduled-message lookup exceeded 1000 pending messages; narrow the channel or cancel from Slack"}
 	}
 	return provider.ScheduledMessage{}, &ToolError{Code: "not_found", Message: "scheduled message was not found or is no longer pending"}
 }

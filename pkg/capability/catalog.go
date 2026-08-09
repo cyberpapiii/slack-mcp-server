@@ -215,6 +215,12 @@ func DailyPowerLocalTools() []string {
 	})
 }
 
+func ActiveBrowserLocalTools() []string {
+	return localTools(func(e Entry) bool {
+		return e.Owner != OwnerOfficial && e.Migration == MigrationActive && e.Auth == AuthBrowser
+	})
+}
+
 func LegacyFullLocalTools() []string {
 	return localTools(func(e Entry) bool { return e.LocalTool != "" && e.Migration != MigrationPlanned })
 }
@@ -322,7 +328,9 @@ func VerifyInventory(official InventorySnapshot, host HostInventory) Verificatio
 	if host.CatalogVersion != "" && host.CatalogVersion != CatalogVersion {
 		add("catalog_version_mismatch", "", fmt.Sprintf("host inventory uses %s, expected %s", host.CatalogVersion, CatalogVersion))
 	}
-	if identitiesConflict(host.OfficialIdentity, host.LocalIdentity) {
+	if !identityComplete(official.Identity) || !identityComplete(host.OfficialIdentity) || !identityComplete(host.LocalIdentity) {
+		add("identity_unverified", "", "official snapshot, host official provider, and local provider must each identify one workspace user")
+	} else if identitiesConflict(official.Identity, host.OfficialIdentity) || identitiesConflict(host.OfficialIdentity, host.LocalIdentity) {
 		add("identity_mismatch", "", "official and local providers do not represent the same workspace user")
 	}
 
@@ -366,10 +374,11 @@ func VerifyInventory(official InventorySnapshot, host HostInventory) Verificatio
 }
 
 func identitiesConflict(a, b Identity) bool {
-	if a.TeamID == "" || a.UserID == "" || b.TeamID == "" || b.UserID == "" {
-		return false
-	}
 	return a.TeamID != b.TeamID || a.UserID != b.UserID || (a.EnterpriseID != "" && b.EnterpriseID != "" && a.EnterpriseID != b.EnterpriseID)
+}
+
+func identityComplete(identity Identity) bool {
+	return identity.TeamID != "" && identity.UserID != ""
 }
 
 func excludedCapability(id string) bool {

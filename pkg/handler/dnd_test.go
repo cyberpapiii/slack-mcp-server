@@ -81,3 +81,14 @@ func TestUnitDNDErrorsAreTyped(t *testing.T) {
 	require.ErrorAs(t, err, &typed)
 	assert.Equal(t, "read_dnd_failed", typed.Code)
 }
+
+func TestUnitDNDMutationTimeoutIsOutcomeUnknown(t *testing.T) {
+	t.Setenv("SLACK_MCP_DND_TOOL", "true")
+	api := &fakeDNDAPI{err: context.DeadlineExceeded}
+	handler := NewDNDHandler(api, userIdentity, zap.NewNop())
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"minutes": 30}}}
+	_, err := handler.SetSnooze(context.Background(), request)
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "outcome_unknown", typed.Code)
+}

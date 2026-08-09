@@ -26,6 +26,7 @@ type fakeChannelMutationService struct {
 	archiveCalls       int
 	archivePreparation provider.ArchivePreparation
 	err                error
+	archiveErr         error
 }
 
 func (f *fakeChannelMutationService) result(action, channelID, value string) (provider.ChannelMutationState, error) {
@@ -55,7 +56,7 @@ func (f *fakeChannelMutationService) ArchivePrepared(_ context.Context, preparat
 	f.archivePreparation = preparation
 	state := preparation.Expected
 	state.Archived = true
-	return state, f.err
+	return state, f.archiveErr
 }
 
 func mutationRequest(arguments map[string]any) mcp.CallToolRequest {
@@ -106,6 +107,16 @@ func TestChannelMetadataHandlerRequiresFieldPresenceButAllowsEmptyClear(t *testi
 	_, err := handler.ConversationsSetTopicHandler(context.Background(), mutationRequest(map[string]any{"channel_id": "C123"}))
 	require.ErrorContains(t, err, "pass an empty string to clear")
 	assert.Empty(t, service.action)
+}
+
+func TestChannelMetadataHandlerAcceptsPrivateChannelID(t *testing.T) {
+	t.Setenv(channelManagementGate, "true")
+	service := &fakeChannelMutationService{}
+	_, err := newTestChannelMutationHandler(service).ConversationsRenameHandler(
+		context.Background(), mutationRequest(map[string]any{"channel_id": "G123", "name": "private-name"}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "G123", service.channelID)
 }
 
 func TestChannelMutationHandlerRechecksChannelAllowlist(t *testing.T) {
@@ -172,6 +183,20 @@ func TestArchiveHandlerDoesNotCallArchiveWhenPreparationFails(t *testing.T) {
 	require.ErrorContains(t, err, "state unavailable")
 	assert.Equal(t, 1, service.prepareCalls)
 	assert.Zero(t, service.archiveCalls)
+}
+
+func TestArchiveHandlerTimeoutIsOutcomeUnknown(t *testing.T) {
+	t.Setenv(channelManagementGate, "true")
+	service := &fakeChannelMutationService{}
+	handler := newTestChannelMutationHandler(service)
+	prepared, err := handler.ConversationsArchiveHandler(context.Background(), mutationRequest(map[string]any{"channel_id": "C123", "action": "prepare"}))
+	require.NoError(t, err)
+	token := prepared.StructuredContent.(ToolResult[ChannelMutationData]).Data.ApprovalToken
+	service.archiveErr = context.DeadlineExceeded
+	_, err = handler.ConversationsArchiveHandler(context.Background(), mutationRequest(map[string]any{"channel_id": "C123", "action": "execute", "approval_token": token}))
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "outcome_unknown", typed.Code)
 }
 
 func TestRenameValidationRejectsUnsafeNames(t *testing.T) {

@@ -65,7 +65,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 
 	var allItems []SavedItemRow
 	var allMessages []Message
-	cursor := ""
+	cursor := request.GetString("cursor", "")
 	nextCursor := ""
 	fetched := 0
 	pageSize := limit
@@ -191,9 +191,13 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 		if err != nil {
 			return nil, err
 		}
+		partialReason := ""
+		if nextCursor != "" {
+			partialReason = "result stopped at the requested item limit"
+		}
 		return NewStructuredResult(
 			SavedPageData{Items: allItems, Messages: allMessages},
-			SlackResultMeta("", nextCursor != "", "result stopped at the requested item limit"),
+			SlackResultMeta(nextCursor, nextCursor != "", partialReason),
 			ResultText(rendered),
 		), nil
 	}
@@ -202,9 +206,13 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal saved items: %v", err)
 	}
+	partialReason := ""
+	if nextCursor != "" {
+		partialReason = "result stopped at the requested item limit"
+	}
 	return NewStructuredResult(
 		SavedPageData{Items: allItems},
-		SlackResultMeta("", nextCursor != "", "result stopped at the requested item limit"),
+		SlackResultMeta(nextCursor, nextCursor != "", partialReason),
 		string(csvBytes),
 	), nil
 }

@@ -77,3 +77,12 @@ func TestResultTextSkipsNonTextContent(t *testing.T) {
 	result := &mcp.CallToolResult{Content: []mcp.Content{mcp.ImageContent{Type: "image", Data: "AA==", MIMEType: "image/png"}}}
 	assert.Empty(t, ResultText(result))
 }
+
+func TestCancelledToolResultUsesTypedErrorContract(t *testing.T) {
+	result := cancelledToolResult()
+	require.True(t, result.IsError)
+	structured, ok := result.StructuredContent.(ToolResult[struct{}])
+	require.True(t, ok)
+	require.NotNil(t, structured.Error)
+	assert.Equal(t, "cancelled", structured.Error.Code)
+}

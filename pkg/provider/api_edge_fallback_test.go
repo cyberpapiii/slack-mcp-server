@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,35 @@ func TestManagedOAuthRefreshReplacesRuntimeClient(t *testing.T) {
 	assert.Same(t, newClient, c.standardSlackClient())
 	assert.Equal(t, uint64(4), c.oauthGeneration.Load())
 	assert.Equal(t, "live", c.oauthRuntimeState.Load())
+}
+
+func TestManagedOAuthRefreshIntervalHonorsBoundedRetryAfter(t *testing.T) {
+	assert.Equal(t, time.Minute, managedOAuthRefreshInterval(nil))
+	assert.Equal(t, 3*time.Minute, managedOAuthRefreshInterval(
+		fmt.Errorf("refresh failed: %w", &slack.RateLimitedError{RetryAfter: 3 * time.Minute}),
+	))
+	assert.Equal(t, 15*time.Minute, managedOAuthRefreshInterval(
+		&slack.RateLimitedError{RetryAfter: time.Hour},
+	))
+}
+
+func TestBrowserKeychainFailureDegradesWhenOAuthExists(t *testing.T) {
+	originalLoader := loadBrowserCredential
+	t.Cleanup(func() { loadBrowserCredential = originalLoader })
+	loadBrowserCredential = func(context.Context, string) (BrowserTokenRecord, error) {
+		return BrowserTokenRecord{}, errors.New("Keychain locked")
+	}
+
+	credentials, err := resolveBrowserStartupCredentials(
+		context.Background(), "workspace-user", "xoxp-oauth", "xoxc-stale", "xoxd-stale",
+	)
+	require.NoError(t, err)
+	assert.Empty(t, credentials.xoxc)
+	assert.Empty(t, credentials.xoxd)
+	assert.EqualError(t, credentials.degraded, "Keychain locked")
+
+	_, err = resolveBrowserStartupCredentials(context.Background(), "workspace-user", "", "", "")
+	assert.EqualError(t, err, "Keychain locked")
 }
 
 func TestPersonalReadProgressRejectsBotOAuth(t *testing.T) {

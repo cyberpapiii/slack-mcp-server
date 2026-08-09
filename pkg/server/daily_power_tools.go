@@ -90,19 +90,25 @@ func registerChannelMutationTools(s *mcpserver.MCPServer, h *handler.ChannelMuta
 func registerListsTools(s *mcpserver.MCPServer, h *handler.ListsHandler, enabledTools []string) {
 	gate := "SLACK_MCP_LISTS_WRITE_TOOL"
 	if shouldAddTool(ToolListsItemsList, enabledTools, "") {
-		s.AddTool(newDailyPowerTool(ToolListsItemsList, mcp.WithDescription("List items and schema metadata for a known Slack List ID."), mcp.WithString("list_id", mcp.Required()), mcp.WithNumber("limit"), mcp.WithString("cursor"), mcp.WithBoolean("archived")), h.ListItems)
+		s.AddTool(newDailyPowerTool(ToolListsItemsList, mcp.WithDescription("List items for a known Slack List ID."), mcp.WithString("list_id", mcp.Required()), mcp.WithNumber("limit"), mcp.WithString("cursor"), mcp.WithBoolean("archived")), h.ListItems)
 	}
 	if shouldAddTool(ToolListsCreate, enabledTools, gate) {
-		s.AddTool(newDailyPowerTool(ToolListsCreate, mcp.WithDescription("Create a Slack List. Requires client confirmation."), mcp.WithString("name", mcp.Required()), mcp.WithArray("description_blocks"), mcp.WithArray("schema"), mcp.WithString("copy_from_list_id"), mcp.WithBoolean("include_copied_list_records"), mcp.WithBoolean("todo_mode")), h.CreateList)
+		s.AddTool(newDailyPowerTool(ToolListsCreate,
+			mcp.WithDescription("Create a Slack List. Requires client confirmation."),
+			mcp.WithString("name", mcp.Required()),
+			mcp.WithArray("description_blocks", mcp.Items(openObjectSchema())),
+			mcp.WithArray("schema", mcp.Items(listColumnItemSchema())),
+			mcp.WithString("copy_from_list_id"), mcp.WithBoolean("include_copied_list_records"), mcp.WithBoolean("todo_mode"),
+		), h.CreateList)
 	}
 	if shouldAddTool(ToolListsUpdate, enabledTools, gate) {
-		s.AddTool(newDailyPowerTool(ToolListsUpdate, mcp.WithDescription("Update Slack List metadata. Requires client confirmation."), mcp.WithString("id", mcp.Required()), mcp.WithString("name"), mcp.WithArray("description_blocks"), mcp.WithBoolean("todo_mode")), h.UpdateList)
+		s.AddTool(newDailyPowerTool(ToolListsUpdate, mcp.WithDescription("Update Slack List metadata. Requires client confirmation."), mcp.WithString("id", mcp.Required()), mcp.WithString("name"), mcp.WithArray("description_blocks", mcp.Items(openObjectSchema())), mcp.WithBoolean("todo_mode")), h.UpdateList)
 	}
 	if shouldAddTool(ToolListsItemsCreate, enabledTools, gate) {
-		s.AddTool(newDailyPowerTool(ToolListsItemsCreate, mcp.WithDescription("Create one Slack List item. Requires client confirmation."), mcp.WithString("list_id", mcp.Required()), mcp.WithString("duplicated_item_id"), mcp.WithString("parent_item_id"), mcp.WithArray("initial_fields")), h.CreateItem)
+		s.AddTool(newDailyPowerTool(ToolListsItemsCreate, mcp.WithDescription("Create one Slack List item. Requires client confirmation."), mcp.WithString("list_id", mcp.Required()), mcp.WithString("duplicated_item_id"), mcp.WithString("parent_item_id"), mcp.WithArray("initial_fields", mcp.Items(listFieldItemSchema(false)))), h.CreateItem)
 	}
 	if shouldAddTool(ToolListsItemsUpdate, enabledTools, gate) {
-		s.AddTool(newDailyPowerTool(ToolListsItemsUpdate, mcp.WithDescription("Update typed cells on Slack List items. Requires client confirmation."), mcp.WithString("list_id", mcp.Required()), mcp.WithArray("cells", mcp.Required())), h.UpdateItems)
+		s.AddTool(newDailyPowerTool(ToolListsItemsUpdate, mcp.WithDescription("Update typed cells on Slack List items. Requires client confirmation."), mcp.WithString("list_id", mcp.Required()), mcp.WithArray("cells", mcp.Required(), mcp.MinItems(1), mcp.Items(listFieldItemSchema(true)))), h.UpdateItems)
 	}
 	if shouldAddTool(ToolListsItemDelete, enabledTools, gate) {
 		s.AddTool(newDailyPowerTool(ToolListsItemDelete,
@@ -119,4 +125,76 @@ func registerListsTools(s *mcpserver.MCPServer, h *handler.ListsHandler, enabled
 			}
 		})
 	}
+}
+
+func openObjectSchema() map[string]any {
+	return map[string]any{"type": "object", "additionalProperties": true}
+}
+
+func listColumnItemSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"key":               map[string]any{"type": "string"},
+			"name":              map[string]any{"type": "string"},
+			"type":              map[string]any{"type": "string", "enum": []string{"text", "rich_text", "number", "select", "multi_select", "date", "user", "checkbox", "email", "phone", "channel", "link"}},
+			"is_primary_column": map[string]any{"type": "boolean"},
+			"options": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"choices": map[string]any{"type": "array", "items": map[string]any{
+						"type": "object", "required": []string{"value", "label"},
+						"properties":           map[string]any{"value": map[string]any{"type": "string"}, "label": map[string]any{"type": "string"}, "color": map[string]any{"type": "string"}},
+						"additionalProperties": false,
+					}},
+					"format": map[string]any{"type": "string"}, "precision": map[string]any{"type": "integer"},
+					"date_format": map[string]any{"type": "string"}, "emoji": map[string]any{"type": "string"},
+					"emoji_team_id": map[string]any{"type": "string"}, "max": map[string]any{"type": "integer"},
+					"show_member_name": map[string]any{"type": "boolean"}, "notify_users": map[string]any{"type": "boolean"},
+				},
+				"additionalProperties": false,
+			},
+		},
+		"required":             []string{"key", "name", "type"},
+		"additionalProperties": false,
+	}
+}
+
+func listFieldItemSchema(requireRowID bool) map[string]any {
+	typedValueProperties := map[string]any{
+		"rich_text": map[string]any{"type": "array", "items": openObjectSchema()},
+		"date":      stringArraySchema(), "select": stringArraySchema(), "user": stringArraySchema(),
+		"channel": stringArraySchema(), "number": numberArraySchema(), "checkbox": booleanArraySchema(),
+		"email": stringArraySchema(), "phone": stringArraySchema(),
+		"link": map[string]any{"type": "array", "items": map[string]any{
+			"type": "object", "required": []string{"original_url"},
+			"properties":           map[string]any{"original_url": map[string]any{"type": "string"}, "display_as_url": map[string]any{"type": "boolean"}, "display_name": map[string]any{"type": "string"}},
+			"additionalProperties": false,
+		}},
+	}
+	properties := map[string]any{"column_id": map[string]any{"type": "string"}, "row_id": map[string]any{"type": "string"}}
+	typedValueNames := []string{"rich_text", "date", "select", "user", "channel", "number", "checkbox", "email", "phone", "link"}
+	oneOf := make([]map[string]any, 0, len(typedValueNames))
+	for _, name := range typedValueNames {
+		schema := typedValueProperties[name]
+		properties[name] = schema
+		oneOf = append(oneOf, map[string]any{"required": []string{name}})
+	}
+	required := []string{"column_id"}
+	if requireRowID {
+		required = append(required, "row_id")
+	}
+	return map[string]any{"type": "object", "properties": properties, "required": required, "oneOf": oneOf, "additionalProperties": false}
+}
+
+func stringArraySchema() map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+}
+
+func numberArraySchema() map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "number"}}
+}
+
+func booleanArraySchema() map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "boolean"}}
 }

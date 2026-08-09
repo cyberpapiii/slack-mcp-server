@@ -26,14 +26,16 @@ var ErrOAuthRefreshUnavailable = errors.New("OAuth refresh is unavailable")
 // OAuthTokenRecord is persisted only through CredentialStore. Callers must
 // never log or return this value.
 type OAuthTokenRecord struct {
-	Version      int       `json:"version"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
-	Generation   uint64    `json:"generation"`
-	TeamID       string    `json:"team_id,omitempty"`
-	UserID       string    `json:"user_id,omitempty"`
-	Scopes       []string  `json:"scopes,omitempty"`
+	Version           int       `json:"version"`
+	AccessToken       string    `json:"access_token"`
+	RefreshToken      string    `json:"refresh_token,omitempty"`
+	ExpiresAt         time.Time `json:"expires_at,omitempty"`
+	Generation        uint64    `json:"generation"`
+	TeamID            string    `json:"team_id,omitempty"`
+	UserID            string    `json:"user_id,omitempty"`
+	Scopes            []string  `json:"scopes,omitempty"`
+	PendingValidation bool      `json:"pending_validation,omitempty"`
+	RequiredScopes    []string  `json:"required_scopes,omitempty"`
 }
 
 func (OAuthTokenRecord) String() string { return "[REDACTED OAuth credential]" }
@@ -156,6 +158,21 @@ func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, erro
 		if err := record.validate(); err != nil {
 			return err
 		}
+		if record.PendingValidation {
+			if missing := missingScopes(record.RequiredScopes, record.Scopes); len(missing) != 0 {
+				return fmt.Errorf("validate rotated OAuth credential: lost required scopes: %s", strings.Join(missing, ","))
+			}
+			if m.validate != nil {
+				if err := m.validate(ctx, record); err != nil {
+					return fmt.Errorf("validate rotated OAuth credential: %w", err)
+				}
+			}
+			record.PendingValidation = false
+			record.RequiredScopes = nil
+			if err := m.store.SaveIfGeneration(ctx, record.Generation, record); err != nil {
+				return fmt.Errorf("commit validated OAuth credential: %w", err)
+			}
+		}
 		if !record.expiring(m.now(), m.earlyRefresh) {
 			current = record
 			return nil
@@ -170,21 +187,31 @@ func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, erro
 		if rotated.AccessToken == "" || rotated.RefreshToken == "" || rotated.ExpiresAt.IsZero() {
 			return errors.New("refresh OAuth credential: incomplete rotated credential")
 		}
-		if missing := missingScopes(record.Scopes, rotated.Scopes); len(missing) != 0 {
-			return fmt.Errorf("refresh OAuth credential: rotated credential lost required scopes: %s", strings.Join(missing, ","))
-		}
+		requiredScopes := append([]string(nil), record.Scopes...)
 		record.AccessToken = rotated.AccessToken
 		record.RefreshToken = rotated.RefreshToken
 		record.ExpiresAt = rotated.ExpiresAt.UTC()
 		record.Scopes = append([]string(nil), rotated.Scopes...)
 		record.Generation++
+		record.PendingValidation = true
+		record.RequiredScopes = requiredScopes
+		// Slack refresh tokens rotate on use. Persist the replacement before
+		// checks that may fail so the consumed token is never left durable.
+		if err := m.store.SaveIfGeneration(ctx, record.Generation-1, record); err != nil {
+			return fmt.Errorf("persist rotated OAuth credential: %w", err)
+		}
+		if missing := missingScopes(requiredScopes, rotated.Scopes); len(missing) != 0 {
+			return fmt.Errorf("refresh OAuth credential: rotated credential lost required scopes: %s", strings.Join(missing, ","))
+		}
 		if m.validate != nil {
 			if err := m.validate(ctx, record); err != nil {
 				return fmt.Errorf("validate rotated OAuth credential: %w", err)
 			}
 		}
-		if err := m.store.SaveIfGeneration(ctx, record.Generation-1, record); err != nil {
-			return fmt.Errorf("persist rotated OAuth credential: %w", err)
+		record.PendingValidation = false
+		record.RequiredScopes = nil
+		if err := m.store.SaveIfGeneration(ctx, record.Generation, record); err != nil {
+			return fmt.Errorf("commit validated OAuth credential: %w", err)
 		}
 		current = record
 		return nil

@@ -38,8 +38,16 @@ func TestUnitAuthStatusHandler_ReturnsJSONSummary(t *testing.T) {
 }
 
 func TestUnitCapabilityAvailabilityIsolatesBrowserDegradation(t *testing.T) {
-	available := capabilityAvailability(true, false, "expired browser session")
+	available := capabilityAvailability(true, false, false, "expired browser session")
 	assert.Equal(t, "available", available["standard_oauth"])
 	assert.Equal(t, "degraded", available["browser_session"])
-	assert.Equal(t, "unverified", available["slack_lists"])
+	assert.Equal(t, "available_if_workspace_supported_and_enabled", available["slack_lists"])
+	assert.Equal(t, "browser_session_degraded", available["activity"])
+}
+
+func TestUnitCapabilityAvailabilityExplainsBotLimitations(t *testing.T) {
+	available := capabilityAvailability(false, true, false, "")
+	assert.Equal(t, "user_oauth_required", available["dnd"])
+	assert.Equal(t, "user_oauth_required", available["slack_lists"])
+	assert.Equal(t, "unavailable_for_bot", available["conversations_unreads"])
 }

@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/slack-go/slack"
 )
@@ -114,7 +113,7 @@ func (p *ChannelMutationProvider) ArchivePrepared(ctx context.Context, preparati
 	}
 	currentState := stateFromChannel(current)
 	if currentState != preparation.Expected {
-		return ChannelMutationState{}, fmt.Errorf("%w: expected %+v, current %+v", ErrChannelArchiveConflict, preparation.Expected, currentState)
+		return ChannelMutationState{}, ErrChannelArchiveConflict
 	}
 	if err := p.client.ArchiveConversationContext(ctx, preparation.Expected.ChannelID); err != nil {
 		return ChannelMutationState{}, err

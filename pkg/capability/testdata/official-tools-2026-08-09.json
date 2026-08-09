@@ -1,7 +1,7 @@
 {
   "captured_at": "2026-08-09",
   "catalog_version": "2026-08-09.2",
-  "identity": {},
+  "identity": {"team_id": "T1", "user_id": "U1"},
   "tools": [
     {"name":"slack_read_channel","input_schema_object":true,"structured_result":true,"semantics_verified":true},
     {"name":"slack_read_thread","input_schema_object":true,"structured_result":true,"semantics_verified":true},

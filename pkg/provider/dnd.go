@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"errors"
 
 	"github.com/slack-go/slack"
 )
@@ -17,9 +16,6 @@ func (ap *ApiProvider) DND() (DNDClient, error) {
 	client, ok := ap.client.(*MCPSlackClient)
 	if !ok || client == nil || !client.IsOAuth() || client.IsBotToken() {
 		return nil, ErrUserOAuthRequired
-	}
-	if _, ok := any(client).(DNDClient); !ok {
-		return nil, errors.New("Slack client does not support DND")
 	}
 	return client, nil
 }

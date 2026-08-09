@@ -97,7 +97,20 @@ func TestVerifyInventoryRejectsExcludedAdministrationFamilies(t *testing.T) {
 	}
 }
 
-func TestOfficialFixtureAndCuratedInventoryPass(t *testing.T) {
+func TestVerifyInventoryRejectsMissingOrStaleProviderIdentity(t *testing.T) {
+	official := InventorySnapshot{CatalogVersion: CatalogVersion, Identity: Identity{TeamID: "T1", UserID: "U1"}}
+	host := HostInventory{CatalogVersion: CatalogVersion, OfficialIdentity: Identity{TeamID: "T1", UserID: "U1"}}
+	if report := VerifyInventory(official, host); !report.Has("identity_unverified") {
+		t.Fatalf("missing local identity passed: %#v", report.Issues)
+	}
+	host.LocalIdentity = Identity{TeamID: "T1", UserID: "U1"}
+	official.Identity.UserID = "U2"
+	if report := VerifyInventory(official, host); !report.Has("identity_mismatch") {
+		t.Fatalf("stale official snapshot identity passed: %#v", report.Issues)
+	}
+}
+
+func TestRecordedOfficialFixtureCoversCanonicalOfficialActions(t *testing.T) {
 	raw, err := os.ReadFile("testdata/official-tools-2026-08-09.json")
 	if err != nil {
 		t.Fatal(err)
@@ -106,22 +119,21 @@ func TestOfficialFixtureAndCuratedInventoryPass(t *testing.T) {
 	if err := json.Unmarshal(raw, &official); err != nil {
 		t.Fatal(err)
 	}
-	host := HostInventory{
-		CatalogVersion:   CatalogVersion,
-		OfficialIdentity: Identity{TeamID: "T1", UserID: "U1"},
-		LocalIdentity:    Identity{TeamID: "T1", UserID: "U1"},
+	observed := make(map[string]ObservedTool, len(official.Tools))
+	for _, tool := range official.Tools {
+		observed[tool.Name] = tool
 	}
 	for _, entry := range Entries() {
-		if entry.Migration != MigrationActive {
+		if entry.Migration != MigrationActive || entry.Owner != OwnerOfficial {
 			continue
 		}
-		name := entry.LocalTool
-		if entry.Owner == OwnerOfficial {
-			name = entry.OfficialAction
+		tool, ok := observed[entry.OfficialAction]
+		if !ok {
+			t.Errorf("official fixture misses %s for %s", entry.OfficialAction, entry.ID)
+			continue
 		}
-		host.Tools = append(host.Tools, VisibleTool{CapabilityID: entry.ID, Provider: entry.Owner, Name: name})
-	}
-	if report := VerifyInventory(official, host); !report.OK() {
-		t.Fatalf("curated fixture failed: %#v", report.Issues)
+		if !tool.InputSchemaObject || !tool.StructuredResult || !tool.SemanticsVerified {
+			t.Errorf("official fixture has incomplete contract for %s: %#v", entry.OfficialAction, tool)
+		}
 	}
 }

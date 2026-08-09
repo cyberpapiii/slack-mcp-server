@@ -1098,7 +1098,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
 
 	if !ch.backfillUnreadCounts(ctx, request, ch.apiProvider.Slack(), params, unreadChannels) {
-		return mcp.NewToolResultError("cancelled"), nil
+		return cancelledToolResult(), nil
 	}
 
 	if !params.includeMessages {
@@ -1110,7 +1110,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	for i := range unreadChannels {
 		select {
 		case <-ctx.Done():
-			return mcp.NewToolResultError("cancelled"), nil
+			return cancelledToolResult(), nil
 		default:
 		}
 		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Fetching messages: channel %d of %d", i+1, len(unreadChannels)))
@@ -1413,7 +1413,7 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	for gi, group := range groups {
 		select {
 		case <-ctx.Done():
-			return mcp.NewToolResultError("cancelled"), nil
+			return cancelledToolResult(), nil
 		default:
 		}
 		sendProgress(ctx, request, gi+1, len(groups), fmt.Sprintf("Scanning channel type group %d of %d", gi+1, len(groups)))
@@ -1488,7 +1488,7 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	for i, uc := range unreadChannels {
 		select {
 		case <-ctx.Done():
-			return mcp.NewToolResultError("cancelled"), nil
+			return cancelledToolResult(), nil
 		default:
 		}
 		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Fetching messages: channel %d of %d", i+1, len(unreadChannels)))

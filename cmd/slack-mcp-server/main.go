@@ -72,6 +72,9 @@ func main() {
 			zap.Error(err),
 		)
 	}
+	if err = applyResolvedToolPolicy(enabledTools); err != nil {
+		logger.Fatal("failed to apply resolved tool policy", zap.Error(err))
+	}
 
 	p := provider.New(transport, logger)
 	s := server.NewMCPServer(p, logger, enabledTools)
@@ -190,6 +193,13 @@ func resolveEnabledTools(explicit, preset string) ([]string, error) {
 		preset = "daily-power"
 	}
 	return server.ResolveToolPreset(preset)
+}
+
+// Handlers recheck mutation gates at call time. Keep that defensive check on
+// the same resolved policy used for registration, including CLI presets and
+// --enabled-tools overrides that did not originate in the environment.
+func applyResolvedToolPolicy(enabledTools []string) error {
+	return os.Setenv("SLACK_MCP_ENABLED_TOOLS", strings.Join(enabledTools, ","))
 }
 
 func listenHostPort() (host, port string) {

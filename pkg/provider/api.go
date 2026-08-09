@@ -908,6 +908,34 @@ func (c *MCPSlackClient) attachBrowserSession(browserAuth auth.ValueAuth, browse
 	return nil
 }
 
+var loadBrowserCredential = func(ctx context.Context, account string) (BrowserTokenRecord, error) {
+	store, err := NewBrowserCredentialStore(account)
+	if err != nil {
+		return BrowserTokenRecord{}, err
+	}
+	return store.Load(ctx)
+}
+
+type browserStartupCredentials struct {
+	xoxc     string
+	xoxd     string
+	degraded error
+}
+
+func resolveBrowserStartupCredentials(ctx context.Context, account, oauthToken, xoxc, xoxd string) (browserStartupCredentials, error) {
+	if account == "" {
+		return browserStartupCredentials{xoxc: xoxc, xoxd: xoxd}, nil
+	}
+	record, err := loadBrowserCredential(ctx, account)
+	if err == nil {
+		return browserStartupCredentials{xoxc: record.XOXC, xoxd: record.XOXD}, nil
+	}
+	if oauthToken == "" {
+		return browserStartupCredentials{}, err
+	}
+	return browserStartupCredentials{degraded: err}, nil
+}
+
 func New(transport string, logger *zap.Logger) *ApiProvider {
 	var (
 		authProvider auth.ValueAuth
@@ -918,19 +946,6 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 	xoxbToken := os.Getenv("SLACK_MCP_XOXB_TOKEN")
 	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
 	xoxdToken := os.Getenv("SLACK_MCP_XOXD_TOKEN")
-	if account := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT")); account != "" {
-		store, storeErr := NewBrowserCredentialStore(account)
-		if storeErr != nil {
-			logger.Fatal("Failed to configure browser credential store", zap.Error(storeErr))
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		browserRecord, loadErr := store.Load(ctx)
-		cancel()
-		if loadErr != nil {
-			logger.Fatal("Failed to load browser credential", zap.Error(loadErr))
-		}
-		xoxcToken, xoxdToken = browserRecord.XOXC, browserRecord.XOXD
-	}
 	var managedManager *OAuthTokenManager
 	var managedRecord OAuthTokenRecord
 	if os.Getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT") != "" {
@@ -942,6 +957,22 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 			logger.Fatal("Failed to load managed OAuth credential", zap.Error(managedErr))
 		}
 		xoxpToken = managedRecord.AccessToken
+	}
+	if account := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT")); account != "" {
+		oauthFallbackToken := xoxpToken
+		if oauthFallbackToken == "" {
+			oauthFallbackToken = xoxbToken
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		browserCredentials, loadErr := resolveBrowserStartupCredentials(ctx, account, oauthFallbackToken, xoxcToken, xoxdToken)
+		cancel()
+		if loadErr != nil {
+			logger.Fatal("Failed to load browser credential and no OAuth fallback is configured", zap.Error(loadErr))
+		}
+		xoxcToken, xoxdToken = browserCredentials.xoxc, browserCredentials.xoxd
+		if browserCredentials.degraded != nil {
+			logger.Warn("Browser credential unavailable; continuing with OAuth-only Slack tools", zap.Error(browserCredentials.degraded))
+		}
 	}
 
 	// Supported Web API calls always prefer OAuth. Browser credentials are
@@ -1870,16 +1901,32 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 }
 
 func (c *MCPSlackClient) runManagedOAuthRefresh() {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
+	timer := time.NewTimer(time.Minute)
+	defer timer.Stop()
+	for range timer.C {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err := c.refreshManagedOAuthOnce(ctx)
 		cancel()
 		if err != nil {
 			c.logger.Warn("Managed OAuth refresh failed", zap.Error(err))
 		}
+		timer.Reset(managedOAuthRefreshInterval(err))
 	}
+}
+
+func managedOAuthRefreshInterval(err error) time.Duration {
+	const (
+		base = time.Minute
+		max  = 15 * time.Minute
+	)
+	retryAfter := slackRetryAfter(err)
+	if retryAfter <= base {
+		return base
+	}
+	if retryAfter > max {
+		return max
+	}
+	return retryAfter
 }
 
 func (ap *ApiProvider) IsOAuth() bool {

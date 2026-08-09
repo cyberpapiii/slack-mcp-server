@@ -29,9 +29,6 @@ func (f *fakeListsAPI) CreateList(_ context.Context, request provider.CreateList
 	return "F1", provider.ListMetadata{ID: "F1", Name: request.Name}, nil
 }
 func (f *fakeListsAPI) UpdateList(context.Context, provider.UpdateListRequest) error { return nil }
-func (f *fakeListsAPI) GetList(context.Context, string) (provider.ListMetadata, error) {
-	return provider.ListMetadata{ID: "F1", Name: "Sprint"}, nil
-}
 func (f *fakeListsAPI) CreateItem(_ context.Context, request provider.CreateListItemRequest) (provider.ListItem, error) {
 	return provider.ListItem{ID: "Rec1", ListID: request.ListID, Fields: request.InitialFields}, nil
 }
@@ -68,6 +65,10 @@ func TestUnitListsHandlerReturnsTypedPagination(t *testing.T) {
 	require.NotNil(t, structured.Data)
 	assert.Equal(t, "next", structured.Meta.NextCursor)
 	assert.Equal(t, "Rec1", structured.Data.Items[0].ID)
+	fallback := ResultText(result)
+	assert.Contains(t, fallback, `"id":"Rec1"`)
+	assert.Contains(t, fallback, `"list_id":"F1"`)
+	assert.Contains(t, fallback, `"next_cursor":"next"`)
 }
 
 func TestUnitListsDeleteRequiresFreshExactPreview(t *testing.T) {

@@ -51,7 +51,10 @@ func keychainCommandRunner() commandRunner {
 func (s *KeychainCredentialStore) Load(ctx context.Context) (OAuthTokenRecord, error) {
 	raw, err := s.run(ctx, nil, "security", "find-generic-password", "-s", s.Service, "-a", s.Account, "-w")
 	if err != nil {
-		return OAuthTokenRecord{}, fmt.Errorf("%w: macOS Keychain lookup failed", ErrCredentialNotFound)
+		if errors.Is(err, ErrCredentialNotFound) || isKeychainItemNotFound(err) {
+			return OAuthTokenRecord{}, fmt.Errorf("%w: macOS Keychain item does not exist", ErrCredentialNotFound)
+		}
+		return OAuthTokenRecord{}, errors.New("macOS Keychain lookup failed")
 	}
 	var record OAuthTokenRecord
 	if err := json.Unmarshal(raw, &record); err != nil {
@@ -63,18 +66,22 @@ func (s *KeychainCredentialStore) Load(ctx context.Context) (OAuthTokenRecord, e
 	return record, nil
 }
 
+func isKeychainItemNotFound(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 44
+}
+
 func (s *KeychainCredentialStore) SaveIfGeneration(ctx context.Context, expected uint64, record OAuthTokenRecord) error {
 	if err := record.validate(); err != nil {
 		return err
 	}
-	if expected != 0 {
-		current, err := s.Load(ctx)
-		if err != nil {
+	current, err := s.Load(ctx)
+	if err != nil {
+		if !errors.Is(err, ErrCredentialNotFound) || expected != 0 {
 			return err
 		}
-		if current.Generation != expected {
-			return ErrCredentialGenerationChanged
-		}
+	} else if current.Generation != expected {
+		return ErrCredentialGenerationChanged
 	}
 	raw, err := json.Marshal(record)
 	if err != nil {

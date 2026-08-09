@@ -1,14 +1,49 @@
 package handler
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/gocarina/gocsv"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
+
+type fakeUsergroupsAPI struct {
+	groups      []slack.UserGroup
+	members     [][]string
+	memberReads int
+	updated     string
+}
+
+func (f *fakeUsergroupsAPI) AuthTest() (*slack.AuthTestResponse, error) {
+	return &slack.AuthTestResponse{UserID: "U1"}, nil
+}
+func (f *fakeUsergroupsAPI) GetUserGroupsContext(context.Context, ...slack.GetUserGroupsOption) ([]slack.UserGroup, error) {
+	return f.groups, nil
+}
+func (f *fakeUsergroupsAPI) GetUserGroupMembersContext(context.Context, string, ...slack.GetUserGroupMembersOption) ([]string, error) {
+	index := f.memberReads
+	f.memberReads++
+	if index >= len(f.members) {
+		return nil, nil
+	}
+	return append([]string(nil), f.members[index]...), nil
+}
+func (f *fakeUsergroupsAPI) CreateUserGroupContext(context.Context, slack.UserGroup, ...slack.CreateUserGroupOption) (slack.UserGroup, error) {
+	return slack.UserGroup{}, nil
+}
+func (f *fakeUsergroupsAPI) UpdateUserGroupContext(context.Context, string, ...slack.UpdateUserGroupsOption) (slack.UserGroup, error) {
+	return slack.UserGroup{}, nil
+}
+func (f *fakeUsergroupsAPI) UpdateUserGroupMembersContext(_ context.Context, groupID, members string, _ ...slack.UpdateUserGroupMembersOption) (slack.UserGroup, error) {
+	f.updated = members
+	return slack.UserGroup{ID: groupID, Name: "eng", UserCount: len(strings.Split(members, ","))}, nil
+}
 
 func TestNewUserGroupFromSlack_UsersJoin(t *testing.T) {
 	t.Run("joins member IDs with semicolon", func(t *testing.T) {
@@ -43,4 +78,52 @@ func TestNewUserGroupFromSlack_UsersJoin(t *testing.T) {
 		assert.Contains(t, string(csvBytes), "U1;U2")
 		assert.NotContains(t, string(csvBytes), "U1,U2")
 	})
+}
+
+func TestUsergroupsMineAndLegacyMeKeepDistinctContracts(t *testing.T) {
+	api := &fakeUsergroupsAPI{groups: []slack.UserGroup{{ID: "S1", Name: "eng", Users: []string{"U1"}}}}
+	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
+
+	mine, err := handler.UsergroupsMineHandler(context.Background(), mcp.CallToolRequest{})
+	require.NoError(t, err)
+	_, ok := mine.StructuredContent.(ToolResult[UsergroupPageData])
+	require.True(t, ok)
+
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"action": "list"}}}
+	legacy, err := handler.UsergroupsMeHandler(context.Background(), request)
+	require.NoError(t, err)
+	_, ok = legacy.StructuredContent.(UsergroupListResult)
+	require.True(t, ok)
+}
+
+func TestUsergroupsJoinRechecksMembershipBeforeReplacing(t *testing.T) {
+	t.Setenv("SLACK_MCP_USERGROUPS_WRITE_TOOL", "true")
+	api := &fakeUsergroupsAPI{members: [][]string{{"U2"}, {"U2"}}}
+	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
+	_, err := handler.UsergroupsJoinHandler(context.Background(), request)
+	require.NoError(t, err)
+	assert.Equal(t, "U2,U1", api.updated)
+}
+
+func TestUsergroupsJoinRejectsConcurrentMembershipDrift(t *testing.T) {
+	t.Setenv("SLACK_MCP_USERGROUPS_WRITE_TOOL", "true")
+	api := &fakeUsergroupsAPI{members: [][]string{{"U2"}, {"U2", "U3"}}}
+	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
+	_, err := handler.UsergroupsJoinHandler(context.Background(), request)
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "membership_conflict", typed.Code)
+	assert.Empty(t, api.updated)
+}
+
+func TestUsergroupsLeaveRemovesOnlyCurrentUser(t *testing.T) {
+	t.Setenv("SLACK_MCP_USERGROUPS_WRITE_TOOL", "true")
+	api := &fakeUsergroupsAPI{members: [][]string{{"U2", "U1", "U3"}, {"U3", "U1", "U2"}}}
+	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
+	_, err := handler.UsergroupsLeaveHandler(context.Background(), request)
+	require.NoError(t, err)
+	assert.Equal(t, "U2,U3", api.updated)
 }

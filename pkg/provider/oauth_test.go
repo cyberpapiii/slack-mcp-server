@@ -61,16 +61,22 @@ func TestUnitOAuthTokenManagerRefreshesOnceForConcurrentCallers(t *testing.T) {
 		ExpiresAt: now.Add(time.Minute), Generation: 4,
 	}}
 	refresher := &countingRefresher{now: now}
-	manager := NewOAuthTokenManager(store, refresher, nil)
-	manager.now = func() time.Time { return now }
+	sharedLock := withOAuthFileLock(t.TempDir() + "/oauth-refresh.lock")
+	managers := []*OAuthTokenManager{
+		NewOAuthTokenManager(store, refresher, sharedLock),
+		NewOAuthTokenManager(store, refresher, sharedLock),
+	}
+	for _, manager := range managers {
+		manager.now = func() time.Time { return now }
+	}
 
 	var wg sync.WaitGroup
 	results := make(chan OAuthTokenRecord, 8)
-	for range 8 {
+	for i := range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			record, err := manager.Current(context.Background())
+			record, err := managers[i%len(managers)].Current(context.Background())
 			require.NoError(t, err)
 			results <- record
 		}()
@@ -160,7 +166,7 @@ func TestUnitOAuthTokenManagerPreservesOldRecordOnRefreshFailure(t *testing.T) {
 	assert.Equal(t, uint64(7), record.Generation)
 }
 
-func TestUnitOAuthTokenManagerValidatesBeforeCommit(t *testing.T) {
+func TestUnitOAuthTokenManagerPreservesRotationBeforeValidation(t *testing.T) {
 	now := time.Now().UTC()
 	store := &memoryCredentialStore{record: OAuthTokenRecord{
 		Version: oauthRecordVersion, AccessToken: "old", RefreshToken: "refresh",
@@ -174,8 +180,13 @@ func TestUnitOAuthTokenManagerValidatesBeforeCommit(t *testing.T) {
 	_, err := manager.Current(context.Background())
 	require.Error(t, err)
 	record, _ := store.Load(context.Background())
-	assert.Equal(t, "old", record.AccessToken)
-	assert.Equal(t, uint64(2), record.Generation)
+	assert.Equal(t, "rotated-access", record.AccessToken)
+	assert.Equal(t, "rotated-refresh", record.RefreshToken)
+	assert.Equal(t, uint64(3), record.Generation)
+
+	_, err = manager.Current(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "identity mismatch")
 }
 
 func TestUnitOAuthTokenManagerRejectsScopeLoss(t *testing.T) {
@@ -190,6 +201,10 @@ func TestUnitOAuthTokenManagerRejectsScopeLoss(t *testing.T) {
 	_, err := manager.Current(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "lost required scopes")
+	record, loadErr := store.Load(context.Background())
+	require.NoError(t, loadErr)
+	assert.Equal(t, "rotated-refresh", record.RefreshToken)
+	assert.Equal(t, uint64(3), record.Generation)
 }
 
 func TestUnitOAuthTokenManagerRejectsGenerationChange(t *testing.T) {
@@ -224,7 +239,7 @@ func TestUnitAuthorizedOAuthCommitRequiresScopesAndIdentity(t *testing.T) {
 func TestUnitOAuthCodeExchangeUsesPKCEAndFixedSlackEndpoint(t *testing.T) {
 	authorization, err := NewPKCEAuthorization("http://127.0.0.1:19453/oauth/callback")
 	require.NoError(t, err)
-	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		assert.Equal(t, "https://slack.com/api/oauth.v2.access", request.URL.String())
 		raw, readErr := io.ReadAll(request.Body)
 		require.NoError(t, readErr)
@@ -247,9 +262,11 @@ func TestUnitOAuthCodeExchangeUsesPKCEAndFixedSlackEndpoint(t *testing.T) {
 	assert.ElementsMatch(t, []string{"channels:read", "chat:write"}, record.Scopes)
 }
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
+type oauthRoundTripFunc func(*http.Request) (*http.Response, error)
 
-func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+func (f oauthRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
 
 type failingRefresher struct{}
 

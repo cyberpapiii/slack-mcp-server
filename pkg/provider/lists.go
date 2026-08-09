@@ -17,9 +17,6 @@ import (
 
 const slackListsAPIBase = "https://slack.com/api/"
 
-var ErrListEnumerationUnsupported = errors.New("Slack public API does not provide workspace-wide List enumeration")
-var ErrListInfoUnsupported = errors.New("Slack public API does not provide List metadata lookup")
-
 type ListsErrorKind string
 
 const (
@@ -144,7 +141,7 @@ type ListFieldValue struct {
 	ColumnID string             `json:"column_id"`
 	RowID    string             `json:"row_id,omitempty"`
 	Key      string             `json:"key,omitempty"`
-	Value    string             `json:"value,omitempty"`
+	Value    json.RawMessage    `json:"value,omitempty"`
 	Text     string             `json:"text,omitempty"`
 	RichText *[]json.RawMessage `json:"rich_text,omitempty"`
 	Date     *[]string          `json:"date,omitempty"`
@@ -155,7 +152,44 @@ type ListFieldValue struct {
 	Checkbox *[]bool            `json:"checkbox,omitempty"`
 	Email    *[]string          `json:"email,omitempty"`
 	Phone    *[]string          `json:"phone,omitempty"`
-	Link     *[]string          `json:"link,omitempty"`
+	Link     *[]ListLink        `json:"link,omitempty"`
+}
+
+type ListLink struct {
+	OriginalURL  string          `json:"original_url"`
+	Attachment   json.RawMessage `json:"attachment,omitempty"`
+	DisplayAsURL *bool           `json:"display_as_url,omitempty"`
+	DisplayName  string          `json:"display_name,omitempty"`
+}
+
+func (link *ListLink) UnmarshalJSON(raw []byte) error {
+	type wireLink struct {
+		OriginalURL        string          `json:"original_url"`
+		OriginalURLLegacy  string          `json:"originalUrl"`
+		Attachment         json.RawMessage `json:"attachment"`
+		DisplayAsURL       *bool           `json:"display_as_url"`
+		DisplayAsURLLegacy *bool           `json:"displayAsUrl"`
+		DisplayName        string          `json:"display_name"`
+		DisplayNameLegacy  string          `json:"displayName"`
+	}
+	var wire wireLink
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return err
+	}
+	link.OriginalURL = wire.OriginalURL
+	if link.OriginalURL == "" {
+		link.OriginalURL = wire.OriginalURLLegacy
+	}
+	link.Attachment = wire.Attachment
+	link.DisplayAsURL = wire.DisplayAsURL
+	if link.DisplayAsURL == nil {
+		link.DisplayAsURL = wire.DisplayAsURLLegacy
+	}
+	link.DisplayName = wire.DisplayName
+	if link.DisplayName == "" {
+		link.DisplayName = wire.DisplayNameLegacy
+	}
+	return nil
 }
 
 type ListItem struct {
@@ -189,9 +223,8 @@ type ListItemsRequest struct {
 }
 
 type ListItemsPage struct {
-	Items        []ListItem   `json:"items"`
-	ListMetadata ListMetadata `json:"list_metadata,omitempty"`
-	NextCursor   string       `json:"next_cursor"`
+	Items      []ListItem `json:"items"`
+	NextCursor string     `json:"next_cursor"`
 }
 
 func (c *ListsClient) CreateList(ctx context.Context, request CreateListRequest) (string, ListMetadata, error) {
@@ -211,14 +244,6 @@ func (c *ListsClient) CreateList(ctx context.Context, request CreateListRequest)
 
 func (c *ListsClient) UpdateList(ctx context.Context, request UpdateListRequest) error {
 	return c.call(ctx, "slackLists.update", request, nil)
-}
-
-func (c *ListsClient) GetList(ctx context.Context, listID string) (ListMetadata, error) {
-	return ListMetadata{}, ErrListInfoUnsupported
-}
-
-func (c *ListsClient) ListLists(context.Context, string, int) ([]ListMetadata, string, error) {
-	return nil, "", ErrListEnumerationUnsupported
 }
 
 func (c *ListsClient) CreateItem(ctx context.Context, request CreateListItemRequest) (ListItem, error) {
@@ -253,16 +278,15 @@ func (c *ListsClient) GetItem(ctx context.Context, listID, itemID string) (ListI
 
 func (c *ListsClient) ListItems(ctx context.Context, request ListItemsRequest) (ListItemsPage, error) {
 	var response struct {
-		Items        []ListItem   `json:"items"`
-		ListMetadata ListMetadata `json:"list_metadata"`
-		Metadata     struct {
+		Items    []ListItem `json:"items"`
+		Metadata struct {
 			NextCursor string `json:"next_cursor"`
 		} `json:"response_metadata"`
 	}
 	if err := c.call(ctx, "slackLists.items.list", request, &response); err != nil {
 		return ListItemsPage{}, err
 	}
-	return ListItemsPage{Items: response.Items, ListMetadata: response.ListMetadata, NextCursor: response.Metadata.NextCursor}, nil
+	return ListItemsPage{Items: response.Items, NextCursor: response.Metadata.NextCursor}, nil
 }
 
 func (c *ListsClient) DeleteItem(ctx context.Context, listID, itemID string) error {
@@ -312,6 +336,9 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
+		if listsMethodMutates(method) {
+			return listsOutcomeUnknown()
+		}
 		return fmt.Errorf("read %s response: %w", method, err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -322,6 +349,9 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 		Error string `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
+		if listsMethodMutates(method) {
+			return listsOutcomeUnknown()
+		}
 		return fmt.Errorf("decode %s response: %w", method, err)
 	}
 	if !envelope.OK {
@@ -329,10 +359,17 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 	}
 	if output != nil {
 		if err := json.Unmarshal(raw, output); err != nil {
+			if listsMethodMutates(method) {
+				return listsOutcomeUnknown()
+			}
 			return fmt.Errorf("decode %s result: %w", method, err)
 		}
 	}
 	return nil
+}
+
+func listsOutcomeUnknown() error {
+	return &ListsAPIError{Kind: ListsErrorAPI, SlackCode: "outcome_unknown", MayHaveMutated: true}
 }
 
 func listsMethodMutates(method string) bool {
@@ -362,7 +399,7 @@ func validateFieldInputs(fields []ListFieldValue, requireRowID bool) error {
 		if requireRowID && field.RowID == "" {
 			return errors.New("Slack List update field row_id is required")
 		}
-		if field.Key != "" || field.Value != "" || field.Text != "" {
+		if field.Key != "" || len(field.Value) != 0 || field.Text != "" {
 			return errors.New("Slack List response-only key, value, and text fields cannot be sent")
 		}
 		count := 0

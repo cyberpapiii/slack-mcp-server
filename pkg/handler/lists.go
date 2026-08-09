@@ -17,7 +17,6 @@ import (
 type ListsAPI interface {
 	CreateList(context.Context, provider.CreateListRequest) (string, provider.ListMetadata, error)
 	UpdateList(context.Context, provider.UpdateListRequest) error
-	GetList(context.Context, string) (provider.ListMetadata, error)
 	CreateItem(context.Context, provider.CreateListItemRequest) (provider.ListItem, error)
 	UpdateItems(context.Context, provider.UpdateListItemsRequest) error
 	GetItem(context.Context, string, string) (provider.ListItem, error)
@@ -106,19 +105,6 @@ func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolReque
 	return NewStructuredResult(ListMutationData{ListID: input.ID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List "+input.ID), nil
 }
 
-func (h *ListsHandler) GetList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsGetList called", request)
-	listID := request.GetString("list_id", "")
-	if listID == "" {
-		return NewTypedErrorResult(errors.New("list_id is required")), nil
-	}
-	metadata, err := h.api.GetList(ctx, listID)
-	if err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
-	}
-	return NewStructuredResult(metadata, SlackResultMeta("", false, ""), "Read Slack List "+listID), nil
-}
-
 func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ListsListItems called", request)
 	var input provider.ListItemsRequest
@@ -135,7 +121,7 @@ func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolReques
 	if err != nil {
 		return NewTypedErrorResult(listToolError(err)), nil
 	}
-	return NewStructuredResult(page, SlackResultMeta(page.NextCursor, false, ""), fmt.Sprintf("Read %d Slack List items", len(page.Items))), nil
+	return NewStructuredResult(page, SlackResultMeta(page.NextCursor, false, ""), fallbackJSON(page)), nil
 }
 
 func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

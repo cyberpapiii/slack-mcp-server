@@ -128,5 +128,8 @@ func dndError(code string, err error) error {
 	if errors.Is(err, provider.ErrUserOAuthRequired) {
 		return &ToolError{Code: "user_oauth_required", Message: err.Error(), Cause: err}
 	}
+	if isAmbiguousMutationError(err) {
+		return &ToolError{Code: "outcome_unknown", Message: "Slack may have changed DND state; read current DND state before another attempt", Cause: err}
+	}
 	return &ToolError{Code: code, Message: err.Error(), Cause: err}
 }

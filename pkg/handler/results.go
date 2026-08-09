@@ -1,11 +1,21 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"net"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+func isAmbiguousMutationError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError) && networkError.Timeout()
+}
 
 const ResultSchemaVersion = "1"
 
@@ -160,4 +170,8 @@ func NewTypedErrorResult(err error) *mcp.CallToolResult {
 	}, payload.Message)
 	result.IsError = true
 	return result
+}
+
+func cancelledToolResult() *mcp.CallToolResult {
+	return NewTypedErrorResult(&ToolError{Code: "cancelled", Message: "Slack read was cancelled"})
 }

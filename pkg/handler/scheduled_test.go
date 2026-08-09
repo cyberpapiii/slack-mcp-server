@@ -150,3 +150,16 @@ func TestUnitScheduledCancelMapsPermissionError(t *testing.T) {
 	require.NotNil(t, structured.Error)
 	assert.Equal(t, "permission_denied", structured.Error.Code)
 }
+
+func TestUnitScheduledLookupIsBounded(t *testing.T) {
+	pages := make([]provider.ScheduledPage, maxScheduledLookupPages)
+	for index := range pages {
+		pages[index].NextCursor = "next-" + time.Unix(int64(index), 0).UTC().Format("150405")
+	}
+	service := &fakeScheduledService{pages: pages}
+	_, err := newTestScheduledHandler(service).findScheduled(context.Background(), "C1", "Q-missing")
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "lookup_limit_exceeded", typed.Code)
+	assert.Equal(t, maxScheduledLookupPages, service.listCalls)
+}

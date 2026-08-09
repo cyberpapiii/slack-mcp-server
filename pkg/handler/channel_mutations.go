@@ -149,6 +149,9 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	}
 	state, err := h.service.ArchivePrepared(ctx, preparation)
 	if err != nil {
+		if isAmbiguousMutationError(err) {
+			return nil, &ToolError{Code: "outcome_unknown", Message: "Slack may have archived the channel; read current channel state before another attempt", Cause: err}
+		}
 		return nil, err
 	}
 	data := ChannelMutationData{Action: "archive", Phase: "executed", Channel: &state}
@@ -160,8 +163,8 @@ func requiredChannelID(request mcp.CallToolRequest) (string, error) {
 	if channelID == "" {
 		return "", errors.New("channel_id is required")
 	}
-	if !strings.HasPrefix(channelID, "C") {
-		return "", errors.New("channel_id must be a public or private channel ID starting with C")
+	if !strings.HasPrefix(channelID, "C") && !strings.HasPrefix(channelID, "G") {
+		return "", errors.New("channel_id must be a public or private channel ID starting with C or G")
 	}
 	return channelID, nil
 }

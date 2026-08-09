@@ -157,6 +157,8 @@ func TestArchivePreparedRejectsStateDriftWithoutMutation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = provider.ArchivePrepared(context.Background(), preparation)
 	require.ErrorIs(t, err, ErrChannelArchiveConflict)
+	assert.NotContains(t, err.Error(), "changed after review")
+	assert.NotContains(t, err.Error(), "old purpose")
 	assert.Zero(t, fake.archiveCalls)
 }
 
