@@ -33,6 +33,17 @@ type ErrorPayload struct {
 	RetryAfterSeconds int64  `json:"retry_after_seconds,omitempty" jsonschema_description:"Minimum retry delay in seconds"`
 }
 
+type ActionData struct {
+	Action      string `json:"action"`
+	Status      string `json:"status"`
+	ChannelID   string `json:"channel_id,omitempty"`
+	MessageID   string `json:"message_id,omitempty"`
+	ItemID      string `json:"item_id,omitempty"`
+	ActivityKey string `json:"activity_key,omitempty"`
+}
+
+type ActionResult = ToolResult[ActionData]
+
 // ToolResult keeps success and error structured content under one object
 // schema. Text content remains the compatibility representation.
 type ToolResult[T any] struct {
@@ -72,6 +83,7 @@ type ActivityPageResult = ToolResult[ActivityPageData]
 type SavedPageResult = ToolResult[SavedPageData]
 type UsergroupPageResult = ToolResult[UsergroupPageData]
 type UsergroupMembershipResult = ToolResult[UsergroupMeActionResult]
+type UsergroupMutationResult = ToolResult[UserGroup]
 type AuthStatusResult = ToolResult[AuthStatusData]
 
 func SlackResultMeta(nextCursor string, partial bool, partialReason string) ResultMeta {

@@ -148,6 +148,7 @@ func TestUnitParseSavedUpdateParams(t *testing.T) {
 }
 
 func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
+	t.Setenv("SLACK_MCP_SAVED_WRITE_TOOL", "true")
 	h := NewSavedHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
 	ctx := context.Background()
 

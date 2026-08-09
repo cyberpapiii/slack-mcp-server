@@ -139,7 +139,8 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 
 	h.logger.Debug("Created user group", zap.String("id", created.ID), zap.String("name", created.Name))
 
-	return mcp.NewToolResultStructuredOnly(newUserGroupFromSlack(created)), nil
+	result := newUserGroupFromSlack(created)
+	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Created user group "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -192,7 +193,8 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 
 	h.logger.Debug("Updated user group", zap.String("id", updated.ID), zap.String("name", updated.Name))
 
-	return mcp.NewToolResultStructuredOnly(newUserGroupFromSlack(updated)), nil
+	result := newUserGroupFromSlack(updated)
+	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Updated user group "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -232,7 +234,7 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 	result := newUserGroupFromSlack(updated)
 	result.Users = strings.Join(updated.Users, ",")
 
-	return mcp.NewToolResultStructuredOnly(result), nil
+	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Updated user group members for "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

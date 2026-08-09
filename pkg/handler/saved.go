@@ -229,6 +229,9 @@ func parseSavedUpdateParams(request mcp.CallToolRequest) (itemID, ts, mark strin
 
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "SavedUpdateHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_SAVED_WRITE_TOOL", "saved_update") {
+		return nil, &ToolError{Code: "tool_disabled", Message: "saved_update is disabled"}
+	}
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -262,11 +265,15 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 		action += fmt.Sprintf(", due date set to %s", dueTime)
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully %s saved item (item_id=%s, ts=%s)", action, itemID, ts)), nil
+	fallback := fmt.Sprintf("Successfully %s saved item (item_id=%s, ts=%s)", action, itemID, ts)
+	return NewStructuredResult(ActionData{Action: "update_saved_item", Status: "updated", ChannelID: itemID, MessageID: ts, ItemID: itemID}, SlackResultMeta("", false, ""), fallback), nil
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "SavedClearCompletedHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_SAVED_WRITE_TOOL", "saved_clear_completed") {
+		return nil, &ToolError{Code: "tool_disabled", Message: "saved_clear_completed is disabled"}
+	}
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -281,7 +288,7 @@ func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request m
 		return nil, fmt.Errorf("failed to clear completed saved items: %v", err)
 	}
 
-	return mcp.NewToolResultText("Successfully cleared all completed saved items"), nil
+	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, SlackResultMeta("", false, ""), "Successfully cleared all completed saved items"), nil
 }
 
 func formatUnixTs(ts int64) string {

@@ -347,7 +347,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	}
 
 	if shouldAddTool(ToolReactionsRemove, enabledTools, "SLACK_MCP_REACTION_TOOL") {
-		s.AddTool(mcp.NewTool(ToolReactionsRemove,
+		s.AddTool(newDailyPowerTool(ToolReactionsRemove,
 			mcp.WithDescription("Remove an emoji reaction from a message."),
 			mcp.WithDestructiveHintAnnotation(true),
 			mcp.WithString("channel_id",
@@ -475,7 +475,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), conversationsHandler.FilesListHandler)
 	}
 	if shouldAddTool(ToolConversationsMark, enabledTools, "SLACK_MCP_MARK_TOOL") {
-		s.AddTool(mcp.NewTool(ToolConversationsMark,
+		s.AddTool(newDailyPowerTool(ToolConversationsMark,
 			mcp.WithDescription("Mark a channel or DM as read. If no timestamp is provided, marks all messages as read."),
 			mcp.WithTitleAnnotation("Mark as Read"),
 			mcp.WithDestructiveHintAnnotation(false),
@@ -568,7 +568,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	}
 
 	if shouldAddTool(ToolUsergroupsCreate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
-		s.AddTool(mcp.NewTool(ToolUsergroupsCreate,
+		s.AddTool(newDailyPowerTool(ToolUsergroupsCreate,
 			mcp.WithDescription("Create a new user group (mention group) in the Slack workspace. After creation, use usergroups_users_update to add members, or users can join themselves with usergroups_me. The handle becomes the @mention (e.g., handle='engineering' creates @engineering)."),
 			mcp.WithTitleAnnotation("Create User Group"),
 			mcp.WithDestructiveHintAnnotation(true),
@@ -589,7 +589,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	}
 
 	if shouldAddTool(ToolUsergroupsUpdate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
-		s.AddTool(mcp.NewTool(ToolUsergroupsUpdate,
+		s.AddTool(newDailyPowerTool(ToolUsergroupsUpdate,
 			mcp.WithDescription("Update a user group's metadata: name, handle (@mention), description, or default channels. Does NOT change members, use usergroups_users_update for that. At least one field must be provided."),
 			mcp.WithTitleAnnotation("Update User Group"),
 			mcp.WithDestructiveHintAnnotation(true),
@@ -613,7 +613,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	}
 
 	if shouldAddTool(ToolUsergroupsUsersUpdate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
-		s.AddTool(mcp.NewTool(ToolUsergroupsUsersUpdate,
+		s.AddTool(newDailyPowerTool(ToolUsergroupsUsersUpdate,
 			mcp.WithDescription("Replace all members of a user group with a new list. WARNING: any user not in the 'users' parameter is removed. To add or remove only yourself, use usergroups_me instead. To add one user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
 			mcp.WithTitleAnnotation("Update User Group Members"),
 			mcp.WithDestructiveHintAnnotation(true),
@@ -630,8 +630,8 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 
 	browserSession := provider.ConfiguredWithBrowserSession()
 	addSavedList := browserSession && shouldAddTool(ToolSavedList, enabledTools, "")
-	addSavedUpdate := browserSession && shouldAddTool(ToolSavedUpdate, enabledTools, "")
-	addSavedClear := browserSession && shouldAddTool(ToolSavedClearCompleted, enabledTools, "")
+	addSavedUpdate := browserSession && shouldAddTool(ToolSavedUpdate, enabledTools, "SLACK_MCP_SAVED_WRITE_TOOL")
+	addSavedClear := browserSession && shouldAddTool(ToolSavedClearCompleted, enabledTools, "SLACK_MCP_SAVED_WRITE_TOOL")
 	if addSavedList || addSavedUpdate || addSavedClear {
 		savedHandler := handler.NewSavedHandler(provider, logger, conversationsHandler)
 		if addSavedList {
@@ -661,7 +661,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		}
 
 		if addSavedUpdate {
-			s.AddTool(mcp.NewTool(ToolSavedUpdate,
+			s.AddTool(newDailyPowerTool(ToolSavedUpdate,
 				mcp.WithDescription("Update a saved item: mark as completed, set a due date, or both. Use item_id and ts values from saved_list output. Replaces the deprecated stars.add/stars.remove APIs."),
 				mcp.WithTitleAnnotation("Update Saved Item"),
 				mcp.WithDestructiveHintAnnotation(true),
@@ -683,7 +683,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		}
 
 		if addSavedClear {
-			s.AddTool(mcp.NewTool(ToolSavedClearCompleted,
+			s.AddTool(newDailyPowerTool(ToolSavedClearCompleted,
 				mcp.WithDescription("Clear all completed saved items from the 'Save for Later' panel. This is a bulk operation that removes all items with state='completed'."),
 				mcp.WithTitleAnnotation("Clear Completed Saved Items"),
 				mcp.WithDestructiveHintAnnotation(true),
@@ -848,7 +848,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	}
 
 	addActivityUnreads := browserSession && shouldAddTool(ToolActivityUnreads, enabledTools, "")
-	addActivityMarkRead := browserSession && shouldAddTool(ToolActivityMarkRead, enabledTools, "")
+	addActivityMarkRead := browserSession && shouldAddTool(ToolActivityMarkRead, enabledTools, "SLACK_MCP_ACTIVITY_MARK_TOOL")
 	if addActivityUnreads || addActivityMarkRead {
 		activityHandler := handler.NewActivityHandler(provider, logger, conversationsHandler)
 		if addActivityUnreads {
@@ -876,7 +876,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 
 		if addActivityMarkRead {
 			guardCacheDependentRegistration(ToolActivityMarkRead)
-			s.server.AddTool(mcp.NewTool(ToolActivityMarkRead,
+			s.server.AddTool(newDailyPowerTool(ToolActivityMarkRead,
 				mcp.WithDescription("Mark an Activity item as read. Use the key, feed_ts, and type values from activity_unreads output."),
 				mcp.WithTitleAnnotation("Mark Activity Read"),
 				mcp.WithString("key",

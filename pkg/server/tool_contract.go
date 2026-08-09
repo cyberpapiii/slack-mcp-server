@@ -69,6 +69,16 @@ func dailyPowerOutputSchema(name string) (mcp.ToolOption, string) {
 		return mcp.WithOutputSchema[handler.ListItemDeleteResult](), "list_item_mutation"
 	case ToolDNDGet, ToolDNDSetSnooze, ToolDNDEndSnooze:
 		return mcp.WithOutputSchema[handler.DNDStateResult](), "dnd_state"
+	case ToolConversationsMark:
+		return mcp.WithOutputSchema[handler.ActionResult](), "read_progress"
+	case ToolReactionsRemove:
+		return mcp.WithOutputSchema[handler.ActionResult](), "reaction_mutation"
+	case ToolActivityMarkRead:
+		return mcp.WithOutputSchema[handler.ActionResult](), "activity_mutation"
+	case ToolSavedUpdate, ToolSavedClearCompleted:
+		return mcp.WithOutputSchema[handler.ActionResult](), "saved_mutation"
+	case ToolUsergroupsCreate, ToolUsergroupsUpdate, ToolUsergroupsUsersUpdate:
+		return mcp.WithOutputSchema[handler.UsergroupMutationResult](), "usergroup_mutation"
 	default:
 		return nil, ""
 	}

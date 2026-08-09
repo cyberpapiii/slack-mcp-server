@@ -84,6 +84,8 @@ Side-effecting tools require explicit env opt-in. Every gate below is enforced *
 | `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | channel rename/topic/purpose/archive | `true`/`1`/`yes`, or a channel allowlist |
 | `SLACK_MCP_LISTS_WRITE_TOOL` | Lists and List-item mutations | `true`, `1`, or `yes` |
 | `SLACK_MCP_DND_TOOL` | DND set/end | `true`, `1`, or `yes` |
+| `SLACK_MCP_ACTIVITY_MARK_TOOL` | `activity_mark_read` | `true`, `1`, or `yes` |
+| `SLACK_MCP_SAVED_WRITE_TOOL` | `saved_update`, `saved_clear_completed` | `true`, `1`, or `yes` |
 
 The boolean gates accept only `true`, `1`, or `yes`, matched case-insensitively and ignoring surrounding whitespace (`envutil.IsTruthy` in `pkg/envutil`). Any other value, **including `false`**, leaves the tool disabled. The channel-allowlist gates (`ADD_MESSAGE`, `REACTION`, `CHANNEL_MANAGEMENT`) are not plain booleans: their value may be the channel configuration, so any non-empty value enables registration and handlers recheck the target.
 

@@ -472,7 +472,8 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 		return nil, err
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully removed :%s: reaction from message %s in channel %s", params.emoji, params.timestamp, params.channel)), nil
+	fallback := fmt.Sprintf("Successfully removed :%s: reaction from message %s in channel %s", params.emoji, params.timestamp, params.channel)
+	return NewStructuredResult(ActionData{Action: "remove_reaction", Status: "removed", ChannelID: params.channel, MessageID: params.timestamp}, SlackResultMeta("", false, ""), fallback), nil
 }
 
 // ReactionsGetHandler returns detailed reaction data (including user IDs) for a specific message.
@@ -1798,7 +1799,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		if len(history.Messages) > 0 {
 			ts = history.Messages[0].Timestamp
 		} else {
-			return mcp.NewToolResultText("No messages to mark as read"), nil
+			return NewStructuredResult(ActionData{Action: "mark_read", Status: "no_messages", ChannelID: channel}, SlackResultMeta("", false, ""), "No messages to mark as read"), nil
 		}
 	}
 
@@ -1812,7 +1813,8 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		zap.String("channel", channel),
 		zap.String("ts", ts))
 
-	return mcp.NewToolResultText(fmt.Sprintf("Marked %s as read up to %s", channel, ts)), nil
+	fallback := fmt.Sprintf("Marked %s as read up to %s", channel, ts)
+	return NewStructuredResult(ActionData{Action: "mark_read", Status: "marked", ChannelID: channel, MessageID: ts}, SlackResultMeta("", false, ""), fallback), nil
 }
 
 func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

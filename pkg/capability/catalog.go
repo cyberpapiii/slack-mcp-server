@@ -175,6 +175,14 @@ var dailyPowerToolBehavior = map[string]ToolBehavior{
 	"dnd_get":                   {Title: "Get Do Not Disturb", ReadOnly: true, Idempotent: true, OpenWorld: true},
 	"dnd_set_snooze":            {Title: "Set Do Not Disturb", OpenWorld: true},
 	"dnd_end_snooze":            {Title: "End Do Not Disturb", OpenWorld: true},
+	"conversations_mark":        {Title: "Mark Conversation Read", Idempotent: true, OpenWorld: true},
+	"reactions_remove":          {Title: "Remove Reaction", Destructive: true, OpenWorld: true},
+	"activity_mark_read":        {Title: "Mark Activity Read", Idempotent: true, OpenWorld: true},
+	"saved_update":              {Title: "Update Saved Item", Idempotent: true, OpenWorld: true},
+	"saved_clear_completed":     {Title: "Clear Completed Saved Items", Destructive: true, Idempotent: true, OpenWorld: true},
+	"usergroups_create":         {Title: "Create User Group", OpenWorld: true},
+	"usergroups_update":         {Title: "Update User Group", OpenWorld: true},
+	"usergroups_users_update":   {Title: "Replace User Group Members", Destructive: true, Idempotent: true, OpenWorld: true},
 }
 
 func BehaviorForLocalTool(tool string) (ToolBehavior, bool) {

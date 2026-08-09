@@ -55,3 +55,20 @@ func TestDailyPowerContractsDoNotClaimLegacyTools(t *testing.T) {
 		assert.False(t, ok, "legacy tool %q must not claim an unmigrated result contract", name)
 	}
 }
+
+func TestAllActiveLocalToolsHaveTypedContracts(t *testing.T) {
+	for _, entry := range capability.Entries() {
+		if entry.Owner == capability.OwnerOfficial || entry.Migration != capability.MigrationActive {
+			continue
+		}
+		behavior, ok := capability.BehaviorForLocalTool(entry.LocalTool)
+		require.True(t, ok, "active tool %q has no behavior contract", entry.LocalTool)
+		tool := newDailyPowerTool(entry.LocalTool, mcp.WithDescription("contract test"))
+		assert.Equal(t, "object", tool.OutputSchema.Type)
+		require.NotNil(t, tool.Annotations.ReadOnlyHint)
+		require.NotNil(t, tool.Annotations.DestructiveHint)
+		require.NotNil(t, tool.Annotations.IdempotentHint)
+		require.NotNil(t, tool.Annotations.OpenWorldHint)
+		assert.Equal(t, behavior.Title, tool.Annotations.Title)
+	}
+}
