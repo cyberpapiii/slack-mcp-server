@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"errors"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,10 +27,6 @@ type UserGroup struct {
 	Users       string `csv:"users,omitempty" json:"users,omitempty" jsonschema_description:"Semicolon-separated user IDs when include_users=true"`
 }
 
-type UsergroupListResult struct {
-	Usergroups []UserGroup `json:"usergroups" jsonschema_description:"List of user groups"`
-}
-
 type UsergroupMeActionResult struct {
 	Message   string `json:"message" jsonschema_description:"Result message"`
 	GroupID   string `json:"group_id" jsonschema_description:"User group ID"`
@@ -36,9 +34,30 @@ type UsergroupMeActionResult struct {
 	UserCount int    `json:"user_count,omitempty" jsonschema_description:"Number of members after action"`
 }
 
+// UsergroupListResult is the legacy usergroups_me structured contract.
+type UsergroupListResult struct {
+	Usergroups []UserGroup `json:"usergroups" jsonschema_description:"List of user groups"`
+}
+
+type membershipAction string
+
+const (
+	membershipJoin  membershipAction = "join"
+	membershipLeave membershipAction = "leave"
+)
+
 type UsergroupsHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
+	api    UsergroupsAPI
+	logger *zap.Logger
+}
+
+type UsergroupsAPI interface {
+	AuthTest() (*slack.AuthTestResponse, error)
+	GetUserGroupsContext(context.Context, ...slack.GetUserGroupsOption) ([]slack.UserGroup, error)
+	GetUserGroupMembersContext(context.Context, string, ...slack.GetUserGroupMembersOption) ([]string, error)
+	CreateUserGroupContext(context.Context, slack.UserGroup, ...slack.CreateUserGroupOption) (slack.UserGroup, error)
+	UpdateUserGroupContext(context.Context, string, ...slack.UpdateUserGroupsOption) (slack.UserGroup, error)
+	UpdateUserGroupMembersContext(context.Context, string, string, ...slack.UpdateUserGroupMembersOption) (slack.UserGroup, error)
 }
 
 func newUserGroupFromSlack(g slack.UserGroup) UserGroup {
@@ -61,9 +80,13 @@ func newUserGroupFromSlack(g slack.UserGroup) UserGroup {
 
 func NewUsergroupsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *UsergroupsHandler {
 	return &UsergroupsHandler{
-		apiProvider: apiProvider,
-		logger:      logger,
+		api:    apiProvider.Slack(),
+		logger: logger,
 	}
+}
+
+func newUsergroupsHandlerWithAPI(api UsergroupsAPI, logger *zap.Logger) *UsergroupsHandler {
+	return &UsergroupsHandler{api: api, logger: logger}
 }
 
 // No IsReady check: usergroup handlers call the Slack API directly and do not
@@ -81,7 +104,7 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 		slack.GetUserGroupsOptionIncludeDisabled(includeDisabled),
 	}
 
-	groups, err := h.apiProvider.Slack().GetUserGroupsContext(ctx, options...)
+	groups, err := h.api.GetUserGroupsContext(ctx, options...)
 	if err != nil {
 		h.logger.Error("GetUserGroupsContext failed", zap.Error(err))
 		return nil, err
@@ -100,7 +123,7 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 		return nil, err
 	}
 
-	return mcp.NewToolResultStructured(UsergroupListResult{Usergroups: userGroupList}, string(csvBytes)), nil
+	return NewStructuredResult(UsergroupPageData{Usergroups: userGroupList}, SlackResultMeta("", false, ""), string(csvBytes)), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -135,7 +158,7 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 		userGroup.Prefs.Channels = channels
 	}
 
-	created, err := h.apiProvider.Slack().CreateUserGroupContext(ctx, userGroup)
+	created, err := h.api.CreateUserGroupContext(ctx, userGroup)
 	if err != nil {
 		h.logger.Error("CreateUserGroupContext failed", zap.Error(err))
 		return nil, err
@@ -143,7 +166,8 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 
 	h.logger.Debug("Created user group", zap.String("id", created.ID), zap.String("name", created.Name))
 
-	return mcp.NewToolResultStructuredOnly(newUserGroupFromSlack(created)), nil
+	result := newUserGroupFromSlack(created)
+	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Created user group "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -188,7 +212,7 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 		return nil, errors.New("at least one update field (name, handle, description, or channels) is required")
 	}
 
-	updated, err := h.apiProvider.Slack().UpdateUserGroupContext(ctx, usergroupID, options...)
+	updated, err := h.api.UpdateUserGroupContext(ctx, usergroupID, options...)
 	if err != nil {
 		h.logger.Error("UpdateUserGroupContext failed", zap.Error(err))
 		return nil, err
@@ -196,7 +220,8 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 
 	h.logger.Debug("Updated user group", zap.String("id", updated.ID), zap.String("name", updated.Name))
 
-	return mcp.NewToolResultStructuredOnly(newUserGroupFromSlack(updated)), nil
+	result := newUserGroupFromSlack(updated)
+	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Updated user group "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -221,7 +246,7 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 		return nil, errors.New("users is required")
 	}
 
-	updated, err := h.apiProvider.Slack().UpdateUserGroupMembersContext(ctx, usergroupID, usersStr)
+	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, usersStr)
 	if err != nil {
 		h.logger.Error("UpdateUserGroupMembersContext failed", zap.Error(err))
 		return nil, err
@@ -236,7 +261,7 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 	result := newUserGroupFromSlack(updated)
 	result.Users = strings.Join(updated.Users, ",")
 
-	return mcp.NewToolResultStructuredOnly(result), nil
+	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Updated user group members for "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -247,7 +272,7 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 		return nil, errors.New("action must be 'list', 'join', or 'leave'")
 	}
 
-	authResp, err := h.apiProvider.Slack().AuthTest()
+	authResp, err := h.api.AuthTest()
 	if err != nil {
 		h.logger.Error("AuthTest failed", zap.Error(err))
 		return nil, err
@@ -256,15 +281,63 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 	h.logger.Debug("Current user ID", zap.String("user_id", currentUserID))
 
 	if action == "list" {
-		return h.handleListMyGroups(ctx, currentUserID)
+		return h.handleListMyGroups(ctx, currentUserID, true)
 	}
+	return h.handleMyGroupMembership(ctx, currentUserID, request.GetString("usergroup_id", ""), membershipAction(action))
+}
 
-	usergroupID := request.GetString("usergroup_id", "")
+func (h *UsergroupsHandler) UsergroupsMineHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "UsergroupsMineHandler called", request)
+	currentUserID, err := h.currentUserID()
+	if err != nil {
+		return nil, err
+	}
+	return h.handleListMyGroups(ctx, currentUserID, false)
+}
+
+func (h *UsergroupsHandler) UsergroupsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "UsergroupsJoinHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_join") {
+		return nil, errors.New("usergroups_join is disabled")
+	}
+	currentUserID, err := h.currentUserID()
+	if err != nil {
+		return nil, err
+	}
+	return h.handleMyGroupMembership(ctx, currentUserID, request.GetString("usergroup_id", ""), membershipJoin)
+}
+
+func (h *UsergroupsHandler) UsergroupsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "UsergroupsLeaveHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_leave") {
+		return nil, errors.New("usergroups_leave is disabled")
+	}
+	currentUserID, err := h.currentUserID()
+	if err != nil {
+		return nil, err
+	}
+	return h.handleMyGroupMembership(ctx, currentUserID, request.GetString("usergroup_id", ""), membershipLeave)
+}
+
+func (h *UsergroupsHandler) currentUserID() (string, error) {
+	authResp, err := h.api.AuthTest()
+	if err != nil {
+		h.logger.Error("AuthTest failed", zap.Error(err))
+		return "", err
+	}
+	if authResp.UserID == "" {
+		return "", errors.New("Slack auth response has no user ID")
+	}
+	return authResp.UserID, nil
+}
+
+func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, currentUserID, usergroupID string, action membershipAction) (*mcp.CallToolResult, error) {
+
 	if usergroupID == "" {
-		return nil, errors.New("usergroup_id is required for join/leave actions")
+		return nil, errors.New("usergroup_id is required")
 	}
 
-	members, err := h.apiProvider.Slack().GetUserGroupMembersContext(ctx, usergroupID)
+	members, err := h.api.GetUserGroupMembersContext(ctx, usergroupID)
 	if err != nil {
 		h.logger.Error("GetUserGroupMembersContext failed", zap.Error(err))
 		return nil, err
@@ -272,39 +345,41 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 
 	h.logger.Debug("Current group members", zap.Int("count", len(members)), zap.Strings("members", members))
 
-	isMember := false
-	memberIndex := -1
-	for i, uid := range members {
-		if uid == currentUserID {
-			isMember = true
-			memberIndex = i
-			break
-		}
-	}
+	memberIndex := slices.Index(members, currentUserID)
+	isMember := memberIndex >= 0
 
 	var newMembers []string
 	var resultMessage string
 
-	if action == "join" {
+	switch action {
+	case membershipJoin:
 		if isMember {
-			return mcp.NewToolResultStructuredOnly(
-				UsergroupMeActionResult{Message: "You are already a member of this user group.", GroupID: usergroupID},
-			), nil
+			data := UsergroupMeActionResult{Message: "You are already a member of this user group.", GroupID: usergroupID}
+			return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
 		}
 		newMembers = append(members, currentUserID)
 		resultMessage = "Successfully joined the user group."
-	} else { // leave
+	case membershipLeave:
 		if !isMember {
-			return mcp.NewToolResultStructuredOnly(
-				UsergroupMeActionResult{Message: "You are not a member of this user group.", GroupID: usergroupID},
-			), nil
+			data := UsergroupMeActionResult{Message: "You are not a member of this user group.", GroupID: usergroupID}
+			return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
 		}
-		newMembers = append(members[:memberIndex], members[memberIndex+1:]...)
+		newMembers = append([]string(nil), members[:memberIndex]...)
+		newMembers = append(newMembers, members[memberIndex+1:]...)
 		resultMessage = "Successfully left the user group."
+	default:
+		return nil, errors.New("invalid user group membership action")
 	}
 
 	membersStr := strings.Join(newMembers, ",")
-	updated, err := h.apiProvider.Slack().UpdateUserGroupMembersContext(ctx, usergroupID, membersStr)
+	currentMembers, err := h.api.GetUserGroupMembersContext(ctx, usergroupID)
+	if err != nil {
+		return nil, err
+	}
+	if !sameMemberSet(members, currentMembers) {
+		return nil, &ToolError{Code: "membership_conflict", Message: "user group membership changed; read current membership before trying again"}
+	}
+	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, membersStr)
 	if err != nil {
 		h.logger.Error("UpdateUserGroupMembersContext failed", zap.Error(err))
 		return nil, err
@@ -316,22 +391,23 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 		zap.Int("new_user_count", updated.UserCount),
 	)
 
-	return mcp.NewToolResultStructuredOnly(UsergroupMeActionResult{
+	data := UsergroupMeActionResult{
 		Message:   resultMessage,
 		GroupID:   updated.ID,
 		GroupName: updated.Name,
 		UserCount: updated.UserCount,
-	}), nil
+	}
+	return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
 }
 
-func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserID string) (*mcp.CallToolResult, error) {
+func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserID string, legacy bool) (*mcp.CallToolResult, error) {
 	options := []slack.GetUserGroupsOption{
 		slack.GetUserGroupsOptionIncludeUsers(true),
 		slack.GetUserGroupsOptionIncludeCount(true),
 		slack.GetUserGroupsOptionIncludeDisabled(false),
 	}
 
-	groups, err := h.apiProvider.Slack().GetUserGroupsContext(ctx, options...)
+	groups, err := h.api.GetUserGroupsContext(ctx, options...)
 	if err != nil {
 		h.logger.Error("GetUserGroupsContext failed", zap.Error(err))
 		return nil, err
@@ -363,7 +439,21 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 		return nil, err
 	}
 
-	return mcp.NewToolResultStructured(UsergroupListResult{Usergroups: userGroupList}, string(csvBytes)), nil
+	if legacy {
+		return mcp.NewToolResultStructured(UsergroupListResult{Usergroups: userGroupList}, string(csvBytes)), nil
+	}
+	return NewStructuredResult(UsergroupPageData{Usergroups: userGroupList}, SlackResultMeta("", false, ""), string(csvBytes)), nil
+}
+
+func sameMemberSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	a = append([]string(nil), a...)
+	b = append([]string(nil), b...)
+	sort.Strings(a)
+	sort.Strings(b)
+	return slices.Equal(a, b)
 }
 
 func formatJSONTime(jt slack.JSONTime) string {

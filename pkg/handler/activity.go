@@ -15,14 +15,14 @@ import (
 )
 
 type ActivityItem struct {
-	Type        string `csv:"Type"`
-	ChannelID   string `csv:"ChannelID"`
-	ChannelName string `csv:"ChannelName"`
-	ThreadTs    string `csv:"ThreadTs"`
-	UnreadCount int    `csv:"UnreadCount"`
-	FeedTs      string `csv:"FeedTs"`
-	Key         string `csv:"Key"`
-	MinUnreadTs string `csv:"MinUnreadTs"`
+	Type        string `csv:"Type" json:"type"`
+	ChannelID   string `csv:"ChannelID" json:"channel_id"`
+	ChannelName string `csv:"ChannelName" json:"channel_name"`
+	ThreadTs    string `csv:"ThreadTs" json:"thread_ts,omitempty"`
+	UnreadCount int    `csv:"UnreadCount" json:"unread_count"`
+	FeedTs      string `csv:"FeedTs" json:"feed_ts"`
+	Key         string `csv:"Key" json:"key"`
+	MinUnreadTs string `csv:"MinUnreadTs" json:"min_unread_ts,omitempty"`
 }
 
 type ActivityHandler struct {
@@ -123,7 +123,11 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal activity items: %v", err)
 		}
-		return mcp.NewToolResultText(string(csvBytes)), nil
+		return NewStructuredResult(
+			ActivityPageData{Items: items},
+			SlackResultMeta("", false, ""),
+			string(csvBytes),
+		), nil
 	}
 
 	type threadKey struct {
@@ -154,10 +158,13 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 
 	rl := limiter.Tier3.Limiter()
 	var allMessages []Message
+	failedThreads := 0
+	stoppedEarly := false
 
 	for _, t := range threads {
 		if err := rl.Wait(ctx); err != nil {
 			h.logger.Warn("Rate limiter wait failed, stopping fetch", zap.Error(err))
+			stoppedEarly = true
 			break
 		}
 
@@ -175,6 +182,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 				zap.String("channel", t.ChannelID),
 				zap.String("thread_ts", t.ThreadTs),
 				zap.Error(err))
+			failedThreads++
 			continue
 		}
 
@@ -191,14 +199,37 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			return nil, fmt.Errorf("failed to marshal activity items: %v", err)
 		}
 		sb.Write(csvBytes)
-		return mcp.NewToolResultText(sb.String()), nil
+		return NewStructuredResult(
+			ActivityPageData{Items: items},
+			SlackResultMeta("", true, "activity messages could not be fetched"),
+			sb.String(),
+		), nil
 	}
 
-	return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+	rendered, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+	if err != nil {
+		return nil, err
+	}
+	partial := failedThreads > 0 || stoppedEarly
+	partialReason := ""
+	if partial {
+		partialReason = fmt.Sprintf("%d activity threads could not be fetched", failedThreads)
+		if stoppedEarly {
+			partialReason = "activity message fetch stopped before all threads were attempted"
+		}
+	}
+	return NewStructuredResult(
+		ActivityPageData{Items: items, Messages: allMessages},
+		SlackResultMeta("", partial, partialReason),
+		ResultText(rendered),
+	), nil
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ActivityMarkReadHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_ACTIVITY_MARK_TOOL", "activity_mark_read") {
+		return nil, &ToolError{Code: "tool_disabled", Message: "activity_mark_read is disabled"}
+	}
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -225,5 +256,6 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 		return nil, fmt.Errorf("failed to mark activity as read: %v", err)
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully marked activity item as read (key=%s)", key)), nil
+	fallback := fmt.Sprintf("Successfully marked activity item as read (key=%s)", key)
+	return NewStructuredResult(ActionData{Action: "mark_activity_read", Status: "marked", ActivityKey: key, MessageID: feedTs}, SlackResultMeta("", false, ""), fallback), nil
 }

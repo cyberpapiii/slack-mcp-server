@@ -115,6 +115,9 @@ func TestValidToolNames(t *testing.T) {
 			ToolChannelsMe:                  true,
 			ToolUsergroupsList:              true,
 			ToolUsergroupsMe:                true,
+			ToolUsergroupsMine:              true,
+			ToolUsergroupsJoin:              true,
+			ToolUsergroupsLeave:             true,
 			ToolUsergroupsCreate:            true,
 			ToolUsergroupsUpdate:            true,
 			ToolUsergroupsUsersUpdate:       true,
@@ -126,6 +129,21 @@ func TestValidToolNames(t *testing.T) {
 			ToolSavedClearCompleted:         true,
 			ToolFilesList:                   true,
 			ToolSlackAuthStatus:             true,
+			ToolScheduledMessagesList:       true,
+			ToolScheduledMessageCancel:      true,
+			ToolChannelsRename:              true,
+			ToolChannelsSetTopic:            true,
+			ToolChannelsSetPurpose:          true,
+			ToolChannelsArchive:             true,
+			ToolListsCreate:                 true,
+			ToolListsUpdate:                 true,
+			ToolListsItemsList:              true,
+			ToolListsItemsCreate:            true,
+			ToolListsItemsUpdate:            true,
+			ToolListsItemDelete:             true,
+			ToolDNDGet:                      true,
+			ToolDNDSetSnooze:                true,
+			ToolDNDEndSnooze:                true,
 		}
 
 		assert.Equal(t, len(expectedTools), len(ValidToolNames), "ValidToolNames should have %d tools", len(expectedTools))
@@ -134,6 +152,22 @@ func TestValidToolNames(t *testing.T) {
 			assert.True(t, expectedTools[tool], "unexpected tool in ValidToolNames: %s", tool)
 		}
 	})
+}
+
+func TestCapabilityPresets(t *testing.T) {
+	daily, err := ResolveToolPreset("daily-power")
+	require.NoError(t, err)
+	assert.Contains(t, daily, ToolSlackAuthStatus)
+	assert.Contains(t, daily, ToolUsergroupsMine)
+	assert.NotContains(t, daily, ToolConversationsAddMessage)
+	assert.NotContains(t, daily, ToolUsergroupsJoin)
+
+	legacy, err := ResolveToolPreset("legacy-full")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, ValidToolNames, legacy)
+
+	_, err = ResolveToolPreset("unknown")
+	require.Error(t, err)
 }
 
 func TestValidateEnabledTools(t *testing.T) {
@@ -405,6 +439,12 @@ func TestErrorRecoveryMiddleware(t *testing.T) {
 		textContent, ok := result.Content[0].(mcp.TextContent)
 		require.True(t, ok, "content should be TextContent")
 		assert.Contains(t, textContent.Text, "simulated tool error: invalid channel ID")
+		require.NotNil(t, result.StructuredContent)
+		structured, ok := result.StructuredContent.(map[string]any)
+		require.True(t, ok)
+		errorPayload, ok := structured["error"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "tool_error", errorPayload["code"])
 	})
 
 	t.Run("without middleware handler error becomes JSON-RPC error", func(t *testing.T) {

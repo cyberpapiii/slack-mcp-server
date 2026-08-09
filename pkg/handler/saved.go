@@ -15,13 +15,13 @@ import (
 )
 
 type SavedItemRow struct {
-	ItemID      string `csv:"ItemID"`
-	ChannelID   string `csv:"ChannelID"`
-	ChannelName string `csv:"ChannelName"`
-	Ts          string `csv:"Ts"`
-	DateCreated string `csv:"DateCreated"`
-	DateDue     string `csv:"DateDue"`
-	State       string `csv:"State"`
+	ItemID      string `csv:"ItemID" json:"item_id"`
+	ChannelID   string `csv:"ChannelID" json:"channel_id"`
+	ChannelName string `csv:"ChannelName" json:"channel_name"`
+	Ts          string `csv:"Ts" json:"ts"`
+	DateCreated string `csv:"DateCreated" json:"date_created"`
+	DateDue     string `csv:"DateDue" json:"date_due,omitempty"`
+	State       string `csv:"State" json:"state"`
 }
 
 type SavedHandler struct {
@@ -65,7 +65,8 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 
 	var allItems []SavedItemRow
 	var allMessages []Message
-	cursor := ""
+	cursor := request.GetString("cursor", "")
+	nextCursor := ""
 	fetched := 0
 	pageSize := limit
 	if pageSize > 50 {
@@ -85,6 +86,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 			h.logger.Error("SavedList failed", zap.Error(err))
 			return nil, fmt.Errorf("failed to list saved items: %v", err)
 		}
+		nextCursor = resp.ResponseMetadata.NextCursor
 
 		for _, item := range resp.SavedItems {
 			if fetched >= limit {
@@ -185,14 +187,34 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	}
 
 	if includeMessages && len(allMessages) > 0 {
-		return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+		rendered, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+		if err != nil {
+			return nil, err
+		}
+		partialReason := ""
+		if nextCursor != "" {
+			partialReason = "result stopped at the requested item limit"
+		}
+		return NewStructuredResult(
+			SavedPageData{Items: allItems, Messages: allMessages},
+			SlackResultMeta(nextCursor, nextCursor != "", partialReason),
+			ResultText(rendered),
+		), nil
 	}
 
 	csvBytes, err := gocsv.MarshalBytes(&allItems)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal saved items: %v", err)
 	}
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	partialReason := ""
+	if nextCursor != "" {
+		partialReason = "result stopped at the requested item limit"
+	}
+	return NewStructuredResult(
+		SavedPageData{Items: allItems},
+		SlackResultMeta(nextCursor, nextCursor != "", partialReason),
+		string(csvBytes),
+	), nil
 }
 
 // parseSavedUpdateParams: schema uses date_due:0 to clear; key presence (not truthiness) gates the required-field check.
@@ -215,6 +237,9 @@ func parseSavedUpdateParams(request mcp.CallToolRequest) (itemID, ts, mark strin
 
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "SavedUpdateHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_SAVED_WRITE_TOOL", "saved_update") {
+		return nil, &ToolError{Code: "tool_disabled", Message: "saved_update is disabled"}
+	}
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -248,11 +273,15 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 		action += fmt.Sprintf(", due date set to %s", dueTime)
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully %s saved item (item_id=%s, ts=%s)", action, itemID, ts)), nil
+	fallback := fmt.Sprintf("Successfully %s saved item (item_id=%s, ts=%s)", action, itemID, ts)
+	return NewStructuredResult(ActionData{Action: "update_saved_item", Status: "updated", ChannelID: itemID, MessageID: ts, ItemID: itemID}, SlackResultMeta("", false, ""), fallback), nil
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "SavedClearCompletedHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_SAVED_WRITE_TOOL", "saved_clear_completed") {
+		return nil, &ToolError{Code: "tool_disabled", Message: "saved_clear_completed is disabled"}
+	}
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -267,7 +296,7 @@ func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request m
 		return nil, fmt.Errorf("failed to clear completed saved items: %v", err)
 	}
 
-	return mcp.NewToolResultText("Successfully cleared all completed saved items"), nil
+	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, SlackResultMeta("", false, ""), "Successfully cleared all completed saved items"), nil
 }
 
 func formatUnixTs(ts int64) string {

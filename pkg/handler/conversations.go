@@ -55,21 +55,21 @@ var validFilterKeys = map[string]struct{}{
 }
 
 type Message struct {
-	MsgID         string `json:"msgID"`
-	UserID        string `json:"userID"`
-	UserName      string `json:"userUser"`
-	RealName      string `json:"realName"`
-	Channel       string `json:"channelID"`
-	ThreadTs      string `json:"ThreadTs"`
+	MsgID         string `json:"message_id"`
+	UserID        string `json:"user_id"`
+	UserName      string `json:"user_name"`
+	RealName      string `json:"real_name"`
+	Channel       string `json:"channel"`
+	ThreadTs      string `json:"thread_ts,omitempty"`
 	Text          string `json:"text"`
 	Time          string `json:"time"`
 	Permalink     string `json:"permalink,omitempty"`
 	Reactions     string `json:"reactions,omitempty"`
-	BotName       string `json:"botName,omitempty"`
-	FileCount     int    `json:"fileCount,omitempty"`
-	AttachmentIDs string `json:"attachmentIDs,omitempty"`
-	HasMedia      bool   `json:"hasMedia,omitempty"`
-	Cursor        string `json:"cursor"`
+	BotName       string `json:"bot_name,omitempty"`
+	FileCount     int    `json:"file_count,omitempty"`
+	AttachmentIDs string `json:"attachment_ids,omitempty"`
+	HasMedia      bool   `json:"has_media,omitempty"`
+	Cursor        string `json:"cursor,omitempty"`
 }
 
 // CompactMessage is the default agent-oriented CSV shape: readable columns plus the
@@ -472,7 +472,8 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 		return nil, err
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully removed :%s: reaction from message %s in channel %s", params.emoji, params.timestamp, params.channel)), nil
+	fallback := fmt.Sprintf("Successfully removed :%s: reaction from message %s in channel %s", params.emoji, params.timestamp, params.channel)
+	return NewStructuredResult(ActionData{Action: "remove_reaction", Status: "removed", ChannelID: params.channel, MessageID: params.timestamp}, SlackResultMeta("", false, ""), fallback), nil
 }
 
 // ReactionsGetHandler returns detailed reaction data (including user IDs) for a specific message.
@@ -585,11 +586,23 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 		return nil, err
 	}
 	if msg == nil {
-		return mcp.NewToolResultText("No message found at the specified timestamp"), nil
+		return NewStructuredResult(
+			MessageData{Found: false},
+			SlackResultMeta("", false, ""),
+			"No message found at the specified timestamp",
+		), nil
 	}
 
 	messages := ch.convertMessagesFromHistory(ctx, []slack.Message{*msg}, channel, true, mode)
-	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	rendered, err := marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	if err != nil {
+		return nil, err
+	}
+	data := MessageData{Found: len(messages) > 0}
+	if len(messages) > 0 {
+		data.Message = &messages[0]
+	}
+	return NewStructuredResult(data, SlackResultMeta("", false, ""), ResultText(rendered)), nil
 }
 
 func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1009,11 +1022,11 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 
 // UnreadChannel represents a channel with unread messages
 type UnreadChannel struct {
-	ChannelID   string `json:"channelID"`
-	ChannelName string `json:"channelName"`
-	ChannelType string `json:"channelType"` // "dm", "group_dm", "partner", "internal"
-	UnreadCount int    `json:"unreadCount"`
-	LastRead    string `json:"lastRead"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	ChannelType string `json:"channel_type"` // "dm", "group_dm", "partner", "internal"
+	UnreadCount int    `json:"unread_count"`
+	LastRead    string `json:"last_read"`
 	Latest      string `json:"latest"`
 }
 
@@ -1085,7 +1098,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
 
 	if !ch.backfillUnreadCounts(ctx, request, ch.apiProvider.Slack(), params, unreadChannels) {
-		return mcp.NewToolResultError("cancelled"), nil
+		return cancelledToolResult(), nil
 	}
 
 	if !params.includeMessages {
@@ -1097,7 +1110,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	for i := range unreadChannels {
 		select {
 		case <-ctx.Done():
-			return mcp.NewToolResultError("cancelled"), nil
+			return cancelledToolResult(), nil
 		default:
 		}
 		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Fetching messages: channel %d of %d", i+1, len(unreadChannels)))
@@ -1135,7 +1148,15 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 
 	ch.logger.Debug("Fetched unread messages", zap.Int("total", len(allMessages)))
 
-	return marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	rendered, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	if err != nil {
+		return nil, err
+	}
+	return NewStructuredResult(
+		UnreadPageData{Channels: unreadChannels, Messages: allMessages},
+		SlackResultMeta("", params.mutedUnavailable, "muted-channel preferences unavailable"),
+		ResultText(rendered),
+	), nil
 }
 
 func unreadCountFromHistory(current, msgCount int, fetchErr error) int {
@@ -1392,7 +1413,7 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	for gi, group := range groups {
 		select {
 		case <-ctx.Done():
-			return mcp.NewToolResultError("cancelled"), nil
+			return cancelledToolResult(), nil
 		default:
 		}
 		sendProgress(ctx, request, gi+1, len(groups), fmt.Sprintf("Scanning channel type group %d of %d", gi+1, len(groups)))
@@ -1455,7 +1476,11 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 				result.Content[0] = tc
 			}
 		}
-		return result, nil
+		return NewStructuredResult(
+			UnreadPageData{Channels: unreadChannels},
+			SlackResultMeta("", true, "OAuth unread scan may not cover every channel"),
+			ResultText(result),
+		), nil
 	}
 
 	rl := limiter.Tier3.Limiter()
@@ -1463,7 +1488,7 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 	for i, uc := range unreadChannels {
 		select {
 		case <-ctx.Done():
-			return mcp.NewToolResultError("cancelled"), nil
+			return cancelledToolResult(), nil
 		default:
 		}
 		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Fetching messages: channel %d of %d", i+1, len(unreadChannels)))
@@ -1501,7 +1526,11 @@ func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Conte
 			result.Content[0] = tc
 		}
 	}
-	return result, nil
+	return NewStructuredResult(
+		UnreadPageData{Channels: unreadChannels, Messages: allMessages},
+		SlackResultMeta("", true, "OAuth unread scan may not cover every channel"),
+		ResultText(result),
+	), nil
 }
 
 // slackRetryAfter checks if an error is a Slack rate limit error and returns
@@ -1770,7 +1799,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		if len(history.Messages) > 0 {
 			ts = history.Messages[0].Timestamp
 		} else {
-			return mcp.NewToolResultText("No messages to mark as read"), nil
+			return NewStructuredResult(ActionData{Action: "mark_read", Status: "no_messages", ChannelID: channel}, SlackResultMeta("", false, ""), "No messages to mark as read"), nil
 		}
 	}
 
@@ -1784,7 +1813,8 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		zap.String("channel", channel),
 		zap.String("ts", ts))
 
-	return mcp.NewToolResultText(fmt.Sprintf("Marked %s as read up to %s", channel, ts)), nil
+	fallback := fmt.Sprintf("Marked %s as read up to %s", channel, ts)
+	return NewStructuredResult(ActionData{Action: "mark_read", Status: "marked", ChannelID: channel, MessageID: ts}, SlackResultMeta("", false, ""), fallback), nil
 }
 
 func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1894,7 +1924,11 @@ func (ch *ConversationsHandler) marshalUnreadChannelsToCSV(channels []UnreadChan
 	if err != nil {
 		return nil, err
 	}
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	return NewStructuredResult(
+		UnreadPageData{Channels: channels},
+		SlackResultMeta("", false, ""),
+		string(csvBytes),
+	), nil
 }
 
 func isChannelAllowedForConfig(channel, config string) bool {

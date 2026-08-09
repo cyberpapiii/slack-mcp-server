@@ -2,6 +2,12 @@
 
 These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[servers.slack.env]` block. After editing `~/Library/Application Support/plug/config.toml` or changing Go code, run `make deploy-local` from this repo. It builds the binary and restarts Plug's `slack` server. (A bare `plug reload` is not enough. It reloads config but leaves the old server process running.)
 
+`daily-power` is the default when neither `SLACK_MCP_ENABLED_TOOLS` nor
+`SLACK_MCP_TOOL_PRESET` is set. An explicit enabled-tools list always wins.
+Set `SLACK_MCP_TOOL_PRESET=legacy-full` only for existing clients that still
+depend on overlapping local tools. The versioned ownership rules are described
+in [capabilities.md](capabilities.md).
+
 ## Shared settings
 
 | Variable | Recommended | Purpose |
@@ -45,7 +51,7 @@ Side-effecting tools still need registration opt-in. Canonical gate table (boole
 - `SLACK_MCP_REACTION_TOOL`: reactions
 - `SLACK_MCP_ATTACHMENT_TOOL`: file download
 
-Also gated: `SLACK_MCP_MARK_TOOL`, `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL`, `SLACK_MCP_USERGROUPS_WRITE_TOOL`, `SLACK_MCP_FILES_LIST_TOOL`. When `SLACK_MCP_ENABLED_TOOLS` is set, naming a gated tool in that list registers it without its dedicated env var.
+Also gated: `SLACK_MCP_MARK_TOOL`, `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL`, `SLACK_MCP_USERGROUPS_WRITE_TOOL`, `SLACK_MCP_FILES_LIST_TOOL`, `SLACK_MCP_SCHEDULED_MESSAGE_TOOL`, `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL`, `SLACK_MCP_LISTS_WRITE_TOOL`, `SLACK_MCP_DND_TOOL`, `SLACK_MCP_ACTIVITY_MARK_TOOL`, and `SLACK_MCP_SAVED_WRITE_TOOL`. When `SLACK_MCP_ENABLED_TOOLS` is set, naming a gated tool in that list registers it without its dedicated env var.
 
 ## Preset: read-only triage
 
@@ -55,15 +61,38 @@ Best for inbox review, search, and channel discovery without posting.
 SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_get_message,conversations_search_messages,conversations_mark,channels_list,channels_me,channels_starred,conversations_unreads,reactions_get,users_search,files_list,usergroups_list,usergroups_me,activity_unreads,saved_list"
 ```
 
-## Preset: full agent (default local)
+## Preset: daily power (default)
 
-Read + write + activity/saved; matches typical Cursor agent workflows on this machine. Full catalog: `AGENTS.md` / `ValidToolNames` (31 tools). This preset omits `conversations_join` / `conversations_leave` on purpose.
+Use beside Slack's official MCP. U1 keeps only no-confirmation, local-owned
+capabilities and removes overlapping local send, search, ordinary read, file,
+user, and channel tools. Mutation tools stay hidden until host filtering and
+confirmation cancellation pass live verification.
+
+```toml
+SLACK_MCP_TOOL_PRESET = "daily-power"
+```
+
+Generated local allowlist for catalog version `2026-08-09.2`:
+
+```text
+activity_unreads,conversations_get_message,conversations_unreads,dnd_get,lists_items_list,saved_list,scheduled_messages_list,slack_auth_status,usergroups_list,usergroups_mine
+```
+
+Before enabling mutations, verify the official and local providers have the
+same Slack team and user IDs, the combined inventory contains one owner per
+intent, and canceling a confirmation leaves Slack unchanged.
+
+## Preset: legacy full
+
+Compatibility preset with all current local tools, including capabilities
+that overlap Slack's official MCP. Do not combine it with the official server
+as the normal daily surface.
 
 ```toml
 SLACK_MCP_ADD_MESSAGE_TOOL = "true"
 SLACK_MCP_REACTION_TOOL = "true"
 SLACK_MCP_ATTACHMENT_TOOL = "true"
-SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_get_message,conversations_add_message,conversations_draft_message,conversations_search_messages,conversations_mark,conversations_open,channels_list,channels_me,channels_starred,conversations_unreads,reactions_add,reactions_remove,reactions_get,attachment_get_data,files_list,usergroups_list,usergroups_me,usergroups_create,usergroups_update,usergroups_users_update,users_search,activity_unreads,activity_mark_read,saved_list,saved_update,saved_clear_completed"
+SLACK_MCP_TOOL_PRESET = "legacy-full"
 ```
 
 ## Preset: minimal (IDs only)
