@@ -30,19 +30,21 @@ func NewAuthStatusHandler(apiProvider *provider.ApiProvider, logger *zap.Logger)
 }
 
 type authStatusPayload struct {
-	CatalogVersion           string                    `json:"catalog_version"`
-	ProviderIdentity         provider.ProviderIdentity `json:"provider_identity"`
-	CapabilityAvailability   map[string]string         `json:"capability_availability"`
-	UsersCacheReady          bool                      `json:"users_cache_ready"`
-	ChannelsCacheReady       bool                      `json:"channels_cache_ready"`
-	CacheFullyReady          bool                      `json:"cache_fully_ready"`
-	BrowserFeaturesAvailable bool                      `json:"browser_features_available"`
-	BrowserDegradedReason    string                    `json:"browser_degraded_reason,omitempty"`
-	IsOAuth                  bool                      `json:"is_oauth"`
-	IsBotToken               bool                      `json:"is_bot_token"`
-	BrowserOnlyTools         []string                  `json:"browser_only_tools"`
-	BrowserOnlyToolsBlocked  bool                      `json:"browser_only_tools_blocked"`
-	Summary                  string                    `json:"summary"`
+	CatalogVersion           string                         `json:"catalog_version"`
+	ProviderIdentity         provider.ProviderIdentity      `json:"provider_identity"`
+	OAuthCredential          provider.OAuthCredentialStatus `json:"oauth_credential"`
+	CapabilityAvailability   map[string]string              `json:"capability_availability"`
+	UsersCacheReady          bool                           `json:"users_cache_ready"`
+	ChannelsCacheReady       bool                           `json:"channels_cache_ready"`
+	CacheFullyReady          bool                           `json:"cache_fully_ready"`
+	BrowserFeaturesAvailable bool                           `json:"browser_features_available"`
+	BrowserCredentialSource  string                         `json:"browser_credential_source"`
+	BrowserDegradedReason    string                         `json:"browser_degraded_reason,omitempty"`
+	IsOAuth                  bool                           `json:"is_oauth"`
+	IsBotToken               bool                           `json:"is_bot_token"`
+	BrowserOnlyTools         []string                       `json:"browser_only_tools"`
+	BrowserOnlyToolsBlocked  bool                           `json:"browser_only_tools_blocked"`
+	Summary                  string                         `json:"summary"`
 }
 
 func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -57,11 +59,13 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 	payload := authStatusPayload{
 		CatalogVersion:           capability.CatalogVersion,
 		ProviderIdentity:         h.apiProvider.Identity(),
+		OAuthCredential:          h.apiProvider.OAuthCredentialStatus(),
 		CapabilityAvailability:   capabilityAvailability(h.apiProvider.IsOAuth() || h.apiProvider.IsBotToken(), browserOK, degradedReason),
 		UsersCacheReady:          usersReady,
 		ChannelsCacheReady:       channelsReady,
 		CacheFullyReady:          usersReady && channelsReady,
 		BrowserFeaturesAvailable: browserOK,
+		BrowserCredentialSource:  h.apiProvider.BrowserCredentialSource(),
 		BrowserDegradedReason:    degradedReason,
 		IsOAuth:                  h.apiProvider.IsOAuth(),
 		IsBotToken:               h.apiProvider.IsBotToken(),

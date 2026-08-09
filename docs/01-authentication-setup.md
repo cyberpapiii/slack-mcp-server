@@ -2,7 +2,15 @@
 
 Open Slack in your browser and log in.
 
-> **Note**: You only need one of the following: an `xoxp-*` User OAuth token, an `xoxb-*` Bot token, or both `xoxc-*` and `xoxd-*` session tokens. User/Bot tokens are more secure and do not require a browser session. If multiple are provided, priority is `xoxp` > `xoxb` > `xoxc/xoxd`.
+> **Note**: You only need one of the following: an `xoxp-*` User OAuth token, an `xoxb-*` Bot token, or both `xoxc-*` and `xoxd-*` session tokens. User/Bot tokens are more secure and do not require a browser session. If multiple are provided, priority is managed OAuth > `xoxp` > `xoxb` > `xoxc/xoxd`. When OAuth and browser credentials are both configured, standard Slack API calls always use OAuth. Browser credentials are limited to Activity and Save for Later features after an exact workspace and user identity check.
+
+#### Managed OAuth rotation
+
+Rotating Slack OAuth credentials can be stored in macOS Keychain. Set `SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT` to select the Keychain item. Set `SLACK_MCP_OAUTH_CLIENT_ID` and `SLACK_MCP_OAUTH_CLIENT_SECRET` to allow automatic early refresh. The stored record includes access token, refresh token, expiry, workspace and user identity, scopes, and a generation number. Refresh is serialized across server processes and the replacement is saved before use.
+
+Authorization acquisition requires Slack app client configuration and an explicit caller using the PKCE authorization helper; the server does not invent or infer app credentials. `slack_auth_status` distinguishes `foundation` (Keychain selected but refresh client unavailable), `configured` (inputs present before startup validation), `live`, and `degraded`; it never returns credentials. While live, the server refreshes before expiry, verifies scopes plus exact workspace and user identity before committing the next generation, then replaces its standard API client without a restart. Static `SLACK_MCP_XOXP_TOKEN` and `SLACK_MCP_XOXB_TOKEN` remain supported compatibility inputs and are never rotated.
+
+Browser credentials may be stored separately in macOS Keychain with `SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT`. Environment `xoxc`/`xoxd` inputs remain compatibility-only. Browser records never rotate, never become the standard API client, and attach only after their workspace and user match user OAuth.
 
 #### Option 1: Using `SLACK_MCP_XOXC_TOKEN`/`SLACK_MCP_XOXD_TOKEN` (Browser session)
 

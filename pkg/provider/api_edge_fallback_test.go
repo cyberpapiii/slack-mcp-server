@@ -1,13 +1,17 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
+	"github.com/rusq/slackdump/v3/auth"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -113,4 +117,57 @@ func TestBrowserDegradationState(t *testing.T) {
 	c.degradeBrowserSession(errors.New("invalid_auth"))
 	assert.Equal(t, 2, writes, "one write for active, one for degraded")
 	assert.Equal(t, 1, notifies, "degradation should only notify once")
+}
+
+func TestStandardSlackClientAlwaysPrefersOAuthWhenBrowserIsHealthy(t *testing.T) {
+	browserClient := slack.New("xoxc-browser")
+	oauthClient := slack.New("xoxp-oauth")
+	c := &MCPSlackClient{
+		slackClient: browserClient, fallbackSlackClient: oauthClient,
+		browserConfigured: true,
+	}
+	c.browserState.Store(int32(browserStateActive))
+
+	assert.Same(t, oauthClient, c.standardSlackClient())
+	assert.True(t, c.effectiveOAuth())
+	assert.True(t, c.ConfiguredWithBrowserSession())
+}
+
+func TestAttachBrowserRejectsProviderIdentityMismatch(t *testing.T) {
+	c := &MCPSlackClient{authResponse: &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"}, logger: zap.NewNop()}
+	browserAuth, err := auth.NewValueAuth("xoxc-browser", "xoxd-cookie")
+	require.NoError(t, err)
+
+	err = c.attachBrowserSession(browserAuth, &slack.AuthTestResponse{TeamID: "T1", UserID: "U2"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "identity mismatch")
+	assert.False(t, c.browserFeaturesAvailable())
+}
+
+func TestManagedOAuthRefreshReplacesRuntimeClient(t *testing.T) {
+	now := time.Now().UTC()
+	oldClient := slack.New("old")
+	newClient := slack.New("new")
+	store := &memoryCredentialStore{record: OAuthTokenRecord{
+		Version: oauthRecordVersion, AccessToken: "old", RefreshToken: "refresh",
+		ExpiresAt: now.Add(time.Minute), Generation: 3,
+	}}
+	manager := NewOAuthTokenManager(store, &countingRefresher{now: now}, nil)
+	manager.now = func() time.Time { return now }
+	c := &MCPSlackClient{slackClient: oldClient, oauthManager: manager, logger: zap.NewNop()}
+	c.oauthGeneration.Store(3)
+	c.managedClientFactory = func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error) {
+		return newClient, &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"}, nil
+	}
+
+	require.NoError(t, c.refreshManagedOAuthOnce(context.Background()))
+	assert.Same(t, newClient, c.standardSlackClient())
+	assert.Equal(t, uint64(4), c.oauthGeneration.Load())
+	assert.Equal(t, "live", c.oauthRuntimeState.Load())
+}
+
+func TestPersonalReadProgressRejectsBotOAuth(t *testing.T) {
+	c := &MCPSlackClient{isOAuth: true, isBotToken: true}
+	err := c.MarkConversationContext(context.Background(), "C1", "123.456")
+	assert.ErrorIs(t, err, ErrUserOAuthRequired)
 }

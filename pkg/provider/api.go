@@ -47,6 +47,7 @@ var ErrUsersNotReady = errors.New(usersNotReadyMsg)
 var ErrChannelsNotReady = errors.New(channelsNotReadyMsg)
 var ErrRefreshRateLimited = errors.New("refresh skipped due to rate limiting")
 var ErrBrowserSessionUnavailable = errors.New("browser-session Slack auth is unavailable; refresh browser tokens to restore browser-only Slack tools")
+var ErrUserOAuthRequired = errors.New("this personal Slack action requires user OAuth")
 
 type browserRuntimeState int32
 
@@ -325,10 +326,16 @@ type MCPSlackClient struct {
 	isBotToken   bool
 	edgeFailed   atomic.Bool // sticky: after edge fails, skip edge and use standard API
 
-	fallbackSlackClient *slack.Client
-	browserState        atomic.Int32
-	browserReason       atomic.Value
-	browserNotifyOnce   sync.Once
+	fallbackSlackClient  *slack.Client
+	browserState         atomic.Int32
+	browserReason        atomic.Value
+	browserNotifyOnce    sync.Once
+	browserConfigured    bool
+	oauthClientMu        sync.RWMutex
+	oauthManager         *OAuthTokenManager
+	oauthGeneration      atomic.Uint64
+	oauthRuntimeState    atomic.Value
+	managedClientFactory func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error)
 }
 
 type ApiProvider struct {
@@ -438,7 +445,9 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAut
 }
 
 func (c *MCPSlackClient) standardSlackClient() *slack.Client {
-	if c.hasOAuthFallback() && !c.browserFeaturesAvailable() {
+	c.oauthClientMu.RLock()
+	defer c.oauthClientMu.RUnlock()
+	if c.hasOAuthFallback() {
 		return c.fallbackSlackClient
 	}
 	return c.slackClient
@@ -449,9 +458,6 @@ func (c *MCPSlackClient) hasOAuthFallback() bool {
 }
 
 func (c *MCPSlackClient) browserFeaturesAvailable() bool {
-	if c.isOAuth {
-		return false
-	}
 	return browserRuntimeState(c.browserState.Load()) == browserStateActive
 }
 
@@ -463,7 +469,7 @@ func (c *MCPSlackClient) browserDegradedReason() string {
 }
 
 func (c *MCPSlackClient) effectiveOAuth() bool {
-	return c.isOAuth || (c.hasOAuthFallback() && !c.browserFeaturesAvailable())
+	return c.isOAuth || c.hasOAuthFallback()
 }
 
 func (c *MCPSlackClient) initBrowserState() {
@@ -477,7 +483,7 @@ func (c *MCPSlackClient) initBrowserState() {
 }
 
 func (c *MCPSlackClient) degradeBrowserSession(reason error) {
-	if c.isOAuth {
+	if c.isOAuth && !c.browserConfigured {
 		return
 	}
 	if browserRuntimeState(c.browserState.Load()) == browserStateDegraded {
@@ -490,7 +496,7 @@ func (c *MCPSlackClient) degradeBrowserSession(reason error) {
 	c.browserReason.Store(reasonText)
 	c.browserState.Store(int32(browserStateDegraded))
 	browserStatusWriter("browser_degraded", reasonText, c.logger)
-	c.logger.Warn("Browser-session Slack auth degraded", zap.String("reason", reasonText), zap.Bool("oauth_fallback", c.hasOAuthFallback()))
+	c.logger.Warn("Browser-session Slack auth degraded", zap.String("reason", reasonText), zap.Bool("standard_oauth", c.effectiveOAuth()))
 	c.browserNotifyOnce.Do(func() {
 		browserDegradationNotifier(reasonText, c.logger)
 	})
@@ -536,6 +542,9 @@ func (c *MCPSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
 }
 
 func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, ts string) error {
+	if c.IsBotToken() {
+		return ErrUserOAuthRequired
+	}
 	return c.standardSlackClient().MarkConversationContext(ctx, channel, ts)
 }
 
@@ -870,7 +879,30 @@ func (c *MCPSlackClient) IsOAuth() bool {
 // Use this for registering browser-only tools so mid-warmup degradation cannot
 // hide activity/saved tools that still need session credentials when healthy.
 func (c *MCPSlackClient) ConfiguredWithBrowserSession() bool {
-	return !c.isOAuth && !c.isBotToken
+	return c.browserConfigured || (!c.isOAuth && !c.isBotToken)
+}
+
+// attachBrowserSession adds browser-only Slack surfaces to an OAuth-primary
+// client. Standard Web API calls continue to use the OAuth client.
+func (c *MCPSlackClient) attachBrowserSession(browserAuth auth.ValueAuth, browserIdentity *slack.AuthTestResponse) error {
+	if browserIdentity == nil || c.authResponse == nil {
+		return errors.New("cannot verify OAuth and browser provider identities")
+	}
+	if browserIdentity.TeamID != c.authResponse.TeamID || browserIdentity.UserID != c.authResponse.UserID {
+		return fmt.Errorf("browser provider identity mismatch: OAuth team/user %s/%s, browser team/user %s/%s",
+			c.authResponse.TeamID, c.authResponse.UserID, browserIdentity.TeamID, browserIdentity.UserID)
+	}
+	httpClient := transportpkg.ProvideHTTPClient(browserAuth.Cookies(), c.logger)
+	browserEdge, err := edge.NewWithInfo(browserIdentity, browserAuth, edge.OptionHTTPClient(httpClient))
+	if err != nil {
+		return fmt.Errorf("create browser provider: %w", err)
+	}
+	c.edgeClient = browserEdge
+	c.browserConfigured = true
+	c.browserState.Store(int32(browserStateActive))
+	c.browserReason.Store("")
+	browserStatusWriter("browser_active", "", c.logger)
+	return nil
 }
 
 func New(transport string, logger *zap.Logger) *ApiProvider {
@@ -883,46 +915,50 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 	xoxbToken := os.Getenv("SLACK_MCP_XOXB_TOKEN")
 	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
 	xoxdToken := os.Getenv("SLACK_MCP_XOXD_TOKEN")
-
-	// Prefer xoxc/xoxd so browser-only tools register; xoxp remains runtime fallback.
-	if xoxcToken != "" && xoxdToken != "" {
-		authProvider, err = auth.NewValueAuth(xoxcToken, xoxdToken)
-		if err != nil {
-			logger.Fatal("Failed to create auth provider with XOXC/XOXD tokens", zap.Error(err))
+	if account := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT")); account != "" {
+		store, storeErr := NewBrowserCredentialStore(account)
+		if storeErr != nil {
+			logger.Fatal("Failed to configure browser credential store", zap.Error(storeErr))
 		}
-		ap, startupErr := newWithXOXC(transport, authProvider, xoxpToken, logger)
-		if startupErr == nil {
-			return ap
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		browserRecord, loadErr := store.Load(ctx)
+		cancel()
+		if loadErr != nil {
+			logger.Fatal("Failed to load browser credential", zap.Error(loadErr))
 		}
-		if xoxpToken != "" {
-			logger.Warn("Browser-session auth failed at startup, using OAuth fallback", zap.Error(startupErr))
-			writeBrowserRuntimeStatus("browser_degraded", startupErr.Error(), logger)
-			notifyBrowserDegradation(startupErr.Error(), logger)
-			authProvider, err = auth.NewValueAuth(xoxpToken, "")
-			if err != nil {
-				logger.Fatal("Failed to create auth provider with XOXP token", zap.Error(err))
-			}
-			return newWithXOXP(transport, authProvider, logger)
+		xoxcToken, xoxdToken = browserRecord.XOXC, browserRecord.XOXD
+	}
+	var managedManager *OAuthTokenManager
+	var managedRecord OAuthTokenRecord
+	if os.Getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT") != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		var managedErr error
+		managedManager, managedRecord, managedErr = loadManagedOAuth(ctx)
+		cancel()
+		if managedErr != nil {
+			logger.Fatal("Failed to load managed OAuth credential", zap.Error(managedErr))
 		}
-		logger.Fatal("Authentication failed: browser-session tokens are invalid and no OAuth fallback is configured", zap.Error(startupErr))
+		xoxpToken = managedRecord.AccessToken
 	}
 
-	if xoxpToken != "" && xoxbToken != "" {
-		logger.Warn(
-			"Both SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXB_TOKEN are set. "+
-				"Using User token (xoxp) for full features. "+
-				"Bot token will be ignored.",
-			zap.String("context", "console"),
-		)
-	}
-
+	// Supported Web API calls always prefer OAuth. Browser credentials are
+	// attached only to browser-private Activity and Later surfaces.
 	if xoxpToken != "" {
 		authProvider, err = auth.NewValueAuth(xoxpToken, "")
 		if err != nil {
 			logger.Fatal("Failed to create auth provider with XOXP token", zap.Error(err))
 		}
-
-		return newWithXOXP(transport, authProvider, logger)
+		ap := newWithXOXP(transport, authProvider, logger)
+		if managedManager != nil {
+			ap.startManagedOAuth(managedManager, managedRecord)
+		}
+		if !ap.IsBotToken() && xoxcToken != "" && xoxdToken != "" {
+			attachBrowserToOAuth(ap, xoxcToken, xoxdToken, logger)
+		}
+		if xoxbToken != "" {
+			logger.Warn("Both SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXB_TOKEN are set; using user OAuth token")
+		}
+		return ap
 	}
 
 	if xoxbToken != "" {
@@ -939,8 +975,41 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 		return newWithXOXP(transport, authProvider, logger)
 	}
 
+	if xoxcToken != "" && xoxdToken != "" {
+		authProvider, err = auth.NewValueAuth(xoxcToken, xoxdToken)
+		if err != nil {
+			logger.Fatal("Failed to create auth provider with XOXC/XOXD tokens", zap.Error(err))
+		}
+		ap, startupErr := newWithXOXC(transport, authProvider, "", logger)
+		if startupErr == nil {
+			return ap
+		}
+		logger.Fatal("Authentication failed: browser-session tokens are invalid and no OAuth fallback is configured", zap.Error(startupErr))
+	}
+
 	logger.Fatal("Authentication required: Either SLACK_MCP_XOXP_TOKEN, SLACK_MCP_XOXB_TOKEN, or both SLACK_MCP_XOXC_TOKEN and SLACK_MCP_XOXD_TOKEN must be provided")
 	return nil
+}
+
+func attachBrowserToOAuth(ap *ApiProvider, xoxcToken, xoxdToken string, logger *zap.Logger) {
+	client, ok := ap.client.(*MCPSlackClient)
+	if !ok || client == nil {
+		return
+	}
+	browserAuth, err := auth.NewValueAuth(xoxcToken, xoxdToken)
+	if err != nil {
+		client.browserReason.Store("browser credentials are invalid")
+		client.browserState.Store(int32(browserStateDegraded))
+		return
+	}
+	_, browserIdentity, err := validateAuthAndGetTeamID(browserAuth, logger)
+	if err == nil {
+		err = client.attachBrowserSession(browserAuth, browserIdentity)
+	}
+	if err != nil {
+		client.browserConfigured = true
+		client.degradeBrowserSession(err)
+	}
 }
 
 func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logger) *ApiProvider {
@@ -1712,6 +1781,103 @@ func (ap *ApiProvider) Identity() ProviderIdentity {
 	return identity
 }
 
+func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
+	status := OAuthStatusFromEnvironment()
+	client, ok := ap.client.(*MCPSlackClient)
+	if ok && client != nil {
+		if state, loaded := client.oauthRuntimeState.Load().(string); loaded && state != "" {
+			status.State = state
+			if state == "live" {
+				status.Reason = ""
+			}
+		}
+	}
+	return status
+}
+
+func (ap *ApiProvider) startManagedOAuth(manager *OAuthTokenManager, record OAuthTokenRecord) {
+	client, ok := ap.client.(*MCPSlackClient)
+	if !ok || client == nil {
+		return
+	}
+	expected := client.AuthResponse()
+	manager.WithValidator(func(ctx context.Context, rotated OAuthTokenRecord) error {
+		_, identity, err := client.managedSlackClient(ctx, rotated.AccessToken)
+		if err != nil {
+			return err
+		}
+		if expected == nil || identity.TeamID != expected.TeamID || identity.UserID != expected.UserID {
+			return fmt.Errorf("rotated OAuth identity mismatch")
+		}
+		return nil
+	})
+	client.oauthManager = manager
+	client.oauthGeneration.Store(record.Generation)
+	client.oauthRuntimeState.Store("live")
+	go client.runManagedOAuthRefresh()
+}
+
+func (c *MCPSlackClient) managedSlackClient(ctx context.Context, token string) (*slack.Client, *slack.AuthTestResponse, error) {
+	if c.managedClientFactory != nil {
+		return c.managedClientFactory(ctx, token)
+	}
+	authProvider, err := auth.NewValueAuth(token, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	httpClient := transportpkg.ProvideHTTPClient(authProvider.Cookies(), c.logger)
+	options := []slack.Option{slack.OptionHTTPClient(httpClient)}
+	if c.authResponse != nil && c.authResponse.URL != "" {
+		options = append(options, slack.OptionAPIURL(c.authResponse.URL+"api/"))
+	} else if os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
+		options = append(options, slack.OptionAPIURL("https://slack-gov.com/api/"))
+	}
+	client := slack.New(token, options...)
+	identity, err := client.AuthTestContext(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, identity, nil
+}
+
+func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
+	if c.oauthManager == nil {
+		return nil
+	}
+	record, err := c.oauthManager.Current(ctx)
+	if err != nil {
+		c.oauthRuntimeState.Store("degraded")
+		return err
+	}
+	if record.Generation == c.oauthGeneration.Load() {
+		return nil
+	}
+	replacement, _, err := c.managedSlackClient(ctx, record.AccessToken)
+	if err != nil {
+		c.oauthRuntimeState.Store("degraded")
+		return err
+	}
+	c.oauthClientMu.Lock()
+	c.slackClient = replacement
+	c.oauthClientMu.Unlock()
+	c.oauthGeneration.Store(record.Generation)
+	c.oauthRuntimeState.Store("live")
+	return nil
+}
+
+func (c *MCPSlackClient) runManagedOAuthRefresh() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := c.refreshManagedOAuthOnce(ctx)
+		cancel()
+		if err != nil {
+			c.logger.Warn("Managed OAuth refresh failed", zap.Error(err))
+		}
+	}
+}
+
 func (ap *ApiProvider) IsOAuth() bool {
 	client, ok := ap.client.(*MCPSlackClient)
 	return ok && client != nil && client.IsOAuth()
@@ -1743,6 +1909,16 @@ func (ap *ApiProvider) BrowserDegradedReason() string {
 		return ""
 	}
 	return client.browserDegradedReason()
+}
+
+func (ap *ApiProvider) BrowserCredentialSource() string {
+	if strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT")) != "" {
+		return "macos_keychain"
+	}
+	if os.Getenv("SLACK_MCP_XOXC_TOKEN") != "" && os.Getenv("SLACK_MCP_XOXD_TOKEN") != "" {
+		return "environment_compatibility"
+	}
+	return "not_configured"
 }
 
 var slackUserIDPattern = regexp.MustCompile(`^[UW][A-Z0-9]{2,}$`)
