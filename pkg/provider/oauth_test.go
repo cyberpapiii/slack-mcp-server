@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +22,18 @@ import (
 type memoryCredentialStore struct {
 	mu     sync.Mutex
 	record OAuthTokenRecord
+}
+
+type flakyCredentialStore struct {
+	memoryCredentialStore
+	failSaves atomic.Int32
+}
+
+func (s *flakyCredentialStore) SaveIfGeneration(ctx context.Context, expected uint64, record OAuthTokenRecord) error {
+	if s.failSaves.Add(-1) >= 0 {
+		return errors.New("temporary Keychain failure")
+	}
+	return s.memoryCredentialStore.SaveIfGeneration(ctx, expected, record)
 }
 
 func (s *memoryCredentialStore) Load(context.Context) (OAuthTokenRecord, error) {
@@ -213,6 +226,30 @@ func TestUnitOAuthTokenManagerRejectsGenerationChange(t *testing.T) {
 	assert.ErrorIs(t, err, ErrCredentialGenerationChanged)
 }
 
+func TestUnitOAuthTokenManagerRetriesPendingRotationAfterStoreFailure(t *testing.T) {
+	now := time.Now().UTC()
+	store := &flakyCredentialStore{memoryCredentialStore: memoryCredentialStore{record: OAuthTokenRecord{
+		Version: oauthRecordVersion, AccessToken: "old", RefreshToken: "refresh",
+		ExpiresAt: now.Add(time.Minute), Generation: 2, Scopes: []string{"channels:read"},
+	}}}
+	store.failSaves.Store(1)
+	refresher := &countingRefresher{now: now}
+	manager := NewOAuthTokenManager(store, refresher, nil)
+	manager.now = func() time.Time { return now }
+
+	_, err := manager.Current(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "persist rotated")
+	assert.Equal(t, int32(1), refresher.calls.Load())
+
+	record, err := manager.Current(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "rotated-access", record.AccessToken)
+	assert.Equal(t, "rotated-refresh", record.RefreshToken)
+	assert.Equal(t, uint64(3), record.Generation)
+	assert.Equal(t, int32(1), refresher.calls.Load())
+}
+
 func TestUnitAuthorizedOAuthCommitRequiresScopesAndIdentity(t *testing.T) {
 	now := time.Now().UTC()
 	store := &memoryCredentialStore{record: OAuthTokenRecord{Version: oauthRecordVersion, AccessToken: "old", Generation: 4}}
@@ -260,6 +297,78 @@ func TestUnitOAuthCodeExchangeUsesPKCEAndFixedSlackEndpoint(t *testing.T) {
 	assert.Equal(t, "U1", record.UserID)
 	assert.Equal(t, now.Add(12*time.Hour), record.ExpiresAt)
 	assert.ElementsMatch(t, []string{"channels:read", "chat:write"}, record.Scopes)
+}
+
+func TestUnitSlackOAuthRefresherSupportsPKCEPublicClient(t *testing.T) {
+	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		assert.Equal(t, "https://slack.com/api/oauth.v2.access", request.URL.String())
+		raw, err := io.ReadAll(request.Body)
+		require.NoError(t, err)
+		form, err := url.ParseQuery(string(raw))
+		require.NoError(t, err)
+		assert.Equal(t, "client-id", form.Get("client_id"))
+		assert.Equal(t, "refresh_token", form.Get("grant_type"))
+		assert.Equal(t, "refresh-secret", form.Get("refresh_token"))
+		assert.Empty(t, form.Get("client_secret"))
+		body := `{"ok":true,"authed_user":{"access_token":"xoxe.xoxp-new","refresh_token":"xoxe-refresh-new","expires_in":43200,"scope":"channels:read,chat:write"}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	refresher := &SlackOAuthRefresher{HTTPClient: client, ClientID: "client-id", now: func() time.Time { return now }}
+
+	result, err := refresher.Refresh(context.Background(), "refresh-secret")
+	require.NoError(t, err)
+	assert.Equal(t, "xoxe.xoxp-new", result.AccessToken)
+	assert.Equal(t, "xoxe-refresh-new", result.RefreshToken)
+	assert.Equal(t, now.Add(12*time.Hour), result.ExpiresAt)
+	assert.ElementsMatch(t, []string{"channels:read", "chat:write"}, result.Scopes)
+}
+
+func TestUnitSlackOAuthRefresherPreservesRetryAfter(t *testing.T) {
+	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     http.Header{"Retry-After": []string{"180"}},
+		}, nil
+	})}
+	refresher := &SlackOAuthRefresher{HTTPClient: client, ClientID: "client-id"}
+
+	_, err := refresher.Refresh(context.Background(), "refresh-secret")
+	var limited *slack.RateLimitedError
+	require.ErrorAs(t, err, &limited)
+	assert.Equal(t, 3*time.Minute, limited.RetryAfter)
+}
+
+func TestUnitSlackOAuthRefresherRejectsMissingExpiry(t *testing.T) {
+	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body := `{"ok":true,"authed_user":{"access_token":"xoxe.xoxp-new","refresh_token":"xoxe-refresh-new","scope":"channels:read"}}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+	refresher := &SlackOAuthRefresher{HTTPClient: client, ClientID: "client-id"}
+
+	_, err := refresher.Refresh(context.Background(), "refresh-secret")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incomplete rotated credential")
+}
+
+func TestUnitOAuthCredentialStatusSupportsPKCEPublicClient(t *testing.T) {
+	original := getenv
+	t.Cleanup(func() { getenv = original })
+	getenv = func(key string) string {
+		switch key {
+		case "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT":
+			return "loop-user"
+		case "SLACK_MCP_OAUTH_CLIENT_ID":
+			return "client-id"
+		default:
+			return ""
+		}
+	}
+
+	status := OAuthStatusFromEnvironment()
+	assert.Equal(t, "configured", status.State)
+	assert.True(t, status.RotationConfigured)
 }
 
 type oauthRoundTripFunc func(*http.Request) (*http.Response, error)

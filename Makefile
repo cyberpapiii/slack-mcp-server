@@ -10,6 +10,7 @@ GIT_COMMIT_HASH = $(shell git rev-parse HEAD)
 GIT_VERSION = $(shell git describe --tags --always --dirty)
 BUILD_TIME = $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 BINARY_NAME = slack-mcp-server
+AUTH_BINARY_NAME = slack-mcp-auth
 LD_FLAGS = -s -w \
 	-X '$(PACKAGE)/pkg/version.CommitHash=$(GIT_COMMIT_HASH)' \
 	-X '$(PACKAGE)/pkg/version.Version=$(GIT_VERSION)' \
@@ -23,6 +24,7 @@ ARCHS = amd64 arm64
 
 CLEAN_TARGETS :=
 CLEAN_TARGETS += '$(BINARY_NAME)'
+CLEAN_TARGETS += './build/$(AUTH_BINARY_NAME)'
 CLEAN_TARGETS += $(foreach os,$(OSES),$(foreach arch,$(ARCHS),./build/$(BINARY_NAME)-$(os)-$(arch)$(if $(findstring windows,$(os)),.exe,)))
 CLEAN_TARGETS += $(foreach os,$(OSES),$(foreach arch,$(ARCHS),./build/extension.dxt/server/$(BINARY_NAME)-$(os)-$(arch)))
 CLEAN_TARGETS += $(foreach os,$(OSES),$(foreach arch,$(ARCHS),./npm/$(BINARY_NAME)-$(os)-$(arch)/bin/))
@@ -45,6 +47,11 @@ clean: ## Remove build artifacts
 .PHONY: build
 build: clean ## Build the project (read-only: run `make prepare` for tidy+format)
 	go build $(COMMON_BUILD_ARGS) -o ./build/$(BINARY_NAME) ./cmd/slack-mcp-server
+	go build -o ./build/$(AUTH_BINARY_NAME) ./cmd/slack-mcp-auth
+
+.PHONY: build-auth
+build-auth: ## Build the local Slack OAuth helper
+	go build -o ./build/$(AUTH_BINARY_NAME) ./cmd/slack-mcp-auth
 
 .PHONY: build-all-platforms
 build-all-platforms: clean ## Build the project for all platforms (read-only: run `make prepare` for tidy+format)
@@ -112,7 +119,9 @@ lint: ## Vet, check formatting and check go.mod tidiness (read-only)
 .PHONY: deploy-local
 deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plug reload alone leaves the old process running)
 	go build $(COMMON_BUILD_ARGS) -o ./bin/slack-mcp-server ./cmd/slack-mcp-server
+	go build -o ./bin/slack-mcp-auth ./cmd/slack-mcp-auth
 	@echo "Built ./bin/slack-mcp-server"
+	@echo "Built ./bin/slack-mcp-auth"
 	@strings ./bin/slack-mcp-server 2>/dev/null | grep -m1 'github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=' || true
 	@if command -v plug >/dev/null 2>&1; then \
 		plug server disable slack && sleep 2 && plug server enable slack \

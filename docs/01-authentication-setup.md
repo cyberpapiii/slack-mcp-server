@@ -6,9 +6,32 @@ Open Slack in your browser and log in.
 
 #### Managed OAuth rotation
 
-Rotating Slack OAuth credentials can be stored in macOS Keychain. Set `SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT` to select the Keychain item. Set `SLACK_MCP_OAUTH_CLIENT_ID` and `SLACK_MCP_OAUTH_CLIENT_SECRET` to allow automatic early refresh. The stored record includes access token, refresh token, expiry, workspace and user identity, scopes, and a generation number. Refresh is serialized across server processes and the replacement is saved before use.
+Rotating Slack OAuth credentials can be stored in macOS Keychain. Set `SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT` to select the Keychain item and `SLACK_MCP_OAUTH_CLIENT_ID` to allow automatic early refresh. `SLACK_MCP_OAUTH_CLIENT_SECRET` is optional for PKCE public clients. The stored record includes access token, refresh token, expiry, workspace and user identity, scopes, and a generation number. Refresh is serialized across server processes and the replacement is saved before use.
 
-Authorization acquisition requires Slack app client configuration and an explicit caller using the PKCE authorization helper; the server does not invent or infer app credentials. `slack_auth_status` distinguishes `foundation` (Keychain selected but refresh client unavailable), `configured` (inputs present before startup validation), `live`, and `degraded`; it never returns credentials. While live, the server refreshes before expiry, verifies scopes plus exact workspace and user identity before committing the next generation, then replaces its standard API client without a restart. Static `SLACK_MCP_XOXP_TOKEN` and `SLACK_MCP_XOXB_TOKEN` remain supported compatibility inputs and are never rotated.
+Use the local helper to create a Slack app manifest and complete login:
+
+```bash
+make build-auth
+./build/slack-mcp-auth manifest --preset legacy-full > /tmp/slack-mcp-manifest.json
+./build/slack-mcp-auth login \
+  --client-id YOUR_SLACK_APP_CLIENT_ID \
+  --team YOUR_TEAM_ID \
+  --user YOUR_USER_ID \
+  --preset legacy-full
+```
+
+Create a private Slack app from the generated manifest first. Its exact redirect URL is `http://127.0.0.1:19453/oauth/callback`. Enabling Slack PKCE marks that app as a public client and cannot be undone without Slack support. The helper opens Slack's permission page, receives the localhost callback, verifies the exact team and user through `auth.test`, and stores the rotating credential in macOS Keychain under `slack-mcp-local` by default. The client secret is optional for PKCE public clients.
+
+Configure Plug with identifiers only, then restart the server:
+
+```toml
+SLACK_MCP_OAUTH_CLIENT_ID = "YOUR_SLACK_APP_CLIENT_ID"
+SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT = "slack-mcp-local"
+```
+
+Use `slack-mcp-auth status` for redacted credential status. Use `slack-mcp-auth logout --yes` only to delete the local Keychain credential; it does not uninstall the app from Slack.
+
+`slack_auth_status` distinguishes `foundation` (Keychain selected but refresh client unavailable), `configured` (inputs present before startup validation), `live`, and `degraded`; it never returns credentials. While live, the server refreshes before expiry, verifies scopes plus exact workspace and user identity before committing the next generation, then replaces its standard API client without a restart. Static `SLACK_MCP_XOXP_TOKEN` and `SLACK_MCP_XOXB_TOKEN` remain supported compatibility inputs and are never rotated.
 
 Browser credentials may be stored separately in macOS Keychain with `SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT`. Environment `xoxc`/`xoxd` inputs remain compatibility-only. Browser records never rotate, never become the standard API client, and attach only after their workspace and user match user OAuth.
 

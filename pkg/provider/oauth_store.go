@@ -132,6 +132,12 @@ func withOAuthFileLock(path string) func(context.Context, func() error) error {
 	}
 }
 
+// WithOAuthCredentialLock serializes login, logout, and runtime refresh across
+// processes so a newly rotated single-use refresh token is never overwritten.
+func WithOAuthCredentialLock(ctx context.Context, fn func() error) error {
+	return withOAuthFileLock(filepath.Join(getCacheDir(), "oauth-refresh.lock"))(ctx, fn)
+}
+
 var waitOAuthLockRetry = func(ctx context.Context) error {
 	timer := time.NewTimer(25 * time.Millisecond)
 	defer timer.Stop()
