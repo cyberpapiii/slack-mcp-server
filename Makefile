@@ -11,6 +11,8 @@ GIT_VERSION = $(shell git describe --tags --always --dirty)
 BUILD_TIME = $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 BINARY_NAME = slack-mcp-server
 AUTH_BINARY_NAME = slack-mcp-auth
+LOCAL_SIGNING_IDENTITY ?= Plug Local Signing
+LOCAL_SIGNING_IDENTIFIER ?= com.robdezendorf.slack-mcp.oauth
 LD_FLAGS = -s -w \
 	-X '$(PACKAGE)/pkg/version.CommitHash=$(GIT_COMMIT_HASH)' \
 	-X '$(PACKAGE)/pkg/version.Version=$(GIT_VERSION)' \
@@ -120,6 +122,13 @@ lint: ## Vet, check formatting and check go.mod tidiness (read-only)
 deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plug reload alone leaves the old process running)
 	go build $(COMMON_BUILD_ARGS) -o ./bin/slack-mcp-server ./cmd/slack-mcp-server
 	go build -o ./bin/slack-mcp-auth ./cmd/slack-mcp-auth
+	@if security find-identity -p codesigning -v | grep -Fq '"$(LOCAL_SIGNING_IDENTITY)"'; then \
+		codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" --identifier "$(LOCAL_SIGNING_IDENTIFIER)" ./bin/slack-mcp-server; \
+		codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" --identifier "$(LOCAL_SIGNING_IDENTIFIER)" ./bin/slack-mcp-auth; \
+		echo "Signed local binaries with $(LOCAL_SIGNING_IDENTITY)"; \
+	else \
+		echo "WARNING: $(LOCAL_SIGNING_IDENTITY) unavailable; Keychain may prompt after rebuild"; \
+	fi
 	@echo "Built ./bin/slack-mcp-server"
 	@echo "Built ./bin/slack-mcp-auth"
 	@strings ./bin/slack-mcp-server 2>/dev/null | grep -m1 'github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=' || true
