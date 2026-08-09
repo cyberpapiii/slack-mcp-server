@@ -28,6 +28,19 @@ func TestToolPhaseRegistry_WriteToolsAreImmediateOnly(t *testing.T) {
 		ToolUsergroupsMe,
 		ToolSavedUpdate,
 		ToolSavedClearCompleted,
+		ToolFilesUpload,
+		ToolMessagesSchedule,
+		ToolMessagesUpdate,
+		ToolMessagesDelete,
+		ToolChannelsCreate,
+		ToolChannelsInvite,
+		ToolUsersSetProfile,
+		ToolUsersSetStatus,
+		ToolCanvasesCreate,
+		ToolCanvasesUpdate,
+		ToolDraftsCreate,
+		ToolDraftsUpdate,
+		ToolDraftsDelete,
 	}
 	for _, name := range writeTools {
 		assert.True(t, isImmediateOnlyTool(name), "%s should be immediate-only", name)

@@ -66,6 +66,8 @@ func registerDailyPowerLifecycleTools(s *mcpserver.MCPServer, api *provider.ApiP
 	} else {
 		logger.Info("DND tools unavailable", zap.Error(err))
 	}
+
+	registerCustomPowerTools(s, api, logger, enabledTools, approvals)
 }
 
 func registerChannelMutationTools(s *mcpserver.MCPServer, h *handler.ChannelMutationHandler, enabledTools []string) {

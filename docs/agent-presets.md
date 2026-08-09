@@ -4,8 +4,8 @@ These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[se
 
 `daily-power` is the default when neither `SLACK_MCP_ENABLED_TOOLS` nor
 `SLACK_MCP_TOOL_PRESET` is set. An explicit enabled-tools list always wins.
-Set `SLACK_MCP_TOOL_PRESET=legacy-full` only for existing clients that still
-depend on overlapping local tools. The versioned ownership rules are described
+Set `SLACK_MCP_TOOL_PRESET=legacy-full` to expose every implemented tool in this
+custom server. The versioned capability rules are described
 in [capabilities.md](capabilities.md).
 
 ## Shared settings
@@ -51,7 +51,7 @@ Side-effecting tools still need registration opt-in. Canonical gate table (boole
 - `SLACK_MCP_REACTION_TOOL`: reactions
 - `SLACK_MCP_ATTACHMENT_TOOL`: file download
 
-Also gated: `SLACK_MCP_MARK_TOOL`, `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL`, `SLACK_MCP_USERGROUPS_WRITE_TOOL`, `SLACK_MCP_FILES_LIST_TOOL`, `SLACK_MCP_SCHEDULED_MESSAGE_TOOL`, `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL`, `SLACK_MCP_LISTS_WRITE_TOOL`, `SLACK_MCP_DND_TOOL`, `SLACK_MCP_ACTIVITY_MARK_TOOL`, and `SLACK_MCP_SAVED_WRITE_TOOL`. When `SLACK_MCP_ENABLED_TOOLS` is set, naming a gated tool in that list registers it without its dedicated env var.
+Also gated: `SLACK_MCP_MARK_TOOL`, `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL`, `SLACK_MCP_USERGROUPS_WRITE_TOOL`, `SLACK_MCP_FILES_LIST_TOOL`, `SLACK_MCP_SCHEDULED_MESSAGE_TOOL`, `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL`, `SLACK_MCP_LISTS_WRITE_TOOL`, `SLACK_MCP_DND_TOOL`, `SLACK_MCP_ACTIVITY_MARK_TOOL`, `SLACK_MCP_SAVED_WRITE_TOOL`, `SLACK_MCP_FILE_UPLOAD_TOOL`, `SLACK_MCP_PROFILE_WRITE_TOOL`, `SLACK_MCP_CANVAS_WRITE_TOOL`, and `SLACK_MCP_DRAFT_WRITE_TOOL`. When `SLACK_MCP_ENABLED_TOOLS` is set, naming a gated tool in that list registers it without its dedicated env var.
 
 ## Preset: read-only triage
 
@@ -63,30 +63,26 @@ SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations
 
 ## Preset: daily power (default)
 
-Use beside Slack's official MCP. U1 keeps only no-confirmation, local-owned
-capabilities and removes overlapping local send, search, ordinary read, file,
-user, and channel tools. Mutation tools stay hidden until host filtering and
-confirmation cancellation pass live verification.
+The safe custom-only default. It exposes typed read tools that require no
+confirmation. Mutation tools remain hidden.
 
 ```toml
 SLACK_MCP_TOOL_PRESET = "daily-power"
 ```
 
-Generated local allowlist for catalog version `2026-08-09.2`:
+Generated local allowlist for catalog version `2026-08-09.3`:
 
 ```text
-activity_unreads,conversations_get_message,conversations_unreads,dnd_get,lists_items_list,saved_list,scheduled_messages_list,slack_auth_status,usergroups_list,usergroups_mine
+activity_unreads,canvases_read,channels_members,conversations_get_message,conversations_unreads,dnd_get,drafts_get,drafts_list,emoji_list,lists_items_list,saved_list,scheduled_messages_list,search_semantic,slack_auth_status,usergroups_list,usergroups_mine,users_get_profile
 ```
 
-Before enabling mutations, verify the official and local providers have the
-same Slack team and user IDs, the combined inventory contains one owner per
-intent, and canceling a confirmation leaves Slack unchanged.
+Before enabling mutations, verify the OAuth and browser sessions represent the
+same Slack team and user, and cancellation leaves Slack unchanged.
 
 ## Preset: legacy full
 
-Compatibility preset with all current local tools, including capabilities
-that overlap Slack's official MCP. Do not combine it with the official server
-as the normal daily surface.
+Power-user preset with all 69 tools implemented by this custom server. It does
+not use Slack's official MCP.
 
 ```toml
 SLACK_MCP_ADD_MESSAGE_TOOL = "true"

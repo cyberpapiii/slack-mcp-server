@@ -42,6 +42,19 @@ var immediateOnlyToolNames = map[string]struct{}{
 	ToolListsItemDelete:         {},
 	ToolDNDSetSnooze:            {},
 	ToolDNDEndSnooze:            {},
+	ToolFilesUpload:             {},
+	ToolMessagesSchedule:        {},
+	ToolMessagesUpdate:          {},
+	ToolMessagesDelete:          {},
+	ToolChannelsCreate:          {},
+	ToolChannelsInvite:          {},
+	ToolUsersSetProfile:         {},
+	ToolUsersSetStatus:          {},
+	ToolCanvasesCreate:          {},
+	ToolCanvasesUpdate:          {},
+	ToolDraftsCreate:            {},
+	ToolDraftsUpdate:            {},
+	ToolDraftsDelete:            {},
 }
 
 func isCacheDependentTool(name string) bool {

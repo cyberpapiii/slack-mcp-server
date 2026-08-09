@@ -79,8 +79,9 @@ func capabilityAvailability(standardOAuth, botToken, browserOK bool, degradedRea
 		"standard_oauth":            "not_configured",
 		"slack_lists":               "unverified",
 		"host_curation":             "unverified",
-		"persisted_draft_lifecycle": "unsupported",
-		"semantic_search":           "official_provider_unverified",
+		"persisted_draft_lifecycle": "browser_session_required",
+		"semantic_search":           "available_if_slack_data_access_enabled",
+		"canvas_full_content_read":  "not_exposed_by_slack_web_api",
 	}
 	if standardOAuth {
 		availability["standard_oauth"] = "available"
@@ -101,6 +102,7 @@ func capabilityAvailability(standardOAuth, botToken, browserOK bool, degradedRea
 		availability["browser_session"] = "available"
 		availability["activity"] = "available_after_cache_warmup"
 		availability["saved_later"] = "available_after_cache_warmup"
+		availability["persisted_draft_lifecycle"] = "available"
 	} else if degradedReason != "" {
 		availability["browser_session"] = "degraded"
 		availability["activity"] = "browser_session_degraded"

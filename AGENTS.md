@@ -38,7 +38,7 @@ The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is se
 
 ## Tool surface
 
-Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **49** tools; upstream README documents fewer.
+Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **69** tools; upstream README documents fewer. This fork is self-contained and does not require Slack's official MCP.
 
 The full set, grouped (★ = local-only or fork-extended):
 
@@ -58,6 +58,10 @@ The full set, grouped (★ = local-only or fork-extended):
 | Channel maintenance | ★`channels_rename`, ★`channels_set_topic`, ★`channels_set_purpose`, ★`channels_archive` |
 | Slack Lists | ★`lists_create`, ★`lists_update`, ★`lists_items_list`, ★`lists_items_create`, ★`lists_items_update`, ★`lists_item_delete` |
 | DND | ★`dnd_get`, ★`dnd_set_snooze`, ★`dnd_end_snooze` |
+| Files and message lifecycle | ★`files_upload`, ★`messages_schedule`, ★`messages_update`, ★`messages_delete` |
+| People and channels | ★`users_get_profile`, ★`users_set_profile`, ★`users_set_status`, ★`emoji_list`, ★`channels_create`, ★`channels_members`, ★`channels_invite` |
+| Canvases and drafts | ★`canvases_create`, ★`canvases_read`, ★`canvases_update`, ★`drafts_list`, ★`drafts_get`, ★`drafts_create`, ★`drafts_update`, ★`drafts_delete` |
+| Search | ★`search_semantic` (requires Slack Data Access enablement) |
 
 `conversations_get_message` fetches a single message by channel and timestamp, the recovery path for an attachment-truncation receipt.
 
@@ -86,6 +90,11 @@ Side-effecting tools require explicit env opt-in. Every gate below is enforced *
 | `SLACK_MCP_DND_TOOL` | DND set/end | `true`, `1`, or `yes` |
 | `SLACK_MCP_ACTIVITY_MARK_TOOL` | `activity_mark_read` | `true`, `1`, or `yes` |
 | `SLACK_MCP_SAVED_WRITE_TOOL` | `saved_update`, `saved_clear_completed` | `true`, `1`, or `yes` |
+| `SLACK_MCP_FILE_UPLOAD_TOOL` | `files_upload` | `true`, `1`, or `yes` |
+| `SLACK_MCP_CHANNEL_CREATE_TOOL` | `channels_create` | `true`, `1`, or `yes` |
+| `SLACK_MCP_PROFILE_WRITE_TOOL` | `users_set_profile`, `users_set_status` | `true`, `1`, or `yes` |
+| `SLACK_MCP_CANVAS_WRITE_TOOL` | `canvases_create`, `canvases_update` | `true`, `1`, or `yes` |
+| `SLACK_MCP_DRAFT_WRITE_TOOL` | `drafts_create`, `drafts_update`, `drafts_delete` | `true`, `1`, or `yes` |
 
 The boolean gates accept only `true`, `1`, or `yes`, matched case-insensitively and ignoring surrounding whitespace (`envutil.IsTruthy` in `pkg/envutil`). Any other value, **including `false`**, leaves the tool disabled. The channel-allowlist gates (`ADD_MESSAGE`, `REACTION`, `CHANNEL_MANAGEMENT`) are not plain booleans: their value may be the channel configuration, so any non-empty value enables registration and handlers recheck the target.
 

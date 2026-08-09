@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const CatalogVersion = "2026-08-09.2"
+const CatalogVersion = "2026-08-09.3"
 
 type Owner string
 
@@ -75,9 +75,7 @@ func local(id, tool, result string, confirmation ConfirmationTier, auth AuthMode
 }
 
 func legacy(id, tool, action, result string, confirmation ConfirmationTier, scopes ...string) Entry {
-	e := official(id, action, result, confirmation, scopes...)
-	e.LocalTool = tool
-	return e
+	return local(id, tool, result, confirmation, AuthOAuth, MigrationLegacy, scopes...)
 }
 
 var catalog = []Entry{
@@ -86,7 +84,11 @@ var catalog = []Entry{
 	local("message.exact.read", "conversations_get_message", "message", ConfirmationNone, AuthOAuth, MigrationActive, "channels:history", "groups:history", "im:history", "mpim:history"),
 	legacy("message.send", "conversations_add_message", "slack_send_message", "message_mutation", ConfirmationChange, "chat:write"),
 	local("draft.preview", "conversations_draft_message", "draft_preview", ConfirmationNone, AuthOAuth, MigrationLegacy),
-	official("draft.persisted.create", "slack_send_message_draft", "draft", ConfirmationNone, "chat:write"),
+	{ID: "draft.persisted.list", Owner: OwnerLocalBrowser, LocalTool: "drafts_list", Auth: AuthBrowser, Confirmation: ConfirmationNone, ResultType: "draft_page", Migration: MigrationActive, BrowserOptional: true},
+	{ID: "draft.persisted.get", Owner: OwnerLocalBrowser, LocalTool: "drafts_get", Auth: AuthBrowser, Confirmation: ConfirmationNone, ResultType: "draft", Migration: MigrationActive, BrowserOptional: true},
+	{ID: "draft.persisted.create", Owner: OwnerLocalBrowser, LocalTool: "drafts_create", Auth: AuthBrowser, Confirmation: ConfirmationChange, ResultType: "draft_mutation", Migration: MigrationActive, BrowserOptional: true},
+	{ID: "draft.persisted.update", Owner: OwnerLocalBrowser, LocalTool: "drafts_update", Auth: AuthBrowser, Confirmation: ConfirmationChange, ResultType: "draft_mutation", Migration: MigrationActive, BrowserOptional: true},
+	{ID: "draft.persisted.delete", Owner: OwnerLocalBrowser, LocalTool: "drafts_delete", Auth: AuthBrowser, Confirmation: ConfirmationPreview, ResultType: "draft_mutation", Migration: MigrationActive, BrowserOptional: true},
 	legacy("message.search", "conversations_search_messages", "slack_search_public_and_private", "search_results", ConfirmationNone, "search:read"),
 	local("message.unreads.read", "conversations_unreads", "unread_page", ConfirmationNone, AuthOAuth, MigrationActive, "channels:history", "groups:history", "im:history", "mpim:history"),
 	local("message.read_progress.mark", "conversations_mark", "read_progress", ConfirmationChange, AuthOAuth, MigrationActive, "channels:write", "groups:write", "im:write", "mpim:write"),
@@ -117,20 +119,21 @@ var catalog = []Entry{
 	local("later.completed.clear", "saved_clear_completed", "saved_mutation", ConfirmationPreview, AuthBrowser, MigrationActive),
 	local("operations.diagnostics", "slack_auth_status", "diagnostics", ConfirmationNone, AuthOAuth, MigrationActive),
 
-	official("file.upload", "slack_complete_file_upload", "file_mutation", ConfirmationChange, "files:write"),
-	official("message.schedule", "slack_schedule_message", "scheduled_message", ConfirmationChange, "chat:write"),
-	official("message.edit", "slack_edit_message", "message_mutation", ConfirmationChange, "chat:write"),
-	official("message.delete", "slack_delete_message", "message_mutation", ConfirmationPreview, "chat:write"),
-	official("conversation.create", "slack_create_conversation", "conversation", ConfirmationChange, "channels:write", "groups:write"),
-	official("conversation.members.list", "slack_list_channel_members", "member_page", ConfirmationNone, "channels:read", "groups:read"),
-	official("conversation.members.invite", "slack_invite_to_conversation", "conversation_membership", ConfirmationChange, "channels:write", "groups:write"),
-	official("channel.search", "slack_search_channels", "conversation_page", ConfirmationNone, "channels:read", "groups:read"),
-	official("emoji.search", "slack_search_emojis", "emoji_page", ConfirmationNone, "emoji:read"),
-	official("profile.read", "slack_read_user_profile", "user_profile", ConfirmationNone, "users.profile:read"),
-	official("profile.update", "slack_update_user_profile", "user_profile", ConfirmationChange, "users.profile:write"),
-	official("canvas.create", "slack_create_canvas", "canvas", ConfirmationChange, "canvases:write"),
-	official("canvas.read", "slack_read_canvas", "canvas", ConfirmationNone, "canvases:read"),
-	official("canvas.update", "slack_update_canvas", "canvas", ConfirmationChange, "canvases:write"),
+	local("file.upload", "files_upload", "file_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "files:write"),
+	local("message.schedule", "messages_schedule", "scheduled_message", ConfirmationChange, AuthOAuth, MigrationActive, "chat:write"),
+	local("message.edit", "messages_update", "message_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "chat:write"),
+	local("message.delete", "messages_delete", "message_mutation", ConfirmationPreview, AuthOAuth, MigrationActive, "chat:write"),
+	local("conversation.create", "channels_create", "conversation", ConfirmationChange, AuthOAuth, MigrationActive, "channels:write", "groups:write"),
+	local("conversation.members.list", "channels_members", "member_page", ConfirmationNone, AuthOAuth, MigrationActive, "channels:read", "groups:read"),
+	local("conversation.members.invite", "channels_invite", "conversation_membership", ConfirmationChange, AuthOAuth, MigrationActive, "channels:write", "channels:write.invites", "groups:write", "groups:write.invites"),
+	local("emoji.search", "emoji_list", "emoji_page", ConfirmationNone, AuthOAuth, MigrationActive, "emoji:read"),
+	local("profile.read", "users_get_profile", "user_profile", ConfirmationNone, AuthOAuth, MigrationActive, "users.profile:read"),
+	local("profile.update", "users_set_profile", "user_profile", ConfirmationChange, AuthOAuth, MigrationActive, "users.profile:write"),
+	local("status.update", "users_set_status", "user_profile", ConfirmationChange, AuthOAuth, MigrationActive, "users.profile:write"),
+	local("canvas.create", "canvases_create", "canvas", ConfirmationChange, AuthOAuth, MigrationActive, "canvases:write"),
+	local("canvas.read", "canvases_read", "canvas", ConfirmationNone, AuthOAuth, MigrationActive, "canvases:read"),
+	local("canvas.update", "canvases_update", "canvas", ConfirmationChange, AuthOAuth, MigrationActive, "canvases:write"),
+	local("search.semantic", "search_semantic", "semantic_search_page", ConfirmationNone, AuthOAuth, MigrationActive, "search:read.files", "search:read.public", "search:read.private", "search:read.im", "search:read.mpim", "search:read.users"),
 
 	local("scheduled.list", "scheduled_messages_list", "scheduled_message_page", ConfirmationNone, AuthOAuth, MigrationActive),
 	local("scheduled.cancel", "scheduled_message_cancel", "scheduled_message_mutation", ConfirmationPreview, AuthOAuth, MigrationActive, "chat:write"),
@@ -147,7 +150,6 @@ var catalog = []Entry{
 	local("dnd.read", "dnd_get", "dnd_state", ConfirmationNone, AuthOAuth, MigrationActive, "dnd:read"),
 	local("dnd.snooze.set", "dnd_set_snooze", "dnd_state", ConfirmationChange, AuthOAuth, MigrationActive, "dnd:write"),
 	local("dnd.snooze.end", "dnd_end_snooze", "dnd_state", ConfirmationChange, AuthOAuth, MigrationActive, "dnd:write"),
-	{ID: "draft.persisted.manage", Owner: OwnerLocalBrowser, LocalTool: "drafts_manage", Auth: AuthBrowser, Confirmation: ConfirmationNone, ResultType: "draft", Migration: MigrationPlanned, BrowserOptional: true},
 }
 
 var dailyPowerToolBehavior = map[string]ToolBehavior{
@@ -183,6 +185,26 @@ var dailyPowerToolBehavior = map[string]ToolBehavior{
 	"usergroups_create":         {Title: "Create User Group", OpenWorld: true},
 	"usergroups_update":         {Title: "Update User Group", OpenWorld: true},
 	"usergroups_users_update":   {Title: "Replace User Group Members", Destructive: true, Idempotent: true, OpenWorld: true},
+	"files_upload":              {Title: "Upload File", Destructive: true, OpenWorld: true},
+	"messages_schedule":         {Title: "Schedule Message", Destructive: true, OpenWorld: true},
+	"messages_update":           {Title: "Update Message", Destructive: true, OpenWorld: true},
+	"messages_delete":           {Title: "Delete Message", Destructive: true, OpenWorld: true},
+	"channels_create":           {Title: "Create Channel", Destructive: true, OpenWorld: true},
+	"channels_members":          {Title: "List Channel Members", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"channels_invite":           {Title: "Invite Channel Members", Destructive: true, OpenWorld: true},
+	"emoji_list":                {Title: "List Custom Emoji", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"users_get_profile":         {Title: "Get User Profile", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"users_set_profile":         {Title: "Update User Profile", Destructive: true, OpenWorld: true},
+	"users_set_status":          {Title: "Set User Status", Destructive: true, OpenWorld: true},
+	"canvases_create":           {Title: "Create Canvas", Destructive: true, OpenWorld: true},
+	"canvases_read":             {Title: "Read Canvas Sections", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"canvases_update":           {Title: "Update Canvas", Destructive: true, OpenWorld: true},
+	"drafts_list":               {Title: "List Drafts", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"drafts_get":                {Title: "Get Draft", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"drafts_create":             {Title: "Create Draft", Destructive: true, OpenWorld: true},
+	"drafts_update":             {Title: "Update Draft", Destructive: true, OpenWorld: true},
+	"drafts_delete":             {Title: "Delete Draft", Destructive: true, OpenWorld: true},
+	"search_semantic":           {Title: "Search Slack Semantically", ReadOnly: true, Idempotent: true, OpenWorld: true},
 }
 
 func BehaviorForLocalTool(tool string) (ToolBehavior, bool) {
@@ -211,7 +233,8 @@ func Entries() []Entry {
 
 func DailyPowerLocalTools() []string {
 	return localTools(func(e Entry) bool {
-		return e.Owner != OwnerOfficial && e.Migration == MigrationActive && e.Confirmation == ConfirmationNone
+		_, hasBehavior := dailyPowerToolBehavior[e.LocalTool]
+		return e.Owner != OwnerOfficial && e.Migration == MigrationActive && e.Confirmation == ConfirmationNone && hasBehavior
 	})
 }
 
@@ -317,26 +340,16 @@ func (r VerificationReport) Has(code string) bool {
 	return false
 }
 
-func VerifyInventory(official InventorySnapshot, host HostInventory) VerificationReport {
+func VerifyInventory(_ InventorySnapshot, host HostInventory) VerificationReport {
 	var report VerificationReport
 	add := func(code, id, detail string) {
 		report.Issues = append(report.Issues, Issue{Code: code, CapabilityID: id, Detail: detail})
 	}
-	if official.CatalogVersion != "" && official.CatalogVersion != CatalogVersion {
-		add("catalog_version_mismatch", "", fmt.Sprintf("official snapshot uses %s, expected %s", official.CatalogVersion, CatalogVersion))
-	}
 	if host.CatalogVersion != "" && host.CatalogVersion != CatalogVersion {
 		add("catalog_version_mismatch", "", fmt.Sprintf("host inventory uses %s, expected %s", host.CatalogVersion, CatalogVersion))
 	}
-	if !identityComplete(official.Identity) || !identityComplete(host.OfficialIdentity) || !identityComplete(host.LocalIdentity) {
-		add("identity_unverified", "", "official snapshot, host official provider, and local provider must each identify one workspace user")
-	} else if identitiesConflict(official.Identity, host.OfficialIdentity) || identitiesConflict(host.OfficialIdentity, host.LocalIdentity) {
-		add("identity_mismatch", "", "official and local providers do not represent the same workspace user")
-	}
-
-	observed := map[string]ObservedTool{}
-	for _, tool := range official.Tools {
-		observed[tool.Name] = tool
+	if !identityComplete(host.LocalIdentity) {
+		add("identity_unverified", "", "local provider must identify one Slack workspace user")
 	}
 	visible := map[string][]VisibleTool{}
 	for _, tool := range host.Tools {
@@ -360,14 +373,6 @@ func VerifyInventory(official InventorySnapshot, host HostInventory) Verificatio
 		}
 		if owners[0].Provider != entry.Owner {
 			add("wrong_owner", entry.ID, fmt.Sprintf("visible owner %s, expected %s", owners[0].Provider, entry.Owner))
-		}
-		if entry.Owner == OwnerOfficial {
-			tool, ok := observed[entry.OfficialAction]
-			if !ok {
-				add("official_tool_missing", entry.ID, entry.OfficialAction+" absent from official snapshot")
-			} else if !tool.InputSchemaObject || !tool.StructuredResult || !tool.SemanticsVerified {
-				add("official_contract_incomplete", entry.ID, entry.OfficialAction+" lacks required schema, result, or behavior proof")
-			}
 		}
 	}
 	return report

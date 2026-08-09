@@ -45,6 +45,9 @@ func TestCustomOAuthScopesContainLocalPowerUserScopes(t *testing.T) {
 		"lists:write", "mpim:history", "mpim:read", "mpim:write", "reactions:read",
 		"reactions:write", "search:read", "stars:read", "usergroups:read",
 		"usergroups:write", "users:read",
+		"files:write", "emoji:read", "users.profile:read", "users.profile:write",
+		"canvases:read", "canvases:write", "search:read.files", "search:read.public", "search:read.private",
+		"search:read.im", "search:read.mpim", "search:read.users", "channels:write.invites", "groups:write.invites",
 	} {
 		assert.Contains(t, scopes, scope)
 	}

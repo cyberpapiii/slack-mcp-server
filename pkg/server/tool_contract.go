@@ -79,6 +79,39 @@ func dailyPowerOutputSchema(name string) (mcp.ToolOption, string) {
 		return mcp.WithOutputSchema[handler.ActionResult](), "saved_mutation"
 	case ToolUsergroupsCreate, ToolUsergroupsUpdate, ToolUsergroupsUsersUpdate:
 		return mcp.WithOutputSchema[handler.UsergroupMutationResult](), "usergroup_mutation"
+	case ToolFilesUpload:
+		return mcp.WithOutputSchema[handler.FileUploadResult](), "file_mutation"
+	case ToolMessagesSchedule:
+		return mcp.WithOutputSchema[handler.MessageMutationResult](), "scheduled_message"
+	case ToolMessagesUpdate, ToolMessagesDelete:
+		return mcp.WithOutputSchema[handler.MessageMutationResult](), "message_mutation"
+	case ToolChannelsCreate, ToolChannelsInvite:
+		if name == ToolChannelsInvite {
+			return mcp.WithOutputSchema[handler.ChannelResult](), "conversation_membership"
+		}
+		return mcp.WithOutputSchema[handler.ChannelResult](), "conversation"
+	case ToolChannelsMembers:
+		return mcp.WithOutputSchema[handler.ChannelMembersResult](), "member_page"
+	case ToolEmojiList:
+		return mcp.WithOutputSchema[handler.EmojiPageResult](), "emoji_page"
+	case ToolUsersGetProfile, ToolUsersSetProfile, ToolUsersSetStatus:
+		return mcp.WithOutputSchema[handler.ProfileResult](), "user_profile"
+	case ToolCanvasesCreate, ToolCanvasesRead, ToolCanvasesUpdate:
+		if name == ToolCanvasesRead {
+			return mcp.WithOutputSchema[handler.CanvasReadResult](), "canvas"
+		}
+		if name == ToolCanvasesCreate {
+			return mcp.WithOutputSchema[handler.CanvasCreateResult](), "canvas"
+		}
+		return mcp.WithOutputSchema[handler.CanvasUpdateResult](), "canvas"
+	case ToolDraftsList:
+		return mcp.WithOutputSchema[handler.DraftPageResult](), "draft_page"
+	case ToolDraftsGet:
+		return mcp.WithOutputSchema[handler.DraftResult](), "draft"
+	case ToolDraftsCreate, ToolDraftsUpdate, ToolDraftsDelete:
+		return mcp.WithOutputSchema[handler.DraftMutationResult](), "draft_mutation"
+	case ToolSearchSemantic:
+		return mcp.WithOutputSchema[handler.SemanticSearchResult](), "semantic_search_page"
 	default:
 		return nil, ""
 	}

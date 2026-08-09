@@ -1,8 +1,6 @@
 package capability
 
 import (
-	"encoding/json"
-	"os"
 	"slices"
 	"testing"
 )
@@ -37,6 +35,11 @@ func TestPresetsSeparateCanonicalAndLegacyTools(t *testing.T) {
 			t.Fatalf("daily tool %q missing from legacy preset", tool)
 		}
 	}
+	for _, entry := range Entries() {
+		if entry.Owner == OwnerOfficial {
+			t.Fatalf("custom-only catalog must not delegate %q to official Slack MCP", entry.ID)
+		}
+	}
 	for _, forbidden := range []string{"conversations_add_message", "conversations_draft_message", "conversations_search_messages", "files_list", "users_search"} {
 		if slices.Contains(daily, forbidden) {
 			t.Fatalf("official-owned duplicate %q present in daily preset", forbidden)
@@ -60,7 +63,7 @@ func TestDailyPowerToolsHaveNeutralBehaviorContracts(t *testing.T) {
 	}
 }
 
-func TestVerifyInventoryRejectsDuplicateMissingAndIdentityMismatch(t *testing.T) {
+func TestVerifyInventoryRejectsMissingAndUnverifiedLocalIdentity(t *testing.T) {
 	official := InventorySnapshot{
 		CatalogVersion: CatalogVersion,
 		Identity:       Identity{TeamID: "T1", UserID: "U1"},
@@ -69,7 +72,7 @@ func TestVerifyInventoryRejectsDuplicateMissingAndIdentityMismatch(t *testing.T)
 	host := HostInventory{
 		CatalogVersion:   CatalogVersion,
 		OfficialIdentity: Identity{TeamID: "T1", UserID: "U1"},
-		LocalIdentity:    Identity{TeamID: "T2", UserID: "U1"},
+		LocalIdentity:    Identity{},
 		Tools: []VisibleTool{
 			{CapabilityID: "message.thread.read", Provider: OwnerOfficial, Name: "slack_read_thread"},
 			{CapabilityID: "message.thread.read", Provider: OwnerLocal, Name: "conversations_replies"},
@@ -80,7 +83,7 @@ func TestVerifyInventoryRejectsDuplicateMissingAndIdentityMismatch(t *testing.T)
 	if report.OK() {
 		t.Fatal("invalid inventory passed")
 	}
-	for _, code := range []string{"identity_mismatch", "duplicate_owner", "missing_capability"} {
+	for _, code := range []string{"identity_unverified", "missing_capability"} {
 		if !report.Has(code) {
 			t.Errorf("missing issue %q: %#v", code, report.Issues)
 		}
@@ -97,43 +100,13 @@ func TestVerifyInventoryRejectsExcludedAdministrationFamilies(t *testing.T) {
 	}
 }
 
-func TestVerifyInventoryRejectsMissingOrStaleProviderIdentity(t *testing.T) {
-	official := InventorySnapshot{CatalogVersion: CatalogVersion, Identity: Identity{TeamID: "T1", UserID: "U1"}}
-	host := HostInventory{CatalogVersion: CatalogVersion, OfficialIdentity: Identity{TeamID: "T1", UserID: "U1"}}
-	if report := VerifyInventory(official, host); !report.Has("identity_unverified") {
+func TestVerifyInventoryRequiresOnlyLocalProviderIdentity(t *testing.T) {
+	host := HostInventory{CatalogVersion: CatalogVersion}
+	if report := VerifyInventory(InventorySnapshot{}, host); !report.Has("identity_unverified") {
 		t.Fatalf("missing local identity passed: %#v", report.Issues)
 	}
 	host.LocalIdentity = Identity{TeamID: "T1", UserID: "U1"}
-	official.Identity.UserID = "U2"
-	if report := VerifyInventory(official, host); !report.Has("identity_mismatch") {
-		t.Fatalf("stale official snapshot identity passed: %#v", report.Issues)
-	}
-}
-
-func TestRecordedOfficialFixtureCoversCanonicalOfficialActions(t *testing.T) {
-	raw, err := os.ReadFile("testdata/official-tools-2026-08-09.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var official InventorySnapshot
-	if err := json.Unmarshal(raw, &official); err != nil {
-		t.Fatal(err)
-	}
-	observed := make(map[string]ObservedTool, len(official.Tools))
-	for _, tool := range official.Tools {
-		observed[tool.Name] = tool
-	}
-	for _, entry := range Entries() {
-		if entry.Migration != MigrationActive || entry.Owner != OwnerOfficial {
-			continue
-		}
-		tool, ok := observed[entry.OfficialAction]
-		if !ok {
-			t.Errorf("official fixture misses %s for %s", entry.OfficialAction, entry.ID)
-			continue
-		}
-		if !tool.InputSchemaObject || !tool.StructuredResult || !tool.SemanticsVerified {
-			t.Errorf("official fixture has incomplete contract for %s: %#v", entry.OfficialAction, tool)
-		}
+	if report := VerifyInventory(InventorySnapshot{}, host); report.Has("identity_unverified") || report.Has("identity_mismatch") {
+		t.Fatalf("complete local identity failed: %#v", report.Issues)
 	}
 }
