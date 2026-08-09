@@ -22,3 +22,13 @@
 - Connected-client refresh: Plug reports the correct eight-tool live inventory, but this existing Codex session still retains its pre-rollout Slack tool catalog; a fresh session or MCP reconnect is required before client-side inventory proof can pass
 
 The first automatic config-watcher restart raced ahead of binary installation and failed initialization. A separated per-server disable/enable recovered it. The final deployment used `make deploy-local`; Plug reported all 12 servers healthy, loaded the expected binary, and advertised only read-only Slack tools.
+
+## CI remediation redeploy
+
+The personal-fork Trivy run identified fixed vulnerabilities in the inherited `golang.org/x/crypto`, `x/net`, and `x/text` versions. Commit `a3ca91c4e7d22f410ca8f230ba3e21876f99b419` upgraded those modules and their aligned `x/*` dependencies; `make lint && make test` passed and the next Trivy run succeeded.
+
+- Installed binary SHA-256: `c54392cf8059d5fe0ab9f8e7f166058fe041f56ecf4d44b070733ceed7376a56`
+- Running process: PID 30105, started 2026-08-09 05:24:11 EDT, parent Plug PID 52074
+- Plug health: 12/12 servers healthy; Slack advertises the same eight read-only tools
+- Post-restart canaries: `slack_auth_status` and `usergroups_list` succeeded through Plug with the same team and human user
+- Remaining CI residual: the personal fork has no Slack, OpenAI, or ngrok integration secrets, so its inherited live integration job fails before exercising this change
