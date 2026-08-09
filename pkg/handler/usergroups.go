@@ -254,10 +254,58 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 	if action == "list" {
 		return h.handleListMyGroups(ctx, currentUserID)
 	}
+	return h.handleMyGroupMembership(ctx, currentUserID, request.GetString("usergroup_id", ""), action)
+}
 
-	usergroupID := request.GetString("usergroup_id", "")
+func (h *UsergroupsHandler) UsergroupsMineHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "UsergroupsMineHandler called", request)
+	currentUserID, err := h.currentUserID()
+	if err != nil {
+		return nil, err
+	}
+	return h.handleListMyGroups(ctx, currentUserID)
+}
+
+func (h *UsergroupsHandler) UsergroupsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "UsergroupsJoinHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_join") {
+		return nil, errors.New("usergroups_join is disabled")
+	}
+	currentUserID, err := h.currentUserID()
+	if err != nil {
+		return nil, err
+	}
+	return h.handleMyGroupMembership(ctx, currentUserID, request.GetString("usergroup_id", ""), "join")
+}
+
+func (h *UsergroupsHandler) UsergroupsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "UsergroupsLeaveHandler called", request)
+	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_leave") {
+		return nil, errors.New("usergroups_leave is disabled")
+	}
+	currentUserID, err := h.currentUserID()
+	if err != nil {
+		return nil, err
+	}
+	return h.handleMyGroupMembership(ctx, currentUserID, request.GetString("usergroup_id", ""), "leave")
+}
+
+func (h *UsergroupsHandler) currentUserID() (string, error) {
+	authResp, err := h.apiProvider.Slack().AuthTest()
+	if err != nil {
+		h.logger.Error("AuthTest failed", zap.Error(err))
+		return "", err
+	}
+	if authResp.UserID == "" {
+		return "", errors.New("Slack auth response has no user ID")
+	}
+	return authResp.UserID, nil
+}
+
+func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, currentUserID, usergroupID, action string) (*mcp.CallToolResult, error) {
+
 	if usergroupID == "" {
-		return nil, errors.New("usergroup_id is required for join/leave actions")
+		return nil, errors.New("usergroup_id is required")
 	}
 
 	members, err := h.apiProvider.Slack().GetUserGroupMembersContext(ctx, usergroupID)
@@ -283,17 +331,15 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 
 	if action == "join" {
 		if isMember {
-			return mcp.NewToolResultStructuredOnly(
-				UsergroupMeActionResult{Message: "You are already a member of this user group.", GroupID: usergroupID},
-			), nil
+			data := UsergroupMeActionResult{Message: "You are already a member of this user group.", GroupID: usergroupID}
+			return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
 		}
 		newMembers = append(members, currentUserID)
 		resultMessage = "Successfully joined the user group."
 	} else { // leave
 		if !isMember {
-			return mcp.NewToolResultStructuredOnly(
-				UsergroupMeActionResult{Message: "You are not a member of this user group.", GroupID: usergroupID},
-			), nil
+			data := UsergroupMeActionResult{Message: "You are not a member of this user group.", GroupID: usergroupID}
+			return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
 		}
 		newMembers = append(members[:memberIndex], members[memberIndex+1:]...)
 		resultMessage = "Successfully left the user group."
@@ -312,12 +358,13 @@ func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp
 		zap.Int("new_user_count", updated.UserCount),
 	)
 
-	return mcp.NewToolResultStructuredOnly(UsergroupMeActionResult{
+	data := UsergroupMeActionResult{
 		Message:   resultMessage,
 		GroupID:   updated.ID,
 		GroupName: updated.Name,
 		UserCount: updated.UserCount,
-	}), nil
+	}
+	return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
 }
 
 func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserID string) (*mcp.CallToolResult, error) {

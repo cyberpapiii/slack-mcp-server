@@ -51,7 +51,7 @@ Side-effecting tools still need registration opt-in. Canonical gate table (boole
 - `SLACK_MCP_REACTION_TOOL`: reactions
 - `SLACK_MCP_ATTACHMENT_TOOL`: file download
 
-Also gated: `SLACK_MCP_MARK_TOOL`, `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL`, `SLACK_MCP_USERGROUPS_WRITE_TOOL`, `SLACK_MCP_FILES_LIST_TOOL`. When `SLACK_MCP_ENABLED_TOOLS` is set, naming a gated tool in that list registers it without its dedicated env var.
+Also gated: `SLACK_MCP_MARK_TOOL`, `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL`, `SLACK_MCP_USERGROUPS_WRITE_TOOL`, `SLACK_MCP_FILES_LIST_TOOL`, `SLACK_MCP_SCHEDULED_MESSAGE_TOOL`, `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL`, `SLACK_MCP_LISTS_WRITE_TOOL`, and `SLACK_MCP_DND_TOOL`. When `SLACK_MCP_ENABLED_TOOLS` is set, naming a gated tool in that list registers it without its dedicated env var.
 
 ## Preset: read-only triage
 
@@ -72,10 +72,10 @@ confirmation cancellation pass live verification.
 SLACK_MCP_TOOL_PRESET = "daily-power"
 ```
 
-Generated local allowlist for catalog version `2026-08-09.1`:
+Generated local allowlist for catalog version `2026-08-09.2`:
 
 ```text
-activity_unreads,conversations_get_message,conversations_unreads,saved_list,slack_auth_status,usergroups_list
+activity_unreads,conversations_get_message,conversations_unreads,dnd_get,lists_items_list,saved_list,scheduled_messages_list,slack_auth_status,usergroups_list,usergroups_mine
 ```
 
 Before enabling mutations, verify the official and local providers have the
@@ -84,7 +84,7 @@ intent, and canceling a confirmation leaves Slack unchanged.
 
 ## Preset: legacy full
 
-Compatibility preset with all 31 current local tools, including capabilities
+Compatibility preset with all current local tools, including capabilities
 that overlap Slack's official MCP. Do not combine it with the official server
 as the normal daily surface.
 

@@ -41,12 +41,34 @@ func dailyPowerOutputSchema(name string) (mcp.ToolOption, string) {
 		return mcp.WithOutputSchema[handler.MessageResult](), "message"
 	case ToolConversationsUnreads:
 		return mcp.WithOutputSchema[handler.UnreadPageResult](), "unread_page"
-	case ToolUsergroupsList:
+	case ToolUsergroupsList, ToolUsergroupsMine:
 		return mcp.WithOutputSchema[handler.UsergroupPageResult](), "usergroup_page"
+	case ToolUsergroupsJoin, ToolUsergroupsLeave:
+		return mcp.WithOutputSchema[handler.UsergroupMembershipResult](), "usergroup_membership"
 	case ToolActivityUnreads:
 		return mcp.WithOutputSchema[handler.ActivityPageResult](), "activity_page"
 	case ToolSavedList:
 		return mcp.WithOutputSchema[handler.SavedPageResult](), "saved_page"
+	case ToolScheduledMessagesList:
+		return mcp.WithOutputSchema[handler.ScheduledPageResult](), "scheduled_message_page"
+	case ToolScheduledMessageCancel:
+		return mcp.WithOutputSchema[handler.ScheduledCancelResult](), "scheduled_message_mutation"
+	case ToolChannelsRename, ToolChannelsSetTopic, ToolChannelsSetPurpose, ToolChannelsArchive:
+		return mcp.WithOutputSchema[handler.ChannelMutationResult](), "channel_mutation"
+	case ToolListsCreate:
+		return mcp.WithOutputSchema[handler.ListCreateResult](), "list_create"
+	case ToolListsUpdate:
+		return mcp.WithOutputSchema[handler.ListMutationResult](), "list_mutation"
+	case ToolListsItemsList:
+		return mcp.WithOutputSchema[handler.ListItemsPageResult](), "list_items_page"
+	case ToolListsItemsCreate:
+		return mcp.WithOutputSchema[handler.ListItemResult](), "list_item"
+	case ToolListsItemsUpdate:
+		return mcp.WithOutputSchema[handler.ListItemMutationResult](), "list_item_mutation"
+	case ToolListsItemDelete:
+		return mcp.WithOutputSchema[handler.ListItemDeleteResult](), "list_item_mutation"
+	case ToolDNDGet, ToolDNDSetSnooze, ToolDNDEndSnooze:
+		return mcp.WithOutputSchema[handler.DNDStateResult](), "dnd_state"
 	default:
 		return nil, ""
 	}

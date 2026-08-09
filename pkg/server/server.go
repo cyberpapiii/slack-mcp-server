@@ -52,6 +52,9 @@ const (
 	ToolChannelsMe                  = "channels_me"
 	ToolUsergroupsList              = "usergroups_list"
 	ToolUsergroupsMe                = "usergroups_me"
+	ToolUsergroupsMine              = "usergroups_mine"
+	ToolUsergroupsJoin              = "usergroups_join"
+	ToolUsergroupsLeave             = "usergroups_leave"
 	ToolUsergroupsCreate            = "usergroups_create"
 	ToolUsergroupsUpdate            = "usergroups_update"
 	ToolUsergroupsUsersUpdate       = "usergroups_users_update"
@@ -63,6 +66,21 @@ const (
 	ToolSavedClearCompleted         = "saved_clear_completed"
 	ToolFilesList                   = "files_list"
 	ToolSlackAuthStatus             = "slack_auth_status"
+	ToolScheduledMessagesList       = "scheduled_messages_list"
+	ToolScheduledMessageCancel      = "scheduled_message_cancel"
+	ToolChannelsRename              = "channels_rename"
+	ToolChannelsSetTopic            = "channels_set_topic"
+	ToolChannelsSetPurpose          = "channels_set_purpose"
+	ToolChannelsArchive             = "channels_archive"
+	ToolListsCreate                 = "lists_create"
+	ToolListsUpdate                 = "lists_update"
+	ToolListsItemsList              = "lists_items_list"
+	ToolListsItemsCreate            = "lists_items_create"
+	ToolListsItemsUpdate            = "lists_items_update"
+	ToolListsItemDelete             = "lists_item_delete"
+	ToolDNDGet                      = "dnd_get"
+	ToolDNDSetSnooze                = "dnd_set_snooze"
+	ToolDNDEndSnooze                = "dnd_end_snooze"
 
 	toolDetailDescription = "Output fidelity: 'standard' (compact CSV) or 'full' (all columns, including UserID and Permalink where available). When omitted, follows SLACK_MCP_COMPACT_OUTPUT (compact/standard unless that env is false/0/no, then full). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."
 )
@@ -105,8 +123,9 @@ func ValidateEnabledTools(tools []string) error {
 // non-empty value means "enabled", because the value IS the configuration.
 // Every other gate variable is a boolean and goes through envutil.IsTruthy.
 var channelListGates = map[string]bool{
-	"SLACK_MCP_ADD_MESSAGE_TOOL": true,
-	"SLACK_MCP_REACTION_TOOL":    true,
+	"SLACK_MCP_ADD_MESSAGE_TOOL":        true,
+	"SLACK_MCP_REACTION_TOOL":           true,
+	"SLACK_MCP_CHANNEL_MANAGEMENT_TOOL": true,
 }
 
 func shouldAddTool(name string, enabledTools []string, envVarName string) bool {
@@ -528,6 +547,26 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		), usergroupsHandler.UsergroupsMeHandler)
 	}
 
+	if shouldAddTool(ToolUsergroupsMine, enabledTools, "") {
+		s.AddTool(newDailyPowerTool(ToolUsergroupsMine,
+			mcp.WithDescription("List the user groups the authenticated Slack user belongs to."),
+		), usergroupsHandler.UsergroupsMineHandler)
+	}
+
+	if shouldAddTool(ToolUsergroupsJoin, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
+		s.AddTool(newDailyPowerTool(ToolUsergroupsJoin,
+			mcp.WithDescription("Add the authenticated Slack user to one user group. Requires client confirmation."),
+			mcp.WithString("usergroup_id", mcp.Required(), mcp.Description("User group ID beginning with S.")),
+		), usergroupsHandler.UsergroupsJoinHandler)
+	}
+
+	if shouldAddTool(ToolUsergroupsLeave, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
+		s.AddTool(newDailyPowerTool(ToolUsergroupsLeave,
+			mcp.WithDescription("Remove the authenticated Slack user from one user group. Requires client confirmation."),
+			mcp.WithString("usergroup_id", mcp.Required(), mcp.Description("User group ID beginning with S.")),
+		), usergroupsHandler.UsergroupsLeaveHandler)
+	}
+
 	if shouldAddTool(ToolUsergroupsCreate, enabledTools, "SLACK_MCP_USERGROUPS_WRITE_TOOL") {
 		s.AddTool(mcp.NewTool(ToolUsergroupsCreate,
 			mcp.WithDescription("Create a new user group (mention group) in the Slack workspace. After creation, use usergroups_users_update to add members, or users can join themselves with usergroups_me. The handle becomes the @mention (e.g., handle='engineering' creates @engineering)."),
@@ -679,6 +718,8 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			zap.Error(err),
 		)
 	}
+
+	registerDailyPowerLifecycleTools(s, provider, logger, enabledTools)
 
 	return &MCPServer{
 		server:       s,

@@ -1,5 +1,5 @@
 {
-  "catalog_version": "2026-08-09.1",
+  "catalog_version": "2026-08-09.2",
   "default_local_preset": "daily-power",
   "legacy_local_preset": "legacy-full",
   "catalog_source": "pkg/capability/catalog.go",

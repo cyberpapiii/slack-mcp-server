@@ -84,9 +84,11 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 
 func capabilityAvailability(standardOAuth, browserOK bool, degradedReason string) map[string]string {
 	availability := map[string]string{
-		"standard_oauth": "not_configured",
-		"slack_lists":    "unverified",
-		"host_curation":  "unverified",
+		"standard_oauth":            "not_configured",
+		"slack_lists":               "unverified",
+		"host_curation":             "unverified",
+		"persisted_draft_lifecycle": "unsupported",
+		"semantic_search":           "official_provider_unverified",
 	}
 	if standardOAuth {
 		availability["standard_oauth"] = "available"

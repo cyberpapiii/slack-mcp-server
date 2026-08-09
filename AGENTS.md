@@ -38,7 +38,7 @@ The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is se
 
 ## Tool surface
 
-Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **31** tools; upstream README documents fewer.
+Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **49** tools; upstream README documents fewer.
 
 The full set, grouped (★ = local-only or fork-extended):
 
@@ -48,12 +48,16 @@ The full set, grouped (★ = local-only or fork-extended):
 | Conversations | ★`conversations_open`, ★`conversations_unreads`, `conversations_mark`, `conversations_join`, `conversations_leave` |
 | Channels | `channels_list`, ★`channels_starred`, ★`channels_me` |
 | Reactions | `reactions_add`, `reactions_remove`, ★`reactions_get` |
-| Usergroups | `usergroups_list`, `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update` |
+| Usergroups | `usergroups_list`, `usergroups_mine`, `usergroups_join`, `usergroups_leave`, legacy `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update` |
 | Users | `users_search` |
 | Activity | ★`activity_unreads`, ★`activity_mark_read` (browser session / xoxc+xoxd) |
 | Saved items | ★`saved_list`, ★`saved_update`, ★`saved_clear_completed` |
 | Files | ★`files_list`, `attachment_get_data` |
 | Diagnostics | ★`slack_auth_status`: cache and browser-session health (call before activity/saved tools) |
+| Scheduled | ★`scheduled_messages_list`, ★`scheduled_message_cancel` |
+| Channel maintenance | ★`channels_rename`, ★`channels_set_topic`, ★`channels_set_purpose`, ★`channels_archive` |
+| Slack Lists | ★`lists_create`, ★`lists_update`, ★`lists_items_list`, ★`lists_items_create`, ★`lists_items_update`, ★`lists_item_delete` |
+| DND | ★`dnd_get`, ★`dnd_set_snooze`, ★`dnd_end_snooze` |
 
 `conversations_get_message` fetches a single message by channel and timestamp, the recovery path for an attachment-truncation receipt.
 
@@ -76,8 +80,12 @@ Side-effecting tools require explicit env opt-in. Every gate below is enforced *
 | `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL` | `conversations_join`, `conversations_leave` | `true`, `1`, or `yes` |
 | `SLACK_MCP_USERGROUPS_WRITE_TOOL` | `usergroups_create`, `usergroups_update`, `usergroups_users_update` | `true`, `1`, or `yes` |
 | `SLACK_MCP_FILES_LIST_TOOL` | `files_list` | `true`, `1`, or `yes` (registration gate only) |
+| `SLACK_MCP_SCHEDULED_MESSAGE_TOOL` | `scheduled_message_cancel` | `true`, `1`, or `yes` |
+| `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | channel rename/topic/purpose/archive | `true`/`1`/`yes`, or a channel allowlist |
+| `SLACK_MCP_LISTS_WRITE_TOOL` | Lists and List-item mutations | `true`, `1`, or `yes` |
+| `SLACK_MCP_DND_TOOL` | DND set/end | `true`, `1`, or `yes` |
 
-The five boolean gates (`ATTACHMENT`, `MARK`, `CHANNEL_MEMBERSHIP`, `USERGROUPS_WRITE`, `FILES_LIST`) accept only `true`, `1`, or `yes`, matched case-insensitively and ignoring surrounding whitespace (`envutil.IsTruthy` in `pkg/envutil`). Any other value, **including `false`**, leaves the tool disabled. The two channel-allowlist gates (`ADD_MESSAGE`, `REACTION`) are not booleans: their value *is* the configuration, so any non-empty value enables them (`channelListGates` in `pkg/server/server.go`).
+The boolean gates accept only `true`, `1`, or `yes`, matched case-insensitively and ignoring surrounding whitespace (`envutil.IsTruthy` in `pkg/envutil`). Any other value, **including `false`**, leaves the tool disabled. The channel-allowlist gates (`ADD_MESSAGE`, `REACTION`, `CHANNEL_MANAGEMENT`) are not plain booleans: their value may be the channel configuration, so any non-empty value enables registration and handlers recheck the target.
 
 Gate vars and the allowlist interact: when `SLACK_MCP_ENABLED_TOOLS` is set, the allowlist alone decides registration: a gated tool named in it registers without its dedicated env var, and one absent from it stays unregistered even when the env var is set. When `SLACK_MCP_ENABLED_TOOLS` is unset, a gated tool registers only if its own env var is truthy, or non-empty for the two channel-allowlist gates. Matching is an **exact** per-entry comparison (`isToolInEnabledList`, `slices.Contains`), not a substring test.
 

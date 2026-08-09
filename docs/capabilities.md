@@ -1,6 +1,6 @@
 # Slack capability ownership
 
-Catalog version: `2026-08-09.1`
+Catalog version: `2026-08-09.2`
 
 The `daily-power` surface combines Slack's official MCP with this local server.
 Each user intent has one canonical provider. `pkg/capability/catalog.go` is the
@@ -18,9 +18,10 @@ The local server owns exact-message retrieval, unread and read-progress state,
 reaction removal, Activity, Later, user-group management, and diagnostics.
 U1's generated `daily-power` allowlist exposes only no-confirmation reads. Local
 mutations remain cataloged but hidden until host confirmation is live-proven.
-Planned local additions cover only remaining gaps: scheduled-message list and
-cancel, channel metadata and archive, Lists, DND, and the isolated browser-only
-persisted-draft lifecycle.
+Implemented local gap tools cover scheduled-message list/cancel, channel
+metadata/archive, Slack Lists/items, DND, and split user-group membership.
+Persisted-draft update/delete remains browser-dependent and is reported as
+unsupported until a stable user-bound contract is proven.
 
 `legacy-full` preserves all current local tools for migration. It is not a
 canonical combined surface because it includes official-owned duplicates.
@@ -56,8 +57,9 @@ drift, and official/local team or user mismatch.
 
 `slack_auth_status` reports catalog version, local provider identity, browser
 health, and plan-dependent availability. `unverified` is intentionally not
-equivalent to available. Lists, combined host curation, exact official/local
-identity parity, and confirmation cancellation still require live proof.
+equivalent to available. Lists workspace availability, combined host curation,
+exact official/local identity parity, and confirmation cancellation still
+require live proof.
 
 If host filtering or confirmation cannot be proved, keep mutation tools hidden.
 Do not silently route a write to another provider.

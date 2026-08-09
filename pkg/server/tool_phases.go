@@ -26,8 +26,22 @@ var immediateOnlyToolNames = map[string]struct{}{
 	ToolUsergroupsUpdate:        {},
 	ToolUsergroupsUsersUpdate:   {},
 	ToolUsergroupsMe:            {}, // join/leave mutate membership
+	ToolUsergroupsJoin:          {},
+	ToolUsergroupsLeave:         {},
 	ToolSavedUpdate:             {},
 	ToolSavedClearCompleted:     {},
+	ToolScheduledMessageCancel:  {},
+	ToolChannelsRename:          {},
+	ToolChannelsSetTopic:        {},
+	ToolChannelsSetPurpose:      {},
+	ToolChannelsArchive:         {},
+	ToolListsCreate:             {},
+	ToolListsUpdate:             {},
+	ToolListsItemsCreate:        {},
+	ToolListsItemsUpdate:        {},
+	ToolListsItemDelete:         {},
+	ToolDNDSetSnooze:            {},
+	ToolDNDEndSnooze:            {},
 }
 
 func isCacheDependentTool(name string) bool {

@@ -48,6 +48,9 @@ func TestDailyPowerContractsDoNotClaimLegacyTools(t *testing.T) {
 		if slices.Contains(capability.DailyPowerLocalTools(), name) {
 			continue
 		}
+		if _, active := capability.EntryForLocalTool(name); active {
+			continue
+		}
 		_, ok := capability.BehaviorForLocalTool(name)
 		assert.False(t, ok, "legacy tool %q must not claim an unmigrated result contract", name)
 	}

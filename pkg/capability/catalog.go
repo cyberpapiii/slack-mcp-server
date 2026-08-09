@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const CatalogVersion = "2026-08-09.1"
+const CatalogVersion = "2026-08-09.2"
 
 type Owner string
 
@@ -103,7 +103,10 @@ var catalog = []Entry{
 	legacy("file.list", "files_list", "slack_search_public_and_private", "file_page", ConfirmationNone, "files:read"),
 	legacy("user.search", "users_search", "slack_search_users", "user_page", ConfirmationNone, "users:read"),
 	local("usergroup.list", "usergroups_list", "usergroup_page", ConfirmationNone, AuthOAuth, MigrationActive, "usergroups:read"),
-	local("usergroup.mine.manage", "usergroups_me", "usergroup_membership", ConfirmationChange, AuthOAuth, MigrationActive, "usergroups:read", "usergroups:write"),
+	local("usergroup.mine.manage", "usergroups_me", "usergroup_membership", ConfirmationChange, AuthOAuth, MigrationLegacy, "usergroups:read", "usergroups:write"),
+	local("usergroup.mine.list", "usergroups_mine", "usergroup_page", ConfirmationNone, AuthOAuth, MigrationActive, "usergroups:read"),
+	local("usergroup.mine.join", "usergroups_join", "usergroup_membership", ConfirmationChange, AuthOAuth, MigrationActive, "usergroups:read", "usergroups:write"),
+	local("usergroup.mine.leave", "usergroups_leave", "usergroup_membership", ConfirmationChange, AuthOAuth, MigrationActive, "usergroups:read", "usergroups:write"),
 	local("usergroup.create", "usergroups_create", "usergroup_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "usergroups:write"),
 	local("usergroup.update", "usergroups_update", "usergroup_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "usergroups:write"),
 	local("usergroup.members.replace", "usergroups_users_update", "usergroup_mutation", ConfirmationPreview, AuthOAuth, MigrationActive, "usergroups:write"),
@@ -129,15 +132,21 @@ var catalog = []Entry{
 	official("canvas.read", "slack_read_canvas", "canvas", ConfirmationNone, "canvases:read"),
 	official("canvas.update", "slack_update_canvas", "canvas", ConfirmationChange, "canvases:write"),
 
-	local("scheduled.list", "scheduled_messages_list", "scheduled_message_page", ConfirmationNone, AuthOAuth, MigrationPlanned, "chat:write"),
-	local("scheduled.cancel", "scheduled_message_cancel", "scheduled_message_mutation", ConfirmationPreview, AuthOAuth, MigrationPlanned, "chat:write"),
-	local("channel.rename", "channels_rename", "channel_mutation", ConfirmationChange, AuthOAuth, MigrationPlanned, "channels:manage"),
-	local("channel.topic.update", "channels_set_topic", "channel_mutation", ConfirmationChange, AuthOAuth, MigrationPlanned, "channels:manage"),
-	local("channel.purpose.update", "channels_set_purpose", "channel_mutation", ConfirmationChange, AuthOAuth, MigrationPlanned, "channels:manage"),
-	local("channel.archive", "channels_archive", "channel_mutation", ConfirmationPreview, AuthOAuth, MigrationPlanned, "channels:manage"),
-	local("list.manage", "lists_manage", "list_mutation", ConfirmationChange, AuthOAuth, MigrationPlanned, "lists:read", "lists:write"),
-	local("list.item.manage", "lists_items_manage", "list_item_mutation", ConfirmationChange, AuthOAuth, MigrationPlanned, "lists:read", "lists:write"),
-	local("dnd.manage", "dnd_manage", "dnd_state", ConfirmationChange, AuthOAuth, MigrationPlanned, "dnd:write"),
+	local("scheduled.list", "scheduled_messages_list", "scheduled_message_page", ConfirmationNone, AuthOAuth, MigrationActive, "chat:write"),
+	local("scheduled.cancel", "scheduled_message_cancel", "scheduled_message_mutation", ConfirmationPreview, AuthOAuth, MigrationActive, "chat:write"),
+	local("channel.rename", "channels_rename", "channel_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "channels:manage", "groups:write"),
+	local("channel.topic.update", "channels_set_topic", "channel_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "channels:manage", "groups:write"),
+	local("channel.purpose.update", "channels_set_purpose", "channel_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "channels:manage", "groups:write"),
+	local("channel.archive", "channels_archive", "channel_mutation", ConfirmationPreview, AuthOAuth, MigrationActive, "channels:manage", "groups:write"),
+	local("list.create", "lists_create", "list_create", ConfirmationChange, AuthOAuth, MigrationActive, "lists:write"),
+	local("list.update", "lists_update", "list_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "lists:write"),
+	local("list.items.list", "lists_items_list", "list_items_page", ConfirmationNone, AuthOAuth, MigrationActive, "lists:read"),
+	local("list.items.create", "lists_items_create", "list_item", ConfirmationChange, AuthOAuth, MigrationActive, "lists:write"),
+	local("list.items.update", "lists_items_update", "list_item_mutation", ConfirmationChange, AuthOAuth, MigrationActive, "lists:write"),
+	local("list.item.delete", "lists_item_delete", "list_item_mutation", ConfirmationPreview, AuthOAuth, MigrationActive, "lists:read", "lists:write"),
+	local("dnd.read", "dnd_get", "dnd_state", ConfirmationNone, AuthOAuth, MigrationActive, "dnd:read"),
+	local("dnd.snooze.set", "dnd_set_snooze", "dnd_state", ConfirmationChange, AuthOAuth, MigrationActive, "dnd:write"),
+	local("dnd.snooze.end", "dnd_end_snooze", "dnd_state", ConfirmationChange, AuthOAuth, MigrationActive, "dnd:write"),
 	{ID: "draft.persisted.manage", Owner: OwnerLocalBrowser, LocalTool: "drafts_manage", Auth: AuthBrowser, Confirmation: ConfirmationNone, ResultType: "draft", Migration: MigrationPlanned, BrowserOptional: true},
 }
 
@@ -148,6 +157,24 @@ var dailyPowerToolBehavior = map[string]ToolBehavior{
 	"saved_list":                {Title: "List Saved Items", ReadOnly: true, Idempotent: true, OpenWorld: true},
 	"slack_auth_status":         {Title: "Auth & Cache Status", ReadOnly: true, Idempotent: true, OpenWorld: true},
 	"usergroups_list":           {Title: "List User Groups", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"usergroups_mine":           {Title: "List My User Groups", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"usergroups_join":           {Title: "Join User Group", Idempotent: true, OpenWorld: true},
+	"usergroups_leave":          {Title: "Leave User Group", Destructive: true, Idempotent: true, OpenWorld: true},
+	"scheduled_messages_list":   {Title: "List Scheduled Messages", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"scheduled_message_cancel":  {Title: "Cancel Scheduled Message", Destructive: true, OpenWorld: true},
+	"channels_rename":           {Title: "Rename Channel", OpenWorld: true},
+	"channels_set_topic":        {Title: "Set Channel Topic", OpenWorld: true},
+	"channels_set_purpose":      {Title: "Set Channel Purpose", OpenWorld: true},
+	"channels_archive":          {Title: "Archive Channel", Destructive: true, OpenWorld: true},
+	"lists_create":              {Title: "Create Slack List", OpenWorld: true},
+	"lists_update":              {Title: "Update Slack List", OpenWorld: true},
+	"lists_items_list":          {Title: "List Slack List Items", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"lists_items_create":        {Title: "Create Slack List Item", OpenWorld: true},
+	"lists_items_update":        {Title: "Update Slack List Items", OpenWorld: true},
+	"lists_item_delete":         {Title: "Delete Slack List Item", Destructive: true, OpenWorld: true},
+	"dnd_get":                   {Title: "Get Do Not Disturb", ReadOnly: true, Idempotent: true, OpenWorld: true},
+	"dnd_set_snooze":            {Title: "Set Do Not Disturb", OpenWorld: true},
+	"dnd_end_snooze":            {Title: "End Do Not Disturb", OpenWorld: true},
 }
 
 func BehaviorForLocalTool(tool string) (ToolBehavior, bool) {

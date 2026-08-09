@@ -334,6 +334,7 @@ type MCPSlackClient struct {
 	oauthClientMu        sync.RWMutex
 	oauthManager         *OAuthTokenManager
 	oauthGeneration      atomic.Uint64
+	oauthAccessToken     atomic.Value
 	oauthRuntimeState    atomic.Value
 	managedClientFactory func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error)
 }
@@ -432,7 +433,7 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAut
 	isOAuth := strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxp-") || strings.HasPrefix(token, "xoxe.xoxb-")
 	isBotToken := strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxb-")
 
-	return &MCPSlackClient{
+	client := &MCPSlackClient{
 		slackClient:  slackClient,
 		edgeClient:   edgeClient,
 		authResponse: authResponse,
@@ -441,7 +442,9 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAut
 		isEnterprise: isEnterprise,
 		isOAuth:      isOAuth,
 		isBotToken:   isBotToken,
-	}, nil
+	}
+	client.oauthAccessToken.Store(token)
+	return client, nil
 }
 
 func (c *MCPSlackClient) standardSlackClient() *slack.Client {
@@ -1861,6 +1864,7 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 	c.slackClient = replacement
 	c.oauthClientMu.Unlock()
 	c.oauthGeneration.Store(record.Generation)
+	c.oauthAccessToken.Store(record.AccessToken)
 	c.oauthRuntimeState.Store("live")
 	return nil
 }

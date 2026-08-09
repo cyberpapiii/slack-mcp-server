@@ -71,6 +71,7 @@ type UnreadPageResult = ToolResult[UnreadPageData]
 type ActivityPageResult = ToolResult[ActivityPageData]
 type SavedPageResult = ToolResult[SavedPageData]
 type UsergroupPageResult = ToolResult[UsergroupPageData]
+type UsergroupMembershipResult = ToolResult[UsergroupMeActionResult]
 type AuthStatusResult = ToolResult[AuthStatusData]
 
 func SlackResultMeta(nextCursor string, partial bool, partialReason string) ResultMeta {
