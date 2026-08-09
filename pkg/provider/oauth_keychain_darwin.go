@@ -7,6 +7,7 @@ package provider
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #include <stdlib.h>
+#include <string.h>
 
 static CFStringRef oauthCFString(const char *value) {
 	return CFStringCreateWithCString(kCFAllocatorDefault, value, kCFStringEncodingUTF8);
@@ -34,7 +35,8 @@ static OSStatus oauthKeychainRead(const char *service, const char *account, void
 	return status;
 }
 
-static OSStatus oauthKeychainWrite(const char *service, const char *account, const void *bytes, CFIndex length) {
+static OSStatus oauthKeychainWrite(const char *service, const char *account, const void *bytes, CFIndex length,
+	const char *authPath, const char *serverPath) {
 	CFStringRef serviceValue = oauthCFString(service);
 	CFStringRef accountValue = oauthCFString(account);
 	CFDataRef data = CFDataCreate(kCFAllocatorDefault, bytes, length);
@@ -48,12 +50,29 @@ static OSStatus oauthKeychainWrite(const char *service, const char *account, con
 		&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 	OSStatus status = SecItemUpdate(query, update);
 	if (status == errSecItemNotFound) {
-		const void *addKeys[] = { kSecClass, kSecAttrService, kSecAttrAccount, kSecValueData, kSecAttrAccessible };
-		const void *addValues[] = { kSecClassGenericPassword, serviceValue, accountValue, data, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly };
-		CFDictionaryRef item = CFDictionaryCreate(kCFAllocatorDefault, addKeys, addValues, 5,
-			&kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		status = SecItemAdd(item, NULL);
-		CFRelease(item);
+		SecTrustedApplicationRef authApp = NULL;
+		SecTrustedApplicationRef serverApp = NULL;
+		SecAccessRef access = NULL;
+		status = SecTrustedApplicationCreateFromPath(authPath, &authApp);
+		if (status == errSecSuccess) status = SecTrustedApplicationCreateFromPath(serverPath, &serverApp);
+		if (status == errSecSuccess) {
+			const void *trustedValues[] = { authApp, serverApp };
+			CFArrayRef trusted = CFArrayCreate(kCFAllocatorDefault, trustedValues, 2, &kCFTypeArrayCallBacks);
+			status = SecAccessCreate(CFSTR("Slack MCP OAuth"), trusted, &access);
+			CFRelease(trusted);
+		}
+		if (status == errSecSuccess) {
+			SecKeychainAttribute attributes[] = {
+				{ kSecServiceItemAttr, (UInt32)strlen(service), (void *)service },
+				{ kSecAccountItemAttr, (UInt32)strlen(account), (void *)account }
+			};
+			SecKeychainAttributeList attributeList = { 2, attributes };
+			status = SecKeychainItemCreateFromContent(kSecGenericPasswordItemClass,
+				&attributeList, (UInt32)length, bytes, NULL, access, NULL);
+		}
+		if (access) CFRelease(access);
+		if (serverApp) CFRelease(serverApp);
+		if (authApp) CFRelease(authApp);
 	}
 	CFRelease(update);
 	CFRelease(query);
@@ -76,6 +95,7 @@ static OSStatus oauthKeychainDelete(const char *service, const char *account) {
 	CFRelease(serviceValue);
 	return status;
 }
+
 */
 import "C"
 
@@ -83,6 +103,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"unsafe"
 )
 
@@ -123,7 +145,16 @@ func platformKeychainCommandRunner() commandRunner {
 			if len(stdin) > 0 {
 				raw = unsafe.Pointer(&stdin[0])
 			}
-			if status := C.oauthKeychainWrite(serviceValue, accountValue, raw, C.CFIndex(len(stdin))); status != 0 {
+			executable, err := os.Executable()
+			if err != nil {
+				return nil, errors.New("resolve Keychain trusted applications")
+			}
+			binaryDir := filepath.Dir(executable)
+			authPath := C.CString(filepath.Join(binaryDir, "slack-mcp-auth"))
+			serverPath := C.CString(filepath.Join(binaryDir, "slack-mcp-server"))
+			defer C.free(unsafe.Pointer(authPath))
+			defer C.free(unsafe.Pointer(serverPath))
+			if status := C.oauthKeychainWrite(serviceValue, accountValue, raw, C.CFIndex(len(stdin)), authPath, serverPath); status != 0 {
 				return nil, errors.New("Keychain write failed")
 			}
 			return nil, nil
