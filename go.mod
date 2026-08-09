@@ -18,8 +18,8 @@ require (
 	github.com/takara2314/slack-go-util v0.4.0
 	go.uber.org/zap v1.27.1
 	golang.ngrok.com/ngrok/v2 v2.1.2
-	golang.org/x/net v0.52.0
-	golang.org/x/sync v0.20.0
+	golang.org/x/net v0.55.0
+	golang.org/x/sync v0.21.0
 	golang.org/x/time v0.15.0
 )
 
@@ -85,10 +85,10 @@ require (
 	github.com/yuin/goldmark v1.7.16 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.ngrok.com/muxado/v2 v2.0.1 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/term v0.41.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
