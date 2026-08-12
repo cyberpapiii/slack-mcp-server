@@ -2,7 +2,7 @@
 
 Open Slack in your browser and log in.
 
-> **Note**: You only need one of the following: an `xoxp-*` User OAuth token, an `xoxb-*` Bot token, or both `xoxc-*` and `xoxd-*` session tokens. User/Bot tokens are more secure and do not require a browser session. If multiple are provided, priority is managed OAuth > `xoxp` > `xoxb` > `xoxc/xoxd`. When OAuth and browser credentials are both configured, standard Slack API calls always use OAuth. Browser credentials are limited to Activity and Save for Later features after an exact workspace and user identity check.
+> **Note**: You only need one of the following: an `xoxp-*` User OAuth token, an `xoxb-*` Bot token, or both `xoxc-*` and `xoxd-*` session tokens. User/Bot tokens are more secure and do not require a browser session. If multiple are provided, priority is managed OAuth > `xoxp` > `xoxb` > `xoxc/xoxd`. When OAuth and browser credentials are both configured, standard Slack API calls always use OAuth. Browser credentials are limited to Unreads, Activity, Save for Later, and persisted Draft features after an exact workspace and user identity check.
 
 #### Managed OAuth rotation
 

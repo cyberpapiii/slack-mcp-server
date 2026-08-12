@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const CatalogVersion = "2026-08-09.3"
+const CatalogVersion = "2026-08-12.1"
 
 type Owner string
 
@@ -90,7 +90,7 @@ var catalog = []Entry{
 	{ID: "draft.persisted.update", Owner: OwnerLocalBrowser, LocalTool: "drafts_update", Auth: AuthBrowser, Confirmation: ConfirmationChange, ResultType: "draft_mutation", Migration: MigrationActive, BrowserOptional: true},
 	{ID: "draft.persisted.delete", Owner: OwnerLocalBrowser, LocalTool: "drafts_delete", Auth: AuthBrowser, Confirmation: ConfirmationPreview, ResultType: "draft_mutation", Migration: MigrationActive, BrowserOptional: true},
 	legacy("message.search", "conversations_search_messages", "slack_search_public_and_private", "search_results", ConfirmationNone, "search:read"),
-	local("message.unreads.read", "conversations_unreads", "unread_page", ConfirmationNone, AuthOAuth, MigrationActive, "channels:history", "groups:history", "im:history", "mpim:history"),
+	{ID: "message.unreads.read", Owner: OwnerLocalBrowser, LocalTool: "conversations_unreads", Auth: AuthBrowser, Confirmation: ConfirmationNone, ResultType: "unread_page", Migration: MigrationActive, BrowserOptional: true},
 	local("message.read_progress.mark", "conversations_mark", "read_progress", ConfirmationChange, AuthOAuth, MigrationActive, "channels:write", "groups:write", "im:write", "mpim:write"),
 	legacy("conversation.open", "conversations_open", "slack_create_conversation", "conversation", ConfirmationChange, "im:write", "mpim:write"),
 	legacy("conversation.join", "conversations_join", "slack_join_conversation", "conversation_membership", ConfirmationChange, "channels:write"),

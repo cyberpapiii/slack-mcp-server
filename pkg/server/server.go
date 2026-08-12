@@ -835,10 +835,10 @@ func (s *MCPServer) registerCacheDependentTools() {
 		), channelsHandler.ChannelsStarredHandler)
 	}
 
-	if !provider.IsBotToken() && shouldAddTool(ToolConversationsUnreads, enabledTools, "") {
+	if browserSession && shouldAddTool(ToolConversationsUnreads, enabledTools, "") {
 		guardCacheDependentRegistration(ToolConversationsUnreads)
 		s.server.AddTool(newDailyPowerTool(ToolConversationsUnreads,
-			mcp.WithDescription("Get unread messages across all channels. With browser session tokens (xoxc/xoxd), one API call returns complete results. With OAuth user tokens (xoxp), scans up to max_channels channels per type, so results may be partial on large workspaces. Results are prioritized: DMs, then group DMs, then partner channels, then internal channels."),
+			mcp.WithDescription("Get unread messages across all channels using Slack browser session state (xoxc/xoxd). Requires a healthy browser session. Results are prioritized: DMs, then group DMs, then partner channels, then internal channels."),
 			mcp.WithBoolean("include_messages",
 				mcp.Description("If true (default), returns the actual unread messages. If false, returns only a summary of channels with unreads."),
 				mcp.DefaultBool(true),

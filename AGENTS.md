@@ -45,7 +45,7 @@ The full set, grouped (★ = local-only or fork-extended):
 | Group | Tools |
 |-------|-------|
 | Messages | `conversations_history`, `conversations_replies`, ★`conversations_get_message`, `conversations_search_messages`, `conversations_add_message`, ★`conversations_draft_message` |
-| Conversations | ★`conversations_open`, ★`conversations_unreads`, `conversations_mark`, `conversations_join`, `conversations_leave` |
+| Conversations | ★`conversations_open`, ★`conversations_unreads` (browser session / xoxc+xoxd), `conversations_mark`, `conversations_join`, `conversations_leave` |
 | Channels | `channels_list`, ★`channels_starred`, ★`channels_me` |
 | Reactions | `reactions_add`, `reactions_remove`, ★`reactions_get` |
 | Usergroups | `usergroups_list`, `usergroups_mine`, `usergroups_join`, `usergroups_leave`, legacy `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update` |

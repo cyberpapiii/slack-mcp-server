@@ -173,7 +173,7 @@ type unreadsParams struct {
 	mentionsOnly          bool
 	includeMuted          bool
 	mutedChannels         map[string]bool // populated at runtime from Slack prefs
-	mutedUnavailable      bool            // true when muted channels could not be fetched (e.g. xoxp token)
+	mutedUnavailable      bool            // true when browser-session preferences could not be fetched
 }
 
 type markParams struct {
@@ -574,7 +574,6 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-
 	channel, err := ch.resolveChannelID(ctx, rawChannel)
 	if err != nil {
 		ch.logger.Error("Channel not found", zap.String("channel", rawChannel), zap.Error(err))
@@ -1044,6 +1043,9 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	if !ch.apiProvider.BrowserFeaturesAvailable() {
+		return nil, fmt.Errorf("conversations_unreads requires a healthy Slack browser session (xoxc/xoxd)")
+	}
 
 	if !params.includeMuted {
 		mutedChannels, err := ch.apiProvider.Slack().GetMutedChannels(ctx)
@@ -1056,29 +1058,13 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 		}
 	}
 
-	// Route based on token type:
-	// - xoxc/xoxd (browser session): use fast client.counts API
-	// - xoxp (OAuth user): fall back to conversations.info/history approach
-	// - xoxb (bot): not supported; unreads is a user-level concept
-	if ch.apiProvider.IsOAuth() {
-		if ch.apiProvider.IsBotToken() {
-			return nil, fmt.Errorf(
-				"conversations_unreads requires a user token (xoxp) or browser session tokens (xoxc/xoxd); " +
-					"bot tokens (xoxb) do not support unread tracking",
-			)
-		}
-		ch.logger.Info("OAuth token detected, using conversations.info fallback for unreads")
-		return ch.getUnreadsViaConversationsInfo(ctx, request, params, mode)
-	}
-
 	counts, err := ch.apiProvider.Slack().ClientCounts(ctx)
 	if err != nil {
 		if errors.Is(err, provider.ErrBrowserSessionUnavailable) {
-			ch.logger.Warn("Browser session unavailable for client.counts, falling back to OAuth-compatible unread scan", zap.Error(err))
-			return ch.getUnreadsViaConversationsInfo(ctx, request, params, mode)
+			return nil, fmt.Errorf("conversations_unreads requires a healthy Slack browser session (xoxc/xoxd)")
 		}
 		ch.logger.Error("ClientCounts failed", zap.Error(err))
-		return nil, fmt.Errorf("failed to get client counts: %v", err)
+		return nil, fmt.Errorf("get Slack unread state: %w", err)
 	}
 
 	return ch.processClientCountsResponse(ctx, request, params, counts, mode)
@@ -1381,158 +1367,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 	return unreadChannels
 }
 
-func (ch *ConversationsHandler) getUnreadsViaConversationsInfo(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, mode text.OutputMode) (*mcp.CallToolResult, error) {
-	usersMap := ch.apiProvider.ProvideUsersMap()
-
-	// users.conversations is creation-order (not activity); scan each type
-	// with its own budget/scan cap.
-	type typeGroup struct {
-		slackTypes  []string // users.conversations "types" parameter values
-		channelType string   // our internal type label
-		budget      int      // max unread channels to return for this group
-		isDM        bool     // DMs get unread_count directly from conversations.info
-	}
-
-	// DMs: full max_channels. MPIMs/channels: half each. Scan cap budget*2
-	// (see scanTypeGroupForUnreads).
-	dmBudget := params.maxChannels
-	mpimBudget := params.maxChannels / 2
-	channelBudget := params.maxChannels / 2
-
-	groups := []typeGroup{
-		{slackTypes: []string{"im"}, channelType: "dm", budget: dmBudget, isDM: true},
-		{slackTypes: []string{"mpim"}, channelType: "group_dm", budget: mpimBudget, isDM: false},
-		{slackTypes: []string{"public_channel", "private_channel"}, channelType: "", budget: channelBudget, isDM: false},
-	}
-
-	var unreadChannels []UnreadChannel
-	totalAPIcalls := 0
-	totalScanned := 0
-	totalRateLimited := 0
-
-	for gi, group := range groups {
-		select {
-		case <-ctx.Done():
-			return cancelledToolResult(), nil
-		default:
-		}
-		sendProgress(ctx, request, gi+1, len(groups), fmt.Sprintf("Scanning channel type group %d of %d", gi+1, len(groups)))
-
-		if params.channelTypes != "all" {
-			match := false
-			switch params.channelTypes {
-			case "dm":
-				match = group.channelType == "dm"
-			case "group_dm":
-				match = group.channelType == "group_dm"
-			case "internal", "partner":
-				// Both internal and partner channels come from public/private channel types
-				match = group.channelType == ""
-			}
-			if !match {
-				continue
-			}
-		}
-
-		found, apiCalls, scanned, rateLimited := ch.scanTypeGroupForUnreads(ctx, params, usersMap, group.slackTypes, group.channelType, group.budget, group.isDM)
-		unreadChannels = append(unreadChannels, found...)
-		totalAPIcalls += apiCalls
-		totalScanned += scanned
-		totalRateLimited += rateLimited
-	}
-
-	ch.sortChannelsByPriority(unreadChannels)
-
-	ch.logger.Info("Found unread channels via xoxp fallback",
-		zap.Int("count", len(unreadChannels)),
-		zap.Int("scanned", totalScanned),
-		zap.Int("apiCalls", totalAPIcalls),
-		zap.Int("rateLimited", totalRateLimited))
-
-	// xoxp scan can be partial; surface that to the caller.
-	mutedNote := ""
-	if params.mutedUnavailable && !params.includeMuted {
-		mutedNote = "Muted channel filtering is unavailable with xoxp tokens; results may include muted channels. "
-	}
-	rateLimitNote := ""
-	if totalRateLimited > 0 {
-		rateLimitNote = fmt.Sprintf("WARNING: %d channels were skipped because Slack rate-limited the scan even after retries, so results are degraded. Try again after a brief cooldown. ", totalRateLimited)
-	}
-	xoxpNote := fmt.Sprintf(
-		"[xoxp token: scanned %d channels (%d API calls), found %d with unreads. %s%s"+
-			"Results may be incomplete. Increase max_channels for broader coverage, "+
-			"or use xoxc/xoxd browser tokens for complete results.]\n\n",
-		totalScanned, totalAPIcalls, len(unreadChannels), rateLimitNote, mutedNote,
-	)
-
-	if !params.includeMessages {
-		result, err := ch.marshalUnreadChannelsToCSV(unreadChannels)
-		if err != nil {
-			return nil, err
-		}
-		if len(result.Content) > 0 {
-			if tc, ok := result.Content[0].(mcp.TextContent); ok {
-				tc.Text = xoxpNote + tc.Text
-				result.Content[0] = tc
-			}
-		}
-		return NewStructuredResult(
-			UnreadPageData{Channels: unreadChannels},
-			SlackResultMeta("", true, "OAuth unread scan may not cover every channel"),
-			ResultText(result),
-		), nil
-	}
-
-	rl := limiter.Tier3.Limiter()
-	var allMessages []Message
-	for i, uc := range unreadChannels {
-		select {
-		case <-ctx.Done():
-			return cancelledToolResult(), nil
-		default:
-		}
-		sendProgress(ctx, request, i+1, len(unreadChannels), fmt.Sprintf("Fetching messages: channel %d of %d", i+1, len(unreadChannels)))
-
-		historyParams := slack.GetConversationHistoryParameters{
-			ChannelID: uc.ChannelID,
-			Oldest:    uc.LastRead,
-			Limit:     params.maxMessagesPerChannel,
-			Inclusive: false,
-		}
-
-		history, err := limiter.CallWithRetry(ctx, rl, 2, slackRetryAfter, func() (*slack.GetConversationHistoryResponse, error) {
-			return ch.apiProvider.Slack().GetConversationHistoryContext(ctx, &historyParams)
-		})
-		if err != nil {
-			ch.logger.Warn("Failed to get history for channel",
-				zap.String("channel", uc.ChannelID),
-				zap.Error(err))
-			continue
-		}
-
-		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, uc.ChannelName, false, mode)
-		allMessages = append(allMessages, channelMessages...)
-	}
-
-	ch.logger.Debug("Fetched unread messages via fallback", zap.Int("total", len(allMessages)))
-
-	result, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
-	if err != nil {
-		return nil, err
-	}
-	if len(result.Content) > 0 {
-		if tc, ok := result.Content[0].(mcp.TextContent); ok {
-			tc.Text = xoxpNote + tc.Text
-			result.Content[0] = tc
-		}
-	}
-	return NewStructuredResult(
-		UnreadPageData{Channels: unreadChannels, Messages: allMessages},
-		SlackResultMeta("", true, "OAuth unread scan may not cover every channel"),
-		ResultText(result),
-	), nil
-}
-
 // slackRetryAfter checks if an error is a Slack rate limit error and returns
 // the retry-after duration. Returns 0 for non-rate-limit errors.
 // Used as the retryAfter callback for limiter.CallWithRetry.
@@ -1542,234 +1376,6 @@ func slackRetryAfter(err error) time.Duration {
 		return rle.RetryAfter
 	}
 	return 0
-}
-
-// scanTypeGroupForUnreads scans member channels via users.conversations (creation order),
-// capped per type group, checking each with conversations.info.
-func (ch *ConversationsHandler) scanTypeGroupForUnreads(
-	ctx context.Context,
-	params *unreadsParams,
-	usersMap *provider.UsersCache,
-	slackTypes []string,
-	groupType string,
-	budget int,
-	isDM bool,
-) ([]UnreadChannel, int, int, int) {
-	var unreadChannels []UnreadChannel
-	apiCalls := 0
-	scanned := 0
-	rateLimited := 0
-
-	// Tier 3 (~50/min); unbounded fire causes cascading 429s that skip channels.
-	rl := limiter.Tier3.Limiter()
-
-	// Creation-order listing: cap scan coverage (floor 50).
-	maxScan := budget * 2
-	if maxScan < 50 {
-		maxScan = 50
-	}
-
-	cursor := ""
-	for {
-		if len(unreadChannels) >= budget {
-			break
-		}
-		if scanned >= maxScan {
-			break
-		}
-
-		userConvParams := &slack.GetConversationsForUserParameters{
-			Types:           slackTypes,
-			Limit:           200,
-			ExcludeArchived: true,
-			Cursor:          cursor,
-		}
-
-		channels, nextCursor, err := ch.apiProvider.Slack().GetConversationsForUserContext(ctx, userConvParams)
-		apiCalls++
-		if err != nil {
-			ch.logger.Warn("Failed to list conversations for type group",
-				zap.Strings("types", slackTypes),
-				zap.Error(err))
-			break
-		}
-
-		if len(channels) == 0 {
-			break
-		}
-
-		for _, channel := range channels {
-			select {
-			case <-ctx.Done():
-				return unreadChannels, apiCalls, scanned, rateLimited
-			default:
-			}
-
-			if len(unreadChannels) >= budget {
-				break
-			}
-			if scanned >= maxScan {
-				break
-			}
-
-			if params.mutedChannels[channel.ID] {
-				continue
-			}
-
-			scanned++
-
-			// Rate-limit + retry: slack-go does not auto-retry *RateLimitedError
-			// on standard client methods; cascading 429s silently skip channels.
-			info, err := limiter.CallWithRetry(ctx, rl, 2, slackRetryAfter, func() (*slack.Channel, error) {
-				return ch.apiProvider.Slack().GetConversationInfoContext(ctx, &slack.GetConversationInfoInput{
-					ChannelID: channel.ID,
-				})
-			})
-			apiCalls++
-			if err != nil {
-				var rle *slack.RateLimitedError
-				if errors.As(err, &rle) {
-					rateLimited++
-					ch.logger.Warn("Rate limited on conversation info (retries exhausted)",
-						zap.String("channel", channel.ID),
-						zap.Duration("retryAfter", rle.RetryAfter))
-				} else {
-					ch.logger.Debug("Failed to get conversation info",
-						zap.String("channel", channel.ID),
-						zap.Error(err))
-				}
-				continue
-			}
-
-			hasUnreads := false
-			unreadCount := 0
-
-			if isDM {
-				// DMs: conversations.info returns unread_count directly
-				if info.UnreadCount > 0 {
-					hasUnreads = true
-					unreadCount = info.UnreadCount
-				}
-			} else {
-				// Channels/groups/MPIMs: conversations.info does NOT return
-				// unread_count or latest message for xoxp tokens. Use last_read
-				// with conversations.history to detect unreads.
-				//
-				// last_read values:
-				//   ""                    → never visited (skip; noise on large workspaces)
-				//   "0000000000.000000"   → never read (Slack sentinel, treat as "never visited")
-				//   "<timestamp>"         → last read position
-				lastRead := info.LastRead
-				neverVisited := lastRead == "" || lastRead == "0000000000.000000"
-
-				if neverVisited && groupType != "group_dm" {
-					// Skip never-visited channels (noise on large workspaces).
-					// MPIMs stay: join is intentional.
-					continue
-				}
-
-				if neverVisited {
-					lastRead = "0" // normalize sentinel to valid oldest param
-				}
-
-				historyParams := slack.GetConversationHistoryParameters{
-					ChannelID: channel.ID,
-					Oldest:    lastRead,
-					Limit:     params.maxMessagesPerChannel,
-					Inclusive: false,
-				}
-				history, err := limiter.CallWithRetry(ctx, rl, 2, slackRetryAfter, func() (*slack.GetConversationHistoryResponse, error) {
-					return ch.apiProvider.Slack().GetConversationHistoryContext(ctx, &historyParams)
-				})
-				apiCalls++
-				if err != nil {
-					var rle *slack.RateLimitedError
-					if errors.As(err, &rle) {
-						rateLimited++
-						ch.logger.Warn("Rate limited on conversation history (retries exhausted)",
-							zap.String("channel", channel.ID),
-							zap.Duration("retryAfter", rle.RetryAfter))
-					} else {
-						ch.logger.Debug("Failed to get history for unread check",
-							zap.String("channel", channel.ID),
-							zap.Error(err))
-					}
-				} else if len(history.Messages) > 0 {
-					hasUnreads = true
-					unreadCount = len(history.Messages)
-				}
-			}
-
-			if !hasUnreads {
-				continue
-			}
-
-			channelType := groupType
-			if channelType == "" {
-				if info.IsExtShared {
-					channelType = "partner"
-				} else {
-					channelType = "internal"
-				}
-			}
-
-			if params.channelTypes != "all" && params.channelTypes != channelType {
-				continue
-			}
-
-			channelName := ch.getChannelDisplayName(info, channelType, usersMap)
-
-			latestTs := ""
-			if info.Latest != nil {
-				latestTs = info.Latest.Timestamp
-			}
-
-			unreadChannels = append(unreadChannels, UnreadChannel{
-				ChannelID:   channel.ID,
-				ChannelName: channelName,
-				ChannelType: channelType,
-				UnreadCount: unreadCount,
-				LastRead:    info.LastRead,
-				Latest:      latestTs,
-			})
-		}
-
-		if nextCursor == "" {
-			break
-		}
-		cursor = nextCursor
-	}
-
-	ch.logger.Debug("Scanned type group",
-		zap.Strings("types", slackTypes),
-		zap.Int("scanned", scanned),
-		zap.Int("found", len(unreadChannels)),
-		zap.Int("apiCalls", apiCalls),
-		zap.Int("rateLimited", rateLimited))
-
-	return unreadChannels, apiCalls, scanned, rateLimited
-}
-
-// getChannelDisplayName returns a human-readable name for a channel from conversations.info data.
-func (ch *ConversationsHandler) getChannelDisplayName(info *slack.Channel, channelType string, usersMap *provider.UsersCache) string {
-	switch channelType {
-	case "dm":
-		if info.User != "" {
-			if u, ok := usersMap.Users[info.User]; ok {
-				return "@" + u.Name
-			}
-			return "@" + info.User
-		}
-		return info.ID
-	case "group_dm":
-		return info.Name
-	default:
-		name := info.Name
-		if !strings.HasPrefix(name, "#") {
-			return "#" + name
-		}
-		return name
-	}
 }
 
 // ConversationsMarkHandler marks a channel as read up to a specific timestamp

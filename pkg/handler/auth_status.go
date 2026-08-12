@@ -93,24 +93,22 @@ func capabilityAvailability(standardOAuth, botToken, browserOK bool, degradedRea
 		availability["dnd"] = "available_if_enabled"
 		availability["slack_lists"] = "available_if_workspace_supported_and_enabled"
 	}
-	if botToken {
-		availability["conversations_unreads"] = "unavailable_for_bot"
-	} else {
-		availability["conversations_unreads"] = "available_after_cache_warmup"
-	}
 	if browserOK {
 		availability["browser_session"] = "available"
 		availability["activity"] = "available_after_cache_warmup"
 		availability["saved_later"] = "available_after_cache_warmup"
 		availability["persisted_draft_lifecycle"] = "available"
+		availability["conversations_unreads"] = "available_after_cache_warmup"
 	} else if degradedReason != "" {
 		availability["browser_session"] = "degraded"
 		availability["activity"] = "browser_session_degraded"
 		availability["saved_later"] = "browser_session_degraded"
+		availability["conversations_unreads"] = "browser_session_degraded"
 	} else {
 		availability["browser_session"] = "not_configured"
 		availability["activity"] = "browser_session_required"
 		availability["saved_later"] = "browser_session_required"
+		availability["conversations_unreads"] = "browser_session_required"
 	}
 	return availability
 }
@@ -131,7 +129,7 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 	}
 
 	if browserOK {
-		parts = append(parts, "Browser session auth is healthy for Activity and Saved tools.")
+		parts = append(parts, "Browser session auth is healthy for Unreads, Activity, Saved, and Draft tools.")
 	} else if degradedReason != "" {
 		parts = append(parts, "Browser session auth is degraded: "+degradedReason+". Refresh Slack in your browser and restart Plug.")
 	} else {

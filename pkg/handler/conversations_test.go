@@ -1329,6 +1329,14 @@ func newUnreadsTestHandler() *ConversationsHandler {
 	return &ConversationsHandler{logger: zap.NewNop()}
 }
 
+func TestUnitConversationsUnreadsFailsFastWithoutBrowserSession(t *testing.T) {
+	h := NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop())
+	result, err := h.ConversationsUnreadsHandler(context.Background(), mcp.CallToolRequest{})
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Equal(t, "conversations_unreads requires a healthy Slack browser session (xoxc/xoxd)", err.Error())
+}
+
 // ftime converts a Slack timestamp string into the edge fasttime.Time that
 // ChannelSnapshot carries.
 func ftime(t *testing.T, ts string) fasttime.Time {

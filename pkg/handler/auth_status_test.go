@@ -43,11 +43,17 @@ func TestUnitCapabilityAvailabilityIsolatesBrowserDegradation(t *testing.T) {
 	assert.Equal(t, "degraded", available["browser_session"])
 	assert.Equal(t, "available_if_workspace_supported_and_enabled", available["slack_lists"])
 	assert.Equal(t, "browser_session_degraded", available["activity"])
+	assert.Equal(t, "browser_session_degraded", available["conversations_unreads"])
 }
 
 func TestUnitCapabilityAvailabilityExplainsBotLimitations(t *testing.T) {
 	available := capabilityAvailability(false, true, false, "")
 	assert.Equal(t, "user_oauth_required", available["dnd"])
 	assert.Equal(t, "user_oauth_required", available["slack_lists"])
-	assert.Equal(t, "unavailable_for_bot", available["conversations_unreads"])
+	assert.Equal(t, "browser_session_required", available["conversations_unreads"])
+}
+
+func TestUnitCapabilityAvailabilityReportsBrowserUnreads(t *testing.T) {
+	available := capabilityAvailability(true, false, true, "")
+	assert.Equal(t, "available_after_cache_warmup", available["conversations_unreads"])
 }

@@ -355,7 +355,7 @@ func TestRegisterCacheDependentTools(t *testing.T) {
 		tools := srv.server.ListTools()
 		require.NotNil(t, tools)
 		assert.Contains(t, tools, ToolChannelsList)
-		assert.Contains(t, tools, ToolConversationsUnreads)
+		assert.NotContains(t, tools, ToolConversationsUnreads, "unreads requires a configured browser session")
 		assert.NotContains(t, tools, ToolUsersSearch, "users_search is registered during initial server setup, not delayed warmup")
 	})
 

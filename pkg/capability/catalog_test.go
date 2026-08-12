@@ -63,6 +63,19 @@ func TestDailyPowerToolsHaveNeutralBehaviorContracts(t *testing.T) {
 	}
 }
 
+func TestUnreadsIsBrowserOnly(t *testing.T) {
+	entry, ok := EntryForLocalTool("conversations_unreads")
+	if !ok {
+		t.Fatal("conversations_unreads missing from catalog")
+	}
+	if entry.Owner != OwnerLocalBrowser || entry.Auth != AuthBrowser || len(entry.RequiredScopes) != 0 {
+		t.Fatalf("unreads must be browser-only: %#v", entry)
+	}
+	if !slices.Contains(ActiveBrowserLocalTools(), "conversations_unreads") {
+		t.Fatal("conversations_unreads missing from browser-only inventory")
+	}
+}
+
 func TestVerifyInventoryRejectsMissingAndUnverifiedLocalIdentity(t *testing.T) {
 	official := InventorySnapshot{
 		CatalogVersion: CatalogVersion,
