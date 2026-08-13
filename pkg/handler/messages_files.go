@@ -174,20 +174,13 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	if err != nil {
 		return NewTypedErrorResult(err), nil
 	}
-	if action == "prepare" {
-		prepared, err := h.approvals.Prepare(binding)
-		if err != nil {
-			return NewTypedErrorResult(err), nil
-		}
+	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
+	if err != nil {
+		return NewTypedErrorResult(err), nil
+	}
+	if !execute {
 		result := MessageMutationData{Action: "delete", Phase: "prepared", ChannelID: channelID, Timestamp: timestamp, Target: &target, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339), Outcome: "awaiting_confirmation"}
 		return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
-	}
-	token := strings.TrimSpace(request.GetString("approval_token", ""))
-	if token == "" {
-		return NewTypedErrorResult(&ToolError{Code: "approval_required", Message: "approval_token is required for execute"}), nil
-	}
-	if _, err := h.approvals.Consume(token, binding); err != nil {
-		return NewTypedErrorResult(&ToolError{Code: "conflict", Message: err.Error(), Cause: err}), nil
 	}
 	mutation, err := h.service.Delete(ctx, channelID, timestamp)
 	if err != nil {
@@ -198,10 +191,11 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 }
 
 func requireMessageLifecycleTool(tool, channelID string) error {
-	if !requireToolEnabled("SLACK_MCP_ADD_MESSAGE_TOOL", tool) {
+	config := os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")
+	if !requireToolEnabled("SLACK_MCP_ADD_MESSAGE_TOOL", tool) && config == "" {
 		return &ToolError{Code: "tool_disabled", Message: tool + " is disabled"}
 	}
-	if config := os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL"); config != "" && !isChannelAllowedForConfig(channelID, config) {
+	if config != "" && !isChannelAllowedForConfig(channelID, config) {
 		return &ToolError{Code: "permission_denied", Message: tool + " is not allowed for this channel"}
 	}
 	return nil

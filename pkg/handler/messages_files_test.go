@@ -138,3 +138,43 @@ func TestUnitMessagesUpdateRejectsInvalidTimestamp(t *testing.T) {
 	assert.True(t, result.IsError)
 	assert.Equal(t, 0, service.updateCalls)
 }
+
+func TestUnitRequireMessageLifecycleToolHonorsChannelAllowlist(t *testing.T) {
+	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
+	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1,C2")
+
+	require.NoError(t, requireMessageLifecycleTool("messages_schedule", "C1"))
+	err := requireMessageLifecycleTool("messages_delete", "C9")
+	require.Error(t, err)
+	var toolErr *ToolError
+	require.ErrorAs(t, err, &toolErr)
+	assert.Equal(t, "permission_denied", toolErr.Code)
+
+	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
+	err = requireMessageLifecycleTool("messages_update", "C1")
+	require.Error(t, err)
+	require.ErrorAs(t, err, &toolErr)
+	assert.Equal(t, "tool_disabled", toolErr.Code)
+}
+
+func TestUnitMessagesScheduleUsesAddMessageAllowlistWithoutEnabledTools(t *testing.T) {
+	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
+	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1")
+	service := &fakeMessageFilesService{}
+	handler := newTestMessageFilesHandler(service)
+	handler.now = func() time.Time { return time.Unix(1_800_000_000, 0).UTC() }
+
+	ok, err := handler.MessagesSchedule(context.Background(), messageFilesRequest(map[string]any{
+		"channel_id": "C1", "text": "later", "post_at": "1800000060",
+	}))
+	require.NoError(t, err)
+	require.False(t, ok.IsError)
+	assert.Equal(t, 1, service.scheduleCalls)
+
+	denied, err := handler.MessagesSchedule(context.Background(), messageFilesRequest(map[string]any{
+		"channel_id": "C9", "text": "later", "post_at": "1800000060",
+	}))
+	require.NoError(t, err)
+	require.True(t, denied.IsError)
+	assert.Equal(t, 1, service.scheduleCalls)
+}

@@ -209,16 +209,13 @@ func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest)
 	if err != nil {
 		return NewTypedErrorResult(err), nil
 	}
-	if action == "prepare" {
-		prepared, prepareErr := h.approvals.Prepare(binding)
-		if prepareErr != nil {
-			return NewTypedErrorResult(prepareErr), nil
-		}
+	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
+	if err != nil {
+		return NewTypedErrorResult(err), nil
+	}
+	if !execute {
 		data := DraftMutationData{Phase: "prepared", Status: "awaiting_confirmation", Draft: &current, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339)}
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
-	}
-	if _, err := h.approvals.Consume(strings.TrimSpace(request.GetString("approval_token", "")), binding); err != nil {
-		return NewTypedErrorResult(&ToolError{Code: "approval_invalid", Message: err.Error(), Cause: err}), nil
 	}
 	if err := h.api.DeleteDraft(ctx, id, current.UpdatedTS); err != nil {
 		return NewTypedErrorResult(canvasDraftSearchError(err, true)), nil

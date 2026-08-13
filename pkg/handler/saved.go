@@ -72,11 +72,13 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	if pageSize > 50 {
 		pageSize = 50
 	}
+	var stopErr error
 
 	for fetched < limit {
 		if cursor != "" {
 			if err := rl.Wait(ctx); err != nil {
 				h.logger.Warn("Rate limiter wait failed, stopping pagination", zap.Error(err))
+				stopErr = err
 				break
 			}
 		}
@@ -112,6 +114,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 
 			if includeMessages {
 				if err := rl.Wait(ctx); err != nil {
+					stopErr = err
 					break
 				}
 				histParams := &slack.GetConversationHistoryParameters{
@@ -184,6 +187,10 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 			break
 		}
 		cursor = resp.ResponseMetadata.NextCursor
+	}
+
+	if stopErr != nil {
+		return cancelledToolResult(), nil
 	}
 
 	if includeMessages && len(allMessages) > 0 {

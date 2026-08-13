@@ -99,43 +99,27 @@ func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolReque
 		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "action, channel_id, and scheduled_message_id are required"}), nil
 	}
 
-	if action == "prepare" {
-		target, err := h.findScheduled(ctx, channelID, scheduledMessageID)
-		if err != nil {
-			return NewTypedErrorResult(scheduledError(err, false)), nil
-		}
-		binding, err := scheduledBinding(h.identity(), target)
-		if err != nil {
-			return NewTypedErrorResult(scheduledError(err, false)), nil
-		}
-		prepared, err := h.approvals.Prepare(binding)
-		if err != nil {
-			return NewTypedErrorResult(scheduledError(err, false)), nil
-		}
+	target, err := h.findScheduled(ctx, channelID, scheduledMessageID)
+	if err != nil {
+		return NewTypedErrorResult(scheduledError(err, false)), nil
+	}
+	binding, err := scheduledBinding(h.identity(), target)
+	if err != nil {
+		return NewTypedErrorResult(scheduledError(err, false)), nil
+	}
+	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
+	if err != nil {
+		return NewTypedErrorResult(err), nil
+	}
+	if !execute {
 		preview := scheduledResultMessage(target)
 		data := ScheduledCancelData{Phase: "prepared", ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339), Target: &preview, Outcome: "awaiting_confirmation"}
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 	}
-
-	token := strings.TrimSpace(request.GetString("approval_token", ""))
-	if token == "" {
-		return NewTypedErrorResult(&ToolError{Code: "approval_required", Message: "approval_token is required for execute"}), nil
-	}
-	current, err := h.findScheduled(ctx, channelID, scheduledMessageID)
-	if err != nil {
-		return NewTypedErrorResult(scheduledError(err, false)), nil
-	}
-	binding, err := scheduledBinding(h.identity(), current)
-	if err != nil {
-		return NewTypedErrorResult(scheduledError(err, false)), nil
-	}
-	if _, err := h.approvals.Consume(token, binding); err != nil {
-		return NewTypedErrorResult(&ToolError{Code: "conflict", Message: err.Error()}), nil
-	}
 	if err := h.service.CancelScheduled(ctx, channelID, scheduledMessageID); err != nil {
 		return NewTypedErrorResult(scheduledError(err, true)), nil
 	}
-	resultTarget := scheduledResultMessage(current)
+	resultTarget := scheduledResultMessage(target)
 	data := ScheduledCancelData{Phase: "executed", Target: &resultTarget, Cancelled: true, Outcome: "cancelled"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }

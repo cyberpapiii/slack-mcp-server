@@ -136,16 +136,13 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	if action == "prepare" {
-		prepared, err := h.approvals.Prepare(binding)
-		if err != nil {
-			return nil, err
-		}
+	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
+	if err != nil {
+		return nil, err
+	}
+	if !execute {
 		data := ChannelMutationData{Action: "archive", Phase: "prepared", Channel: &preparation.Expected, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339)}
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), mutationFallback(data)), nil
-	}
-	if _, err := h.approvals.Consume(strings.TrimSpace(request.GetString("approval_token", "")), binding); err != nil {
-		return nil, &ToolError{Code: "approval_invalid", Message: err.Error(), Cause: err}
 	}
 	state, err := h.service.ArchivePrepared(ctx, preparation)
 	if err != nil {

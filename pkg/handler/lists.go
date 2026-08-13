@@ -179,7 +179,7 @@ func (h *ListsHandler) PrepareDeleteItem(ctx context.Context, request mcp.CallTo
 	if err != nil {
 		return nil, err
 	}
-	prepared, err := h.approvals.Prepare(binding)
+	prepared, _, err := prepareOrExecute(h.approvals, "prepare", "", binding)
 	if err != nil {
 		return nil, err
 	}
@@ -209,8 +209,8 @@ func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolReque
 	if err != nil {
 		return nil, err
 	}
-	if _, err := h.approvals.Consume(token, binding); err != nil {
-		return NewTypedErrorResult(&ToolError{Code: "state_conflict", Message: err.Error(), Cause: err}), nil
+	if _, _, err := prepareOrExecute(h.approvals, "execute", token, binding); err != nil {
+		return NewTypedErrorResult(err), nil
 	}
 	if err := h.api.DeleteItem(ctx, listID, itemID); err != nil {
 		return NewTypedErrorResult(listToolError(err)), nil
