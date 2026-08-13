@@ -19,7 +19,7 @@ type MessageFilesClient interface {
 	ScheduleMessageContext(context.Context, string, string, ...slack.MsgOption) (string, string, error)
 	UpdateMessageContext(context.Context, string, string, ...slack.MsgOption) (string, string, string, error)
 	DeleteMessageContext(context.Context, string, string) (string, string, error)
-	GetConversationHistoryContext(context.Context, *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
+	GetConversationRepliesContext(context.Context, *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error)
 }
 
 type FileUploadRequest struct {
@@ -133,20 +133,19 @@ func (p *MessageFilesProvider) Delete(ctx context.Context, channelID, timestamp 
 }
 
 func (p *MessageFilesProvider) GetMessage(ctx context.Context, channelID, timestamp string) (MessageSnapshot, error) {
-	response, err := p.client.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
+	msgs, _, _, err := p.client.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 		ChannelID: channelID,
-		Oldest:    timestamp,
-		Latest:    timestamp,
-		Inclusive: true,
+		Timestamp: timestamp,
 		Limit:     1,
+		Inclusive: true,
 	})
 	if err != nil {
 		return MessageSnapshot{}, err
 	}
-	if response == nil || len(response.Messages) == 0 || response.Messages[0].Timestamp != timestamp {
+	if len(msgs) == 0 || msgs[0].Timestamp != timestamp {
 		return MessageSnapshot{}, errors.New("message_not_found")
 	}
-	message := response.Messages[0]
+	message := msgs[0]
 	return MessageSnapshot{ChannelID: channelID, Timestamp: message.Timestamp, Text: message.Text, UserID: message.User}, nil
 }
 

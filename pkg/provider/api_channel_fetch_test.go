@@ -179,3 +179,42 @@ func TestUnitSlackRetryAfter(t *testing.T) {
 		assert.Equal(t, time.Duration(0), slackRetryAfter(errors.New("boom")))
 	})
 }
+
+func TestUnitEnterpriseMergePropagatesStandardPaginationError(t *testing.T) {
+	edge := []slack.Channel{testChannel("D001", "im")}
+	calls := 0
+	fetchStd := func(params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+		calls++
+		if params == nil || params.Cursor == "" {
+			return []slack.Channel{testChannel("C001", "general")}, "cur1", nil
+		}
+		return nil, "", errors.New("boom")
+	}
+
+	chans, cursor, err := mergeStandardConversationPages(edge, nil, fetchStd)
+
+	require.Error(t, err, "a failed conversations.list page must not look like a complete merge")
+	assert.Contains(t, err.Error(), "boom")
+	assert.Empty(t, cursor)
+	require.Len(t, chans, 2, "partial merge is returned alongside the error")
+	assert.Equal(t, "D001", chans[0].ID)
+	assert.Equal(t, "C001", chans[1].ID)
+	assert.Equal(t, 2, calls)
+}
+
+func TestUnitEnterpriseMergeCompletesWhenStandardPagesFinish(t *testing.T) {
+	edge := []slack.Channel{testChannel("D001", "im")}
+	fetchStd := func(params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+		if params == nil || params.Cursor == "" {
+			return []slack.Channel{testChannel("C001", "general")}, "cur1", nil
+		}
+		return []slack.Channel{testChannel("C002", "random")}, "", nil
+	}
+
+	chans, cursor, err := mergeStandardConversationPages(edge, nil, fetchStd)
+
+	require.NoError(t, err)
+	assert.Empty(t, cursor)
+	require.Len(t, chans, 3)
+	assert.Equal(t, []string{"D001", "C001", "C002"}, []string{chans[0].ID, chans[1].ID, chans[2].ID})
+}

@@ -324,7 +324,6 @@ type MCPSlackClient struct {
 	isEnterprise bool
 	isOAuth      bool
 	isBotToken   bool
-	edgeFailed   atomic.Bool // sticky: after edge fails, skip edge and use standard API
 
 	fallbackSlackClient  *slack.Client
 	browserState         atomic.Int32
@@ -575,81 +574,89 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 			return std.GetConversationsContext(ctx, params)
 		}
 
-		if !c.edgeFailed.Load() {
-			edgeChannels, _, edgeErr := c.edgeClient.GetConversationsContext(ctx, nil)
-			if edgeErr != nil {
-				c.edgeFailed.Store(true)
-				return std.GetConversationsContext(ctx, params)
-			}
-
-			seen := make(map[string]struct{}, len(edgeChannels))
-			var channels []slack.Channel
-			for _, ec := range edgeChannels {
-				if params != nil && params.ExcludeArchived && ec.IsArchived {
-					continue
-				}
-				seen[ec.ID] = struct{}{}
-				channels = append(channels, slack.Channel{
-					IsGeneral: ec.IsGeneral,
-					GroupConversation: slack.GroupConversation{
-						Conversation: slack.Conversation{
-							ID:                 ec.ID,
-							IsIM:               ec.IsIM,
-							IsMpIM:             ec.IsMpIM,
-							IsPrivate:          ec.IsPrivate,
-							Created:            slack.JSONTime(ec.Created.Time().UnixMilli()),
-							Unlinked:           ec.Unlinked,
-							NameNormalized:     ec.NameNormalized,
-							IsShared:           ec.IsShared,
-							IsExtShared:        ec.IsExtShared,
-							IsOrgShared:        ec.IsOrgShared,
-							IsPendingExtShared: ec.IsPendingExtShared,
-							NumMembers:         ec.NumMembers,
-						},
-						Name:       ec.Name,
-						IsArchived: ec.IsArchived,
-						Members:    ec.Members,
-						Topic: slack.Topic{
-							Value: ec.Topic.Value,
-						},
-						Purpose: slack.Purpose{
-							Value: ec.Purpose.Value,
-						},
-					},
-				})
-			}
-
-			stdParams := &slack.GetConversationsParameters{
-				Limit:           999,
-				ExcludeArchived: true,
-			}
-			if params != nil {
-				stdParams.Types = params.Types
-			}
-			for {
-				stdChannels, nextCur, stdErr := std.GetConversationsContext(ctx, stdParams)
-				if stdErr != nil {
-					break
-				}
-				for _, sc := range stdChannels {
-					if _, ok := seen[sc.ID]; !ok {
-						seen[sc.ID] = struct{}{}
-						channels = append(channels, sc)
-					}
-				}
-				if nextCur == "" {
-					break
-				}
-				stdParams.Cursor = nextCur
-			}
-
-			return channels, "", nil
+		edgeChannels, _, edgeErr := c.edgeClient.GetConversationsContext(ctx, nil)
+		if edgeErr != nil {
+			return std.GetConversationsContext(ctx, params)
 		}
 
-		return std.GetConversationsContext(ctx, params)
+		var channels []slack.Channel
+		for _, ec := range edgeChannels {
+			if params != nil && params.ExcludeArchived && ec.IsArchived {
+				continue
+			}
+			channels = append(channels, slack.Channel{
+				IsGeneral: ec.IsGeneral,
+				GroupConversation: slack.GroupConversation{
+					Conversation: slack.Conversation{
+						ID:                 ec.ID,
+						IsIM:               ec.IsIM,
+						IsMpIM:             ec.IsMpIM,
+						IsPrivate:          ec.IsPrivate,
+						Created:            slack.JSONTime(ec.Created.Time().UnixMilli()),
+						Unlinked:           ec.Unlinked,
+						NameNormalized:     ec.NameNormalized,
+						IsShared:           ec.IsShared,
+						IsExtShared:        ec.IsExtShared,
+						IsOrgShared:        ec.IsOrgShared,
+						IsPendingExtShared: ec.IsPendingExtShared,
+						NumMembers:         ec.NumMembers,
+						User:               ec.User,
+					},
+					Name:       ec.Name,
+					IsArchived: ec.IsArchived,
+					Members:    ec.Members,
+					Topic: slack.Topic{
+						Value: ec.Topic.Value,
+					},
+					Purpose: slack.Purpose{
+						Value: ec.Purpose.Value,
+					},
+				},
+			})
+		}
+
+		return mergeStandardConversationPages(channels, params, func(p *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+			return std.GetConversationsContext(ctx, p)
+		})
 	}
 
 	return std.GetConversationsContext(ctx, params)
+}
+
+func mergeStandardConversationPages(
+	channels []slack.Channel,
+	params *slack.GetConversationsParameters,
+	fetchStd func(*slack.GetConversationsParameters) ([]slack.Channel, string, error),
+) ([]slack.Channel, string, error) {
+	seen := make(map[string]struct{}, len(channels))
+	for _, ch := range channels {
+		seen[ch.ID] = struct{}{}
+	}
+
+	stdParams := &slack.GetConversationsParameters{
+		Limit:           999,
+		ExcludeArchived: true,
+	}
+	if params != nil {
+		stdParams.Types = params.Types
+	}
+
+	for {
+		stdChannels, nextCur, stdErr := fetchStd(stdParams)
+		if stdErr != nil {
+			return channels, "", stdErr
+		}
+		for _, sc := range stdChannels {
+			if _, ok := seen[sc.ID]; !ok {
+				seen[sc.ID] = struct{}{}
+				channels = append(channels, sc)
+			}
+		}
+		if nextCur == "" {
+			return channels, "", nil
+		}
+		stdParams.Cursor = nextCur
+	}
 }
 
 func (c *MCPSlackClient) GetConversationsForUserContext(ctx context.Context, params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error) {
