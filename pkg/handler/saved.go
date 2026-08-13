@@ -124,7 +124,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 					Inclusive: true,
 					Limit:     1,
 				}
-				histResp, err := h.apiProvider.Slack().GetConversationHistoryContext(ctx, histParams)
+				histResp, err := h.apiProvider.WebAPI().GetConversationHistoryContext(ctx, histParams)
 				if err != nil {
 					h.logger.Warn("Failed to fetch saved message via history, trying replies",
 						zap.String("channel", item.ItemID),
@@ -149,7 +149,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 							Inclusive: true,
 							Limit:     maxMsgsPerItem,
 						}
-						replies, _, _, err := h.apiProvider.Slack().GetConversationRepliesContext(ctx, repliesParams)
+						replies, _, _, err := h.apiProvider.WebAPI().GetConversationRepliesContext(ctx, repliesParams)
 						if err == nil && len(replies) > 0 {
 							msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false, mode)
 							allMessages = append(allMessages, msgs...)
@@ -167,7 +167,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 						Inclusive: true,
 						Limit:     maxMsgsPerItem,
 					}
-					replies, _, _, err := h.apiProvider.Slack().GetConversationRepliesContext(ctx, repliesParams)
+					replies, _, _, err := h.apiProvider.WebAPI().GetConversationRepliesContext(ctx, repliesParams)
 					if err == nil && len(replies) > 0 {
 						msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false, mode)
 						allMessages = append(allMessages, msgs...)

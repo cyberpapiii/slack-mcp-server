@@ -176,7 +176,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			Limit:     maxMsgsPerThread,
 			Inclusive: true,
 		}
-		replies, _, _, err := h.apiProvider.Slack().GetConversationRepliesContext(ctx, &repliesParams)
+		replies, _, _, err := h.apiProvider.WebAPI().GetConversationRepliesContext(ctx, &repliesParams)
 		if err != nil {
 			h.logger.Warn("Failed to get thread replies",
 				zap.String("channel", t.ChannelID),

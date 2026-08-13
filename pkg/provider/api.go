@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -273,26 +272,9 @@ type SlackAPI interface {
 	AuthTest() (*slack.AuthTestResponse, error)
 	GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error)
 	GetUsersInfo(users ...string) (*[]slack.User, error)
-	PostMessageContext(ctx context.Context, channel string, options ...slack.MsgOption) (string, string, error)
 	MarkConversationContext(ctx context.Context, channel, ts string) error
-	OpenConversationContext(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error)
-	AddReactionContext(ctx context.Context, name string, item slack.ItemRef) error
-	RemoveReactionContext(ctx context.Context, name string, item slack.ItemRef) error
 	LeaveConversationContext(ctx context.Context, channelID string) (bool, error)
-	JoinConversationContext(ctx context.Context, channelID string) (*slack.Channel, string, []string, error)
-
-	GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
-	GetConversationRepliesContext(ctx context.Context, params *slack.GetConversationRepliesParameters) (msgs []slack.Message, hasMore bool, nextCursor string, err error)
-	SearchContext(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, *slack.SearchFiles, error)
-
-	GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error)
-	GetFileContext(ctx context.Context, downloadURL string, writer io.Writer) error
-	ListFilesContext(ctx context.Context, params slack.ListFilesParameters) ([]slack.File, *slack.ListFilesParameters, error)
-
-	GetConversationInfoContext(ctx context.Context, input *slack.GetConversationInfoInput) (*slack.Channel, error)
 	GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error)
-	// users.conversations: member channels only (cheaper unread path for xoxp).
-	GetConversationsForUserContext(ctx context.Context, params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error)
 
 	ClientUserBoot(ctx context.Context) (*edge.ClientUserBootResponse, error)
 	UsersSearch(ctx context.Context, query string, count int) ([]slack.User, error)
@@ -305,12 +287,6 @@ type SlackAPI interface {
 	SavedClearCompleted(ctx context.Context) error
 
 	GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error)
-
-	GetUserGroupsContext(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error)
-	GetUserGroupMembersContext(ctx context.Context, userGroup string, options ...slack.GetUserGroupMembersOption) ([]string, error)
-	CreateUserGroupContext(ctx context.Context, userGroup slack.UserGroup, options ...slack.CreateUserGroupOption) (slack.UserGroup, error)
-	UpdateUserGroupContext(ctx context.Context, userGroupID string, options ...slack.UpdateUserGroupsOption) (slack.UserGroup, error)
-	UpdateUserGroupMembersContext(ctx context.Context, userGroup string, members string, options ...slack.UpdateUserGroupMembersOption) (slack.UserGroup, error)
 }
 
 type MCPSlackClient struct {
@@ -553,10 +529,6 @@ func (c *MCPSlackClient) LeaveConversationContext(ctx context.Context, channelID
 	return c.standardSlackClient().LeaveConversationContext(ctx, channelID)
 }
 
-func (c *MCPSlackClient) JoinConversationContext(ctx context.Context, channelID string) (*slack.Channel, string, []string, error) {
-	return c.standardSlackClient().JoinConversationContext(ctx, channelID)
-}
-
 func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
 	std := c.standardSlackClient()
 	// Enterprise + session: edge alone is partial (issue #73); merge with fully
@@ -649,54 +621,6 @@ func mergeStandardConversationPages(
 		}
 		stdParams.Cursor = nextCur
 	}
-}
-
-func (c *MCPSlackClient) GetConversationsForUserContext(ctx context.Context, params *slack.GetConversationsForUserParameters) ([]slack.Channel, string, error) {
-	return c.standardSlackClient().GetConversationsForUserContext(ctx, params)
-}
-
-func (c *MCPSlackClient) GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-	return c.standardSlackClient().GetConversationHistoryContext(ctx, params)
-}
-
-func (c *MCPSlackClient) GetConversationRepliesContext(ctx context.Context, params *slack.GetConversationRepliesParameters) (msgs []slack.Message, hasMore bool, nextCursor string, err error) {
-	return c.standardSlackClient().GetConversationRepliesContext(ctx, params)
-}
-
-func (c *MCPSlackClient) SearchContext(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, *slack.SearchFiles, error) {
-	return c.standardSlackClient().SearchContext(ctx, query, params)
-}
-
-func (c *MCPSlackClient) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
-	return c.standardSlackClient().PostMessageContext(ctx, channelID, options...)
-}
-
-func (c *MCPSlackClient) OpenConversationContext(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error) {
-	return c.standardSlackClient().OpenConversationContext(ctx, params)
-}
-
-func (c *MCPSlackClient) AddReactionContext(ctx context.Context, name string, item slack.ItemRef) error {
-	return c.standardSlackClient().AddReactionContext(ctx, name, item)
-}
-
-func (c *MCPSlackClient) RemoveReactionContext(ctx context.Context, name string, item slack.ItemRef) error {
-	return c.standardSlackClient().RemoveReactionContext(ctx, name, item)
-}
-
-func (c *MCPSlackClient) GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error) {
-	return c.standardSlackClient().GetFileInfoContext(ctx, fileID, count, page)
-}
-
-func (c *MCPSlackClient) GetFileContext(ctx context.Context, downloadURL string, writer io.Writer) error {
-	return c.standardSlackClient().GetFileContext(ctx, downloadURL, writer)
-}
-
-func (c *MCPSlackClient) ListFilesContext(ctx context.Context, params slack.ListFilesParameters) ([]slack.File, *slack.ListFilesParameters, error) {
-	return c.standardSlackClient().ListFilesContext(ctx, params)
-}
-
-func (c *MCPSlackClient) GetConversationInfoContext(ctx context.Context, input *slack.GetConversationInfoInput) (*slack.Channel, error) {
-	return c.standardSlackClient().GetConversationInfoContext(ctx, input)
 }
 
 func (c *MCPSlackClient) ClientUserBoot(ctx context.Context) (*edge.ClientUserBootResponse, error) {
@@ -839,26 +763,6 @@ func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
 		return ErrBrowserSessionUnavailable
 	}
 	return err
-}
-
-func (c *MCPSlackClient) GetUserGroupsContext(ctx context.Context, options ...slack.GetUserGroupsOption) ([]slack.UserGroup, error) {
-	return c.standardSlackClient().GetUserGroupsContext(ctx, options...)
-}
-
-func (c *MCPSlackClient) GetUserGroupMembersContext(ctx context.Context, userGroup string, options ...slack.GetUserGroupMembersOption) ([]string, error) {
-	return c.standardSlackClient().GetUserGroupMembersContext(ctx, userGroup, options...)
-}
-
-func (c *MCPSlackClient) CreateUserGroupContext(ctx context.Context, userGroup slack.UserGroup, options ...slack.CreateUserGroupOption) (slack.UserGroup, error) {
-	return c.standardSlackClient().CreateUserGroupContext(ctx, userGroup, options...)
-}
-
-func (c *MCPSlackClient) UpdateUserGroupContext(ctx context.Context, userGroupID string, options ...slack.UpdateUserGroupsOption) (slack.UserGroup, error) {
-	return c.standardSlackClient().UpdateUserGroupContext(ctx, userGroupID, options...)
-}
-
-func (c *MCPSlackClient) UpdateUserGroupMembersContext(ctx context.Context, userGroup string, members string, options ...slack.UpdateUserGroupMembersOption) (slack.UserGroup, error) {
-	return c.standardSlackClient().UpdateUserGroupMembersContext(ctx, userGroup, members, options...)
 }
 
 func (c *MCPSlackClient) AuthResponse() *slack.AuthTestResponse {
@@ -1766,6 +1670,16 @@ func (ap *ApiProvider) ServerTransport() string {
 
 func (ap *ApiProvider) Slack() SlackAPI {
 	return ap.client
+}
+
+// WebAPI is the Slack Web API client used for ordinary slack-go calls.
+// Browser-only and enterprise-merge methods stay on Slack().
+func (ap *ApiProvider) WebAPI() *slack.Client {
+	client, ok := ap.client.(*MCPSlackClient)
+	if !ok || client == nil {
+		return nil
+	}
+	return client.standardSlackClient()
 }
 
 func (ap *ApiProvider) IsBotToken() bool {

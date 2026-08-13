@@ -286,7 +286,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 			Cursor:          apiCursor,
 			ExcludeArchived: true,
 		}
-		channels, nextCursor, err := ch.apiProvider.Slack().GetConversationsForUserContext(ctx, params)
+		channels, nextCursor, err := ch.apiProvider.WebAPI().GetConversationsForUserContext(ctx, params)
 		if err != nil {
 			ch.logger.Error("Failed to fetch user conversations", zap.Error(err))
 			return nil, fmt.Errorf("failed to fetch your channels: %v", err)

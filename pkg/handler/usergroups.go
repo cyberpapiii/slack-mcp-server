@@ -80,7 +80,7 @@ func newUserGroupFromSlack(g slack.UserGroup) UserGroup {
 
 func NewUsergroupsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *UsergroupsHandler {
 	return &UsergroupsHandler{
-		api:    apiProvider.Slack(),
+		api:    apiProvider.WebAPI(),
 		logger: logger,
 	}
 }
