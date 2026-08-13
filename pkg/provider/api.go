@@ -325,7 +325,6 @@ type MCPSlackClient struct {
 	isOAuth      bool
 	isBotToken   bool
 
-	fallbackSlackClient  *slack.Client
 	browserState         atomic.Int32
 	browserReason        atomic.Value
 	browserNotifyOnce    sync.Once
@@ -449,14 +448,7 @@ func NewMCPSlackClient(authProvider auth.Provider, logger *zap.Logger, cachedAut
 func (c *MCPSlackClient) standardSlackClient() *slack.Client {
 	c.oauthClientMu.RLock()
 	defer c.oauthClientMu.RUnlock()
-	if c.hasOAuthFallback() {
-		return c.fallbackSlackClient
-	}
 	return c.slackClient
-}
-
-func (c *MCPSlackClient) hasOAuthFallback() bool {
-	return c.fallbackSlackClient != nil
 }
 
 func (c *MCPSlackClient) browserFeaturesAvailable() bool {
@@ -471,7 +463,7 @@ func (c *MCPSlackClient) browserDegradedReason() string {
 }
 
 func (c *MCPSlackClient) effectiveOAuth() bool {
-	return c.isOAuth || c.hasOAuthFallback()
+	return c.isOAuth
 }
 
 func (c *MCPSlackClient) initBrowserState() {
@@ -800,9 +792,6 @@ func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([
 	if err != nil {
 		if isBrowserSessionAuthError(err) {
 			c.degradeBrowserSession(err)
-			if c.hasOAuthFallback() {
-				return c.GetStarredChannelIDs(ctx, limit)
-			}
 			return nil, ErrBrowserSessionUnavailable
 		}
 		return nil, err
@@ -885,7 +874,7 @@ func (c *MCPSlackClient) IsOAuth() bool {
 }
 
 // ConfiguredWithBrowserSession reports construction-time xoxc/xoxd (or similar
-// session) auth — not runtime effectiveOAuth after browser degrade+xoxp fallback.
+// session) auth — not runtime OAuth after browser degrade.
 // Use this for registering browser-only tools so mid-warmup degradation cannot
 // hide activity/saved tools that still need session credentials when healthy.
 func (c *MCPSlackClient) ConfiguredWithBrowserSession() bool {
@@ -1021,7 +1010,7 @@ func New(transport string, logger *zap.Logger) *ApiProvider {
 		if err != nil {
 			logger.Fatal("Failed to create auth provider with XOXC/XOXD tokens", zap.Error(err))
 		}
-		ap, startupErr := newWithXOXC(transport, authProvider, "", logger)
+		ap, startupErr := newWithXOXC(transport, authProvider, logger)
 		if startupErr == nil {
 			return ap
 		}
@@ -1108,7 +1097,7 @@ func newWithXOXP(transport string, authProvider auth.ValueAuth, logger *zap.Logg
 	return ap
 }
 
-func newWithXOXC(transport string, authProvider auth.ValueAuth, oauthFallbackToken string, logger *zap.Logger) (*ApiProvider, error) {
+func newWithXOXC(transport string, authProvider auth.ValueAuth, logger *zap.Logger) (*ApiProvider, error) {
 	var (
 		client *MCPSlackClient
 		err    error
@@ -1137,19 +1126,6 @@ func newWithXOXC(transport string, authProvider auth.ValueAuth, oauthFallbackTok
 			return nil, err
 		}
 		client.initBrowserState()
-		if oauthFallbackToken != "" {
-			fallbackAuth, fallbackErr := auth.NewValueAuth(oauthFallbackToken, "")
-			if fallbackErr != nil {
-				logger.Warn("Failed to create OAuth fallback auth provider", zap.Error(fallbackErr))
-			} else {
-				httpClient := transportpkg.ProvideHTTPClient(fallbackAuth.Cookies(), logger)
-				client.fallbackSlackClient = slack.New(
-					fallbackAuth.SlackToken(),
-					slack.OptionHTTPClient(httpClient),
-					slack.OptionAPIURL(cachedAuth.URL+"api/"),
-				)
-			}
-		}
 	}
 
 	ap := &ApiProvider{

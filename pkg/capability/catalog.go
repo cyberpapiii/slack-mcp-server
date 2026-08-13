@@ -378,10 +378,6 @@ func VerifyInventory(_ InventorySnapshot, host HostInventory) VerificationReport
 	return report
 }
 
-func identitiesConflict(a, b Identity) bool {
-	return a.TeamID != b.TeamID || a.UserID != b.UserID || (a.EnterpriseID != "" && b.EnterpriseID != "" && a.EnterpriseID != b.EnterpriseID)
-}
-
 func identityComplete(identity Identity) bool {
 	return identity.TeamID != "" && identity.UserID != ""
 }

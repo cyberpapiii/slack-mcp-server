@@ -109,10 +109,9 @@ func TestBrowserDegradationState(t *testing.T) {
 	assert.True(t, c.browserFeaturesAvailable())
 	assert.False(t, c.IsOAuth())
 
-	c.fallbackSlackClient = &slack.Client{}
 	c.degradeBrowserSession(errors.New("invalid_auth"))
 	assert.False(t, c.browserFeaturesAvailable())
-	assert.True(t, c.IsOAuth())
+	assert.False(t, c.IsOAuth())
 	assert.Equal(t, "invalid_auth", c.browserDegradedReason())
 
 	c.degradeBrowserSession(errors.New("invalid_auth"))
@@ -120,11 +119,11 @@ func TestBrowserDegradationState(t *testing.T) {
 	assert.Equal(t, 1, notifies, "degradation should only notify once")
 }
 
-func TestStandardSlackClientAlwaysPrefersOAuthWhenBrowserIsHealthy(t *testing.T) {
-	browserClient := slack.New("xoxc-browser")
+func TestStandardSlackClientUsesOAuthClientWhenBrowserIsAttached(t *testing.T) {
 	oauthClient := slack.New("xoxp-oauth")
 	c := &MCPSlackClient{
-		slackClient: browserClient, fallbackSlackClient: oauthClient,
+		slackClient:       oauthClient,
+		isOAuth:           true,
 		browserConfigured: true,
 	}
 	c.browserState.Store(int32(browserStateActive))

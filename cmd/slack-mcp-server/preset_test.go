@@ -28,6 +28,18 @@ func TestResolveEnabledTools(t *testing.T) {
 		require.NoError(t, err)
 		assert.ElementsMatch(t, server.ValidToolNames, tools)
 	})
+
+	t.Run("whitespace-only explicit list is an error", func(t *testing.T) {
+		_, err := resolveEnabledTools("  , , ", "daily-power")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no tool names")
+	})
+
+	t.Run("blank explicit list still uses the default preset", func(t *testing.T) {
+		tools, err := resolveEnabledTools("   ", "")
+		require.NoError(t, err)
+		assert.Contains(t, tools, server.ToolSlackAuthStatus)
+	})
 }
 
 func TestApplyResolvedToolPolicyMakesCLISelectionVisibleToHandlers(t *testing.T) {

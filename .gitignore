@@ -21,3 +21,4 @@ docker-compose.release.yml
 bin/
 .cursor/
 .claude/
+*.profraw

@@ -180,12 +180,15 @@ func main() {
 }
 
 func resolveEnabledTools(explicit, preset string) ([]string, error) {
-	if explicit != "" {
+	if strings.TrimSpace(explicit) != "" {
 		var tools []string
 		for _, tool := range strings.Split(explicit, ",") {
 			if tool = strings.TrimSpace(tool); tool != "" {
 				tools = append(tools, tool)
 			}
+		}
+		if len(tools) == 0 {
+			return nil, fmt.Errorf("SLACK_MCP_ENABLED_TOOLS / --enabled-tools is set but contains no tool names")
 		}
 		return tools, nil
 	}
