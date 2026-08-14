@@ -17,6 +17,8 @@ var (
 // ChannelMutationClient is intentionally smaller than SlackAPI. Archive uses
 // GetConversationInfoContext both before preparation and immediately before
 // mutation so callers never retry a destructive request blindly.
+var _ ChannelMutationClient = (*slack.Client)(nil)
+
 type ChannelMutationClient interface {
 	GetConversationInfoContext(context.Context, *slack.GetConversationInfoInput) (*slack.Channel, error)
 	RenameConversationContext(context.Context, string, string) (*slack.Channel, error)
@@ -48,27 +50,11 @@ func NewChannelMutationProvider(client ChannelMutationClient) *ChannelMutationPr
 }
 
 func (ap *ApiProvider) ChannelMutations() (*ChannelMutationProvider, error) {
-	client, ok := ap.client.(ChannelMutationClient)
-	if !ok || client == nil {
+	web := ap.WebAPI()
+	if web == nil {
 		return nil, errors.New("Slack client does not support channel mutations")
 	}
-	return NewChannelMutationProvider(client), nil
-}
-
-func (c *MCPSlackClient) RenameConversationContext(ctx context.Context, channelID, name string) (*slack.Channel, error) {
-	return c.standardSlackClient().RenameConversationContext(ctx, channelID, name)
-}
-
-func (c *MCPSlackClient) SetTopicOfConversationContext(ctx context.Context, channelID, topic string) (*slack.Channel, error) {
-	return c.standardSlackClient().SetTopicOfConversationContext(ctx, channelID, topic)
-}
-
-func (c *MCPSlackClient) SetPurposeOfConversationContext(ctx context.Context, channelID, purpose string) (*slack.Channel, error) {
-	return c.standardSlackClient().SetPurposeOfConversationContext(ctx, channelID, purpose)
-}
-
-func (c *MCPSlackClient) ArchiveConversationContext(ctx context.Context, channelID string) error {
-	return c.standardSlackClient().ArchiveConversationContext(ctx, channelID)
+	return NewChannelMutationProvider(web), nil
 }
 
 func (p *ChannelMutationProvider) Rename(ctx context.Context, channelID, name string) (ChannelMutationState, error) {

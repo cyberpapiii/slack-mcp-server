@@ -170,3 +170,12 @@ func TestPrepareArchiveRejectsAlreadyArchived(t *testing.T) {
 	require.ErrorIs(t, err, ErrChannelAlreadyArchived)
 	assert.Zero(t, fake.archiveCalls)
 }
+
+func TestUnitChannelMutationsUsesWebAPI(t *testing.T) {
+	_, err := (&ApiProvider{}).ChannelMutations()
+	require.Error(t, err)
+
+	got, err := (&ApiProvider{client: &MCPSlackClient{slackClient: slack.New("xoxp-test")}}).ChannelMutations()
+	require.NoError(t, err)
+	require.NotNil(t, got)
+}

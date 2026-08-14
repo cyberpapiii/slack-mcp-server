@@ -93,9 +93,18 @@ func TestUnitUploadExternalBytesPostsMultipartFileOnce(t *testing.T) {
 	defer server.Close()
 
 	client := slack.New("xoxp-test", slack.OptionHTTPClient(server.Client()))
-	err := (&MCPSlackClient{slackClient: client}).UploadExternalBytes(context.Background(), server.URL, "proof.pdf", []byte("pdf"))
+	err := messageFilesWebClient{Client: client}.UploadExternalBytes(context.Background(), server.URL, "proof.pdf", []byte("pdf"))
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls)
+}
+
+func TestUnitMessageFilesUsesWebAPI(t *testing.T) {
+	_, err := (&ApiProvider{}).MessageFiles()
+	require.Error(t, err)
+
+	got, err := (&ApiProvider{client: &MCPSlackClient{slackClient: slack.New("xoxp-test")}}).MessageFiles()
+	require.NoError(t, err)
+	require.NotNil(t, got)
 }
 
 func TestUnitGetMessageFindsThreadReplyWhenHistoryOmitsIt(t *testing.T) {

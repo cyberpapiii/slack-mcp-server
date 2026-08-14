@@ -85,6 +85,8 @@ type CanvasAPI interface {
 	UpdateCanvas(context.Context, CanvasUpdateRequest) error
 }
 
+var _ canvasSlackAPI = (*MCPSlackClient)(nil)
+
 type canvasSlackAPI interface {
 	CreateCanvasContext(context.Context, string, slack.DocumentContent) (string, error)
 	EditCanvasContext(context.Context, slack.EditCanvasParams) error
@@ -164,6 +166,10 @@ func (c *MCPSlackClient) CreateCanvasContext(ctx context.Context, title string, 
 
 func (c *MCPSlackClient) EditCanvasContext(ctx context.Context, params slack.EditCanvasParams) error {
 	return c.standardSlackClient().EditCanvasContext(ctx, params)
+}
+
+func (c *MCPSlackClient) GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error) {
+	return c.standardSlackClient().GetFileInfoContext(ctx, fileID, count, page)
 }
 
 func (c *MCPSlackClient) LookupCanvasSectionsContext(ctx context.Context, params slack.LookupCanvasSectionsParams) ([]slack.CanvasSection, error) {

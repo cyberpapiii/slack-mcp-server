@@ -12,6 +12,8 @@ import (
 
 // MessageFilesClient is the narrow, testable Slack surface for outbound files
 // and message mutations. Each method is called at most once per operation.
+var _ MessageFilesClient = messageFilesWebClient{}
+
 type MessageFilesClient interface {
 	GetUploadURLExternalContext(context.Context, slack.GetUploadURLExternalParameters) (*slack.GetUploadURLExternalResponse, error)
 	UploadExternalBytes(context.Context, string, string, []byte) error
@@ -60,13 +62,25 @@ func NewMessageFilesProvider(client MessageFilesClient) *MessageFilesProvider {
 	return &MessageFilesProvider{client: client}
 }
 
+type messageFilesWebClient struct {
+	*slack.Client
+}
+
+func (c messageFilesWebClient) UploadExternalBytes(ctx context.Context, uploadURL, filename string, data []byte) error {
+	return c.UploadToURL(ctx, slack.UploadToURLParameters{
+		UploadURL: uploadURL,
+		Filename:  filename,
+		Reader:    bytes.NewReader(data),
+	})
+}
+
 // MessageFiles returns the custom local provider. No official MCP dependency.
 func (ap *ApiProvider) MessageFiles() (*MessageFilesProvider, error) {
-	client, ok := ap.client.(MessageFilesClient)
-	if !ok {
+	web := ap.WebAPI()
+	if web == nil {
 		return nil, errors.New("configured Slack client does not support file and message mutations")
 	}
-	return NewMessageFilesProvider(client), nil
+	return NewMessageFilesProvider(messageFilesWebClient{Client: web}), nil
 }
 
 func (p *MessageFilesProvider) Upload(ctx context.Context, request FileUploadRequest) (UploadedFile, error) {
@@ -147,32 +161,4 @@ func (p *MessageFilesProvider) GetMessage(ctx context.Context, channelID, timest
 	}
 	message := msgs[0]
 	return MessageSnapshot{ChannelID: channelID, Timestamp: message.Timestamp, Text: message.Text, UserID: message.User}, nil
-}
-
-func (c *MCPSlackClient) GetUploadURLExternalContext(ctx context.Context, params slack.GetUploadURLExternalParameters) (*slack.GetUploadURLExternalResponse, error) {
-	return c.standardSlackClient().GetUploadURLExternalContext(ctx, params)
-}
-
-func (c *MCPSlackClient) CompleteUploadExternalContext(ctx context.Context, params slack.CompleteUploadExternalParameters) (*slack.CompleteUploadExternalResponse, error) {
-	return c.standardSlackClient().CompleteUploadExternalContext(ctx, params)
-}
-
-func (c *MCPSlackClient) ScheduleMessageContext(ctx context.Context, channelID, postAt string, options ...slack.MsgOption) (string, string, error) {
-	return c.standardSlackClient().ScheduleMessageContext(ctx, channelID, postAt, options...)
-}
-
-func (c *MCPSlackClient) UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
-	return c.standardSlackClient().UpdateMessageContext(ctx, channelID, timestamp, options...)
-}
-
-func (c *MCPSlackClient) DeleteMessageContext(ctx context.Context, channelID, timestamp string) (string, string, error) {
-	return c.standardSlackClient().DeleteMessageContext(ctx, channelID, timestamp)
-}
-
-func (c *MCPSlackClient) UploadExternalBytes(ctx context.Context, uploadURL, filename string, data []byte) error {
-	return c.standardSlackClient().UploadToURL(ctx, slack.UploadToURLParameters{
-		UploadURL: uploadURL,
-		Filename:  filename,
-		Reader:    bytes.NewReader(data),
-	})
 }
