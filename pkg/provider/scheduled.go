@@ -10,6 +10,8 @@ import (
 
 // ScheduledClient is the narrow Slack API surface needed for scheduled-message
 // lifecycle operations. Neither method retries mutations.
+var _ ScheduledClient = (*slack.Client)(nil)
+
 type ScheduledClient interface {
 	GetScheduledMessagesContext(context.Context, *slack.GetScheduledMessagesParameters) ([]slack.ScheduledMessage, string, error)
 	DeleteScheduledMessageContext(context.Context, *slack.DeleteScheduledMessageParameters) (bool, error)
@@ -42,11 +44,11 @@ func NewScheduledProvider(client ScheduledClient) *ScheduledProvider {
 }
 
 func (ap *ApiProvider) Scheduled() (*ScheduledProvider, error) {
-	client, ok := ap.client.(ScheduledClient)
-	if !ok {
+	web := ap.WebAPI()
+	if web == nil {
 		return nil, errors.New("configured Slack client does not support scheduled messages")
 	}
-	return NewScheduledProvider(client), nil
+	return NewScheduledProvider(web), nil
 }
 
 func (p *ScheduledProvider) ListScheduled(ctx context.Context, request ScheduledListRequest) (ScheduledPage, error) {
@@ -84,12 +86,4 @@ func (p *ScheduledProvider) CancelScheduled(ctx context.Context, channelID, sche
 		return errors.New("Slack did not confirm scheduled-message cancellation")
 	}
 	return nil
-}
-
-func (c *MCPSlackClient) GetScheduledMessagesContext(ctx context.Context, params *slack.GetScheduledMessagesParameters) ([]slack.ScheduledMessage, string, error) {
-	return c.standardSlackClient().GetScheduledMessagesContext(ctx, params)
-}
-
-func (c *MCPSlackClient) DeleteScheduledMessageContext(ctx context.Context, params *slack.DeleteScheduledMessageParameters) (bool, error) {
-	return c.standardSlackClient().DeleteScheduledMessageContext(ctx, params)
 }

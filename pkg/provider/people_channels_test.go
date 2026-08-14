@@ -144,3 +144,12 @@ func TestPeopleChannelsDoesNotRetryMutations(t *testing.T) {
 	assert.Equal(t, 1, fake.channelCreates)
 	assert.Equal(t, 1, fake.channelInvites)
 }
+
+func TestUnitPeopleChannelsUsesWrapper(t *testing.T) {
+	_, err := (&ApiProvider{}).PeopleChannels()
+	require.Error(t, err)
+
+	got, err := (&ApiProvider{client: &MCPSlackClient{slackClient: slack.New("xoxp-test")}}).PeopleChannels()
+	require.NoError(t, err)
+	require.NotNil(t, got)
+}

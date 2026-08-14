@@ -22,6 +22,8 @@ var ErrInvalidPaginationCursor = errors.New("invalid pagination cursor")
 // PeopleChannelsClient is the narrow Slack API surface used by profile, emoji,
 // and channel-membership tools. Mutation methods are called once; callers must
 // observe current Slack state before retrying an ambiguous failure.
+var _ PeopleChannelsClient = (*MCPSlackClient)(nil)
+
 type PeopleChannelsClient interface {
 	GetUserProfileContext(context.Context, *slack.GetUserProfileParameters) (*slack.UserProfile, error)
 	UpdateUserProfileContext(context.Context, UserProfileUpdate) (*slack.UserProfile, error)

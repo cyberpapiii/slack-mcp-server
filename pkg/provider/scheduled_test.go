@@ -83,3 +83,9 @@ func TestScheduledAccessorRejectsUnsupportedClient(t *testing.T) {
 	_, err := (&ApiProvider{}).Scheduled()
 	require.Error(t, err)
 }
+
+func TestUnitScheduledUsesWebAPI(t *testing.T) {
+	got, err := (&ApiProvider{client: &MCPSlackClient{slackClient: slack.New("xoxp-test")}}).Scheduled()
+	require.NoError(t, err)
+	require.NotNil(t, got)
+}
