@@ -176,3 +176,25 @@ func TestUnitFileResultShapes(t *testing.T) {
 		assert.Equal(t, "", m["content"], "content key must be present even when empty")
 	})
 }
+
+func TestUnitFilesPageCursorRoundTrip(t *testing.T) {
+	page, err := filesPage("")
+	require.NoError(t, err)
+	assert.Equal(t, 1, page, "no cursor starts at page 1")
+
+	page, err = filesPage("3")
+	require.NoError(t, err)
+	assert.Equal(t, 3, page)
+
+	for _, bad := range []string{"0", "-1", "abc", "dXNlcjpV"} {
+		_, err := filesPage(bad)
+		var toolErr *ToolError
+		require.ErrorAs(t, err, &toolErr, bad)
+		assert.Equal(t, "invalid_arguments", toolErr.Code, bad)
+	}
+
+	assert.Equal(t, "", nextFilesCursor(nil))
+	assert.Equal(t, "", nextFilesCursor(&slack.Paging{Page: 2, Pages: 2}), "last page emits no cursor")
+	assert.Equal(t, "", nextFilesCursor(&slack.Paging{Page: 1, Pages: 0}), "empty result set emits no cursor")
+	assert.Equal(t, "2", nextFilesCursor(&slack.Paging{Page: 1, Pages: 5}))
+}

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -111,14 +112,38 @@ type fileResultPayload struct {
 }
 
 func (ch *ConversationsHandler) parseParamsToolFilesList(request mcp.CallToolRequest) (*filesListParams, error) {
-	params := &filesListParams{
+	page, err := filesPage(request.GetString("cursor", ""))
+	if err != nil {
+		return nil, err
+	}
+	return &filesListParams{
 		channel: request.GetString("channel_id", ""),
 		user:    request.GetString("user_id", ""),
 		types:   request.GetString("types", ""),
-		cursor:  request.GetString("cursor", ""),
 		limit:   pageLimit(request, 50, 200),
+		page:    page,
+	}, nil
+}
+
+// files.list paginates by count/page, not by cursor (Slack ignores `limit`
+// and never returns response_metadata). The cursor this tool hands out is the
+// next page number, so `cursor` round-trips through the shared CSV contract.
+func filesPage(cursor string) (int, error) {
+	if cursor == "" {
+		return 1, nil
 	}
-	return params, nil
+	page, err := strconv.Atoi(cursor)
+	if err != nil || page < 1 {
+		return 0, invalidArguments("cursor must be a #next_cursor value from a previous files_list call")
+	}
+	return page, nil
+}
+
+func nextFilesCursor(paging *slack.Paging) string {
+	if paging == nil || paging.Page >= paging.Pages {
+		return ""
+	}
+	return strconv.Itoa(paging.Page + 1)
 }
 
 func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -135,17 +160,15 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 		return nil, err
 	}
 
-	listParams := slack.ListFilesParameters{
+	files, paging, err := ch.apiProvider.WebAPI().GetFilesContext(ctx, slack.GetFilesParameters{
 		Channel: params.channel,
 		User:    params.user,
 		Types:   params.types,
-		Limit:   params.limit,
-		Cursor:  params.cursor,
-	}
-
-	files, nextPage, err := ch.apiProvider.WebAPI().ListFilesContext(ctx, listParams)
+		Count:   params.limit,
+		Page:    params.page,
+	})
 	if err != nil {
-		ch.logger.Error("Slack ListFilesContext failed", zap.Error(err))
+		ch.logger.Error("Slack GetFilesContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -153,10 +176,7 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 		return mcp.NewToolResultText("No files found."), nil
 	}
 
-	nextCursor := ""
-	if nextPage != nil {
-		nextCursor = nextPage.Cursor
-	}
+	nextCursor := nextFilesCursor(paging)
 
 	resolver := ch.newUserResolver(ctx)
 	userName := func(id string) string {

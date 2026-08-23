@@ -129,7 +129,7 @@ type filesListParams struct {
 	user    string
 	types   string
 	limit   int
-	cursor  string
+	page    int
 }
 
 type usersSearchParams struct {
