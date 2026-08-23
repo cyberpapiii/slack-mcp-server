@@ -370,7 +370,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 	), usergroupsHandler.UsergroupsUpdateHandler)
 
 	addEnabledTool(s, enabledTools, newTool(ToolUsergroupsUsersUpdate,
-		mcp.WithDescription("Replace all members of a user group with a new list. WARNING: any user not in the 'users' parameter is removed. To add or remove only yourself, use usergroups_me instead. To add one user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
+		mcp.WithDescription("Replace all members of a user group with a new list. WARNING: any user not in the 'users' parameter is removed. To add or remove only yourself, use usergroups_join or usergroups_leave. To add one user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
 		mcp.WithString("usergroup_id",
 			mcp.Required(),
 			mcp.Description("ID of the user group (starts with 'S', e.g., 'S0123456789'). Get IDs from usergroups_list."),

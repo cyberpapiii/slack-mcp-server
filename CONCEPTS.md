@@ -10,10 +10,7 @@ The MCP multiplexer that supervises this project's server as a child subprocess 
 ### Deployment canary
 An observable change in the server's live output, such as a new column header or a changed rendering of a known string, used to confirm from the outside that newly deployed code is actually serving. Complements process-level checks: a running server whose start time predates its binary's build time was never actually redeployed.
 
-## Output modes
-
-### Canonical capability
-The single visible tool selected for one user intent across Slack's official MCP and this local server. Provider ownership may change as Slack adds or improves tools, but overlapping official and local defaults must not be exposed together.
+## Output
 
 ### Standard mode
 The default output level for message-returning tools: compact CSV designed for agent consumption, keeping identifiers needed for follow-up actions while dropping verbose columns. May prepend a Legend and truncate long attachments with a Truncation receipt. Callers select modes per call via the `detail` parameter; a server-wide default applies when the call doesn't specify one.
@@ -22,7 +19,10 @@ The default output level for message-returning tools: compact CSV designed for a
 The verbose output level: all columns including per-message user IDs and permalinks, with attachments rendered in full. The lossless recovery route when Standard mode has truncated something.
 
 ### Legend
-Comment lines prepended to Standard-mode output before the CSV header: a user map (each distinct human speaker's ID, username, and real name) and a link template for constructing message permalinks from the channel and message ID columns. Emitted only when the response is large enough for the mapping to pay for itself; bots are excluded from the user map.
+Comment lines prepended to CSV output before the header: a channel map (`#channels:`), a user map (`#users:`, each distinct human speaker's ID, username, and real name), a link template for constructing message permalinks (`#link_template:`), the pagination cursor (`#next_cursor:`), and a partial-result reason (`#partial:`). The user map is emitted only when the response is large enough for it to pay for itself; bots are excluded.
+
+### Companion table
+A second CSV table appended after a `#activity_items:` or `#saved_items:` line by tools that return both messages and the items that point at them. Its rows carry the IDs the matching mutation tool takes.
 
 ### Truncation receipt
 The suffix appended to an attachment cut down to Standard mode's rendering budget, telling the reader the content was truncated. Recovery: re-fetch that message with `detail: full`, or call `conversations_get_message` with the channel and MsgID/timestamp. Attachments have no ID-addressable fetch path of their own.

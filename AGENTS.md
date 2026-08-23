@@ -1,6 +1,6 @@
 # Agent guide: local slack-mcp-server fork
 
-This repository is a **local fork** of [korotovsky/slack-mcp-server](https://github.com/korotovsky/slack-mcp-server) with over 50 fork-authored commits of MCP and agent-oriented improvements on top of upstream v1.3.0. It is **not** the npm release path. Production use on this machine goes through **Plug** → `bin/slack-mcp-server`.
+This repository is a **local fork** of [korotovsky/slack-mcp-server](https://github.com/korotovsky/slack-mcp-server) with about 165 fork-authored commits of MCP and agent-oriented improvements on top of upstream v1.3.0. It is **not** the npm release path. Production use on this machine goes through **Plug** → `bin/slack-mcp-server`.
 
 ## Build and verify
 
@@ -38,34 +38,13 @@ The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is se
 
 ## Tool surface
 
-Canonical tool names: `ValidToolNames` in `pkg/server/server.go`. There are **69** tools; upstream README documents fewer. This fork is self-contained and does not require Slack's official MCP.
+Canonical tool names: `capability.Names()` (`pkg/capability/catalog.go`), the one table every registered tool is built from (title, MCP hints, preset membership, registration phase, OAuth scopes). There are **68** tools. The README "Tools" section lists them by family; `scripts/toolslist-snapshot.sh [preset] [out.json]` dumps the live `tools/list` for a preset. This fork is self-contained and does not use Slack's official MCP.
 
-The full set, grouped (★ = local-only or fork-extended):
-
-| Group | Tools |
-|-------|-------|
-| Messages | `conversations_history`, `conversations_replies`, ★`conversations_get_message`, `conversations_search_messages`, `conversations_add_message`, ★`conversations_draft_message` |
-| Conversations | ★`conversations_open`, ★`conversations_unreads` (browser session / xoxc+xoxd), `conversations_mark`, `conversations_join`, `conversations_leave` |
-| Channels | `channels_list`, ★`channels_starred`, ★`channels_me` |
-| Reactions | `reactions_add`, `reactions_remove`, ★`reactions_get` |
-| Usergroups | `usergroups_list`, `usergroups_mine`, `usergroups_join`, `usergroups_leave`, `usergroups_create`, `usergroups_update`, `usergroups_users_update` |
-| Users | `users_search` |
-| Activity | ★`activity_unreads`, ★`activity_mark_read` (browser session / xoxc+xoxd) |
-| Saved items | ★`saved_list`, ★`saved_update`, ★`saved_clear_completed` |
-| Files | ★`files_list`, `attachment_get_data` |
-| Diagnostics | ★`slack_auth_status`: cache and browser-session health (call before activity/saved tools) |
-| Scheduled | ★`scheduled_messages_list`, ★`scheduled_message_cancel` |
-| Channel maintenance | ★`channels_rename`, ★`channels_set_topic`, ★`channels_set_purpose`, ★`channels_archive` |
-| Slack Lists | ★`lists_create`, ★`lists_update`, ★`lists_items_list`, ★`lists_items_create`, ★`lists_items_update`, ★`lists_item_delete` |
-| DND | ★`dnd_get`, ★`dnd_set_snooze`, ★`dnd_end_snooze` |
-| Files and message lifecycle | ★`files_upload`, ★`messages_schedule`, ★`messages_update`, ★`messages_delete` |
-| People and channels | ★`users_get_profile`, ★`users_set_profile`, ★`users_set_status`, ★`emoji_list`, ★`channels_create`, ★`channels_members`, ★`channels_invite` |
-| Canvases and drafts | ★`canvases_create`, ★`canvases_read`, ★`canvases_update`, ★`drafts_list`, ★`drafts_get`, ★`drafts_create`, ★`drafts_update`, ★`drafts_delete` |
-| Search | ★`search_semantic` (requires Slack Data Access enablement) |
+Browser-session tools (`capability.BrowserNames()`, registered only when xoxc/xoxd is configured): `activity_mark_read`, `activity_unreads`, `conversations_unreads`, `drafts_*`, `saved_*`. Cache-dependent tools (`CacheReady`, registered after warm-up): `channels_list`, `channels_me`, `channels_starred`, `conversations_unreads`, `activity_unreads`, `activity_mark_read`.
 
 `conversations_get_message` fetches a single message by channel and timestamp, the recovery path for an attachment-truncation receipt.
 
-Output is compact CSV by default (keeps MsgID/ThreadTs for follow-up actions). Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode may prepend `#users:`/`#link_template:` legend lines and truncates long attachments with a re-fetch receipt. See `docs/agent-presets.md`.
+List tools return CSV text only (no structured content). Legend comment lines precede the header: `#channels:` (ID to `#name`/`@user`), `#users:`, `#link_template:`, `#next_cursor:` (only when another page exists), `#partial:`. The `Channel` column is the bare ID. `activity_unreads` and `saved_list` append a companion table after `#activity_items:` / `#saved_items:`. Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode truncates long attachments with a re-fetch receipt. Single-record and mutation tools return structured content with a JSON text fallback. See `docs/agent-presets.md`.
 
 Agent allowlist presets: `docs/agent-presets.md`.
 
@@ -73,15 +52,15 @@ Documented solutions: `docs/solutions/`, past problems solved in this repo (bugs
 
 Plug deployment uses `SLACK_MCP_ENABLED_TOOLS` as an allowlist. Adding a new tool to the server does **not** expose it in Cursor until the name is added to that env list and Plug is restarted.
 
-Tool registration has one switch: a tool registers iff its name is in the resolved enabled-tools list (`addEnabledTool`, `pkg/server/server.go`). That list comes from `SLACK_MCP_ENABLED_TOOLS` / `--enabled-tools` when set, otherwise from `SLACK_MCP_TOOL_PRESET` (`daily-power`, the read-only default, or `legacy-full`). Matching is an exact per-entry comparison. A tool outside the list never appears in `tools/list`; there are no per-tool boolean gate variables. Any leftover `SLACK_MCP_*_TOOL` variable other than the three below is ignored and logged as a warning at startup.
+Tool registration has one switch: a tool registers iff its name is in the resolved enabled-tools list (`addEnabledTool` / `addCacheDependentTool`, `pkg/server/server.go`; each panics at startup if a tool is registered in the wrong phase). That list comes from `SLACK_MCP_ENABLED_TOOLS` / `--enabled-tools` when set, otherwise from `SLACK_MCP_TOOL_PRESET` (`daily-power`, the read-only default, or `legacy-full`). Matching is an exact per-entry comparison. A tool outside the list never appears in `tools/list`; there are no per-tool boolean gate variables. Any leftover `SLACK_MCP_*_TOOL` variable other than the three below is ignored and logged as a warning at startup.
 
-Three write tools additionally take a channel allow/block list, checked in the handler on every call:
+Three write families additionally take a channel allow/block list, checked in the handler on every call:
 
 | Env var | Scopes | Value |
 |---------|--------|-------|
-| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message` (and the messages_* lifecycle tools) | empty or `true`/`1`/`yes` = every channel; `C1,C2` = only those; `!C1,!C2` = all except those |
+| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message`, `messages_schedule`, `messages_update`, `messages_delete` | empty or `true`/`1`/`yes` = every channel; `C1,C2` = only those; `!C1,!C2` = all except those |
 | `SLACK_MCP_REACTION_TOOL` | `reactions_add`, `reactions_remove` | same shape |
-| `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | channel rename/topic/purpose/archive | same shape |
+| `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | `channels_rename`, `channels_set_topic`, `channels_set_purpose`, `channels_archive` | same shape |
 
 A denied channel returns a `permission_denied` tool error that names the variable. Setting one of these to `false` does not disable the tool; it is read as a one-entry channel list and blocks every channel (startup warns). To turn a tool off, drop it from the enabled-tools list.
 
@@ -91,13 +70,14 @@ A denied channel returns a `permission_denied` tool error that names the variabl
 
 ```
 cmd/slack-mcp-server/main.go   → flags, cache warmup goroutine, transport
-pkg/server/server.go         → MCP tool registration, middleware
-pkg/handler/                 → per-tool handlers (conversations.go is largest)
-pkg/provider/api.go          → Slack auth, SWR cache, API client
+pkg/capability/catalog.go    → the tool table (names, hints, presets, phases, scopes)
+pkg/server/                  → tool registration (server.go, core_tools.go, daily_power_tools.go, custom_power_tools.go), middleware
+pkg/handler/                 → per-tool handlers; csv_result.go holds the CSV contract
+pkg/provider/                → Slack auth, SWR cache, API client, browser session
 pkg/text/                    → message/block-kit formatting
 ```
 
-Cache warmup runs in the background for stdio; the server serves immediately. Cache-dependent tools register after warmup via `RegisterCacheDependentTools()` (channels_list, channels_me, unreads, activity). Write tools register at startup only; phase guards in `pkg/server/tool_phases.go` prevent duplicate registration.
+Cache warmup runs in the background for every transport; the server serves immediately. Cache-dependent tools register after warmup via `RegisterCacheDependentTools()`. Every other tool registers at startup; `addEnabledTool` refuses a `CacheReady` tool and `addCacheDependentTool` refuses anything else, so a tool cannot be registered in both phases.
 
 Warm-up tries up to 3 times (30s apart), then keeps retrying in the background on a slow interval (5m) indefinitely. Startup logs a warning when browser session auth is degraded. `RegisterCacheDependentTools` is idempotent (`sync.Once`) and emits `tools/list_changed` when tools appear.
 
@@ -136,7 +116,7 @@ If users or channels cache warm-up fails after the 3 fast attempts, the server r
 
 - Source (`master`), built binary (`bin/slack-mcp-server`), and Plug runtime are three layers that can drift independently, so verify all three after code changes
 - Plug daemon (`plug serve --daemon`) spawns the server; Cursor connects via `~/.cursor/mcp.json` → `plug connect`, not a direct binary entry
-- `SLACK_MCP_ENABLED_TOOLS` in Plug may expose fewer tools than the server registers (allowlist vs 31 registered)
+- `SLACK_MCP_ENABLED_TOOLS` in Plug is an allowlist; the server registers only what it names (or the preset's list)
 - Upstream v1.3.0 is fully merged (0 behind `origin/master`); ongoing work lands as commits ahead on `master`
 - Local fork intentionally keeps non-blocking stdio startup and browser-auth degradation, while upstream blocks stdio until cache warm
 - Restart Plug's `slack` server after rebuilding `bin/slack-mcp-server` so Cursor picks up the new binary (`make deploy-local` does disable/sleep/enable; `plug reload` alone can leave the old process)
