@@ -81,6 +81,7 @@ const (
 	ToolDNDGet                      = "dnd_get"
 	ToolDNDSetSnooze                = "dnd_set_snooze"
 	ToolDNDEndSnooze                = "dnd_end_snooze"
+	ToolFilesDownload               = "files_download"
 	ToolFilesUpload                 = "files_upload"
 	ToolMessagesSchedule            = "messages_schedule"
 	ToolMessagesUpdate              = "messages_update"

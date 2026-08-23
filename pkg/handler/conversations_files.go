@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -327,4 +329,138 @@ func (ch *ConversationsHandler) parseParamsToolFilesGet(request mcp.CallToolRequ
 	return &filesGetParams{
 		fileID: fileID,
 	}, nil
+}
+
+// FileDownloadData is what files_download reports back: where the file landed
+// and whether this call is what put it there.
+type FileDownloadData struct {
+	FileID   string `json:"file_id"`
+	Filename string `json:"filename"`
+	Mimetype string `json:"mimetype"`
+	Size     int    `json:"size"`
+	Path     string `json:"path"`
+	Outcome  string `json:"outcome"`
+}
+
+// maxDownloadBytes caps a files_download write. It is far larger than
+// maxFileSizeBytes because those bytes never enter the caller's context, but a
+// cap still keeps a runaway download off the disk.
+const maxDownloadBytes = 100 * 1024 * 1024
+
+// downloadRoot resolves the directory files_download writes into. An empty
+// value disables the tool: writing to the local disk is opt-in, and the error
+// names the variable so a caller can tell the operator what to set.
+func downloadRoot() (string, error) {
+	root := strings.TrimSpace(os.Getenv("SLACK_MCP_DOWNLOAD_DIR"))
+	if root == "" {
+		return "", &ToolError{
+			Code:    "permission_denied",
+			Message: "files_download is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into",
+		}
+	}
+	if !filepath.IsAbs(root) {
+		return "", invalidArguments("SLACK_MCP_DOWNLOAD_DIR must be an absolute path")
+	}
+	return root, nil
+}
+
+// downloadPath places a file inside root under a name derived from its ID and
+// its Slack filename. The caller never supplies any part of the path, so there
+// is nothing to traverse out of, and the same file always lands in the same
+// place, which is what makes a repeat call idempotent.
+func downloadPath(root string, f *slack.File) string {
+	name := filepath.Base(strings.TrimSpace(f.Name))
+	name = strings.Map(func(r rune) rune {
+		if r == 0 || r == '/' || r == '\\' || r == '\n' || r == '\r' {
+			return -1
+		}
+		return r
+	}, name)
+	if name == "" || name == "." || name == ".." {
+		name = "file"
+		if f.Filetype != "" {
+			name += "." + f.Filetype
+		}
+	}
+	return filepath.Join(root, f.ID+"-"+name)
+}
+
+func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(ch.logger, "FilesDownloadHandler called", request)
+
+	if ready, err := ch.apiProvider.IsReady(); !ready {
+		ch.logger.Error("API provider not ready", zap.Error(err))
+		return nil, err
+	}
+
+	root, err := downloadRoot()
+	if err != nil {
+		return NewTypedErrorResult(err), nil
+	}
+
+	fileID := strings.TrimSpace(request.GetString("file_id", ""))
+	if fileID == "" {
+		return NewTypedErrorResult(invalidArguments("file_id is required")), nil
+	}
+
+	fileInfo, _, _, err := ch.apiProvider.WebAPI().GetFileInfoContext(ctx, fileID, 0, 0)
+	if err != nil {
+		ch.logger.Error("Slack GetFileInfoContext failed", zap.Error(err))
+		return nil, err
+	}
+	if fileInfo.Size > maxDownloadBytes {
+		return NewTypedErrorResult(invalidArguments(fmt.Sprintf(
+			"file size %d bytes exceeds the %d byte download limit", fileInfo.Size, maxDownloadBytes,
+		))), nil
+	}
+
+	dest := downloadPath(root, fileInfo)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		ch.logger.Error("Failed to create download directory", zap.Error(err))
+		return nil, err
+	}
+
+	// A file already on disk at its full size is the end state this call wants,
+	// so report it rather than re-fetching the same bytes.
+	if info, statErr := os.Stat(dest); statErr == nil && fileInfo.Size > 0 && info.Size() == int64(fileInfo.Size) {
+		return downloadResult(fileInfo, dest, "already_present"), nil
+	}
+
+	downloadURL := fileInfo.URLPrivateDownload
+	if downloadURL == "" {
+		downloadURL = fileInfo.URLPrivate
+	}
+	if downloadURL == "" {
+		return NewTypedErrorResult(invalidArguments("file has no downloadable URL")), nil
+	}
+
+	var buf bytes.Buffer
+	if err := ch.apiProvider.WebAPI().GetFileContext(ctx, downloadURL, &buf); err != nil {
+		ch.logger.Error("Slack GetFileContext failed", zap.Error(err))
+		return nil, err
+	}
+	if buf.Len() > maxDownloadBytes {
+		return NewTypedErrorResult(invalidArguments(fmt.Sprintf(
+			"downloaded %d bytes, exceeds the %d byte download limit", buf.Len(), maxDownloadBytes,
+		))), nil
+	}
+	if err := os.WriteFile(dest, buf.Bytes(), 0o644); err != nil {
+		ch.logger.Error("Failed to write downloaded file", zap.Error(err))
+		return nil, err
+	}
+
+	fileInfo.Size = buf.Len()
+	return downloadResult(fileInfo, dest, "downloaded"), nil
+}
+
+func downloadResult(f *slack.File, path, outcome string) *mcp.CallToolResult {
+	data := FileDownloadData{
+		FileID:   f.ID,
+		Filename: f.Name,
+		Mimetype: f.Mimetype,
+		Size:     f.Size,
+		Path:     path,
+		Outcome:  outcome,
+	}
+	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data))
 }

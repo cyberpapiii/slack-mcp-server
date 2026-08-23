@@ -71,6 +71,7 @@ func TestValidToolNames(t *testing.T) {
 			ToolDNDGet:                      true,
 			ToolDNDSetSnooze:                true,
 			ToolDNDEndSnooze:                true,
+			ToolFilesDownload:               true,
 			ToolFilesUpload:                 true,
 			ToolMessagesSchedule:            true,
 			ToolMessagesUpdate:              true,

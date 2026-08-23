@@ -53,6 +53,7 @@ var Tools = []Tool{
 	// Files and users.
 	{Name: "attachment_get_data", Title: "Get Attachment Data", ReadOnly: true, Scopes: []string{"files:read"}},
 	{Name: "files_list", Title: "List Files", ReadOnly: true, Scopes: []string{"files:read"}},
+	{Name: "files_download", Title: "Download File To Disk", Idempotent: true, Scopes: []string{"files:read"}},
 	{Name: "users_search", Title: "Search Users", ReadOnly: true, Scopes: []string{"users:read"}},
 
 	// User groups.

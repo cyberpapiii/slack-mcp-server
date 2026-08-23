@@ -1,6 +1,6 @@
 # Slack MCP Server
 
-Model Context Protocol (MCP) server for Slack workspaces. A fork of [korotovsky/slack-mcp-server](https://github.com/korotovsky/slack-mcp-server) that is self-contained (it does not use Slack's official MCP), serves 68 tools, and is tuned for agents: compact CSV output, preset allowlists, and per-channel write gates. Stdio, SSE and HTTP transports; OAuth (`xoxp`), bot (`xoxb`), or browser-session (`xoxc`/`xoxd`) auth; Enterprise Grid workspaces.
+Model Context Protocol (MCP) server for Slack workspaces. A fork of [korotovsky/slack-mcp-server](https://github.com/korotovsky/slack-mcp-server) that is self-contained (it does not use Slack's official MCP), serves 69 tools, and is tuned for agents: compact CSV output, preset allowlists, and per-channel write gates. Stdio, SSE and HTTP transports; OAuth (`xoxp`), bot (`xoxb`), or browser-session (`xoxc`/`xoxd`) auth; Enterprise Grid workspaces.
 
 What the server does:
 - **Stealth and OAuth modes**: browser session tokens need no app install; OAuth tokens can be stored in macOS Keychain and rotate automatically ([auth setup](docs/01-authentication-setup.md)).
@@ -20,9 +20,9 @@ Which tools register is decided by one list: `SLACK_MCP_ENABLED_TOOLS` (or `--en
 | Preset | Tools | What it is |
 |--------|-------|------------|
 | `daily-power` (default) | 17 | Read-only: unreads, Activity, Saved, drafts, canvases, lists, DND, emoji, user groups, profiles, semantic search, `slack_auth_status`. |
-| `legacy-full` | 68 | Everything, including every write tool. |
+| `legacy-full` | 69 | Everything, including every write tool. |
 
-The 68 tools by family:
+The 69 tools by family:
 
 | Family | Tools |
 |--------|-------|
@@ -32,7 +32,7 @@ The 68 tools by family:
 | Conversations | `conversations_open`, `conversations_mark`, `conversations_join`, `conversations_leave` |
 | Channels | `channels_list`, `channels_me`, `channels_starred`, `channels_members`, `channels_create`, `channels_invite`, `channels_rename`, `channels_set_topic`, `channels_set_purpose`, `channels_archive` |
 | Reactions | `reactions_add`, `reactions_remove`, `reactions_get` |
-| Files | `files_list`, `files_upload`, `attachment_get_data` |
+| Files | `files_list`, `files_download`, `files_upload`, `attachment_get_data` |
 | Users and groups | `users_search`, `users_get_profile`, `users_set_profile`, `users_set_status`, `usergroups_list`, `usergroups_mine`, `usergroups_join`, `usergroups_leave`, `usergroups_create`, `usergroups_update`, `usergroups_users_update` |
 | Canvases, Lists, emoji, DND | `canvases_create`, `canvases_read`, `canvases_update`, `lists_create`, `lists_update`, `lists_items_list`, `lists_items_create`, `lists_items_update`, `lists_item_delete`, `emoji_list`, `dnd_get`, `dnd_set_snooze`, `dnd_end_snooze` |
 | Search and diagnostics | `search_semantic`, `slack_auth_status` |
@@ -107,6 +107,7 @@ Fetches a CSV directory of all users in the workspace.
 | `SLACK_MCP_ADD_MESSAGE_MARK` | unset | `true` marks a conversation read after posting to it. |
 | `SLACK_MCP_ADD_MESSAGE_UNFURLING` | unset | `true` lets Slack unfurl posted links, or a comma-separated domain allowlist (`github.com,slack.com`). A text that mixes allowed and unknown domains is not unfurled. |
 | `SLACK_MCP_COMPACT_OUTPUT` | `true` | Server-wide default for the `detail` parameter: `true` = `standard`, `false` = `full`. |
+| `SLACK_MCP_DOWNLOAD_DIR` | unset | Absolute directory `files_download` may write into. Unset disables that tool; the server writes nowhere else. |
 | `SLACK_MCP_USERS_CACHE` / `SLACK_MCP_CHANNELS_CACHE` | OS cache dir, team-prefixed `users_cache.json` / `channels_cache_v2.json` | Cache file paths. |
 | `SLACK_MCP_CACHE_TTL` | `24h` | Cache time-to-live (`24h`, `30m`, or seconds). `0` never expires. Stale data is served while a background refresh runs. |
 | `SLACK_MCP_MIN_REFRESH_INTERVAL` | `30s` | Minimum gap between forced cache refreshes. `0` disables the limit. |

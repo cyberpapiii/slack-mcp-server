@@ -24,7 +24,7 @@ conversation ID and `MsgID` is the message timestamp.
 #channels: C041QQ9FNAJ=#general, D0AGSQXLJHG=@john
 #users: U03BMAR2R50=robdezendorf|Rob Dezendorf, U045MM2AJCQ=konopackimarie|Marie Konopacki
 #link_template: https://<workspace>.slack.com/archives/{Channel}/p{MsgID with "." removed}
-#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, 5MB cap
+#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, 5MB cap; files_download saves it to disk instead
 #next_cursor: dXNlcjpVMDYxTkZUVDI=
 User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files
 ```
@@ -91,7 +91,7 @@ same Slack team and user, and cancellation leaves Slack unchanged.
 
 ## Preset: legacy full
 
-Power-user preset with all 68 tools implemented by this custom server. It does
+Power-user preset with all 69 tools implemented by this custom server. It does
 not use Slack's official MCP.
 
 ```toml

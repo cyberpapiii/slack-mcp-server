@@ -252,6 +252,14 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.UsersSearchHandler)
 
+	addEnabledTool(s, enabledTools, newTool(ToolFilesDownload,
+		mcp.WithDescription("Save a Slack file to a local directory on the machine running this server and return its path. Use this instead of attachment_get_data when the file is meant to be opened, processed with local tooling, or kept: the bytes go to disk rather than through the response, so there is no size limit worth worrying about and nothing large lands in context. Requires SLACK_MCP_DOWNLOAD_DIR to be configured."),
+		mcp.WithString("file_id",
+			mcp.Required(),
+			mcp.Description("Attachment ID in format Fxxxxxxxxxx, from the AttachmentIDs column of a message row or the FileID column of files_list."),
+		),
+	), conversationsHandler.FilesDownloadHandler)
+
 	addEnabledTool(s, enabledTools, newTool(ToolFilesList,
 		mcp.WithDescription("List files shared in a Slack channel or workspace. Returns CSV with FileID, Name, Filetype, Size, Created, User, Channel, MsgID. Pass a FileID from the results to attachment_get_data to download content. A #next_cursor line means more files exist."),
 		mcp.WithString("channel_id",

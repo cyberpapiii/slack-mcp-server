@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -215,6 +216,51 @@ func TestUnitAttachmentRefDescribesKindAndSize(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, attachmentRef(tc.file))
+		})
+	}
+}
+
+func TestUnitDownloadRoot(t *testing.T) {
+	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "")
+	_, err := downloadRoot()
+	require.Error(t, err)
+	var toolErr *ToolError
+	require.ErrorAs(t, err, &toolErr)
+	assert.Equal(t, "permission_denied", toolErr.Code)
+	assert.Contains(t, toolErr.Message, "SLACK_MCP_DOWNLOAD_DIR", "the error is the only place an operator learns what to set")
+
+	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "relative/dir")
+	_, err = downloadRoot()
+	require.Error(t, err)
+	require.ErrorAs(t, err, &toolErr)
+	assert.Equal(t, "invalid_arguments", toolErr.Code)
+
+	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "  /tmp/slack-downloads  ")
+	root, err := downloadRoot()
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp/slack-downloads", root)
+}
+
+func TestUnitDownloadPath(t *testing.T) {
+	tests := []struct {
+		name string
+		file slack.File
+		want string
+	}{
+		{"plain name", slack.File{ID: "F1", Name: "report.pdf"}, "/downloads/F1-report.pdf"},
+		{"traversal is stripped", slack.File{ID: "F2", Name: "../../etc/passwd"}, "/downloads/F2-passwd"},
+		{"absolute name is stripped", slack.File{ID: "F3", Name: "/etc/hosts"}, "/downloads/F3-hosts"},
+		{"newline is removed", slack.File{ID: "F4", Name: "a\nb.txt"}, "/downloads/F4-ab.txt"},
+		{"empty name falls back to filetype", slack.File{ID: "F5", Name: "", Filetype: "png"}, "/downloads/F5-file.png"},
+		{"dot name falls back", slack.File{ID: "F6", Name: ".", Filetype: "zip"}, "/downloads/F6-file.zip"},
+		{"empty name and no filetype", slack.File{ID: "F7"}, "/downloads/F7-file"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := downloadPath("/downloads", &tt.file)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, "/downloads", filepath.Dir(got), "the file must never land outside the configured root")
 		})
 	}
 }
