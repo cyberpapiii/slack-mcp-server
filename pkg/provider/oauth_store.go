@@ -15,12 +15,21 @@ const defaultOAuthKeychainService = "slack-mcp-server.oauth"
 
 var ErrCredentialNotFound = errors.New("OAuth credential not found")
 
-type commandRunner func(context.Context, []byte, string, ...string) ([]byte, error)
+// keychainStore is the one seam between the credential stores and the OS
+// keychain. platformKeychain returns the implementation for the build target.
+type keychainStore interface {
+	// Read returns ErrCredentialNotFound when no item exists for the identity.
+	Read(ctx context.Context, service, account string) ([]byte, error)
+	// Write creates the item or replaces its data in place.
+	Write(ctx context.Context, service, account string, data []byte) error
+	// Delete returns nil when no item exists for the identity.
+	Delete(ctx context.Context, service, account string) error
+}
 
 type KeychainCredentialStore struct {
-	Service string
-	Account string
-	run     commandRunner
+	Service  string
+	Account  string
+	keychain keychainStore
 }
 
 func NewKeychainCredentialStore(account string) (*KeychainCredentialStore, error) {
@@ -29,18 +38,14 @@ func NewKeychainCredentialStore(account string) (*KeychainCredentialStore, error
 		return nil, errors.New("Keychain account is required")
 	}
 	return &KeychainCredentialStore{
-		Service: defaultOAuthKeychainService,
-		Account: account,
-		run:     keychainCommandRunner(),
+		Service:  defaultOAuthKeychainService,
+		Account:  account,
+		keychain: platformKeychain(),
 	}, nil
 }
 
-func keychainCommandRunner() commandRunner {
-	return platformKeychainCommandRunner()
-}
-
 func (s *KeychainCredentialStore) Load(ctx context.Context) (OAuthTokenRecord, error) {
-	raw, err := s.run(ctx, nil, "security", "find-generic-password", "-s", s.Service, "-a", s.Account, "-w")
+	raw, err := s.keychain.Read(ctx, s.Service, s.Account)
 	if err != nil {
 		if errors.Is(err, ErrCredentialNotFound) {
 			return OAuthTokenRecord{}, fmt.Errorf("%w: macOS Keychain item does not exist", ErrCredentialNotFound)
@@ -57,6 +62,11 @@ func (s *KeychainCredentialStore) Load(ctx context.Context) (OAuthTokenRecord, e
 	return record, nil
 }
 
+// SaveIfGeneration writes record only when the stored generation still equals
+// expected (or nothing is stored and expected is 0). The load-then-write is not
+// atomic against other processes: the caller must hold the credential lock
+// (WithOAuthCredentialLock) across the call, as OAuthTokenManager and
+// slack-mcp-auth do.
 func (s *KeychainCredentialStore) SaveIfGeneration(ctx context.Context, expected uint64, record OAuthTokenRecord) error {
 	if err := record.validate(); err != nil {
 		return err
@@ -73,16 +83,15 @@ func (s *KeychainCredentialStore) SaveIfGeneration(ctx context.Context, expected
 	if err != nil {
 		return errors.New("encode OAuth credential")
 	}
-	// security updates one generic-password item atomically. Do not include
-	// command output in returned errors because it can contain credential data.
-	if _, err := s.run(ctx, raw, "security", "add-generic-password", "-U", "-s", s.Service, "-a", s.Account, "-w"); err != nil {
+	// Keychain errors are replaced wholesale because they may carry item data.
+	if err := s.keychain.Write(ctx, s.Service, s.Account, raw); err != nil {
 		return errors.New("save OAuth credential to macOS Keychain")
 	}
 	return nil
 }
 
 func (s *KeychainCredentialStore) Delete(ctx context.Context) error {
-	if _, err := s.run(ctx, nil, "security", "delete-generic-password", "-s", s.Service, "-a", s.Account); err != nil {
+	if err := s.keychain.Delete(ctx, s.Service, s.Account); err != nil {
 		return errors.New("delete OAuth credential from macOS Keychain")
 	}
 	return nil

@@ -102,7 +102,6 @@ import "C"
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"unsafe"
@@ -110,84 +109,75 @@ import (
 
 const keychainItemNotFound = C.OSStatus(-25300)
 
-func platformKeychainCommandRunner() commandRunner {
-	return func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if name != "security" {
-			return nil, errors.New("unsupported Keychain command")
-		}
-		operation, service, account, err := parseKeychainArgs(args)
-		if err != nil {
-			return nil, err
-		}
-		serviceValue := C.CString(service)
-		accountValue := C.CString(account)
-		defer C.free(unsafe.Pointer(serviceValue))
-		defer C.free(unsafe.Pointer(accountValue))
+// darwinKeychain talks to the login keychain through Security.framework.
+type darwinKeychain struct{}
 
-		switch operation {
-		case "find-generic-password":
-			var raw unsafe.Pointer
-			var length C.CFIndex
-			status := C.oauthKeychainRead(serviceValue, accountValue, &raw, &length)
-			if status == keychainItemNotFound {
-				return nil, ErrCredentialNotFound
-			}
-			if status != 0 {
-				return nil, errors.New("Keychain read failed")
-			}
-			defer C.free(raw)
-			return C.GoBytes(raw, C.int(length)), nil
-		case "add-generic-password":
-			var raw unsafe.Pointer
-			if len(stdin) > 0 {
-				raw = unsafe.Pointer(&stdin[0])
-			}
-			executable, err := os.Executable()
-			if err != nil {
-				return nil, errors.New("resolve Keychain trusted applications")
-			}
-			binaryDir := filepath.Dir(executable)
-			authPath := C.CString(filepath.Join(binaryDir, "slack-mcp-auth"))
-			serverPath := C.CString(filepath.Join(binaryDir, "slack-mcp-server"))
-			defer C.free(unsafe.Pointer(authPath))
-			defer C.free(unsafe.Pointer(serverPath))
-			if status := C.oauthKeychainWrite(serviceValue, accountValue, raw, C.CFIndex(len(stdin)), authPath, serverPath); status != 0 {
-				return nil, errors.New("Keychain write failed")
-			}
-			return nil, nil
-		case "delete-generic-password":
-			status := C.oauthKeychainDelete(serviceValue, accountValue)
-			if status == keychainItemNotFound {
-				return nil, ErrCredentialNotFound
-			}
-			if status != 0 {
-				return nil, errors.New("Keychain delete failed")
-			}
-			return nil, nil
-		default:
-			return nil, errors.New("unsupported Keychain operation")
-		}
+func platformKeychain() keychainStore { return darwinKeychain{} }
+
+func (darwinKeychain) Read(ctx context.Context, service, account string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+	serviceValue, accountValue, free := keychainIdentity(service, account)
+	defer free()
+	var raw unsafe.Pointer
+	var length C.CFIndex
+	status := C.oauthKeychainRead(serviceValue, accountValue, &raw, &length)
+	if status == keychainItemNotFound {
+		return nil, ErrCredentialNotFound
+	}
+	if status != 0 {
+		return nil, errors.New("Keychain read failed")
+	}
+	defer C.free(raw)
+	return C.GoBytes(raw, C.int(length)), nil
 }
 
-func parseKeychainArgs(args []string) (operation, service, account string, err error) {
-	if len(args) == 0 {
-		return "", "", "", errors.New("missing Keychain operation")
+func (darwinKeychain) Write(ctx context.Context, service, account string, data []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	operation = args[0]
-	for i := 1; i < len(args)-1; i++ {
-		switch args[i] {
-		case "-s":
-			service = args[i+1]
-		case "-a":
-			account = args[i+1]
-		}
+	serviceValue, accountValue, free := keychainIdentity(service, account)
+	defer free()
+	var raw unsafe.Pointer
+	if len(data) > 0 {
+		raw = unsafe.Pointer(&data[0])
 	}
-	if service == "" || account == "" {
-		return "", "", "", fmt.Errorf("missing Keychain item identity")
+	// New items get an ACL naming both binaries so the server can read what
+	// slack-mcp-auth wrote without a Keychain prompt.
+	executable, err := os.Executable()
+	if err != nil {
+		return errors.New("resolve Keychain trusted applications")
 	}
-	return operation, service, account, nil
+	binaryDir := filepath.Dir(executable)
+	authPath := C.CString(filepath.Join(binaryDir, "slack-mcp-auth"))
+	serverPath := C.CString(filepath.Join(binaryDir, "slack-mcp-server"))
+	defer C.free(unsafe.Pointer(authPath))
+	defer C.free(unsafe.Pointer(serverPath))
+	if status := C.oauthKeychainWrite(serviceValue, accountValue, raw, C.CFIndex(len(data)), authPath, serverPath); status != 0 {
+		return errors.New("Keychain write failed")
+	}
+	return nil
+}
+
+func (darwinKeychain) Delete(ctx context.Context, service, account string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	serviceValue, accountValue, free := keychainIdentity(service, account)
+	defer free()
+	status := C.oauthKeychainDelete(serviceValue, accountValue)
+	if status != 0 && status != keychainItemNotFound {
+		return errors.New("Keychain delete failed")
+	}
+	return nil
+}
+
+func keychainIdentity(service, account string) (serviceValue, accountValue *C.char, free func()) {
+	serviceValue = C.CString(service)
+	accountValue = C.CString(account)
+	return serviceValue, accountValue, func() {
+		C.free(unsafe.Pointer(accountValue))
+		C.free(unsafe.Pointer(serviceValue))
+	}
 }

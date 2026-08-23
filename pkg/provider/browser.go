@@ -20,8 +20,8 @@ type BrowserTokenRecord struct {
 func (BrowserTokenRecord) String() string { return "[REDACTED browser credential]" }
 
 type BrowserCredentialStore struct {
-	account string
-	run     commandRunner
+	account  string
+	keychain keychainStore
 }
 
 func NewBrowserCredentialStore(account string) (*BrowserCredentialStore, error) {
@@ -29,11 +29,11 @@ func NewBrowserCredentialStore(account string) (*BrowserCredentialStore, error) 
 	if account == "" {
 		return nil, errors.New("browser Keychain account is required")
 	}
-	return &BrowserCredentialStore{account: account, run: keychainCommandRunner()}, nil
+	return &BrowserCredentialStore{account: account, keychain: platformKeychain()}, nil
 }
 
 func (s *BrowserCredentialStore) Load(ctx context.Context) (BrowserTokenRecord, error) {
-	raw, err := s.run(ctx, nil, "security", "find-generic-password", "-s", browserKeychainService, "-a", s.account, "-w")
+	raw, err := s.keychain.Read(ctx, browserKeychainService, s.account)
 	if err != nil {
 		return BrowserTokenRecord{}, errors.New("browser credential not found in macOS Keychain")
 	}
@@ -52,7 +52,7 @@ func (s *BrowserCredentialStore) Save(ctx context.Context, record BrowserTokenRe
 	if err != nil {
 		return errors.New("encode browser credential")
 	}
-	if _, err := s.run(ctx, raw, "security", "add-generic-password", "-U", "-s", browserKeychainService, "-a", s.account, "-w"); err != nil {
+	if err := s.keychain.Write(ctx, browserKeychainService, s.account, raw); err != nil {
 		return errors.New("save browser credential to macOS Keychain")
 	}
 	return nil
