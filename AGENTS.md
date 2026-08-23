@@ -7,7 +7,7 @@ This repository is a **local fork** of [korotovsky/slack-mcp-server](https://git
 ```bash
 make deps          # go mod download
 make lint          # go vet + gofmt check + `go mod tidy -diff` (read-only)
-make test          # all tests except *Integration*, with -race (CI gate)
+make test          # unit tests with -race (CI gate); live tests are behind the integration build tag
 make test-integration  # needs Slack/ngrok secrets
 make build         # outputs ./build/slack-mcp-server (read-only: no tidy/format)
 make prepare       # go mod tidy + go fmt, the only targets that rewrite files
@@ -96,8 +96,8 @@ If users or channels cache warm-up fails after the 3 fast attempts, the server r
 
 ## Conventions
 
-- Unit tests: any name except `*Integration*` runs under `make test`
-- Integration tests: `*Integration*` in name, run via `make test-integration`
+- Unit tests: every `_test.go` without a build tag runs under `make test`
+- Live Slack tests: `//go:build integration` files (`pkg/handler/integration_test.go`, `pkg/test/util`), run via `make test-integration`; `make lint` vets them so they cannot rot
 - Error handling: zap structured logging; avoid `logger.Fatal` on background cache paths
 - Tool params are not logged at Info by default; set `SLACK_MCP_LOG_PARAMS=debug` to log full params at Info (may include message text). The same gate covers handler-level debug logs, not just the HTTP middleware.
 - New handlers log entry/exit via `logToolCall` / `logResourceCall` (`pkg/handler/logging.go`) rather than passing `request.Params` to the logger directly. That helper is what honors `SLACK_MCP_LOG_PARAMS`

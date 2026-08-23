@@ -107,16 +107,17 @@ deps: ## Download dependencies
 	$(GO) mod download
 
 .PHONY: test
-test: ## Run the tests (with the race detector)
-	$(GO) test -count=1 -race -v -skip="Integration" ./...
+test: ## Run the unit tests (with the race detector); live Slack tests are behind the integration build tag
+	$(GO) test -count=1 -race -v ./...
 
 .PHONY: test-integration
-test-integration: ## Run integration tests
-	$(GO) test -count=1 -v -run=".*Integration.*" ./...
+test-integration: ## Run the live Slack tests (needs SLACK_MCP_XOXP_TOKEN, SLACK_MCP_OPENAI_API, ngrok)
+	$(GO) test -count=1 -v -tags integration -run=".*Integration.*" ./...
 
 .PHONY: lint
 lint: ## Vet, check formatting and check go.mod tidiness (read-only)
 	$(GO) vet ./...
+	$(GO) vet -tags integration ./pkg/handler ./pkg/test/...
 	@fmt_out=$$(gofmt -l pkg cmd); if [ -n "$$fmt_out" ]; then echo "gofmt needed:"; echo "$$fmt_out"; exit 1; fi
 	$(GO) mod tidy -diff
 
