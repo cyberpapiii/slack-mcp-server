@@ -77,9 +77,6 @@ func main() {
 			zap.Error(err),
 		)
 	}
-	if err = applyResolvedToolPolicy(enabledTools); err != nil {
-		logger.Fatal("failed to apply resolved tool policy", zap.Error(err))
-	}
 
 	p := provider.New(transport, logger)
 	s := server.NewMCPServer(p, logger, enabledTools)
@@ -203,9 +200,6 @@ func resolveEnabledTools(explicit, preset string) ([]string, error) {
 	return server.ResolveToolPreset(preset)
 }
 
-// Handlers recheck mutation gates at call time. Keep that defensive check on
-// the same resolved policy used for registration, including CLI presets and
-// --enabled-tools overrides that did not originate in the environment.
 // channelAllowlistVars are the only SLACK_MCP_*_TOOL variables still read.
 // Each holds a channel allow/block list for one write tool; whether a tool is
 // registered at all is decided solely by SLACK_MCP_ENABLED_TOOLS / the preset.
@@ -239,10 +233,6 @@ func warnRemovedGateVars(logger *zap.Logger) {
 			zap.String("context", "console"),
 		)
 	}
-}
-
-func applyResolvedToolPolicy(enabledTools []string) error {
-	return os.Setenv("SLACK_MCP_ENABLED_TOOLS", strings.Join(enabledTools, ","))
 }
 
 func listenHostPort() (host, port string) {

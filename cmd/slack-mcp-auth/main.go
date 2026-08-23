@@ -379,9 +379,9 @@ func customOAuthScopes(preset string) ([]string, error) {
 	var tools []string
 	switch preset {
 	case "daily-power":
-		tools = capability.DailyPowerLocalTools()
+		tools = capability.DailyPowerNames()
 	case "legacy-full":
-		tools = capability.LegacyFullLocalTools()
+		tools = capability.Names()
 	default:
 		return nil, fmt.Errorf("unknown preset %q (valid: daily-power, legacy-full)", preset)
 	}

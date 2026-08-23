@@ -31,7 +31,6 @@ func TestUnitAuthStatusHandler_ReturnsJSONSummary(t *testing.T) {
 	require.NotNil(t, structured.Data)
 	assert.Equal(t, TrustSystem, structured.Meta.Provenance.Trust)
 	assert.Contains(t, body, "users_cache_ready")
-	assert.Contains(t, body, "catalog_version")
 	assert.Contains(t, body, "provider_identity")
 	assert.Contains(t, body, "capability_availability")
 	assert.Contains(t, body, "summary")

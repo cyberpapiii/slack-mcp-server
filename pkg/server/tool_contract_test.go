@@ -1,31 +1,61 @@
 package server
 
 import (
-	"slices"
+	"context"
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
-func TestDailyPowerToolContractsAreComplete(t *testing.T) {
-	tools := capability.DailyPowerLocalTools()
-	require.NotEmpty(t, tools)
+// TestEveryToolConstantIsInTable builds the whole server in demo mode with
+// every tool enabled and checks the registered set equals the capability
+// table, so a Tool* constant cannot exist without a table row or vice versa.
+func TestEveryToolConstantIsInTable(t *testing.T) {
+	for _, k := range []string{"SLACK_MCP_XOXP_TOKEN", "SLACK_MCP_XOXB_TOKEN", "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT", "SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("SLACK_MCP_XOXC_TOKEN", "demo")
+	t.Setenv("SLACK_MCP_XOXD_TOKEN", "demo")
+	require.True(t, provider.IsDemoCredentials())
 
-	for _, name := range tools {
-		t.Run(name, func(t *testing.T) {
-			behavior, ok := capability.BehaviorForLocalTool(name)
-			require.True(t, ok)
-			entry, ok := capability.EntryForLocalTool(name)
-			require.True(t, ok)
-			assert.Equal(t, capability.ConfirmationNone, entry.Confirmation)
+	api := provider.New("stdio", zap.NewNop())
+	srv := NewMCPServer(api, zap.NewNop(), ValidToolNames)
+	api.SkipCache()
+	srv.RegisterCacheDependentTools()
 
-			tool := newDailyPowerTool(name, mcp.WithDescription("contract test"))
-			if _, declared := outputSchemaByTool[name]; declared {
+	var registered []string
+	for name := range srv.server.ListTools() {
+		registered = append(registered, name)
+	}
+	assert.ElementsMatch(t, capability.Names(), registered)
+}
+
+func TestNewToolAppliesTableHints(t *testing.T) {
+	for _, spec := range capability.Tools {
+		t.Run(spec.Name, func(t *testing.T) {
+			tool := newTool(spec.Name, mcp.WithDescription("x"))
+			require.NotNil(t, tool.Annotations.ReadOnlyHint)
+			require.NotNil(t, tool.Annotations.DestructiveHint)
+			require.NotNil(t, tool.Annotations.IdempotentHint)
+			require.NotNil(t, tool.Annotations.OpenWorldHint)
+			assert.Equal(t, spec.Title, tool.Annotations.Title)
+			assert.Equal(t, spec.ReadOnly, *tool.Annotations.ReadOnlyHint)
+			assert.True(t, *tool.Annotations.OpenWorldHint)
+			if spec.ReadOnly {
+				assert.False(t, *tool.Annotations.DestructiveHint)
+				assert.True(t, *tool.Annotations.IdempotentHint)
+			} else {
+				assert.Equal(t, spec.Destructive, *tool.Annotations.DestructiveHint)
+				assert.Equal(t, spec.Idempotent, *tool.Annotations.IdempotentHint)
+			}
+			if _, declared := outputSchemaByTool[spec.Name]; declared {
 				assert.Equal(t, "object", tool.OutputSchema.Type)
 				assert.Contains(t, tool.OutputSchema.Properties, "schema_version")
 				assert.Contains(t, tool.OutputSchema.Properties, "meta")
@@ -34,18 +64,35 @@ func TestDailyPowerToolContractsAreComplete(t *testing.T) {
 			} else {
 				assert.Empty(t, tool.OutputSchema.Type, "only approval-flow and diagnostics tools advertise an output schema")
 			}
-
-			require.NotNil(t, tool.Annotations.ReadOnlyHint)
-			require.NotNil(t, tool.Annotations.DestructiveHint)
-			require.NotNil(t, tool.Annotations.IdempotentHint)
-			require.NotNil(t, tool.Annotations.OpenWorldHint)
-			assert.Equal(t, behavior.Title, tool.Annotations.Title)
-			assert.Equal(t, behavior.ReadOnly, *tool.Annotations.ReadOnlyHint)
-			assert.Equal(t, behavior.Destructive, *tool.Annotations.DestructiveHint)
-			assert.Equal(t, behavior.Idempotent, *tool.Annotations.IdempotentHint)
-			assert.Equal(t, behavior.OpenWorld, *tool.Annotations.OpenWorldHint)
 		})
 	}
+}
+
+func TestNewToolPanicsOnUnknownName(t *testing.T) {
+	assert.PanicsWithValue(t, `tool "no_such_tool" is not in the capability table`, func() {
+		newTool("no_such_tool", mcp.WithDescription("x"))
+	})
+}
+
+func TestPhaseGuards(t *testing.T) {
+	noop := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("ok"), nil
+	}
+	base := mcpserver.NewMCPServer("test", "1", mcpserver.WithToolCapabilities(true))
+	ms := &MCPServer{server: base}
+
+	assert.Panics(t, func() {
+		addEnabledTool(base, ValidToolNames, newTool(ToolChannelsList, mcp.WithDescription("x")), noop)
+	}, "cache-dependent tool must not register immediately")
+	assert.Panics(t, func() {
+		addCacheDependentTool(ms, ValidToolNames, newTool(ToolUsersSearch, mcp.WithDescription("x")), noop)
+	}, "immediate tool must not register in the cache-dependent phase")
+
+	assert.NotPanics(t, func() {
+		addEnabledTool(base, ValidToolNames, newTool(ToolUsersSearch, mcp.WithDescription("x")), noop)
+		addCacheDependentTool(ms, ValidToolNames, newTool(ToolChannelsList, mcp.WithDescription("x")), noop)
+	})
+	assert.Len(t, base.ListTools(), 2)
 }
 
 func TestListsWriteToolsDeclareObjectArrayContracts(t *testing.T) {
@@ -90,40 +137,11 @@ func TestOutputSchemaToolsExposeApprovalToken(t *testing.T) {
 		if name == ToolSlackAuthStatus {
 			continue
 		}
-		tool := newDailyPowerTool(name, mcp.WithDescription("contract test"))
+		tool := newTool(name, mcp.WithDescription("contract test"))
 		data, ok := tool.OutputSchema.Properties["data"].(map[string]any)
 		require.True(t, ok, "%s data schema", name)
 		props, ok := data["properties"].(map[string]any)
 		require.True(t, ok, "%s data properties", name)
 		assert.Contains(t, props, "approval_token", "%s prepare must return data.approval_token", name)
-	}
-}
-
-func TestDailyPowerContractsDoNotClaimLegacyTools(t *testing.T) {
-	for _, name := range capability.LegacyFullLocalTools() {
-		if slices.Contains(capability.DailyPowerLocalTools(), name) {
-			continue
-		}
-		if _, active := capability.EntryForLocalTool(name); active {
-			continue
-		}
-		_, ok := capability.BehaviorForLocalTool(name)
-		assert.False(t, ok, "legacy tool %q must not claim an unmigrated result contract", name)
-	}
-}
-
-func TestAllActiveLocalToolsHaveTypedContracts(t *testing.T) {
-	for _, entry := range capability.Entries() {
-		if entry.Owner == capability.OwnerOfficial || entry.Migration != capability.MigrationActive {
-			continue
-		}
-		behavior, ok := capability.BehaviorForLocalTool(entry.LocalTool)
-		require.True(t, ok, "active tool %q has no behavior contract", entry.LocalTool)
-		tool := newDailyPowerTool(entry.LocalTool, mcp.WithDescription("contract test"))
-		require.NotNil(t, tool.Annotations.ReadOnlyHint)
-		require.NotNil(t, tool.Annotations.DestructiveHint)
-		require.NotNil(t, tool.Annotations.IdempotentHint)
-		require.NotNil(t, tool.Annotations.OpenWorldHint)
-		assert.Equal(t, behavior.Title, tool.Annotations.Title)
 	}
 }

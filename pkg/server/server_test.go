@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/client"
@@ -236,7 +237,14 @@ func TestAddEnabledTool_RegistersOnlyListedTools(t *testing.T) {
 	}
 	enabledTools := []string{ToolConversationsHistory, ToolReactionsAdd}
 
-	for _, name := range ValidToolNames {
+	var immediate []string
+	for _, spec := range capability.Tools {
+		if !spec.CacheReady {
+			immediate = append(immediate, spec.Name)
+		}
+	}
+
+	for _, name := range immediate {
 		addEnabledTool(base, enabledTools, mcp.NewTool(name), noop)
 	}
 
@@ -247,7 +255,7 @@ func TestAddEnabledTool_RegistersOnlyListedTools(t *testing.T) {
 	}
 
 	empty := server.NewMCPServer("test-server", "1.0.0", server.WithToolCapabilities(true))
-	for _, name := range ValidToolNames {
+	for _, name := range immediate {
 		addEnabledTool(empty, nil, mcp.NewTool(name), noop)
 	}
 	assert.Nil(t, empty.ListTools(), "empty enabled-tools list registers no tools")

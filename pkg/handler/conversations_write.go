@@ -129,7 +129,7 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 		return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
 	}
 
-	sendability := checkSendStatus(params.channel)
+	sendability := ch.sendStatus(params.channel)
 
 	// Labeled sections avoid delimiter ambiguity when message text looks similar.
 	preview := fmt.Sprintf("[Draft message preview]\n"+

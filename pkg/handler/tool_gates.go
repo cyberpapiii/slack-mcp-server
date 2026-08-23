@@ -42,25 +42,16 @@ func isChannelAllowedForConfig(channel, config string) bool {
 	return isNegated
 }
 
-// checkSendStatus reports whether conversations_add_message would accept a
+// sendStatus reports whether conversations_add_message would accept a
 // message to the given channel, for the conversations_draft_message preview.
-func checkSendStatus(channel string) string {
-	if !isToolInEnabledList(os.Getenv("SLACK_MCP_ENABLED_TOOLS"), "conversations_add_message") {
+func (ch *ConversationsHandler) sendStatus(channel string) string {
+	if !ch.sendEnabled {
 		return "not available"
 	}
 	if !isChannelAllowedForConfig(channel, os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")) {
 		return "not available for this channel"
 	}
 	return "available"
-}
-
-func isToolInEnabledList(enabledTools, toolName string) bool {
-	for _, t := range strings.Split(enabledTools, ",") {
-		if strings.TrimSpace(t) == toolName {
-			return true
-		}
-	}
-	return false
 }
 
 // browserSessionRequired is the error every xoxc/xoxd-only tool returns when

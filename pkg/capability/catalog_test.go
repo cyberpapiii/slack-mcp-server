@@ -3,123 +3,76 @@ package capability
 import (
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestCatalogHasUniqueStableIDsAndOwners(t *testing.T) {
+func TestToolNamesAreUniqueAndTitled(t *testing.T) {
 	seen := map[string]bool{}
-	for _, entry := range Entries() {
-		if entry.ID == "" || entry.Owner == "" || entry.Auth == "" || entry.Confirmation == "" || entry.ResultType == "" || entry.Migration == "" {
-			t.Fatalf("incomplete catalog entry: %#v", entry)
-		}
-		if seen[entry.ID] {
-			t.Fatalf("duplicate capability ID %q", entry.ID)
-		}
-		seen[entry.ID] = true
-		if entry.Owner == OwnerOfficial && entry.OfficialAction == "" {
-			t.Fatalf("official capability %q has no official action", entry.ID)
-		}
-		if entry.Owner != OwnerOfficial && entry.LocalTool == "" {
-			t.Fatalf("local capability %q has no local tool", entry.ID)
-		}
+	for _, tool := range Tools {
+		assert.NotEmpty(t, tool.Name)
+		assert.NotEmpty(t, tool.Title, "tool %q has no title", tool.Name)
+		assert.False(t, seen[tool.Name], "duplicate tool %q", tool.Name)
+		seen[tool.Name] = true
 	}
+	assert.Len(t, Names(), len(Tools))
+	assert.True(t, slices.IsSorted(Names()))
 }
 
-func TestPresetsSeparateCanonicalAndLegacyTools(t *testing.T) {
-	daily := DailyPowerLocalTools()
-	legacy := LegacyFullLocalTools()
-	if len(daily) == 0 || len(legacy) <= len(daily) {
-		t.Fatalf("unexpected preset sizes: daily=%d legacy=%d", len(daily), len(legacy))
+func TestLookup(t *testing.T) {
+	tool, ok := Lookup("conversations_history")
+	require.True(t, ok)
+	assert.Equal(t, "Get Conversation History", tool.Title)
+	assert.True(t, tool.ReadOnly)
+
+	_, ok = Lookup("no_such_tool")
+	assert.False(t, ok)
+}
+
+func TestDailyPowerIsTheReadOnlySubset(t *testing.T) {
+	daily := DailyPowerNames()
+	require.NotEmpty(t, daily)
+	all := Names()
+	for _, name := range daily {
+		assert.Contains(t, all, name)
+		tool, ok := Lookup(name)
+		require.True(t, ok)
+		assert.True(t, tool.ReadOnly, "daily-power tool %q must be read-only", name)
 	}
-	for _, tool := range daily {
-		if !slices.Contains(legacy, tool) {
-			t.Fatalf("daily tool %q missing from legacy preset", tool)
-		}
-	}
-	for _, entry := range Entries() {
-		if entry.Owner == OwnerOfficial {
-			t.Fatalf("custom-only catalog must not delegate %q to official Slack MCP", entry.ID)
-		}
-	}
+	assert.Less(t, len(daily), len(all))
 	for _, forbidden := range []string{"conversations_add_message", "conversations_draft_message", "conversations_search_messages", "files_list", "users_search"} {
-		if slices.Contains(daily, forbidden) {
-			t.Fatalf("official-owned duplicate %q present in daily preset", forbidden)
-		}
+		assert.NotContains(t, daily, forbidden)
 	}
 }
 
-func TestDailyPowerToolsHaveNeutralBehaviorContracts(t *testing.T) {
-	for _, tool := range DailyPowerLocalTools() {
-		behavior, ok := BehaviorForLocalTool(tool)
-		if !ok {
-			t.Fatalf("daily-power tool %q has no behavior contract", tool)
-		}
-		if behavior.Title == "" || !behavior.ReadOnly || behavior.Destructive || !behavior.Idempotent || !behavior.OpenWorld {
-			t.Fatalf("unexpected daily-power behavior for %q: %#v", tool, behavior)
-		}
-		entry, ok := EntryForLocalTool(tool)
-		if !ok || entry.Confirmation != ConfirmationNone {
-			t.Fatalf("confirmation policy missing or mixed into behavior for %q: %#v", tool, entry)
-		}
+func TestBrowserNames(t *testing.T) {
+	assert.Equal(t, []string{
+		"activity_mark_read",
+		"activity_unreads",
+		"conversations_unreads",
+		"drafts_create",
+		"drafts_delete",
+		"drafts_get",
+		"drafts_list",
+		"drafts_update",
+		"saved_clear_completed",
+		"saved_list",
+		"saved_update",
+	}, BrowserNames())
+	for _, name := range BrowserNames() {
+		tool, _ := Lookup(name)
+		assert.Empty(t, tool.Scopes, "browser-session tool %q needs no OAuth scope", name)
 	}
 }
 
-func TestUnreadsIsBrowserOnly(t *testing.T) {
-	entry, ok := EntryForLocalTool("conversations_unreads")
-	if !ok {
-		t.Fatal("conversations_unreads missing from catalog")
-	}
-	if entry.Owner != OwnerLocalBrowser || entry.Auth != AuthBrowser || len(entry.RequiredScopes) != 0 {
-		t.Fatalf("unreads must be browser-only: %#v", entry)
-	}
-	if !slices.Contains(ActiveBrowserLocalTools(), "conversations_unreads") {
-		t.Fatal("conversations_unreads missing from browser-only inventory")
-	}
-}
-
-func TestVerifyInventoryRejectsMissingAndUnverifiedLocalIdentity(t *testing.T) {
-	official := InventorySnapshot{
-		CatalogVersion: CatalogVersion,
-		Identity:       Identity{TeamID: "T1", UserID: "U1"},
-		Tools:          []ObservedTool{{Name: "slack_read_thread", InputSchemaObject: true, StructuredResult: true, SemanticsVerified: true}},
-	}
-	host := HostInventory{
-		CatalogVersion:   CatalogVersion,
-		OfficialIdentity: Identity{TeamID: "T1", UserID: "U1"},
-		LocalIdentity:    Identity{},
-		Tools: []VisibleTool{
-			{CapabilityID: "message.thread.read", Provider: OwnerOfficial, Name: "slack_read_thread"},
-			{CapabilityID: "message.thread.read", Provider: OwnerLocal, Name: "conversations_replies"},
-		},
-	}
-
-	report := VerifyInventory(official, host)
-	if report.OK() {
-		t.Fatal("invalid inventory passed")
-	}
-	for _, code := range []string{"identity_unverified", "missing_capability"} {
-		if !report.Has(code) {
-			t.Errorf("missing issue %q: %#v", code, report.Issues)
-		}
-	}
-}
-
-func TestVerifyInventoryRejectsExcludedAdministrationFamilies(t *testing.T) {
-	report := VerifyInventory(InventorySnapshot{CatalogVersion: CatalogVersion}, HostInventory{
-		CatalogVersion: CatalogVersion,
-		Tools:          []VisibleTool{{CapabilityID: "workspace.admin", Provider: OwnerOfficial, Name: "slack_admin_workspaces"}},
-	})
-	if !report.Has("excluded_family") {
-		t.Fatalf("excluded family passed: %#v", report.Issues)
-	}
-}
-
-func TestVerifyInventoryRequiresOnlyLocalProviderIdentity(t *testing.T) {
-	host := HostInventory{CatalogVersion: CatalogVersion}
-	if report := VerifyInventory(InventorySnapshot{}, host); !report.Has("identity_unverified") {
-		t.Fatalf("missing local identity passed: %#v", report.Issues)
-	}
-	host.LocalIdentity = Identity{TeamID: "T1", UserID: "U1"}
-	if report := VerifyInventory(InventorySnapshot{}, host); report.Has("identity_unverified") || report.Has("identity_mismatch") {
-		t.Fatalf("complete local identity failed: %#v", report.Issues)
-	}
+func TestOAuthScopesForToolsDedupsAndSorts(t *testing.T) {
+	scopes := OAuthScopesForTools([]string{"conversations_history", "conversations_replies", "channels_list", "no_such_tool"})
+	assert.Equal(t, []string{
+		"channels:history", "channels:read",
+		"groups:history", "groups:read",
+		"im:history", "im:read",
+		"mpim:history", "mpim:read",
+	}, scopes)
+	assert.Empty(t, OAuthScopesForTools(nil))
 }

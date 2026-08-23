@@ -20,7 +20,6 @@ func NewAuthStatusHandler(apiProvider *provider.ApiProvider, logger *zap.Logger)
 }
 
 type AuthStatusData struct {
-	CatalogVersion           string                         `json:"catalog_version"`
 	ProviderIdentity         provider.ProviderIdentity      `json:"provider_identity"`
 	OAuthCredential          provider.OAuthCredentialStatus `json:"oauth_credential"`
 	CapabilityAvailability   map[string]string              `json:"capability_availability"`
@@ -47,7 +46,6 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 	browserBlocked := !browserOK && degradedReason != ""
 
 	payload := AuthStatusData{
-		CatalogVersion:           capability.CatalogVersion,
 		ProviderIdentity:         h.apiProvider.Identity(),
 		OAuthCredential:          h.apiProvider.OAuthCredentialStatus(),
 		CapabilityAvailability:   capabilityAvailability(h.apiProvider.IsOAuth(), h.apiProvider.IsBotToken(), browserOK, degradedReason),
@@ -59,7 +57,7 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 		BrowserDegradedReason:    degradedReason,
 		IsOAuth:                  h.apiProvider.IsOAuth(),
 		IsBotToken:               h.apiProvider.IsBotToken(),
-		BrowserOnlyTools:         capability.ActiveBrowserLocalTools(),
+		BrowserOnlyTools:         capability.BrowserNames(),
 		BrowserOnlyToolsBlocked:  browserBlocked,
 		Summary:                  buildAuthSummary(usersReady, channelsReady, browserOK, degradedReason),
 	}

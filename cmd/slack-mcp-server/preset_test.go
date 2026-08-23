@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/server"
@@ -40,10 +39,4 @@ func TestResolveEnabledTools(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, tools, server.ToolSlackAuthStatus)
 	})
-}
-
-func TestApplyResolvedToolPolicyMakesCLISelectionVisibleToHandlers(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "stale_tool")
-	require.NoError(t, applyResolvedToolPolicy([]string{"dnd_set_snooze", "channels_rename"}))
-	assert.Equal(t, "dnd_set_snooze,channels_rename", os.Getenv("SLACK_MCP_ENABLED_TOOLS"))
 }

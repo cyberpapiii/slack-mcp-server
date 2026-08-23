@@ -648,89 +648,39 @@ func TestUnitIsChannelAllowedForConfig(t *testing.T) {
 	}
 }
 
-func TestUnitCheckSendStatus(t *testing.T) {
-	setEnv := func(key, value string) func() {
-		old, existed := os.LookupEnv(key)
-		os.Setenv(key, value)
-		return func() {
-			if existed {
-				os.Setenv(key, old)
-			} else {
-				os.Unsetenv(key)
-			}
-		}
+func TestUnitSendStatus(t *testing.T) {
+	newHandler := func(sendEnabled bool) *ConversationsHandler {
+		return NewConversationsHandler(nil, zap.NewNop(), sendEnabled)
 	}
 
 	t.Run("not available when add_message not enabled", func(t *testing.T) {
-		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "")
-		defer cleanup1()
-		defer cleanup2()
-
-		got := checkSendStatus("C123")
-		if got != "not available" {
-			t.Errorf("expected 'not available', got %q", got)
-		}
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
+		assert.Equal(t, "not available", newHandler(false).sendStatus("C123"))
 	})
 
-	t.Run("available when add_message in enabled tools list", func(t *testing.T) {
-		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_add_message,channels_list")
-		defer cleanup1()
-		defer cleanup2()
-
-		got := checkSendStatus("C123")
-		if got != "available" {
-			t.Errorf("expected 'available', got %q", got)
-		}
+	t.Run("available when add_message enabled", func(t *testing.T) {
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
+		assert.Equal(t, "available", newHandler(true).sendStatus("C123"))
 	})
 
 	t.Run("not available when channel not in allowlist", func(t *testing.T) {
-		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "C456,C789")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_add_message")
-		defer cleanup1()
-		defer cleanup2()
-
-		got := checkSendStatus("C123")
-		if got != "not available for this channel" {
-			t.Errorf("expected 'not available for this channel', got %q", got)
-		}
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C456,C789")
+		assert.Equal(t, "not available for this channel", newHandler(true).sendStatus("C123"))
 	})
 
 	t.Run("available when channel in allowlist", func(t *testing.T) {
-		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "C123,C456")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_add_message")
-		defer cleanup1()
-		defer cleanup2()
-
-		got := checkSendStatus("C123")
-		if got != "available" {
-			t.Errorf("expected 'available', got %q", got)
-		}
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C123,C456")
+		assert.Equal(t, "available", newHandler(true).sendStatus("C123"))
 	})
 
 	t.Run("not available when channel in blocklist", func(t *testing.T) {
-		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "!C123")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_add_message")
-		defer cleanup1()
-		defer cleanup2()
-
-		got := checkSendStatus("C123")
-		if got != "not available for this channel" {
-			t.Errorf("expected 'not available for this channel', got %q", got)
-		}
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "!C123")
+		assert.Equal(t, "not available for this channel", newHandler(true).sendStatus("C123"))
 	})
 
-	t.Run("not available when only draft tool in enabled list (substring false positive)", func(t *testing.T) {
-		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_draft_message,channels_list")
-		defer cleanup1()
-		defer cleanup2()
-
-		got := checkSendStatus("C123")
-		if got != "not available" {
-			t.Errorf("expected 'not available' (draft tool name is superstring of add_message), got %q", got)
-		}
+	t.Run("allowlist alone does not enable sending", func(t *testing.T) {
+		t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C123")
+		assert.Equal(t, "not available", newHandler(false).sendStatus("C123"))
 	})
 }
 
@@ -1084,42 +1034,6 @@ func TestUnitCompactCSVLegendDeterministic(t *testing.T) {
 	assert.Equal(t, body1, body2)
 }
 
-// Exact comma-split match; no substring enable.
-func TestUnitIsToolInEnabledList(t *testing.T) {
-	tests := []struct {
-		name         string
-		enabledTools string
-		toolName     string
-		want         bool
-	}{
-		{"empty list", "", "conversations_add_message", false},
-		{"exact match single item", "conversations_add_message", "conversations_add_message", true},
-		{"exact match among many", "channels_list,conversations_add_message,reactions_add", "conversations_add_message", true},
-		{"no match", "channels_list,reactions_add", "conversations_add_message", false},
-		{"whitespace padding around match", " conversations_add_message , channels_list ", "conversations_add_message", true},
-		{
-			name:         "substring collision - longer name in list must NOT enable shorter name",
-			enabledTools: "conversations_add_message_v2",
-			toolName:     "conversations_add_message",
-			want:         false,
-		},
-		{
-			name:         "substring collision - shorter name in list must NOT enable longer name",
-			enabledTools: "conversations_add_message",
-			toolName:     "conversations_add_message_v2",
-			want:         false,
-		},
-		{"substring collision reactions_add vs reactions_add_extra", "reactions_add_extra", "reactions_add", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isToolInEnabledList(tt.enabledTools, tt.toolName)
-			assert.Equal(t, tt.want, got, "isToolInEnabledList(%q, %q)", tt.enabledTools, tt.toolName)
-		})
-	}
-}
-
 // Search schema DefaultNumber(100) / 1..100 range: parser must default and clamp to match.
 func TestUnitParseParamsToolSearchLimit(t *testing.T) {
 	ch := &ConversationsHandler{logger: zap.NewNop()}
@@ -1308,7 +1222,7 @@ func newUnreadsTestHandler() *ConversationsHandler {
 }
 
 func TestUnitConversationsUnreadsFailsFastWithoutBrowserSession(t *testing.T) {
-	h := NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop())
+	h := NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop(), false)
 	result, err := h.ConversationsUnreadsHandler(context.Background(), mcp.CallToolRequest{})
 	require.Error(t, err)
 	assert.Nil(t, result)

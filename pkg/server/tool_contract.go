@@ -8,31 +8,24 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func newDailyPowerTool(name string, options ...mcp.ToolOption) mcp.Tool {
-	behavior, ok := capability.BehaviorForLocalTool(name)
+// newTool builds every registered tool from the capability table so title,
+// hints and output schema have one source.
+func newTool(name string, options ...mcp.ToolOption) mcp.Tool {
+	spec, ok := capability.Lookup(name)
 	if !ok {
-		panic(fmt.Sprintf("daily-power tool %q has no behavior contract", name))
+		panic(fmt.Sprintf("tool %q is not in the capability table", name))
 	}
-	entry, ok := capability.EntryForLocalTool(name)
-	if !ok {
-		panic(fmt.Sprintf("daily-power tool %q has no active catalog entry", name))
-	}
-	expectedResultType, ok := resultTypeByTool[name]
-	if !ok || entry.ResultType != expectedResultType {
-		panic(fmt.Sprintf("daily-power tool %q result contract mismatch: catalog=%q server=%q", name, entry.ResultType, expectedResultType))
-	}
-
 	if schema, ok := outputSchemaByTool[name]; ok {
 		options = append(options, schema)
 	}
 	options = append(options,
-		mcp.WithTitleAnnotation(behavior.Title),
-		mcp.WithReadOnlyHintAnnotation(behavior.ReadOnly),
-		mcp.WithDestructiveHintAnnotation(behavior.Destructive),
-		mcp.WithIdempotentHintAnnotation(behavior.Idempotent),
-		mcp.WithOpenWorldHintAnnotation(behavior.OpenWorld),
+		mcp.WithTitleAnnotation(spec.Title),
+		mcp.WithReadOnlyHintAnnotation(spec.ReadOnly),
+		mcp.WithDestructiveHintAnnotation(spec.Destructive),
+		mcp.WithIdempotentHintAnnotation(spec.Idempotent),
+		mcp.WithOpenWorldHintAnnotation(true),
 	)
-	return mcp.NewTool(name, options...)
+	return normalizeAnnotations(mcp.NewTool(name, options...))
 }
 
 // outputSchemaByTool lists the tools whose structured result an agent must
@@ -48,61 +41,4 @@ var outputSchemaByTool = map[string]mcp.ToolOption{
 	ToolListsItemDelete:        mcp.WithOutputSchema[handler.ListItemDeleteResult](),
 	ToolMessagesDelete:         mcp.WithOutputSchema[handler.MessageMutationResult](),
 	ToolDraftsDelete:           mcp.WithOutputSchema[handler.DraftMutationResult](),
-}
-
-// resultTypeByTool is cross-checked against the capability catalog so the two
-// cannot drift.
-var resultTypeByTool = map[string]string{
-	ToolSlackAuthStatus:         "diagnostics",
-	ToolConversationsGetMessage: "message",
-	ToolConversationsUnreads:    "unread_page",
-	ToolUsergroupsList:          "usergroup_page",
-	ToolUsergroupsMine:          "usergroup_page",
-	ToolUsergroupsJoin:          "usergroup_membership",
-	ToolUsergroupsLeave:         "usergroup_membership",
-	ToolActivityUnreads:         "activity_page",
-	ToolSavedList:               "saved_page",
-	ToolScheduledMessagesList:   "scheduled_message_page",
-	ToolScheduledMessageCancel:  "scheduled_message_mutation",
-	ToolChannelsRename:          "channel_mutation",
-	ToolChannelsSetTopic:        "channel_mutation",
-	ToolChannelsSetPurpose:      "channel_mutation",
-	ToolChannelsArchive:         "channel_mutation",
-	ToolListsCreate:             "list_create",
-	ToolListsUpdate:             "list_mutation",
-	ToolListsItemsList:          "list_items_page",
-	ToolListsItemsCreate:        "list_item",
-	ToolListsItemsUpdate:        "list_item_mutation",
-	ToolListsItemDelete:         "list_item_mutation",
-	ToolDNDGet:                  "dnd_state",
-	ToolDNDSetSnooze:            "dnd_state",
-	ToolDNDEndSnooze:            "dnd_state",
-	ToolConversationsMark:       "read_progress",
-	ToolReactionsRemove:         "reaction_mutation",
-	ToolActivityMarkRead:        "activity_mutation",
-	ToolSavedUpdate:             "saved_mutation",
-	ToolSavedClearCompleted:     "saved_mutation",
-	ToolUsergroupsCreate:        "usergroup_mutation",
-	ToolUsergroupsUpdate:        "usergroup_mutation",
-	ToolUsergroupsUsersUpdate:   "usergroup_mutation",
-	ToolFilesUpload:             "file_mutation",
-	ToolMessagesSchedule:        "scheduled_message",
-	ToolMessagesUpdate:          "message_mutation",
-	ToolMessagesDelete:          "message_mutation",
-	ToolChannelsCreate:          "conversation",
-	ToolChannelsInvite:          "conversation_membership",
-	ToolChannelsMembers:         "member_page",
-	ToolEmojiList:               "emoji_page",
-	ToolUsersGetProfile:         "user_profile",
-	ToolUsersSetProfile:         "user_profile",
-	ToolUsersSetStatus:          "user_profile",
-	ToolCanvasesCreate:          "canvas",
-	ToolCanvasesRead:            "canvas",
-	ToolCanvasesUpdate:          "canvas",
-	ToolDraftsList:              "draft_page",
-	ToolDraftsGet:               "draft",
-	ToolDraftsCreate:            "draft_mutation",
-	ToolDraftsUpdate:            "draft_mutation",
-	ToolDraftsDelete:            "draft_mutation",
-	ToolSearchSemantic:          "semantic_search_page",
 }

@@ -1,37 +1,33 @@
 package server
 
 import (
+	"slices"
+
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
-	"slices"
 )
 
 func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logger *zap.Logger, enabledTools []string) {
-	conversationsHandler := handler.NewConversationsHandler(provider, logger)
+	conversationsHandler := handler.NewConversationsHandler(provider, logger, slices.Contains(enabledTools, ToolConversationsAddMessage))
 	authStatusHandler := handler.NewAuthStatusHandler(provider, logger)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolSlackAuthStatus,
+	addEnabledTool(s, enabledTools, newTool(ToolSlackAuthStatus,
 		mcp.WithDescription("Report Slack auth, cache readiness, and browser-session health. Use before activity or saved tools when auth may have expired."),
 	), authStatusHandler.Handler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolConversationsOpen,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsOpen,
 		mcp.WithDescription("Open a direct message (DM) or multi-person direct message (MPIM) with one or more users. Returns the channel ID of the opened conversation."),
-		mcp.WithTitleAnnotation("Open Conversation"),
-		mcp.WithDestructiveHintAnnotation(false),
-		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString("users",
 			mcp.Required(),
 			mcp.Description("Comma-separated list of user IDs or @usernames to open a DM with. Example: U12345678, @username"),
 		),
 	), conversationsHandler.ConversationsOpenHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolConversationsHistory,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsHistory,
 		mcp.WithDescription("Fetch messages from a channel or DM by channel_id. Returns CSV; a #next_cursor line means more messages exist."),
-		mcp.WithTitleAnnotation("Get Conversation History"),
-		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),
@@ -53,10 +49,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ConversationsHistoryHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolConversationsReplies,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsReplies,
 		mcp.WithDescription("Fetch a thread's messages by channel_id and thread_ts. Returns CSV; a #next_cursor line means more messages exist."),
-		mcp.WithTitleAnnotation("Get Thread Replies"),
-		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),
@@ -82,10 +76,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ConversationsRepliesHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolReactionsGet,
+	addEnabledTool(s, enabledTools, newTool(ToolReactionsGet,
 		mcp.WithDescription("Get detailed reaction data for a specific message, including which users reacted with each emoji. Returns CSV with Emoji, Count, and Users (semicolon-separated user IDs) columns."),
-		mcp.WithTitleAnnotation("Get Message Reactions"),
-		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),
@@ -96,7 +88,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ReactionsGetHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolConversationsGetMessage,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsGetMessage,
 		mcp.WithDescription("Fetch a single message by channel and timestamp. Use the MsgID column from any compact CSV output as the timestamp, for example to re-fetch a message with detail: 'full' after an attachment-truncation receipt. Returns the same CSV format as conversations_history."),
 		mcp.WithString("channel_id",
 			mcp.Required(),
@@ -112,10 +104,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ConversationsGetMessageHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolConversationsAddMessage,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsAddMessage,
 		mcp.WithDescription("Post a message to a channel or DM by channel_id. Pass thread_ts to reply in a thread."),
-		mcp.WithTitleAnnotation("Send Message"),
-		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),
@@ -135,11 +125,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ConversationsAddMessageHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolConversationsDraftMessage,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsDraftMessage,
 		mcp.WithDescription("Preview how a message would render and whether it could be sent; nothing is saved or sent. Send it with conversations_add_message; to save a Slack draft use drafts_create."),
-		mcp.WithTitleAnnotation("Draft Message"),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),
@@ -157,9 +144,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ConversationsDraftMessageHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolReactionsAdd,
+	addEnabledTool(s, enabledTools, newTool(ToolReactionsAdd,
 		mcp.WithDescription("Add an emoji reaction to a message."),
-		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),
@@ -174,7 +160,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ReactionsAddHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolReactionsRemove,
+	addEnabledTool(s, enabledTools, newTool(ToolReactionsRemove,
 		mcp.WithDescription("Remove an emoji reaction from a message."),
 		mcp.WithString("channel_id",
 			mcp.Required(),
@@ -190,10 +176,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ReactionsRemoveHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolAttachmentGetData,
+	addEnabledTool(s, enabledTools, newTool(ToolAttachmentGetData,
 		mcp.WithDescription("Download an attachment's content by file ID. Returns file metadata and content (text files as-is, binary files as base64). Maximum file size is 5MB."),
-		mcp.WithTitleAnnotation("Get Attachment Data"),
-		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("file_id",
 			mcp.Required(),
 			mcp.Description("Attachment ID in format Fxxxxxxxxxx. The AttachmentIDs field of message metadata lists IDs with filenames when FileCount > 0."),
@@ -202,10 +186,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 
 	// Bot tokens cannot use search.messages.
 	if !provider.IsBotToken() {
-		addEnabledTool(s, enabledTools, mcp.NewTool(ToolConversationsSearchMessages,
+		addEnabledTool(s, enabledTools, newTool(ToolConversationsSearchMessages,
 			mcp.WithDescription("Search messages across channels and DMs. All filters are optional. If no filter is set, search_query is required."),
-			mcp.WithTitleAnnotation("Search Messages"),
-			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("search_query",
 				mcp.Description("Search query, e.g. 'marketing report'. A full Slack message URL such as 'https://slack.com/archives/C1234567890/p1234567890123456' returns that single message and ignores all other parameters."),
 			),
@@ -258,10 +240,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		), conversationsHandler.ConversationsSearchHandler)
 	}
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolUsersSearch,
+	addEnabledTool(s, enabledTools, newTool(ToolUsersSearch,
 		mcp.WithDescription("Search for users by name, email, display name, or Slack user ID. If a Slack user ID is provided (e.g. U07VCEPP4N5), the user is looked up directly. Returns user details and DM channel ID if available."),
-		mcp.WithTitleAnnotation("Search Users"),
-		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("query",
 			mcp.Required(),
 			mcp.Description("Search query. Matches against real name, display name, username, email, or a Slack user ID (e.g. U07VCEPP4N5)."),
@@ -272,10 +252,8 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.UsersSearchHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolFilesList,
+	addEnabledTool(s, enabledTools, newTool(ToolFilesList,
 		mcp.WithDescription("List files shared in a Slack channel or workspace. Returns CSV with FileID, Name, Filetype, Size, Created, User, Channel, MsgID. Pass a FileID from the results to attachment_get_data to download content. A #next_cursor line means more files exist."),
-		mcp.WithTitleAnnotation("List Files"),
-		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("channel_id",
 			mcp.Description("Filter files by channel ID (format Cxxxxxxxxxx) or channel name (e.g. #general). If omitted, lists files across all channels."),
 		),
@@ -295,7 +273,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.FilesListHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolConversationsMark,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsMark,
 		mcp.WithDescription("Mark a channel or DM as read. If no timestamp is provided, marks all messages as read."),
 		mcp.WithString("channel_id",
 			mcp.Required(),
@@ -306,21 +284,16 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ConversationsMarkHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolConversationsLeave,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsLeave,
 		mcp.WithDescription("Leave a channel, group conversation, or DM. Cannot leave the #general channel."),
-		mcp.WithTitleAnnotation("Leave Channel"),
-		mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),
 		),
 	), conversationsHandler.ConversationsLeaveHandler)
 
-	addEnabledTool(s, enabledTools, mcp.NewTool(ToolConversationsJoin,
+	addEnabledTool(s, enabledTools, newTool(ToolConversationsJoin,
 		mcp.WithDescription("Join a public channel. Use channels_list or channels_me to find channel IDs."),
-		mcp.WithTitleAnnotation("Join Channel"),
-		mcp.WithDestructiveHintAnnotation(false),
-		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description("Channel ID in format Cxxxxxxxxxx, or a channel name starting with # (e.g. #general)."),
@@ -329,7 +302,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 
 	usergroupsHandler := handler.NewUsergroupsHandler(provider, logger)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolUsergroupsList,
+	addEnabledTool(s, enabledTools, newTool(ToolUsergroupsList,
 		mcp.WithDescription("List all user groups (subteams) in the workspace. User groups are mention handles like @engineering that notify all members. Use this to find a group's ID before joining or updating it. Returns CSV with columns ID, Name, Handle, Description, UserCount, IsExternal, DateCreate, DateUpdate, Users (semicolon-separated user IDs, filled when include_users=true)."),
 		mcp.WithBoolean("include_users",
 			mcp.Description("Include semicolon-separated user IDs in the users CSV column. Default is false."),
@@ -345,21 +318,21 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), usergroupsHandler.UsergroupsListHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolUsergroupsMine,
+	addEnabledTool(s, enabledTools, newTool(ToolUsergroupsMine,
 		mcp.WithDescription("List the user groups the authenticated Slack user belongs to."),
 	), usergroupsHandler.UsergroupsMineHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolUsergroupsJoin,
+	addEnabledTool(s, enabledTools, newTool(ToolUsergroupsJoin,
 		mcp.WithDescription("Add the authenticated Slack user to one user group."),
 		mcp.WithString("usergroup_id", mcp.Required(), mcp.Description("User group ID beginning with S.")),
 	), usergroupsHandler.UsergroupsJoinHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolUsergroupsLeave,
+	addEnabledTool(s, enabledTools, newTool(ToolUsergroupsLeave,
 		mcp.WithDescription("Remove the authenticated Slack user from one user group."),
 		mcp.WithString("usergroup_id", mcp.Required(), mcp.Description("User group ID beginning with S.")),
 	), usergroupsHandler.UsergroupsLeaveHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolUsergroupsCreate,
+	addEnabledTool(s, enabledTools, newTool(ToolUsergroupsCreate,
 		mcp.WithDescription("Create a new user group (mention group) in the Slack workspace. After creation, use usergroups_users_update to add members, or users can join themselves with usergroups_join. The handle becomes the @mention (e.g., handle='engineering' creates @engineering)."),
 		mcp.WithString("name",
 			mcp.Required(),
@@ -376,7 +349,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), usergroupsHandler.UsergroupsCreateHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolUsergroupsUpdate,
+	addEnabledTool(s, enabledTools, newTool(ToolUsergroupsUpdate,
 		mcp.WithDescription("Update a user group's metadata: name, handle (@mention), description, or default channels. Does NOT change members, use usergroups_users_update for that. At least one field must be provided."),
 		mcp.WithString("usergroup_id",
 			mcp.Required(),
@@ -396,7 +369,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), usergroupsHandler.UsergroupsUpdateHandler)
 
-	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolUsergroupsUsersUpdate,
+	addEnabledTool(s, enabledTools, newTool(ToolUsergroupsUsersUpdate,
 		mcp.WithDescription("Replace all members of a user group with a new list. WARNING: any user not in the 'users' parameter is removed. To add or remove only yourself, use usergroups_me instead. To add one user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
 		mcp.WithString("usergroup_id",
 			mcp.Required(),
@@ -408,65 +381,55 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), usergroupsHandler.UsergroupsUsersUpdateHandler)
 
-	browserSession := provider.ConfiguredWithBrowserSession()
-	addSavedList := browserSession && slices.Contains(enabledTools, ToolSavedList)
-	addSavedUpdate := browserSession && slices.Contains(enabledTools, ToolSavedUpdate)
-	addSavedClear := browserSession && slices.Contains(enabledTools, ToolSavedClearCompleted)
-	if addSavedList || addSavedUpdate || addSavedClear {
+	if provider.ConfiguredWithBrowserSession() {
 		savedHandler := handler.NewSavedHandler(provider, logger, conversationsHandler)
-		if addSavedList {
-			s.AddTool(newDailyPowerTool(ToolSavedList,
-				mcp.WithDescription("List saved items from Slack's 'Save for Later' panel. Returns CSV: with include_messages=true the message rows come first, then a `#saved_items:` line and an item table (Channel,MsgID,DateCreated,DateDue,State) whose Channel and MsgID feed saved_update. Needs a Slack browser session (xoxc/xoxd)."),
-				mcp.WithString("filter",
-					mcp.Description("Filter saved items: 'saved' (active/in-progress, default), 'completed' (marked done), 'archived'."),
-					mcp.DefaultString("saved"),
-				),
-				mcp.WithNumber("limit",
-					mcp.Description("Maximum number of items to return from this page. Default is 50."),
-					mcp.DefaultNumber(50),
-				),
-				mcp.WithString("cursor",
-					mcp.Description(descCursor),
-				),
-				mcp.WithBoolean("include_messages",
-					mcp.Description("If true (default), fetches the actual saved message content. If false, returns metadata only."),
-					mcp.DefaultBool(true),
-				),
-				mcp.WithNumber("max_messages_per_item",
-					mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
-					mcp.DefaultNumber(5),
-				),
-				mcp.WithString("detail",
-					mcp.Description(toolDetailDescription),
-					mcp.Enum("standard", "full"),
-				),
-			), savedHandler.SavedListHandler)
-		}
+		addEnabledTool(s, enabledTools, newTool(ToolSavedList,
+			mcp.WithDescription("List saved items from Slack's 'Save for Later' panel. Returns CSV: with include_messages=true the message rows come first, then a `#saved_items:` line and an item table (Channel,MsgID,DateCreated,DateDue,State) whose Channel and MsgID feed saved_update. Needs a Slack browser session (xoxc/xoxd)."),
+			mcp.WithString("filter",
+				mcp.Description("Filter saved items: 'saved' (active/in-progress, default), 'completed' (marked done), 'archived'."),
+				mcp.DefaultString("saved"),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("Maximum number of items to return from this page. Default is 50."),
+				mcp.DefaultNumber(50),
+			),
+			mcp.WithString("cursor",
+				mcp.Description(descCursor),
+			),
+			mcp.WithBoolean("include_messages",
+				mcp.Description("If true (default), fetches the actual saved message content. If false, returns metadata only."),
+				mcp.DefaultBool(true),
+			),
+			mcp.WithNumber("max_messages_per_item",
+				mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
+				mcp.DefaultNumber(5),
+			),
+			mcp.WithString("detail",
+				mcp.Description(toolDetailDescription),
+				mcp.Enum("standard", "full"),
+			),
+		), savedHandler.SavedListHandler)
 
-		if addSavedUpdate {
-			s.AddTool(newDailyPowerTool(ToolSavedUpdate,
-				mcp.WithDescription("Update a saved item: mark as completed, set a due date, or both. Use the Channel and MsgID values from saved_list output."),
-				mcp.WithString("channel_id",
-					mcp.Required(),
-					mcp.Description("Channel or DM ID of the saved message (Channel column in saved_list)."),
-				),
-				mcp.WithString("timestamp",
-					mcp.Required(),
-					mcp.Description("Message timestamp of the saved item (MsgID column in saved_list)."),
-				),
-				mcp.WithString("mark",
-					mcp.Description("Set to 'completed' to mark the item as done."),
-				),
-				mcp.WithNumber("date_due",
-					mcp.Description("Unix timestamp for due date/reminder. Set to 0 to clear."),
-				),
-			), savedHandler.SavedUpdateHandler)
-		}
+		addEnabledTool(s, enabledTools, newTool(ToolSavedUpdate,
+			mcp.WithDescription("Update a saved item: mark as completed, set a due date, or both. Use the Channel and MsgID values from saved_list output."),
+			mcp.WithString("channel_id",
+				mcp.Required(),
+				mcp.Description("Channel or DM ID of the saved message (Channel column in saved_list)."),
+			),
+			mcp.WithString("timestamp",
+				mcp.Required(),
+				mcp.Description("Message timestamp of the saved item (MsgID column in saved_list)."),
+			),
+			mcp.WithString("mark",
+				mcp.Description("Set to 'completed' to mark the item as done."),
+			),
+			mcp.WithNumber("date_due",
+				mcp.Description("Unix timestamp for due date/reminder. Set to 0 to clear."),
+			),
+		), savedHandler.SavedUpdateHandler)
 
-		if addSavedClear {
-			s.AddTool(newDailyPowerTool(ToolSavedClearCompleted,
-				mcp.WithDescription("Clear all completed saved items from the 'Save for Later' panel. This is a bulk operation that removes all items with state='completed'."),
-			), savedHandler.SavedClearCompletedHandler)
-		}
+		addEnabledTool(s, enabledTools, newTool(ToolSavedClearCompleted,
+			mcp.WithDescription("Clear all completed saved items from the 'Save for Later' panel. This is a bulk operation that removes all items with state='completed'."),
+		), savedHandler.SavedClearCompletedHandler)
 	}
 }
