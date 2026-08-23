@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -28,15 +27,10 @@ func warmupNextDelay(nextAttempt int) time.Duration {
 	return warmupSlowRetryDelay
 }
 
-func isDemoCredentials() bool {
-	return os.Getenv("SLACK_MCP_XOXP_TOKEN") == "demo" ||
-		(os.Getenv("SLACK_MCP_XOXC_TOKEN") == "demo" && os.Getenv("SLACK_MCP_XOXD_TOKEN") == "demo")
-}
-
 func startCacheWarmup(p *provider.ApiProvider, s *server.MCPServer, logger *zap.Logger) {
 	go func() {
 		for attempt := 1; ; attempt++ {
-			if isDemoCredentials() {
+			if provider.IsDemoCredentials() {
 				logger.Info("Demo credentials are set, skip cache warm-up",
 					zap.String("context", "console"),
 				)

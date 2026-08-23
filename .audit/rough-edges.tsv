@@ -1,0 +1,4 @@
+ts	phase	decision	why	evidence	result
+2026-08-23T17:42:31Z	U0	built scripts/toolslist-snapshot.sh as the before/after lever for the token cut	diffable tools/list bytes per tool beat eyeballing descriptions	scripts/toolslist-snapshot.sh	legacy-full 69 tools 124996 bytes ~31k tokens; daily-power 17 tools 38011 bytes ~9.5k tokens
+2026-08-23T17:42:31Z	U0	fixed demo-mode startup panic by building a real client around canned auth instead of a typed-nil client	typed nil passed the type assertion in Drafts() and every similar accessor; root cause not symptom	pkg/provider/api.go IsDemoCredentials demoAuthResponse; pkg/provider/demo_test.go	legacy-full demo registers 69 tools; lint and tests pass
+2026-08-23T17:42:31Z	U0	demo advertises full surface: OAuth-gated and browser-gated tools both register	demo exists to show the catalog; partial catalog made the lever lie	pkg/provider/api.go NewMCPSlackClient demo branch	dnd and lists tools now appear in demo tools/list
