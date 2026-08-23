@@ -92,6 +92,13 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 	if threadTS != "" && (channelID == "" || !validSlackTimestamp(threadTS)) {
 		return messageFilesInvalid("thread_ts requires channel_id and must be a Slack timestamp"), nil
 	}
+	// Sharing into a channel posts a message, so it answers to the same
+	// allowlist as the message lifecycle tools.
+	if channelID != "" {
+		if err := requireMessageLifecycleTool("files_upload", channelID); err != nil {
+			return NewTypedErrorResult(err), nil
+		}
+	}
 	comment := request.GetString("initial_comment", "")
 	if !validMessageText(comment, true) {
 		return messageFilesInvalid("initial_comment must be valid UTF-8 and at most 40000 characters"), nil

@@ -198,3 +198,23 @@ func TestUnitFilesPageCursorRoundTrip(t *testing.T) {
 	assert.Equal(t, "", nextFilesCursor(&slack.Paging{Page: 1, Pages: 0}), "empty result set emits no cursor")
 	assert.Equal(t, "2", nextFilesCursor(&slack.Paging{Page: 1, Pages: 5}))
 }
+
+func TestUnitAttachmentRefDescribesKindAndSize(t *testing.T) {
+	cases := []struct {
+		name string
+		file slack.File
+		want string
+	}{
+		{"image", slack.File{ID: "F1", Name: "shot.png", Mimetype: "image/png", Filetype: "png", Size: 348160}, "F1 (shot.png, image, 340KB)"},
+		{"text", slack.File{ID: "F2", Name: "notes.txt", Mimetype: "text/plain", Filetype: "text", Size: 12}, "F2 (notes.txt, text, 12B)"},
+		{"json counts as text", slack.File{ID: "F3", Name: "d.json", Mimetype: "application/json", Filetype: "json", Size: 2048}, "F3 (d.json, text, 2KB)"},
+		{"opaque type keeps filetype", slack.File{ID: "F4", Name: "deck.pdf", Mimetype: "application/pdf", Filetype: "pdf", Size: 8836191}, "F4 (deck.pdf, pdf, 8.4MB)"},
+		{"no name", slack.File{ID: "F5", Mimetype: "image/jpeg", Filetype: "jpg", Size: 1024}, "F5 (image, 1KB)"},
+		{"no size", slack.File{ID: "F6", Name: "x.bin"}, "F6 (x.bin, binary)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, attachmentRef(tc.file))
+		})
+	}
+}

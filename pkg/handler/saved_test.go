@@ -77,11 +77,12 @@ func TestUnitSavedMessagesTrailer(t *testing.T) {
 	assert.Nil(t, res.StructuredContent)
 
 	lines := strings.Split(csvResultBody(t, res), "\n")
-	assert.Equal(t, "#next_cursor: next-page", lines[0])
-	assert.True(t, strings.HasPrefix(lines[1], "User,Channel,"), lines[1])
-	assert.Equal(t, "#saved_items:", lines[3])
-	assert.Equal(t, savedItemsHeader, lines[4])
-	assert.Len(t, lines, 8, "two item rows follow the section header; body ends with a newline")
+	assert.True(t, strings.HasPrefix(lines[0], "#attachments: "), "the fixture message carries a file: %s", lines[0])
+	assert.Equal(t, "#next_cursor: next-page", lines[1])
+	assert.True(t, strings.HasPrefix(lines[2], "User,Channel,"), lines[2])
+	assert.Equal(t, "#saved_items:", lines[4])
+	assert.Equal(t, savedItemsHeader, lines[5])
+	assert.Len(t, lines, 9, "two item rows follow the section header; body ends with a newline")
 }
 
 func TestUnitFormatUnixTs(t *testing.T) {

@@ -24,6 +24,7 @@ conversation ID and `MsgID` is the message timestamp.
 #channels: C041QQ9FNAJ=#general, D0AGSQXLJHG=@john
 #users: U03BMAR2R50=robdezendorf|Rob Dezendorf, U045MM2AJCQ=konopackimarie|Marie Konopacki
 #link_template: https://<workspace>.slack.com/archives/{Channel}/p{MsgID with "." removed}
+#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, 5MB cap
 #next_cursor: dXNlcjpVMDYxTkZUVDI=
 User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files
 ```
@@ -42,8 +43,14 @@ User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files
 - `activity_unreads` and `saved_list` append a second table after a
   `#activity_items:` / `#saved_items:` line; its rows carry the IDs that
   `activity_mark_read` and `saved_update` take.
-- `Files` is a count of attached files; `AttachmentIDs` carries their
-  downloadable IDs.
+- `Files` is a count of attached files; `AttachmentIDs` describes each one as
+  `FileID (name, kind, size)`, e.g. `F0BS2 (shot.png, image, 340KB)`. The kind
+  is `image` or `text` when `attachment_get_data` will return readable content,
+  and the raw Slack filetype (`pdf`, `mp4`, `zip`) when it will only return
+  base64.
+- `#attachments:` appears whenever any row carries a file and names the fetch
+  route plus its limits. Unlike `#users:`, it is not suppressed on short
+  responses, so a single-message read still carries it.
 - Message tools accept `detail: standard` (default) or `detail: full` (every
   column, attachments untruncated). Long bot/link-unfurl attachments render up
   to a 300-char budget in standard mode. When cut, the row ends with

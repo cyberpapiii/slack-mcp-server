@@ -260,6 +260,45 @@ func marshalFilesToCSV(rows []fileRow, nextCursor string, channelName func(strin
 	return marshalRowsToCSV(channelsLegend(ids, channelName), &rows, nextCursor)
 }
 
+// attachmentRef describes a file well enough for a reader to decide whether
+// fetching it is worth a call: what it is and how big it is, not just its ID.
+// The kind mirrors what attachment_get_data will actually return.
+func attachmentRef(f slack.File) string {
+	parts := make([]string, 0, 3)
+	if f.Name != "" {
+		parts = append(parts, f.Name)
+	}
+	parts = append(parts, attachmentKind(f))
+	if f.Size > 0 {
+		parts = append(parts, humanBytes(f.Size))
+	}
+	return fmt.Sprintf("%s (%s)", f.ID, strings.Join(parts, ", "))
+}
+
+func attachmentKind(f slack.File) string {
+	switch {
+	case isImageMimetype(f.Mimetype):
+		return "image"
+	case isTextMimetype(f.Mimetype):
+		return "text"
+	case f.Filetype != "":
+		return f.Filetype
+	default:
+		return "binary"
+	}
+}
+
+func humanBytes(n int) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%dB", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%dKB", n/1024)
+	default:
+		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
+	}
+}
+
 func isImageMimetype(mimetype string) bool {
 	return strings.HasPrefix(mimetype, "image/")
 }

@@ -45,7 +45,9 @@ Browser-session tools (`capability.BrowserNames()`, registered only when xoxc/xo
 
 `conversations_get_message` fetches a single message by channel and timestamp, the recovery path for an attachment-truncation receipt.
 
-List tools return CSV text only (no structured content). Legend comment lines precede the header: `#channels:` (ID to `#name`/`@user`), `#users:`, `#link_template:`, `#next_cursor:` (only when another page exists), `#partial:`. The `Channel` column is the bare ID. `activity_unreads` and `saved_list` append a companion table after `#activity_items:` / `#saved_items:`. Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode truncates long attachments with a re-fetch receipt. Single-record and mutation tools return structured content with a JSON text fallback. See `docs/agent-presets.md`.
+`AttachmentIDs` renders each file as `FileID (name, kind, size)` via `attachmentRef` (`pkg/handler/conversations_files.go`). The kind mirrors what `attachment_get_data` returns: `image` and `text` are readable, anything else comes back as base64. `files_upload` with a `channel_id` posts a message, so it honors `SLACK_MCP_ADD_MESSAGE_TOOL` like the other message lifecycle tools.
+
+List tools return CSV text only (no structured content). Legend comment lines precede the header: `#channels:` (ID to `#name`/`@user`), `#users:`, `#link_template:`, `#attachments:` (only when a row carries a file; not suppressed on short responses), `#next_cursor:` (only when another page exists), `#partial:`. The `Channel` column is the bare ID. `activity_unreads` and `saved_list` append a companion table after `#activity_items:` / `#saved_items:`. Message tools take a per-call `detail` parameter (`standard`/`full`); `SLACK_MCP_COMPACT_OUTPUT` only sets the server-wide default when `detail` is omitted. Standard mode truncates long attachments with a re-fetch receipt. Single-record and mutation tools return structured content with a JSON text fallback. See `docs/agent-presets.md`.
 
 Agent allowlist presets: `docs/agent-presets.md`.
 

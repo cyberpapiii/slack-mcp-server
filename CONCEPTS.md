@@ -19,7 +19,10 @@ The default output level for message-returning tools: compact CSV designed for a
 The verbose output level: all columns including per-message user IDs and permalinks, with attachments rendered in full. The lossless recovery route when Standard mode has truncated something.
 
 ### Legend
-Comment lines prepended to CSV output before the header: a channel map (`#channels:`), a user map (`#users:`, each distinct human speaker's ID, username, and real name), a link template for constructing message permalinks (`#link_template:`), the pagination cursor (`#next_cursor:`), and a partial-result reason (`#partial:`). The user map is emitted only when the response is large enough for it to pay for itself; bots are excluded.
+Comment lines prepended to CSV output before the header: a channel map (`#channels:`), a user map (`#users:`, each distinct human speaker's ID, username, and real name), a link template for constructing message permalinks (`#link_template:`), the attachment fetch route (`#attachments:`), the pagination cursor (`#next_cursor:`), and a partial-result reason (`#partial:`). The user map is emitted only when the response is large enough for it to pay for itself; bots are excluded. The attachment line is conditioned on content rather than size: it appears whenever a row carries a file, including single-message reads.
+
+### Attachment reference
+How a file is named in an `AttachmentIDs` cell: `FileID (name, kind, size)`. The kind predicts what fetching it will yield rather than restating the file extension, so `image` and `text` mean `attachment_get_data` returns readable content while a raw filetype (`pdf`, `mp4`) means it returns base64 the reader cannot interpret. Size lets a reader weigh a fetch against the 5MB cap. The point is that skipping a file becomes an informed choice instead of a guess from a filename.
 
 ### Companion table
 A second CSV table appended after a `#activity_items:` or `#saved_items:` line by tools that return both messages and the items that point at them. Its rows carry the IDs the matching mutation tool takes.

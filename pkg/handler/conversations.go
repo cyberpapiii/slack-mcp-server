@@ -287,11 +287,7 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, 
 
 		var attachmentIDs []string
 		for _, f := range msg.Files {
-			if f.Name != "" {
-				attachmentIDs = append(attachmentIDs, fmt.Sprintf("%s (%s)", f.ID, f.Name))
-			} else {
-				attachmentIDs = append(attachmentIDs, f.ID)
-			}
+			attachmentIDs = append(attachmentIDs, attachmentRef(f))
 		}
 		attachmentIDsStr := strings.Join(attachmentIDs, ", ")
 
@@ -561,10 +557,23 @@ func buildChannelsLegend(messages []Message, channelName func(string) string) st
 // with their IDs, and a permalink template so links are derivable without a
 // Permalink column. The users and link lines are skipped for tiny result sets
 // where they would outweigh the rows.
+// buildAttachmentsLegend names the recovery route for rows carrying files, and
+// states up front which types come back readable, so a reader can skip the ones
+// that would only return bytes it cannot use.
+func buildAttachmentsLegend(messages []Message) string {
+	for _, m := range messages {
+		if m.AttachmentIDs != "" {
+			return "#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, 5MB cap\n"
+		}
+	}
+	return ""
+}
+
 func buildLegendHeader(messages []Message, opts renderOptions) string {
 	var sb strings.Builder
 	sb.WriteString(buildChannelsLegend(messages, opts.channelName))
 	if len(messages) < 3 {
+		sb.WriteString(buildAttachmentsLegend(messages))
 		return sb.String()
 	}
 
@@ -596,6 +605,7 @@ func buildLegendHeader(messages []Message, opts renderOptions) string {
 		}
 		sb.WriteString(fmt.Sprintf("#link_template: %sarchives/{Channel}/p{MsgID with \".\" removed}\n", base))
 	}
+	sb.WriteString(buildAttachmentsLegend(messages))
 
 	return sb.String()
 }

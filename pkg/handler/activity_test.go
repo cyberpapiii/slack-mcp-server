@@ -95,10 +95,11 @@ func TestUnitActivityMessagesTrailer(t *testing.T) {
 
 	lines := strings.Split(csvResultBody(t, res), "\n")
 	assert.Equal(t, "#partial: 1 activity threads could not be fetched", lines[0])
-	assert.True(t, strings.HasPrefix(lines[1], "User,Channel,"), lines[1])
-	assert.Equal(t, "#activity_items:", lines[3])
-	assert.Equal(t, activityItemsHeader, lines[4])
-	assert.Len(t, lines, 8, "trailer rows follow the section header; body ends with a newline")
+	assert.True(t, strings.HasPrefix(lines[1], "#attachments: "), "the fixture message carries a file: %s", lines[1])
+	assert.True(t, strings.HasPrefix(lines[2], "User,Channel,"), lines[2])
+	assert.Equal(t, "#activity_items:", lines[4])
+	assert.Equal(t, activityItemsHeader, lines[5])
+	assert.Len(t, lines, 9, "trailer rows follow the section header; body ends with a newline")
 }
 
 func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {

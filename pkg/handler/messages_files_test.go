@@ -168,3 +168,35 @@ func TestUnitMessagesScheduleHonorsAddMessageAllowlist(t *testing.T) {
 	require.True(t, denied.IsError)
 	assert.Equal(t, 1, service.scheduleCalls)
 }
+
+func TestUnitFilesUploadHonorsChannelAllowlist(t *testing.T) {
+	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1")
+
+	service := &fakeMessageFilesService{}
+	blocked, err := newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
+		"filename": "a.txt", "content": "hello", "channel_id": "C9", "initial_comment": "here",
+	}))
+	require.NoError(t, err)
+	assert.True(t, blocked.IsError, "sharing into a blocked channel posts a message and must be denied")
+	assert.Contains(t, ResultText(blocked), "SLACK_MCP_ADD_MESSAGE_TOOL", "the denial must name the variable that caused it")
+	assert.Equal(t, 0, service.uploadCalls)
+
+	allowed, err := newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
+		"filename": "a.txt", "content": "hello", "channel_id": "C1",
+	}))
+	require.NoError(t, err)
+	require.False(t, allowed.IsError)
+	assert.Equal(t, 1, service.uploadCalls)
+}
+
+func TestUnitFilesUploadWithoutChannelSkipsAllowlist(t *testing.T) {
+	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1")
+
+	service := &fakeMessageFilesService{}
+	result, err := newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
+		"filename": "a.txt", "content": "hello",
+	}))
+	require.NoError(t, err)
+	require.False(t, result.IsError, "an unshared upload posts nothing, so the message allowlist does not apply")
+	assert.Equal(t, 1, service.uploadCalls)
+}

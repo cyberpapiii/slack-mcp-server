@@ -627,7 +627,8 @@ func TestUnitCompactCSVLegendHeader(t *testing.T) {
 	assert.True(t, strings.HasPrefix(lines[0], "#users:"))
 	assert.NotContains(t, lines[0], "GitHub", "bot rows must be excluded from the #users: legend")
 	assert.True(t, strings.HasPrefix(lines[1], "#link_template:"))
-	assert.Equal(t, "User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files", lines[2])
+	assert.True(t, strings.HasPrefix(lines[2], "#attachments: "), "the fixture messages carry files: %s", lines[2])
+	assert.Equal(t, "User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files", lines[3])
 }
 
 func TestUnitCompactCSVChannelsLegendAndCursor(t *testing.T) {
@@ -647,8 +648,9 @@ func TestUnitCompactCSVChannelsLegendAndCursor(t *testing.T) {
 	assert.Equal(t, "#channels: "+messages[0].Channel+"=#general", lines[0])
 	assert.True(t, strings.HasPrefix(lines[1], "#users:"))
 	assert.True(t, strings.HasPrefix(lines[2], "#link_template:"))
-	assert.Equal(t, "#next_cursor: cursor-2", lines[3])
-	assert.True(t, strings.HasPrefix(lines[4], "User,Channel,"))
+	assert.True(t, strings.HasPrefix(lines[3], "#attachments: "))
+	assert.Equal(t, "#next_cursor: cursor-2", lines[4])
+	assert.True(t, strings.HasPrefix(lines[5], "User,Channel,"))
 }
 
 func TestUnitFullCSVCarriesCursorLine(t *testing.T) {
@@ -668,9 +670,17 @@ func TestUnitCompactCSVLegendSkippedForSmallResults(t *testing.T) {
 
 	body := csvResultBody(t, result)
 
-	assert.True(t, strings.HasPrefix(body, "User,Channel,Text,Time,MsgID"), "body should start directly with the CSV header, got: %s", body)
 	assert.NotContains(t, body, "#users:")
 	assert.NotContains(t, body, "#link_template:")
+	assert.True(t, strings.HasPrefix(body, "#attachments: "), "files still need their recovery route on a small result: %s", body)
+
+	noFiles := compactCSVFixtureMessagesN(2)
+	for i := range noFiles {
+		noFiles[i].AttachmentIDs = ""
+	}
+	bare, err := marshalMessagesToCSV(noFiles, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(csvResultBody(t, bare), "User,Channel,Text,Time,MsgID"), "no files, no legend at all")
 }
 
 func TestUnitCompactCSVLegendNoWorkspace(t *testing.T) {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -126,4 +127,20 @@ func TestUnitConversationsGetMessageParamValidation(t *testing.T) {
 	req.Params.Arguments = map[string]any{"channel_id": "C0123456789", "timestamp": "1234567890.123456", "detail": "bogus"}
 	_, err = ch.ConversationsGetMessageHandler(context.Background(), req)
 	require.Error(t, err)
+}
+
+func TestUnitAttachmentsLegendOnlyWhenFilesPresent(t *testing.T) {
+	assert.Empty(t, buildAttachmentsLegend([]Message{{MsgID: "1"}, {MsgID: "2"}}))
+
+	legend := buildAttachmentsLegend([]Message{{MsgID: "1"}, {MsgID: "2", AttachmentIDs: "F1 (shot.png, image, 340KB)"}})
+	assert.True(t, strings.HasPrefix(legend, "#attachments: "), legend)
+	assert.Contains(t, legend, "attachment_get_data")
+	assert.True(t, strings.HasSuffix(legend, "\n"), "legend lines must terminate")
+}
+
+func TestUnitAttachmentsLegendSurvivesShortResponses(t *testing.T) {
+	messages := []Message{{MsgID: "1", Channel: "C1", AttachmentIDs: "F1 (shot.png, image, 340KB)"}}
+	header := buildLegendHeader(messages, renderOptions{channelName: func(string) string { return "" }})
+	assert.Contains(t, header, "#attachments: ", "a single message with a file still needs the recovery route")
+	assert.NotContains(t, header, "#users: ", "the 3-message user-legend gate still applies")
 }
