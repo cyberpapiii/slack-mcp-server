@@ -177,10 +177,10 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 	), conversationsHandler.ReactionsRemoveHandler)
 
 	addEnabledTool(s, enabledTools, newTool(ToolAttachmentGetData,
-		mcp.WithDescription("Download an attachment's content by file ID. Returns file metadata and content (text files as-is, binary files as base64). Maximum file size is 5MB."),
+		mcp.WithDescription("Download an attachment's content by file ID. Images come back as viewable image content, so use this to read a screenshot rather than guessing at it from the message text. Text files come back as readable text; other types come back as base64. Maximum file size is 5MB."),
 		mcp.WithString("file_id",
 			mcp.Required(),
-			mcp.Description("Attachment ID in format Fxxxxxxxxxx. The AttachmentIDs field of message metadata lists IDs with filenames when FileCount > 0."),
+			mcp.Description("Attachment ID in format Fxxxxxxxxxx. Message rows list them in the AttachmentIDs column as `FileID (name, kind, size)` when the Files column is non-zero; files_list reports them in its FileID column."),
 		),
 	), conversationsHandler.FilesGetHandler)
 
