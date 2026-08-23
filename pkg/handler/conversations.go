@@ -57,7 +57,6 @@ type Message struct {
 	FileCount     int    `json:"file_count,omitempty"`
 	AttachmentIDs string `json:"attachment_ids,omitempty"`
 	HasMedia      bool   `json:"has_media,omitempty"`
-	Cursor        string `json:"cursor,omitempty"`
 }
 
 // CompactMessage is the default agent-oriented CSV shape: readable columns plus the
@@ -73,7 +72,6 @@ type CompactMessage struct {
 	Reactions     string `csv:"Reactions,omitempty"`
 	AttachmentIDs string `csv:"AttachmentIDs,omitempty"`
 	Files         string `csv:"Files,omitempty"`
-	Cursor        string `csv:"Cursor,omitempty"`
 }
 
 type User struct {
@@ -227,14 +225,14 @@ func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel st
 		ch.logger.Error("Failed to refresh channels cache",
 			zap.String("channel", channel),
 			zap.Error(refreshErr))
-		return "", fmt.Errorf("channel %q not found and cache refresh failed: %w", channel, refreshErr)
+		return "", &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", channel), Cause: refreshErr}
 	}
 
 	// If rate-limited, the cache wasn't refreshed, so a second lookup is pointless.
 	if wasRateLimited {
 		ch.logger.Warn("Channel not found; cache refresh was rate-limited",
 			zap.String("channel", channel))
-		return "", fmt.Errorf("channel %q not found (cache refresh was rate-limited, try again later)", channel)
+		return "", &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found and the cache refresh was rate-limited; retry shortly or pass the channel ID (Cxxxxxxxxxx)", channel), Retryable: true}
 	}
 
 	channelsMaps = ch.apiProvider.ProvideChannelsMaps()
@@ -242,7 +240,7 @@ func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel st
 	if !ok {
 		ch.logger.Error("Channel not found even after cache refresh",
 			zap.String("channel", channel))
-		return "", fmt.Errorf("channel %q not found", channel)
+		return "", channelNotFound(channel)
 	}
 
 	ch.logger.Debug("Channel found after cache refresh",
@@ -371,7 +369,7 @@ func (ch *ConversationsHandler) convertMessagesFromSearch(ctx context.Context, s
 			UserName:  userName,
 			RealName:  realName,
 			Text:      text.ProcessText(msgText),
-			Channel:   fmt.Sprintf("%s (#%s)", msg.Channel.ID, msg.Channel.Name),
+			Channel:   msg.Channel.ID,
 			ThreadTs:  threadTs,
 			Time:      timestamp,
 			Permalink: msg.Permalink,
@@ -434,7 +432,7 @@ func (ch *ConversationsHandler) paramFormatUser(ctx context.Context, raw string)
 			if err != nil {
 				ch.logger.Debug("Targeted user fetch failed, user not found",
 					zap.String("user_id", raw), zap.Error(err))
-				return "", fmt.Errorf("user %q not found", raw)
+				return "", userNotFound(raw)
 			}
 			return fmt.Sprintf("<@%s>", patched.ID), nil
 		}
@@ -448,7 +446,7 @@ func (ch *ConversationsHandler) paramFormatUser(ctx context.Context, raw string)
 	}
 	uid, ok := users.UsersInv[raw]
 	if !ok {
-		return "", fmt.Errorf("user %q not found", raw)
+		return "", userNotFound(raw)
 	}
 	return fmt.Sprintf("<@%s>", uid), nil
 }
@@ -460,38 +458,61 @@ func (ch *ConversationsHandler) paramFormatChannel(raw string) (string, error) {
 		if id, ok := cms.ChannelsInv[raw]; ok {
 			return cms.Channels[id].Name, nil
 		}
-		return "", fmt.Errorf("channel %q not found", raw)
+		return "", channelNotFound(raw)
 	}
 	// Handle both C (standard channels) and G (private groups/channels) prefixes
 	if strings.HasPrefix(raw, "C") || strings.HasPrefix(raw, "G") {
 		if chn, ok := cms.Channels[raw]; ok {
 			return chn.Name, nil
 		}
-		return "", fmt.Errorf("channel %q not found", raw)
+		return "", channelNotFound(raw)
 	}
-	return "", fmt.Errorf("invalid channel format: %q", raw)
+	return "", &ToolError{Code: "invalid_argument", Message: fmt.Sprintf("invalid channel %q; pass a channel ID (Cxxxxxxxxxx) or a #channel-name", raw)}
 }
 
-// renderOptions carries the per-call rendering context (output mode plus
-// anything the compact-mode legend header needs) through marshalMessagesToCSV.
+// renderOptions carries the per-call rendering context through
+// marshalMessagesToCSV: output mode, the legend inputs, and the cursor for
+// the next page.
 type renderOptions struct {
 	mode         text.OutputMode
 	workspaceURL string
+	channelName  func(channelID string) string
+	nextCursor   string
+}
+
+// render builds the per-call rendering context for message CSV output.
+func (ch *ConversationsHandler) render(mode text.OutputMode, nextCursor string) renderOptions {
+	return renderOptions{
+		mode:         mode,
+		workspaceURL: ch.apiProvider.WorkspaceURL(),
+		channelName:  ch.channelDisplayName,
+		nextCursor:   nextCursor,
+	}
+}
+
+// channelDisplayName returns the cached "#name" or "@user" label for a
+// conversation ID, or "" when the cache does not know it.
+func (ch *ConversationsHandler) channelDisplayName(channelID string) string {
+	if cached, ok := ch.apiProvider.ProvideChannelsMaps().Channels[channelID]; ok {
+		return cached.Name
+	}
+	return ""
 }
 
 func marshalMessagesToCSV(messages []Message, opts renderOptions) (*mcp.CallToolResult, error) {
+	meta := SlackResultMeta(opts.nextCursor, false, "")
 	if opts.mode != text.ModeFull {
-		return marshalMessagesToCompactCSV(messages, opts.workspaceURL)
+		return marshalMessagesToCompactCSV(messages, opts, meta)
 	}
 	csvBytes, err := gocsv.MarshalBytes(&messages)
 	if err != nil {
 		return nil, err
 	}
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	return NewCSVResult(buildChannelsLegend(messages, opts.channelName), meta, string(csvBytes)), nil
 }
 
 // marshalMessagesToCompactCSV converts messages to the default agent CSV format.
-func marshalMessagesToCompactCSV(messages []Message, workspaceURL string) (*mcp.CallToolResult, error) {
+func marshalMessagesToCompactCSV(messages []Message, opts renderOptions, meta ResultMeta) (*mcp.CallToolResult, error) {
 	compact := make([]CompactMessage, len(messages))
 	for i, m := range messages {
 		user := m.RealName
@@ -521,7 +542,6 @@ func marshalMessagesToCompactCSV(messages []Message, workspaceURL string) (*mcp.
 			Reactions:     m.Reactions,
 			AttachmentIDs: m.AttachmentIDs,
 			Files:         files,
-			Cursor:        m.Cursor,
 		}
 	}
 
@@ -530,20 +550,45 @@ func marshalMessagesToCompactCSV(messages []Message, workspaceURL string) (*mcp.
 		return nil, err
 	}
 
-	legend := buildLegendHeader(messages, workspaceURL)
-	return mcp.NewToolResultText(legend + string(csvBytes)), nil
+	legend := buildLegendHeader(messages, opts)
+	return NewCSVResult(legend, meta, string(csvBytes)), nil
+}
+
+// buildChannelsLegend emits "#channels: C1=#general, D2=@bob" for every
+// distinct conversation ID in the page that the cache can name. The Channel
+// column itself always holds the bare ID.
+func buildChannelsLegend(messages []Message, channelName func(string) string) string {
+	if channelName == nil {
+		return ""
+	}
+	seen := make(map[string]bool)
+	var parts []string
+	for _, m := range messages {
+		if m.Channel == "" || seen[m.Channel] {
+			continue
+		}
+		seen[m.Channel] = true
+		if name := channelName(m.Channel); name != "" {
+			parts = append(parts, m.Channel+"="+name)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "#channels: " + strings.Join(parts, ", ") + "\n"
 }
 
 // buildLegendHeader emits comment lines (agent-oriented, not CSV data) that
-// normalize per-row redundancy: distinct users with their IDs, and a permalink
-// template so links are derivable without a Permalink column. Skipped for
-// tiny result sets where the header would outweigh the rows.
-func buildLegendHeader(messages []Message, workspaceURL string) string {
-	if len(messages) < 3 {
-		return ""
-	}
-
+// normalize per-row redundancy: channel IDs with their names, distinct users
+// with their IDs, and a permalink template so links are derivable without a
+// Permalink column. The users and link lines are skipped for tiny result sets
+// where they would outweigh the rows.
+func buildLegendHeader(messages []Message, opts renderOptions) string {
 	var sb strings.Builder
+	sb.WriteString(buildChannelsLegend(messages, opts.channelName))
+	if len(messages) < 3 {
+		return sb.String()
+	}
 
 	seen := make(map[string]bool)
 	var userParts []string
@@ -566,15 +611,12 @@ func buildLegendHeader(messages []Message, workspaceURL string) string {
 		sb.WriteString("\n")
 	}
 
-	if workspaceURL != "" {
-		base := workspaceURL
+	if opts.workspaceURL != "" {
+		base := opts.workspaceURL
 		if !strings.HasSuffix(base, "/") {
 			base += "/"
 		}
-		sb.WriteString(fmt.Sprintf(
-			"#link_template: %sarchives/{CHANNEL_ID}/p{MsgID with \".\" removed}  (Channel column may contain \"ID (#name)\"; use the leading ID)\n",
-			base,
-		))
+		sb.WriteString(fmt.Sprintf("#link_template: %sarchives/{Channel}/p{MsgID with \".\" removed}\n", base))
 	}
 
 	return sb.String()
@@ -884,4 +926,12 @@ func hasImageBlocks(blocks slack.Blocks) bool {
 		}
 	}
 	return false
+}
+
+func channelNotFound(channel string) error {
+	return &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found; pass the channel ID (Cxxxxxxxxxx) or look the name up with channels_list", channel)}
+}
+
+func userNotFound(user string) error {
+	return &ToolError{Code: "user_not_found", Message: fmt.Sprintf("user %q not found; pass the user ID (Uxxxxxxxxxx) or look the name up with users_search", user)}
 }

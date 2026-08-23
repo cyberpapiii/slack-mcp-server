@@ -1012,7 +1012,37 @@ func TestUnitCompactCSVLegendHeader(t *testing.T) {
 	assert.True(t, strings.HasPrefix(lines[0], "#users:"))
 	assert.NotContains(t, lines[0], "GitHub", "bot rows must be excluded from the #users: legend")
 	assert.True(t, strings.HasPrefix(lines[1], "#link_template:"))
-	assert.Equal(t, "User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor", lines[2])
+	assert.Equal(t, "User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files", lines[2])
+}
+
+func TestUnitCompactCSVChannelsLegendAndCursor(t *testing.T) {
+	messages := compactCSVFixtureMessagesN(4)
+	names := map[string]string{messages[0].Channel: "#general"}
+	opts := renderOptions{
+		mode:         text.ModeStandard,
+		workspaceURL: "https://loop.slack.com/",
+		channelName:  func(id string) string { return names[id] },
+		nextCursor:   "cursor-2",
+	}
+	result, err := marshalMessagesToCSV(messages, opts)
+	require.NoError(t, err)
+	assert.Nil(t, result.StructuredContent)
+
+	lines := strings.Split(csvResultBody(t, result), "\n")
+	assert.Equal(t, "#channels: "+messages[0].Channel+"=#general", lines[0])
+	assert.True(t, strings.HasPrefix(lines[1], "#users:"))
+	assert.True(t, strings.HasPrefix(lines[2], "#link_template:"))
+	assert.Equal(t, "#next_cursor: cursor-2", lines[3])
+	assert.True(t, strings.HasPrefix(lines[4], "User,Channel,"))
+}
+
+func TestUnitFullCSVCarriesCursorLine(t *testing.T) {
+	messages := compactCSVFixtureMessagesN(1)
+	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeFull, nextCursor: "c9"})
+	require.NoError(t, err)
+	body := csvResultBody(t, result)
+	assert.True(t, strings.HasPrefix(body, "#next_cursor: c9\n"), body)
+	assert.NotContains(t, body, "Cursor")
 }
 
 func TestUnitCompactCSVLegendSkippedForSmallResults(t *testing.T) {
@@ -1282,7 +1312,7 @@ func TestUnitConversationsUnreadsFailsFastWithoutBrowserSession(t *testing.T) {
 	result, err := h.ConversationsUnreadsHandler(context.Background(), mcp.CallToolRequest{})
 	require.Error(t, err)
 	assert.Nil(t, result)
-	assert.Equal(t, "conversations_unreads requires a healthy Slack browser session (xoxc/xoxd)", err.Error())
+	assert.Contains(t, err.Error(), "conversations_unreads needs a Slack browser session (xoxc/xoxd)")
 }
 
 // ftime converts a Slack timestamp string into the edge fasttime.Time that

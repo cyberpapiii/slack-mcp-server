@@ -42,23 +42,11 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 		return nil, err
 	}
 	if msg == nil {
-		return NewStructuredResult(
-			MessageData{Found: false},
-			SlackResultMeta("", false, ""),
-			"No message found at the specified timestamp",
-		), nil
+		return nil, &ToolError{Code: "message_not_found", Message: fmt.Sprintf("no message at timestamp %s in %s; timestamps must match exactly (for example 1712345678.123456)", timestamp, channel)}
 	}
 
 	messages := ch.convertMessagesFromHistory(ctx, []slack.Message{*msg}, channel, true, mode)
-	rendered, err := marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
-	if err != nil {
-		return nil, err
-	}
-	data := MessageData{Found: len(messages) > 0}
-	if len(messages) > 0 {
-		data.Message = &messages[0]
-	}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), ResultText(rendered)), nil
+	return marshalMessagesToCSV(messages, ch.render(mode, ""))
 }
 
 func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -99,10 +87,11 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 
 	messages := ch.convertMessagesFromHistory(ctx, history.Messages, params.channel, params.activity, mode)
 
-	if len(messages) > 0 && history.HasMore {
-		messages[len(messages)-1].Cursor = history.ResponseMetaData.NextCursor
+	nextCursor := ""
+	if history.HasMore {
+		nextCursor = history.ResponseMetaData.NextCursor
 	}
-	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	return marshalMessagesToCSV(messages, ch.render(mode, nextCursor))
 }
 
 // ConversationsRepliesHandler streams thread replies as CSV
@@ -141,10 +130,10 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	ch.logger.Debug("Fetched conversation replies", zap.Int("count", len(replies)))
 
 	messages := ch.convertMessagesFromHistory(ctx, replies, params.channel, params.activity, mode)
-	if len(messages) > 0 && hasMore {
-		messages[len(messages)-1].Cursor = nextCursor
+	if !hasMore {
+		nextCursor = ""
 	}
-	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	return marshalMessagesToCSV(messages, ch.render(mode, nextCursor))
 }
 
 func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -181,11 +170,11 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	ch.logger.Debug("Search completed", zap.Int("matches", len(messagesRes.Matches)))
 
 	messages := ch.convertMessagesFromSearch(ctx, messagesRes.Matches, mode)
-	if len(messages) > 0 && messagesRes.Pagination.Page < messagesRes.Pagination.PageCount {
-		nextCursor := fmt.Sprintf("page:%d", messagesRes.Pagination.Page+1)
-		messages[len(messages)-1].Cursor = base64.StdEncoding.EncodeToString([]byte(nextCursor))
+	nextCursor := ""
+	if messagesRes.Pagination.Page < messagesRes.Pagination.PageCount {
+		nextCursor = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("page:%d", messagesRes.Pagination.Page+1)))
 	}
-	return marshalMessagesToCSV(messages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
+	return marshalMessagesToCSV(messages, ch.render(mode, nextCursor))
 }
 
 // UnreadChannel represents a channel with unread messages

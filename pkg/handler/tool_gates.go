@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -60,4 +61,16 @@ func isToolInEnabledList(enabledTools, toolName string) bool {
 		}
 	}
 	return false
+}
+
+// browserSessionRequired is the error every xoxc/xoxd-only tool returns when
+// the provider reports browser credentials missing or expired.
+func browserSessionRequired(tool, reason string) error {
+	if reason == "" {
+		reason = "browser-session credentials are missing or expired"
+	}
+	return &ToolError{
+		Code:    "browser_session_required",
+		Message: fmt.Sprintf("%s needs a Slack browser session (xoxc/xoxd): %s. Check slack_auth_status; token-only tools still work.", tool, reason),
+	}
 }

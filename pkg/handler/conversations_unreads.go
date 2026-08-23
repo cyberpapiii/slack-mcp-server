@@ -42,7 +42,7 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 		return nil, err
 	}
 	if !ch.apiProvider.BrowserFeaturesAvailable() {
-		return nil, fmt.Errorf("conversations_unreads requires a healthy Slack browser session (xoxc/xoxd)")
+		return nil, browserSessionRequired("conversations_unreads", ch.apiProvider.BrowserDegradedReason())
 	}
 
 	if !params.includeMuted {
@@ -59,7 +59,7 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 	counts, err := ch.apiProvider.Slack().ClientCounts(ctx)
 	if err != nil {
 		if errors.Is(err, provider.ErrBrowserSessionUnavailable) {
-			return nil, fmt.Errorf("conversations_unreads requires a healthy Slack browser session (xoxc/xoxd)")
+			return nil, browserSessionRequired("conversations_unreads", ch.apiProvider.BrowserDegradedReason())
 		}
 		ch.logger.Error("ClientCounts failed", zap.Error(err))
 		return nil, fmt.Errorf("get Slack unread state: %w", err)

@@ -106,7 +106,7 @@ func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
 	req.Params.Arguments = map[string]any{"limit": 10}
 	_, err := h.ActivityUnreadsHandler(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh browser tokens")
+	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
 
 	req = mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]any{
@@ -116,5 +116,5 @@ func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
 	}
 	_, err = h.ActivityMarkReadHandler(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh browser tokens")
+	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
 }

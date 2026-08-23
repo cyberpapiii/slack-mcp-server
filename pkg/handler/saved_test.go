@@ -155,16 +155,16 @@ func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
 	req.Params.Arguments = map[string]any{"filter": "saved"}
 	_, err := h.SavedListHandler(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh browser tokens")
+	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
 
 	req = mcp.CallToolRequest{}
 	req.Params.Arguments = map[string]any{"item_id": "C1", "ts": "1.0", "mark": "completed"}
 	_, err = h.SavedUpdateHandler(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh browser tokens")
+	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
 
 	req = mcp.CallToolRequest{}
 	_, err = h.SavedClearCompletedHandler(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refresh browser tokens")
+	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
 }
