@@ -2,9 +2,7 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -32,7 +30,7 @@ type ListsHandler struct {
 }
 
 func NewListsHandler(api ListsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ListsHandler {
-	return &ListsHandler{api: api, approvals: approvals, identity: identity, logger: logger}
+	return &ListsHandler{api: api, approvals: approvals, identity: identityFunc(identity), logger: logger}
 }
 
 type ListCreateData struct {
@@ -194,19 +192,6 @@ func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolReque
 	}
 	data := ListItemDeleteData{Phase: "executed", ListID: listID, ItemID: itemID, Status: "deleted"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Deleted Slack List item "+itemID), nil
-}
-
-func decodeArguments(request mcp.CallToolRequest, output any) error {
-	raw, err := json.Marshal(request.GetArguments())
-	if err != nil {
-		return errors.New("invalid tool arguments")
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(output); err != nil {
-		return fmt.Errorf("invalid tool arguments: %w", err)
-	}
-	return nil
 }
 
 func listDeleteBinding(identity provider.ProviderIdentity, listID, itemID string, item provider.ListItem) (approval.Binding, error) {

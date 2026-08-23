@@ -56,10 +56,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	}
 
 	filter := request.GetString("filter", "saved")
-	limit := request.GetInt("limit", 50)
-	if limit <= 0 {
-		limit = 50
-	}
+	limit := pageLimit(request, 50, 0)
 	includeMessages := request.GetBool("include_messages", true)
 	maxMsgsPerItem := request.GetInt("max_messages_per_item", 5)
 	if maxMsgsPerItem <= 0 {

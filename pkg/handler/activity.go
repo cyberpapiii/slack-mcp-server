@@ -61,10 +61,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	if maxMsgsPerThread <= 0 {
 		maxMsgsPerThread = 10
 	}
-	limit := request.GetInt("limit", 30)
-	if limit <= 0 {
-		limit = 30
-	}
+	limit := pageLimit(request, 30, 0)
 
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
 	if err != nil {

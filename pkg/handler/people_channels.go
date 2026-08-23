@@ -74,7 +74,7 @@ type PeopleChannelsHandler struct {
 }
 
 func NewPeopleChannelsHandler(service PeopleChannelsService, identity func() provider.ProviderIdentity, logger *zap.Logger) *PeopleChannelsHandler {
-	return &PeopleChannelsHandler{service: service, identity: identity, logger: logger}
+	return &PeopleChannelsHandler{service: service, identity: identityFunc(identity), logger: logger}
 }
 
 func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -147,10 +147,7 @@ func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.C
 
 func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "EmojiListHandler called", request)
-	limit := request.GetInt("limit", 100)
-	if limit < 1 || limit > maxEmojiPageSize {
-		return NewTypedErrorResult(invalidArguments("limit must be between 1 and 200")), nil
-	}
+	limit := pageLimit(request, 100, maxEmojiPageSize)
 	page, err := h.service.ListEmoji(ctx, strings.TrimSpace(request.GetString("query", "")), strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
 		return NewTypedErrorResult(peopleChannelsError(err, false)), nil
@@ -188,12 +185,9 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 	logToolCall(h.logger, "ChannelsMembersHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
-		return NewTypedErrorResult(invalidArguments(err.Error())), nil
+		return NewTypedErrorResult(err), nil
 	}
-	limit := request.GetInt("limit", 100)
-	if limit < 1 || limit > maxPeoplePageSize {
-		return NewTypedErrorResult(invalidArguments("limit must be between 1 and 200")), nil
-	}
+	limit := pageLimit(request, 100, maxPeoplePageSize)
 	page, err := h.service.ListChannelMembers(ctx, channelID, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
 		return NewTypedErrorResult(peopleChannelsError(err, false)), nil
@@ -216,7 +210,7 @@ func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, reques
 	logToolCall(h.logger, "ChannelsInviteHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
-		return NewTypedErrorResult(invalidArguments(err.Error())), nil
+		return NewTypedErrorResult(err), nil
 	}
 	userIDs, err := request.RequireStringSlice("user_ids")
 	if err != nil || len(userIDs) == 0 {
@@ -316,18 +310,6 @@ func parseProfileUpdate(request mcp.CallToolRequest) (provider.UserProfileUpdate
 	return update, nil
 }
 
-func presentString(request mcp.CallToolRequest, name string) (string, error) {
-	value, present := request.GetArguments()[name]
-	if !present {
-		return "", invalidArguments(name + " is required; pass an empty string to clear it")
-	}
-	text, ok := value.(string)
-	if !ok {
-		return "", invalidArguments(name + " must be a string")
-	}
-	return text, nil
-}
-
 func normalizeEmoji(value string) (string, error) {
 	if value == "" {
 		return "", nil
@@ -348,10 +330,6 @@ func validateUserID(userID string) error {
 		return invalidArguments("user_id must be a Slack user ID starting with U or W")
 	}
 	return nil
-}
-
-func invalidArguments(message string) *ToolError {
-	return &ToolError{Code: "invalid_arguments", Message: message}
 }
 
 func peopleChannelsError(err error, mutationAttempted bool) error {

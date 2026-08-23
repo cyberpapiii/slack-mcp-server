@@ -123,7 +123,7 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	sortType := request.GetString("sort", "popularity")
 	types := request.GetString("channel_types", "public_channel,private_channel")
 	cursor := request.GetString("cursor", "")
-	limit := request.GetInt("limit", 0)
+	limit := pageLimit(request, 100, 999)
 	query := request.GetString("query", "")
 	queryTargets := request.GetString("query_targets", "name")
 
@@ -146,17 +146,6 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	}
 
 	ch.logger.Debug("Validated channel types", zap.Strings("types", channelTypes))
-
-	// GetInt only substitutes its default when the key is absent, so a caller
-	// passing limit: -5 gets -5 here. Treat non-positive exactly like absent.
-	if limit <= 0 {
-		limit = 100
-		ch.logger.Debug("Limit not provided, using default", zap.Int("limit", limit))
-	}
-	if limit > 999 {
-		ch.logger.Warn("Limit exceeds maximum, capping to 999", zap.Int("requested", limit))
-		limit = 999
-	}
 
 	allChannels := ch.apiProvider.ProvideChannelsMaps().Channels
 	ch.logger.Debug("Total channels available", zap.Int("count", len(allChannels)))
@@ -236,16 +225,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 
 	types := request.GetString("channel_types", "public_channel,private_channel")
 	cursor := request.GetString("cursor", "")
-	limit := request.GetInt("limit", 0)
-
-	// Non-positive is treated exactly like absent: GetInt's default only applies
-	// to a missing key, so a negative limit would otherwise reach the slice below.
-	if limit <= 0 {
-		limit = 100
-	}
-	if limit > 999 {
-		limit = 999
-	}
+	limit := pageLimit(request, 100, 999)
 
 	channelTypes := []string{}
 	for _, t := range strings.Split(types, ",") {
@@ -385,10 +365,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	}
 
 	channelTypesFilter := request.GetString("channel_types", "all")
-	limit := request.GetInt("limit", 100)
-	if limit <= 0 {
-		limit = 100
-	}
+	limit := pageLimit(request, 100, 1000)
 
 	starredIDs, err := ch.apiProvider.Slack().GetStarredChannelIDs(ctx, limit)
 	if err != nil {

@@ -4,7 +4,18 @@ import (
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 )
+
+// identityFunc lets constructors accept a nil identity callback so call sites
+// never guard; a nil callback reports the zero identity, which the binding
+// helpers reject as user_oauth_required.
+func identityFunc(identity func() provider.ProviderIdentity) func() provider.ProviderIdentity {
+	if identity == nil {
+		return func() provider.ProviderIdentity { return provider.ProviderIdentity{} }
+	}
+	return identity
+}
 
 // prepareOrExecute is the shared prepare/execute gate for destructive tools.
 // prepare returns the issued token; execute consumes it. Missing tokens are

@@ -60,9 +60,9 @@ func TestUnitScheduledListReturnsCSVRowsFilteredByQuery(t *testing.T) {
 	assert.Equal(t, "#next_cursor: next\nScheduledID,Channel,PostAt,Text\nQ1,C1,2026-08-09T20:00:00Z,abcdefghijklmnopqrstuvwxyz\n", ResultText(result))
 }
 
-func TestUnitScheduledCancelPrepareExecuteRevalidatesAndConsumesApproval(t *testing.T) {
+func TestUnitScheduledCancelPrepareExecuteConsumesApproval(t *testing.T) {
 	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
-	service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}, {Messages: []provider.ScheduledMessage{target}}}}
+	service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}}}
 	handler := newTestScheduledHandler(service)
 
 	prepared, err := handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"}))
@@ -78,6 +78,7 @@ func TestUnitScheduledCancelPrepareExecuteRevalidatesAndConsumesApproval(t *test
 	require.NotNil(t, executedData)
 	assert.True(t, executedData.Cancelled)
 	assert.Equal(t, 1, service.cancelCalls)
+	assert.Equal(t, 1, service.listCalls, "execute trusts the binding instead of listing again")
 
 	replayed, err := handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": preparedData.ApprovalToken}))
 	require.NoError(t, err)
@@ -85,17 +86,15 @@ func TestUnitScheduledCancelPrepareExecuteRevalidatesAndConsumesApproval(t *test
 	assert.Equal(t, 1, service.cancelCalls)
 }
 
-func TestUnitScheduledCancelRejectsStateDriftBeforeMutation(t *testing.T) {
-	before := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
-	after := before
-	after.Text = "changed"
-	service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{before}}, {Messages: []provider.ScheduledMessage{after}}}}
+func TestUnitScheduledCancelRejectsTokenForDifferentMessage(t *testing.T) {
+	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
+	service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}}}
 	handler := newTestScheduledHandler(service)
 	prepared, err := handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"}))
 	require.NoError(t, err)
 	token := prepared.StructuredContent.(ToolResult[ScheduledCancelData]).Data.ApprovalToken
 
-	result, err := handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": token}))
+	result, err := handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q2", "approval_token": token}))
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Equal(t, 0, service.cancelCalls)
@@ -112,7 +111,7 @@ func TestUnitScheduledCancelReturnsRetryAfterAndOutcomeUnknown(t *testing.T) {
 		{name: "timeout", err: context.DeadlineExceeded, code: "outcome_unknown"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}, {Messages: []provider.ScheduledMessage{target}}}, cancelErr: test.err}
+			service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}}, cancelErr: test.err}
 			handler := newTestScheduledHandler(service)
 			prepared, _ := handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"}))
 			token := prepared.StructuredContent.(ToolResult[ScheduledCancelData]).Data.ApprovalToken
@@ -129,7 +128,7 @@ func TestUnitScheduledCancelReturnsRetryAfterAndOutcomeUnknown(t *testing.T) {
 func TestUnitScheduledCancelMapsPermissionError(t *testing.T) {
 	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
 	service := &fakeScheduledService{
-		pages:     []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}, {Messages: []provider.ScheduledMessage{target}}},
+		pages:     []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}},
 		cancelErr: slack.SlackErrorResponse{Err: "missing_scope"},
 	}
 	handler := newTestScheduledHandler(service)

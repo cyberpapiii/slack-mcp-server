@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -63,16 +61,12 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 	// Native MCP image avoids base64-in-JSON overflow.
 	if isImageMimetype(fileInfo.Mimetype) {
 		imageData := base64.StdEncoding.EncodeToString(content)
-		metadata, err := marshalFileMetadata(fileMetadataPayload{
+		metadata := fallbackJSON(fileMetadataPayload{
 			FileID:   fileInfo.ID,
 			Filename: fileInfo.Name,
 			Mimetype: fileInfo.Mimetype,
 			Size:     len(content),
 		})
-		if err != nil {
-			ch.logger.Error("Failed to marshal attachment metadata", zap.Error(err))
-			return nil, err
-		}
 		return mcp.NewToolResultImage(metadata, imageData, fileInfo.Mimetype), nil
 	}
 
@@ -86,20 +80,14 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 		encoding = "base64"
 	}
 
-	result, err := marshalFileResult(fileResultPayload{
+	return mcp.NewToolResultText(fallbackJSON(fileResultPayload{
 		FileID:   fileInfo.ID,
 		Filename: fileInfo.Name,
 		Mimetype: fileInfo.Mimetype,
 		Size:     len(content),
 		Encoding: encoding,
 		Content:  contentStr,
-	})
-	if err != nil {
-		ch.logger.Error("Failed to marshal attachment result", zap.Error(err))
-		return nil, err
-	}
-
-	return mcp.NewToolResultText(result), nil
+	})), nil
 }
 
 // fileMetadataPayload is the 4-key shape emitted alongside native MCP image
@@ -122,37 +110,14 @@ type fileResultPayload struct {
 	Content  string `json:"content"`
 }
 
-func marshalFileMetadata(p fileMetadataPayload) (string, error) {
-	b, err := json.Marshal(p)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
-func marshalFileResult(p fileResultPayload) (string, error) {
-	b, err := json.Marshal(p)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
 func (ch *ConversationsHandler) parseParamsToolFilesList(request mcp.CallToolRequest) (*filesListParams, error) {
 	params := &filesListParams{
 		channel: request.GetString("channel_id", ""),
 		user:    request.GetString("user_id", ""),
 		types:   request.GetString("types", ""),
 		cursor:  request.GetString("cursor", ""),
-		limit:   50,
+		limit:   pageLimit(request, 50, 200),
 	}
-
-	if limitStr := request.GetString("limit", ""); limitStr != "" {
-		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 {
-			params.limit = v
-		}
-	}
-
 	return params, nil
 }
 
@@ -292,8 +257,6 @@ func isTextMimetype(mimetype string) bool {
 	}
 	return textMimetypes[mimetype]
 }
-
-// ConversationsHistoryHandler streams conversation history as CSV
 
 func (ch *ConversationsHandler) parseParamsToolFilesGet(request mcp.CallToolRequest) (*filesGetParams, error) {
 

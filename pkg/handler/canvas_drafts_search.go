@@ -113,7 +113,7 @@ type DraftsHandler struct {
 }
 
 func NewDraftsHandler(api provider.DraftsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *DraftsHandler {
-	return &DraftsHandler{api: api, approvals: approvals, identity: identity, logger: logger}
+	return &DraftsHandler{api: api, approvals: approvals, identity: identityFunc(identity), logger: logger}
 }
 
 type DraftMutationData struct {
@@ -138,10 +138,7 @@ type DraftRow struct {
 
 func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DraftsList called", request)
-	limit := request.GetInt("limit", 50)
-	if limit < 1 || limit > 100 {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "limit must be between 1 and 100"}), nil
-	}
+	limit := pageLimit(request, 50, 100)
 	page, err := h.api.ListDrafts(ctx, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
 		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
@@ -220,7 +217,7 @@ func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest)
 	if err != nil {
 		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
 	}
-	binding, err := draftDeleteBinding(h.identity, current)
+	binding, err := draftDeleteBinding(h.identity(), current)
 	if err != nil {
 		return NewTypedErrorResult(err), nil
 	}
@@ -256,11 +253,7 @@ func decodeDraft(request mcp.CallToolRequest, requireID bool) (provider.Draft, e
 	return draft, nil
 }
 
-func draftDeleteBinding(identity func() provider.ProviderIdentity, draft provider.Draft) (approval.Binding, error) {
-	if identity == nil {
-		return approval.Binding{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
-	}
-	actor := identity()
+func draftDeleteBinding(actor provider.ProviderIdentity, draft provider.Draft) (approval.Binding, error) {
 	if actor.TeamID == "" || actor.UserID == "" || actor.ActorType != "user" {
 		return approval.Binding{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
 	}

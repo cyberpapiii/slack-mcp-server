@@ -67,8 +67,6 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 	}, nil
 }
 
-// ConversationsAddMessageHandler posts a message and returns a confirmation
-
 func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "UsersSearchHandler called", request)
 
@@ -140,19 +138,10 @@ func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolR
 		return nil, errors.New("query is required")
 	}
 
-	limit := request.GetInt("limit", 10)
-	if limit <= 0 {
-		limit = 10
-	}
-	if limit > 100 {
-		limit = 100
-	}
+	limit := pageLimit(request, 10, 100)
 
 	return &usersSearchParams{
 		query: query,
 		limit: limit,
 	}, nil
 }
-
-// Keep in sync with channelTypePriority and tool param docs in pkg/server/server.go.
-var validUnreadsChannelTypes = []string{"all", "dm", "group_dm", "partner", "internal"}

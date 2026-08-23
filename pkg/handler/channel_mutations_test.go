@@ -118,14 +118,46 @@ func TestChannelMetadataHandlerAcceptsPrivateChannelID(t *testing.T) {
 	assert.Equal(t, "G123", service.channelID)
 }
 
-func TestChannelMutationHandlerRechecksChannelAllowlist(t *testing.T) {
-	t.Setenv(channelManagementGate, "C456")
-	service := &fakeChannelMutationService{}
-	_, err := newTestChannelMutationHandler(service).ConversationsRenameHandler(
-		context.Background(), mutationRequest(map[string]any{"channel_id": "C123", "name": "new-name"}),
-	)
-	require.ErrorContains(t, err, "not allowed for channel")
-	assert.Empty(t, service.action)
+func TestChannelMutationHandlersCheckChannelAllowlist(t *testing.T) {
+	tests := []struct {
+		name   string
+		call   func(*ChannelMutationHandler, context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
+		args   map[string]any
+		action string
+		value  string
+	}{
+		{"channels_rename", (*ChannelMutationHandler).ConversationsRenameHandler, map[string]any{"channel_id": "C123", "name": "new-name"}, "rename", "new-name"},
+		{"channels_set_topic", (*ChannelMutationHandler).ConversationsSetTopicHandler, map[string]any{"channel_id": "C123", "topic": "t"}, "topic", "t"},
+		{"channels_set_purpose", (*ChannelMutationHandler).ConversationsSetPurposeHandler, map[string]any{"channel_id": "C123", "purpose": "p"}, "purpose", "p"},
+		{"channels_archive", (*ChannelMutationHandler).ConversationsArchiveHandler, map[string]any{"channel_id": "C123", "action": "prepare"}, "prepare", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" denied", func(t *testing.T) {
+			t.Setenv(channelManagementGate, "C456")
+			service := &fakeChannelMutationService{}
+			_, err := tt.call(newTestChannelMutationHandler(service), context.Background(), mutationRequest(tt.args))
+			var toolErr *ToolError
+			require.ErrorAs(t, err, &toolErr)
+			assert.Equal(t, "permission_denied", toolErr.Code)
+			assert.Contains(t, err.Error(), tt.name+` is not allowed for channel "C123" by `+channelManagementGate)
+			assert.Empty(t, service.action)
+			assert.Zero(t, service.prepareCalls)
+		})
+		t.Run(tt.name+" allowed", func(t *testing.T) {
+			t.Setenv(channelManagementGate, "C123")
+			service := &fakeChannelMutationService{}
+			_, err := tt.call(newTestChannelMutationHandler(service), context.Background(), mutationRequest(tt.args))
+			require.NoError(t, err)
+			if tt.action == "prepare" {
+				assert.Equal(t, 1, service.prepareCalls)
+				assert.Equal(t, "C123", service.archivePreparation.Expected.ChannelID)
+				return
+			}
+			assert.Equal(t, tt.action, service.action)
+			assert.Equal(t, "C123", service.channelID)
+			assert.Equal(t, tt.value, service.value)
+		})
+	}
 }
 
 func TestChannelMutationHandlerEmptyAllowlistAllowsAllChannels(t *testing.T) {

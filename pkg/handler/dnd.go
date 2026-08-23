@@ -38,7 +38,7 @@ type DNDHandler struct {
 }
 
 func NewDNDHandler(api DNDAPI, identity func() provider.ProviderIdentity, logger *zap.Logger) *DNDHandler {
-	return &DNDHandler{api: api, identity: identity, logger: logger}
+	return &DNDHandler{api: api, identity: identityFunc(identity), logger: logger}
 }
 
 func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

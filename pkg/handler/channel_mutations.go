@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -47,7 +46,7 @@ type ChannelMutationData struct {
 type ChannelMutationResult = ToolResult[ChannelMutationData]
 
 func NewChannelMutationHandler(service ChannelMutationService, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ChannelMutationHandler {
-	return &ChannelMutationHandler{service: service, approvals: approvals, identity: identity, logger: logger}
+	return &ChannelMutationHandler{service: service, approvals: approvals, identity: identityFunc(identity), logger: logger}
 }
 
 func (h *ChannelMutationHandler) ConversationsRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -79,7 +78,7 @@ func (h *ChannelMutationHandler) ConversationsSetTopicHandler(ctx context.Contex
 	if err := requireChannelMutationAllowed("channels_set_topic", channelID); err != nil {
 		return nil, err
 	}
-	topic, err := requiredPresentString(request, "topic")
+	topic, err := presentString(request, "topic")
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +98,7 @@ func (h *ChannelMutationHandler) ConversationsSetPurposeHandler(ctx context.Cont
 	if err := requireChannelMutationAllowed("channels_set_purpose", channelID); err != nil {
 		return nil, err
 	}
-	purpose, err := requiredPresentString(request, "purpose")
+	purpose, err := presentString(request, "purpose")
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +140,7 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	}
 	if !execute {
 		data := ChannelMutationData{Action: "archive", Phase: "prepared", Channel: &preparation.Expected, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339)}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), mutationFallback(data)), nil
+		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 	}
 	state, err := h.service.ArchivePrepared(ctx, preparation)
 	if err != nil {
@@ -151,35 +150,12 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 		return nil, err
 	}
 	data := ChannelMutationData{Action: "archive", Phase: "executed", Channel: &state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), mutationFallback(data)), nil
-}
-
-func requiredChannelID(request mcp.CallToolRequest) (string, error) {
-	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
-	if channelID == "" {
-		return "", errors.New("channel_id is required")
-	}
-	if !strings.HasPrefix(channelID, "C") && !strings.HasPrefix(channelID, "G") {
-		return "", errors.New("channel_id must be a public or private channel ID starting with C or G")
-	}
-	return channelID, nil
-}
-
-func requiredPresentString(request mcp.CallToolRequest, field string) (string, error) {
-	value, present := request.GetArguments()[field]
-	if !present {
-		return "", fmt.Errorf("%s is required; pass an empty string to clear it", field)
-	}
-	text, ok := value.(string)
-	if !ok {
-		return "", fmt.Errorf("%s must be a string", field)
-	}
-	return text, nil
+	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
 func requireChannelMutationAllowed(toolName, channelID string) error {
 	if !isChannelAllowedForConfig(channelID, os.Getenv(channelManagementGate)) {
-		return fmt.Errorf("%s is not allowed for channel %q by %s", toolName, channelID, channelManagementGate)
+		return &ToolError{Code: "permission_denied", Message: fmt.Sprintf("%s is not allowed for channel %q by %s", toolName, channelID, channelManagementGate)}
 	}
 	return nil
 }
@@ -189,7 +165,7 @@ func mutationResult(action string, state provider.ChannelMutationState, err erro
 		return nil, err
 	}
 	data := ChannelMutationData{Action: action, Phase: "executed", Channel: &state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), mutationFallback(data)), nil
+	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
 func archiveBinding(identity provider.ProviderIdentity, preparation provider.ArchivePreparation) (approval.Binding, error) {
@@ -204,12 +180,4 @@ func archiveBinding(identity provider.ProviderIdentity, preparation provider.Arc
 		return approval.Binding{}, err
 	}
 	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "channels_archive", Arguments: arguments, ObservedState: observed}, nil
-}
-
-func mutationFallback(data ChannelMutationData) string {
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Sprintf("channel %s %s", data.Action, data.Phase)
-	}
-	return string(raw)
 }

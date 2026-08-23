@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"time"
@@ -18,6 +19,15 @@ func isAmbiguousMutationError(err error) bool {
 }
 
 const ResultSchemaVersion = "1"
+
+// fallbackJSON renders a structured result as the plain-text fallback content.
+func fallbackJSON(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
 
 const (
 	TrustUntrusted = "untrusted"

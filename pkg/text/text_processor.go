@@ -413,40 +413,34 @@ var (
 	unfurlDomainRegex = regexp.MustCompile(`\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}\b`)
 )
 
+// normalizeLinks rewrites Slack, Markdown and HTML links as "url - label",
+// followed by a comma unless the link is the last non-blank content.
 func normalizeLinks(text string) string {
-	isLastInText := func(original string, currentText string) bool {
-		linkPos := strings.LastIndex(currentText, original)
-		if linkPos == -1 {
-			return false
+	text = replaceLinks(text, slackLinkRegex, 1, 2)
+	text = replaceLinks(text, markdownLinkRegex, 2, 1)
+	return replaceLinks(text, htmlLinkRegex, 1, 2)
+}
+
+func replaceLinks(text string, re *regexp.Regexp, urlGroup, labelGroup int) string {
+	matches := re.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	last := 0
+	for _, m := range matches {
+		b.WriteString(text[last:m[0]])
+		b.WriteString(text[m[2*urlGroup]:m[2*urlGroup+1]])
+		b.WriteString(" - ")
+		b.WriteString(text[m[2*labelGroup]:m[2*labelGroup+1]])
+		if strings.TrimSpace(text[m[1]:]) != "" {
+			b.WriteByte(',')
 		}
-		afterLink := strings.TrimSpace(currentText[linkPos+len(original):])
-		return afterLink == ""
+		last = m[1]
 	}
-
-	render := func(url, linkText string, isLast bool) string {
-		out := url + " - " + linkText
-		if !isLast {
-			out += ","
-		}
-		return out
-	}
-
-	for _, match := range slackLinkRegex.FindAllStringSubmatch(text, -1) {
-		original := match[0]
-		text = strings.Replace(text, original, render(match[1], match[2], isLastInText(original, text)), 1)
-	}
-
-	for _, match := range markdownLinkRegex.FindAllStringSubmatch(text, -1) {
-		original := match[0]
-		text = strings.Replace(text, original, render(match[2], match[1], isLastInText(original, text)), 1)
-	}
-
-	for _, match := range htmlLinkRegex.FindAllStringSubmatch(text, -1) {
-		original := match[0]
-		text = strings.Replace(text, original, render(match[1], match[2], isLastInText(original, text)), 1)
-	}
-
-	return text
+	b.WriteString(text[last:])
+	return b.String()
 }
 
 // stripUnsafeRunes removes runes that are display-corrupting or carry no

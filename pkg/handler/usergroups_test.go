@@ -14,10 +14,9 @@ import (
 )
 
 type fakeUsergroupsAPI struct {
-	groups      []slack.UserGroup
-	members     [][]string
-	memberReads int
-	updated     string
+	groups  []slack.UserGroup
+	members []string
+	updated string
 }
 
 func (f *fakeUsergroupsAPI) AuthTest() (*slack.AuthTestResponse, error) {
@@ -27,12 +26,7 @@ func (f *fakeUsergroupsAPI) GetUserGroupsContext(context.Context, ...slack.GetUs
 	return f.groups, nil
 }
 func (f *fakeUsergroupsAPI) GetUserGroupMembersContext(context.Context, string, ...slack.GetUserGroupMembersOption) ([]string, error) {
-	index := f.memberReads
-	f.memberReads++
-	if index >= len(f.members) {
-		return nil, nil
-	}
-	return append([]string(nil), f.members[index]...), nil
+	return append([]string(nil), f.members...), nil
 }
 func (f *fakeUsergroupsAPI) CreateUserGroupContext(context.Context, slack.UserGroup, ...slack.CreateUserGroupOption) (slack.UserGroup, error) {
 	return slack.UserGroup{}, nil
@@ -96,8 +90,8 @@ func TestUsergroupsListAndMineReturnCSVOnly(t *testing.T) {
 	assert.Equal(t, "ID,Name,Handle,Description,UserCount,IsExternal,DateCreate,DateUpdate,Users\nS1,eng,eng,,2,false,,,U1;U2\n", ResultText(mine))
 }
 
-func TestUsergroupsJoinRechecksMembershipBeforeReplacing(t *testing.T) {
-	api := &fakeUsergroupsAPI{members: [][]string{{"U2"}, {"U2"}}}
+func TestUsergroupsJoinAppendsCurrentUser(t *testing.T) {
+	api := &fakeUsergroupsAPI{members: []string{"U2"}}
 	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
 	_, err := handler.UsergroupsJoinHandler(context.Background(), request)
@@ -105,19 +99,8 @@ func TestUsergroupsJoinRechecksMembershipBeforeReplacing(t *testing.T) {
 	assert.Equal(t, "U2,U1", api.updated)
 }
 
-func TestUsergroupsJoinRejectsConcurrentMembershipDrift(t *testing.T) {
-	api := &fakeUsergroupsAPI{members: [][]string{{"U2"}, {"U2", "U3"}}}
-	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
-	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
-	_, err := handler.UsergroupsJoinHandler(context.Background(), request)
-	var typed *ToolError
-	require.ErrorAs(t, err, &typed)
-	assert.Equal(t, "membership_conflict", typed.Code)
-	assert.Empty(t, api.updated)
-}
-
 func TestUsergroupsLeaveRemovesOnlyCurrentUser(t *testing.T) {
-	api := &fakeUsergroupsAPI{members: [][]string{{"U2", "U1", "U3"}, {"U3", "U1", "U2"}}}
+	api := &fakeUsergroupsAPI{members: []string{"U2", "U1", "U3"}}
 	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
 	_, err := handler.UsergroupsLeaveHandler(context.Background(), request)

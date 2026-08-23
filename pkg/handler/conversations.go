@@ -192,7 +192,6 @@ func sendProgress(ctx context.Context, request mcp.CallToolRequest, current, tot
 	})
 }
 
-// UsersResource streams a CSV of all users
 func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel string) (string, error) {
 	if !strings.HasPrefix(channel, "#") && !strings.HasPrefix(channel, "@") {
 		return channel, nil
@@ -253,7 +252,7 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, 
 		userName, realName, ok := resolver.resolve(msg.User)
 
 		if !ok && msg.SubType == "bot_message" {
-			userName, realName, ok = getBotInfo(msg.Username)
+			userName, realName, ok = msg.Username, msg.Username, true
 		}
 
 		if !ok {
@@ -333,7 +332,7 @@ func (ch *ConversationsHandler) convertMessagesFromSearch(ctx context.Context, s
 		userName, realName, ok := resolver.resolve(msg.User)
 
 		if !ok && msg.User == "" && msg.Username != "" {
-			userName, realName, ok = getBotInfo(msg.Username)
+			userName, realName, ok = msg.Username, msg.Username, true
 		}
 
 		if !ok {
@@ -635,10 +634,6 @@ func (r *userResolver) resolve(userID string) (userName, realName string, ok boo
 	}
 	r.usersMap = r.apiProvider.ProvideUsersMap()
 	return patched.Name, patched.RealName, true
-}
-
-func getBotInfo(botID string) (userName, realName string, ok bool) {
-	return botID, botID, true
 }
 
 func limitByNumeric(limit string, defaultLimit int) (int, error) {

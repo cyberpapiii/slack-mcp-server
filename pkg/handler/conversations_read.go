@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 )
 
+// ConversationsGetMessageHandler fetches one message by channel + timestamp
+// (MsgID from compact CSV / attachment-truncation receipt; optional detail:full).
 func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ConversationsGetMessageHandler called", request)
 
@@ -159,7 +161,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	}
 
 	rl := limiter.Tier2.Limiter()
-	messagesRes, err := limiter.CallWithRetry(ctx, rl, 2, slackRetryAfter, func() (*slack.SearchMessages, error) {
+	messagesRes, err := limiter.CallWithRetry(ctx, rl, 2, provider.SlackRetryAfter, func() (*slack.SearchMessages, error) {
 		msgs, _, err := ch.apiProvider.WebAPI().SearchContext(ctx, params.query, searchParams)
 		return msgs, err
 	})
@@ -176,8 +178,6 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	}
 	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
-
-// UnreadChannel represents a channel with unread messages
 
 func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context, request mcp.CallToolRequest) (*conversationParams, error) {
 	channel := request.GetString("channel_id", "")
@@ -320,15 +320,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	}
 
 	finalQuery := buildQuery(freeText, filters)
-	// The tool schema declares a default of 100 and a documented range of
-	// 1..100; clamp so out-of-range values are never forwarded to Slack.
-	limit := req.GetInt("limit", defaultSearchMessagesLimit)
-	if limit <= 0 {
-		limit = defaultSearchMessagesLimit
-	}
-	if limit > maxSearchMessagesLimit {
-		limit = maxSearchMessagesLimit
-	}
+	limit := pageLimit(req, defaultSearchMessagesLimit, maxSearchMessagesLimit)
 	cursor := req.GetString("cursor", "")
 
 	sort := req.GetString("sort", "score")

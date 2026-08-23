@@ -303,9 +303,6 @@ func (ch *ConversationsHandler) fetchMessageByTimestamp(ctx context.Context, cha
 	return &msgs[0], nil
 }
 
-// ConversationsGetMessageHandler fetches one message by channel + timestamp
-// (MsgID from compact CSV / attachment-truncation receipt; optional detail:full).
-
 func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
@@ -359,7 +356,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	}
 	if !isChannelAllowedForConfig(channel, toolConfig) {
 		ch.logger.Warn("Add-message tool not allowed for channel", zap.String("channel", channel), zap.String("policy", toolConfig))
-		return nil, fmt.Errorf("conversations_add_message is not allowed for channel %q by SLACK_MCP_ADD_MESSAGE_TOOL", channel)
+		return nil, &ToolError{Code: "permission_denied", Message: fmt.Sprintf("conversations_add_message is not allowed for channel %q by SLACK_MCP_ADD_MESSAGE_TOOL", channel)}
 	}
 
 	threadTs := request.GetString("thread_ts", "")
@@ -439,7 +436,7 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 	}
 	if !isChannelAllowedForConfig(channel, toolConfig) {
 		ch.logger.Warn("Reactions tool not allowed for channel", zap.String("channel", channel), zap.String("policy", toolConfig))
-		return nil, fmt.Errorf("reactions tools are not allowed for channel %q by SLACK_MCP_REACTION_TOOL", channel)
+		return nil, &ToolError{Code: "permission_denied", Message: fmt.Sprintf("reactions tools are not allowed for channel %q by SLACK_MCP_REACTION_TOOL", channel)}
 	}
 
 	timestamp := request.GetString("timestamp", "")

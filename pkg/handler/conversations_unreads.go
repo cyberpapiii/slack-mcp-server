@@ -390,17 +390,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 	return unreadChannels, dropped
 }
 
-// slackRetryAfter checks if an error is a Slack rate limit error and returns
-// the retry-after duration. Returns 0 for non-rate-limit errors.
-// Used as the retryAfter callback for limiter.CallWithRetry.
-func slackRetryAfter(err error) time.Duration {
-	var rle *slack.RateLimitedError
-	if errors.As(err, &rle) {
-		return rle.RetryAfter
-	}
-	return 0
-}
-
 // ConversationsMarkHandler marks a channel as read up to a specific timestamp
 func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ConversationsMarkHandler called", request)
@@ -497,7 +486,7 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully joined %s", channel)), nil
 }
 
-// Keep in sync with validUnreadsChannelTypes and tool param docs in pkg/server/server.go.
+// Keep in sync with the channel_types param docs in pkg/server/server.go.
 var channelTypePriority = map[string]int{
 	"dm":       0,
 	"group_dm": 1,
@@ -507,6 +496,17 @@ var channelTypePriority = map[string]int{
 
 // Must exceed all channelTypePriority values.
 const unknownChannelTypePriority = 99
+
+// validUnreadsChannelTypes is "all" followed by the channelTypePriority keys in
+// priority order, so the accepted filter values and the sort order cannot drift.
+var validUnreadsChannelTypes = func() []string {
+	types := make([]string, 0, len(channelTypePriority)+1)
+	for channelType := range channelTypePriority {
+		types = append(types, channelType)
+	}
+	sort.Slice(types, func(i, j int) bool { return channelTypePriority[types[i]] < channelTypePriority[types[j]] })
+	return append([]string{"all"}, types...)
+}()
 
 // sortChannelsByPriority: type rank, then UnreadCount desc, ChannelID asc.
 func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel) {

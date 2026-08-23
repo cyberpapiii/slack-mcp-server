@@ -919,6 +919,21 @@ func TestProcessText_LinkNormalization(t *testing.T) {
 			input:    `Visit <a href="https://example.com">Example</a>`,
 			expected: "Visit https://example.com - Example",
 		},
+		{
+			name:     "Same link twice, second at end",
+			input:    "See <https://a.com|A> and again <https://a.com|A>",
+			expected: "See https://a.com - A, and again https://a.com - A",
+		},
+		{
+			name:     "Same link twice, text after second",
+			input:    "See <https://a.com|A> and again <https://a.com|A> ok",
+			expected: "See https://a.com - A, and again https://a.com - A, ok",
+		},
+		{
+			name:     "Slack link followed by markdown link",
+			input:    "<https://a.com|A> [B](https://b.com)",
+			expected: "https://a.com - A, https://b.com - B",
+		},
 	}
 
 	for _, tt := range tests {

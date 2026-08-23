@@ -74,7 +74,7 @@ func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Sto
 	if approvals == nil {
 		approvals = approval.NewStore(5 * time.Minute)
 	}
-	return &MessageFilesHandler{service: service, approvals: approvals, identity: identity, logger: logger, now: time.Now}
+	return &MessageFilesHandler{service: service, approvals: approvals, identity: identityFunc(identity), logger: logger, now: time.Now}
 }
 
 func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -166,7 +166,7 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	if err != nil {
 		return NewTypedErrorResult(messageFilesError(err, false, "message lookup")), nil
 	}
-	binding, err := deleteMessageBinding(h.currentIdentity(), target)
+	binding, err := deleteMessageBinding(h.identity(), target)
 	if err != nil {
 		return NewTypedErrorResult(err), nil
 	}
@@ -191,13 +191,6 @@ func requireMessageLifecycleTool(tool, channelID string) error {
 		return &ToolError{Code: "permission_denied", Message: tool + " is not allowed for this channel by SLACK_MCP_ADD_MESSAGE_TOOL"}
 	}
 	return nil
-}
-
-func (h *MessageFilesHandler) currentIdentity() provider.ProviderIdentity {
-	if h.identity == nil {
-		return provider.ProviderIdentity{}
-	}
-	return h.identity()
 }
 
 func readUploadData(request mcp.CallToolRequest) ([]byte, error) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -310,15 +309,7 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 		return nil, errors.New("invalid user group membership action")
 	}
 
-	membersStr := strings.Join(newMembers, ",")
-	currentMembers, err := h.api.GetUserGroupMembersContext(ctx, usergroupID)
-	if err != nil {
-		return nil, err
-	}
-	if !sameMemberSet(members, currentMembers) {
-		return nil, &ToolError{Code: "membership_conflict", Message: "user group membership changed; read current membership before trying again"}
-	}
-	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, membersStr)
+	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, strings.Join(newMembers, ","))
 	if err != nil {
 		h.logger.Error("UpdateUserGroupMembersContext failed", zap.Error(err))
 		return nil, err
@@ -379,17 +370,6 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 	}
 
 	return NewCSVResult("", SlackResultMeta("", false, ""), string(csvBytes)), nil
-}
-
-func sameMemberSet(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	a = append([]string(nil), a...)
-	b = append([]string(nil), b...)
-	sort.Strings(a)
-	sort.Strings(b)
-	return slices.Equal(a, b)
 }
 
 func formatJSONTime(jt slack.JSONTime) string {

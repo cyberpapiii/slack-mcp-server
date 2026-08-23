@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"strings"
@@ -62,15 +61,12 @@ type ScheduledHandler struct {
 }
 
 func NewScheduledHandler(service ScheduledService, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ScheduledHandler {
-	return &ScheduledHandler{service: service, approvals: approvals, identity: identity, logger: logger}
+	return &ScheduledHandler{service: service, approvals: approvals, identity: identityFunc(identity), logger: logger}
 }
 
 func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ScheduledListHandler called", request)
-	limit := request.GetInt("limit", 50)
-	if limit < 1 || limit > maxScheduledPageSize {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "limit must be between 1 and 100"}), nil
-	}
+	limit := pageLimit(request, 50, maxScheduledPageSize)
 	page, err := h.service.ListScheduled(ctx, provider.ScheduledListRequest{
 		ChannelID: strings.TrimSpace(request.GetString("channel_id", "")),
 		Cursor:    strings.TrimSpace(request.GetString("cursor", "")),
@@ -110,13 +106,18 @@ func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolReque
 		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "action, channel_id, and scheduled_message_id are required"}), nil
 	}
 
-	target, err := h.findScheduled(ctx, channelID, scheduledMessageID)
+	binding, err := scheduledBinding(h.identity(), channelID, scheduledMessageID)
 	if err != nil {
 		return NewTypedErrorResult(scheduledError(err, false)), nil
 	}
-	binding, err := scheduledBinding(h.identity(), target)
-	if err != nil {
-		return NewTypedErrorResult(scheduledError(err, false)), nil
+	// The token binds team, user, channel and message ID, and Slack's own
+	// not-found answer covers a message that was posted or cancelled in between,
+	// so only prepare pays for the lookup.
+	var target provider.ScheduledMessage
+	if action == "prepare" {
+		if target, err = h.findScheduled(ctx, channelID, scheduledMessageID); err != nil {
+			return NewTypedErrorResult(scheduledError(err, false)), nil
+		}
 	}
 	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
 	if err != nil {
@@ -130,32 +131,27 @@ func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolReque
 	if err := h.service.CancelScheduled(ctx, channelID, scheduledMessageID); err != nil {
 		return NewTypedErrorResult(scheduledError(err, true)), nil
 	}
-	resultTarget := scheduledResultMessage(target)
+	resultTarget := ScheduledMessage{ScheduledMessageID: scheduledMessageID, ChannelID: channelID}
 	data := ScheduledCancelData{Phase: "executed", Target: &resultTarget, Cancelled: true, Outcome: "cancelled"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
-func scheduledBinding(identity provider.ProviderIdentity, target provider.ScheduledMessage) (approval.Binding, error) {
+func scheduledBinding(identity provider.ProviderIdentity, channelID, scheduledMessageID string) (approval.Binding, error) {
 	if identity.TeamID == "" || identity.UserID == "" || identity.ActorType != "user" {
 		return approval.Binding{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
 	}
 	arguments, err := approval.CanonicalJSON(struct {
 		ChannelID          string `json:"channel_id"`
 		ScheduledMessageID string `json:"scheduled_message_id"`
-	}{ChannelID: target.ChannelID, ScheduledMessageID: target.ScheduledMessageID})
+	}{ChannelID: channelID, ScheduledMessageID: scheduledMessageID})
 	if err != nil {
 		return approval.Binding{}, err
 	}
-	observed, err := approval.CanonicalJSON(target)
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "scheduled_message_cancel", Arguments: arguments, ObservedState: observed}, nil
+	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "scheduled_message_cancel", Arguments: arguments}, nil
 }
 
 func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, scheduledMessageID string) (provider.ScheduledMessage, error) {
 	cursor := ""
-	lookupLimitReached := false
 	for pageNumber := 0; pageNumber < maxScheduledLookupPages; pageNumber++ {
 		page, err := h.service.ListScheduled(ctx, provider.ScheduledListRequest{ChannelID: channelID, Cursor: cursor, Limit: maxScheduledPageSize})
 		if err != nil {
@@ -170,12 +166,8 @@ func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, schedul
 			return provider.ScheduledMessage{}, &ToolError{Code: "not_found", Message: "scheduled message was not found or is no longer pending"}
 		}
 		cursor = page.NextCursor
-		lookupLimitReached = pageNumber == maxScheduledLookupPages-1
 	}
-	if lookupLimitReached {
-		return provider.ScheduledMessage{}, &ToolError{Code: "lookup_limit_exceeded", Message: "scheduled-message lookup exceeded 1000 pending messages; narrow the channel or cancel from Slack"}
-	}
-	return provider.ScheduledMessage{}, &ToolError{Code: "not_found", Message: "scheduled message was not found or is no longer pending"}
+	return provider.ScheduledMessage{}, &ToolError{Code: "lookup_limit_exceeded", Message: "scheduled-message lookup exceeded 1000 pending messages; narrow the channel or cancel from Slack"}
 }
 
 func scheduledResultMessage(message provider.ScheduledMessage) ScheduledMessage {
@@ -193,14 +185,6 @@ func excerpt(text string, limit int) string {
 		return text
 	}
 	return string(runes[:limit]) + "…"
-}
-
-func fallbackJSON(value any) string {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return "{}"
-	}
-	return string(raw)
 }
 
 func scheduledError(err error, mutationAttempted bool) error {
