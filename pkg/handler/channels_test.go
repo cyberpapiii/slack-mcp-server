@@ -352,3 +352,22 @@ func TestUnitNextPageSize(t *testing.T) {
 		})
 	}
 }
+
+func TestUnitSortChannelsPopularityPaginatesInSortedOrder(t *testing.T) {
+	channels := []provider.Channel{
+		{ID: "C01", MemberCount: 5},
+		{ID: "C02", MemberCount: 50},
+		{ID: "C03", MemberCount: 50},
+		{ID: "C04", MemberCount: 9},
+	}
+	sortChannels(channels, "popularity")
+	assert.Equal(t, []string{"C02", "C03", "C04", "C01"}, channelIDs(channels), "members desc, ties by ID")
+
+	page1, cursor, err := paginateChannels(channels, "", 2)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"C02", "C03"}, channelIDs(page1))
+	page2, cursor, err := paginateChannels(channels, cursor, 2)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"C04", "C01"}, channelIDs(page2), "page 2 continues the popularity order")
+	assert.Empty(t, cursor)
+}

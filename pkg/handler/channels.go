@@ -178,11 +178,8 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		ch.logger.Debug("Channels after keyword filter", zap.Int("count", len(channels)))
 	}
 
-	chans, nextcur, err := paginateChannels(
-		channels,
-		cursor,
-		limit,
-	)
+	sortChannels(channels, sortType)
+	chans, nextcur, err := paginateChannels(channels, cursor, limit)
 	if err != nil {
 		ch.logger.Error("Failed to paginate channels", zap.Error(err))
 		return nil, err
@@ -202,16 +199,6 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 			Purpose:     channel.Purpose,
 			MemberCount: channel.MemberCount,
 		}
-	}
-
-	switch sortType {
-	case "popularity":
-		ch.logger.Debug("Sorting channels by popularity (member count)")
-		sort.Slice(channelList, func(i, j int) bool {
-			return channelList[i].MemberCount > channelList[j].MemberCount
-		})
-	default:
-		ch.logger.Debug("No sorting applied", zap.String("sort_type", sortType))
 	}
 
 	if len(channelList) > 0 && nextcur != "" {
@@ -501,32 +488,34 @@ func filterChannelsByQuery(channels []provider.Channel, query string, targetSet 
 // paginateChannels returns one page of channels plus the cursor for the next
 // page. An undecodable cursor is an error, not a silent restart at page one:
 // restarting would hand a paginating agent the first page forever.
-func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]provider.Channel, string, error) {
-	logger := zap.L()
-
+// sortChannels orders the full list before pagination so a cursor walks the
+// same ordering the first page showed. Ties break on ID for stability.
+func sortChannels(channels []provider.Channel, sortType string) {
 	sort.Slice(channels, func(i, j int) bool {
+		if sortType == "popularity" && channels[i].MemberCount != channels[j].MemberCount {
+			return channels[i].MemberCount > channels[j].MemberCount
+		}
 		return channels[i].ID < channels[j].ID
 	})
+}
 
+// paginateChannels slices an already-ordered list. The cursor is the base64
+// ID of the last row served; the next page starts right after it.
+func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]provider.Channel, string, error) {
 	startIndex := 0
 	if cursor != "" {
 		decoded, err := base64.StdEncoding.DecodeString(cursor)
 		if err != nil {
-			logger.Error("Failed to decode cursor",
-				zap.String("cursor", cursor),
-				zap.Error(err),
-			)
 			return nil, "", fmt.Errorf("invalid cursor: %q", cursor)
 		}
 		lastID := string(decoded)
-		startIndex = sort.Search(len(channels), func(i int) bool {
-			return channels[i].ID > lastID
-		})
-		logger.Debug("Decoded cursor",
-			zap.String("cursor", cursor),
-			zap.String("decoded_id", lastID),
-			zap.Int("start_index", startIndex),
-		)
+		startIndex = len(channels)
+		for i, ch := range channels {
+			if ch.ID == lastID {
+				startIndex = i + 1
+				break
+			}
+		}
 	}
 
 	endIndex := startIndex + limit
@@ -539,23 +528,9 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 	}
 
 	paged := channels[startIndex:endIndex]
-
 	var nextCursor string
 	if endIndex > 0 && endIndex < len(channels) {
 		nextCursor = base64.StdEncoding.EncodeToString([]byte(channels[endIndex-1].ID))
-		logger.Debug("Generated next cursor",
-			zap.String("last_id", channels[endIndex-1].ID),
-			zap.String("next_cursor", nextCursor),
-		)
 	}
-
-	logger.Debug("Pagination complete",
-		zap.Int("total_channels", len(channels)),
-		zap.Int("start_index", startIndex),
-		zap.Int("end_index", endIndex),
-		zap.Int("page_size", len(paged)),
-		zap.Bool("has_more", nextCursor != ""),
-	)
-
 	return paged, nextCursor, nil
 }

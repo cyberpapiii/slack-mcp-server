@@ -58,9 +58,6 @@ func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp
 
 func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DNDSetSnoozeHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_DND_TOOL", "dnd_set_snooze") {
-		return nil, &ToolError{Code: "tool_disabled", Message: "dnd_set_snooze is disabled"}
-	}
 	identity, err := h.userIdentity()
 	if err != nil {
 		return nil, err
@@ -78,9 +75,6 @@ func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest)
 
 func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DNDEndSnoozeHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_DND_TOOL", "dnd_end_snooze") {
-		return nil, &ToolError{Code: "tool_disabled", Message: "dnd_end_snooze is disabled"}
-	}
 	identity, err := h.userIdentity()
 	if err != nil {
 		return nil, err

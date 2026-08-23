@@ -61,7 +61,6 @@ func newTestMessageFilesHandler(service MessageFilesService) *MessageFilesHandle
 }
 
 func TestUnitFilesUploadRejectsMultipleSourcesWithoutMutation(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "files_upload")
 	service := &fakeMessageFilesService{}
 	result, err := newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
 		"filename": "a.txt", "content": "hello", "content_base64": "aGVsbG8=",
@@ -72,7 +71,6 @@ func TestUnitFilesUploadRejectsMultipleSourcesWithoutMutation(t *testing.T) {
 }
 
 func TestUnitMessagesScheduleValidatesThenReturnsTypedResult(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "messages_schedule")
 	service := &fakeMessageFilesService{}
 	handler := newTestMessageFilesHandler(service)
 	handler.now = func() time.Time { return time.Unix(1_800_000_000, 0).UTC() }
@@ -89,7 +87,6 @@ func TestUnitMessagesScheduleValidatesThenReturnsTypedResult(t *testing.T) {
 }
 
 func TestUnitMessagesDeletePrepareExecuteRevalidatesAndConsumesToken(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "messages_delete")
 	service := &fakeMessageFilesService{snapshot: provider.MessageSnapshot{ChannelID: "C1", Timestamp: "1.000001", Text: "remove", UserID: "U1"}}
 	handler := newTestMessageFilesHandler(service)
 	prepared, err := handler.MessagesDelete(context.Background(), messageFilesRequest(map[string]any{
@@ -115,7 +112,6 @@ func TestUnitMessagesDeletePrepareExecuteRevalidatesAndConsumesToken(t *testing.
 }
 
 func TestUnitMessagesUpdateTimeoutIsOutcomeUnknownAndNeverRetried(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "messages_update")
 	service := &fakeMessageFilesService{updateErr: context.DeadlineExceeded}
 	result, err := newTestMessageFilesHandler(service).MessagesUpdate(context.Background(), messageFilesRequest(map[string]any{
 		"channel_id": "C1", "timestamp": "1.000001", "text": "changed",
@@ -129,7 +125,6 @@ func TestUnitMessagesUpdateTimeoutIsOutcomeUnknownAndNeverRetried(t *testing.T) 
 }
 
 func TestUnitMessagesUpdateRejectsInvalidTimestamp(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "messages_update")
 	service := &fakeMessageFilesService{updateErr: errors.New("must not run")}
 	result, err := newTestMessageFilesHandler(service).MessagesUpdate(context.Background(), messageFilesRequest(map[string]any{
 		"channel_id": "C1", "timestamp": "bad", "text": "changed",
@@ -140,7 +135,6 @@ func TestUnitMessagesUpdateRejectsInvalidTimestamp(t *testing.T) {
 }
 
 func TestUnitRequireMessageLifecycleToolHonorsChannelAllowlist(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
 	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1,C2")
 
 	require.NoError(t, requireMessageLifecycleTool("messages_schedule", "C1"))
@@ -151,14 +145,10 @@ func TestUnitRequireMessageLifecycleToolHonorsChannelAllowlist(t *testing.T) {
 	assert.Equal(t, "permission_denied", toolErr.Code)
 
 	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
-	err = requireMessageLifecycleTool("messages_update", "C1")
-	require.Error(t, err)
-	require.ErrorAs(t, err, &toolErr)
-	assert.Equal(t, "tool_disabled", toolErr.Code)
+	require.NoError(t, requireMessageLifecycleTool("messages_update", "C1"))
 }
 
-func TestUnitMessagesScheduleUsesAddMessageAllowlistWithoutEnabledTools(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
+func TestUnitMessagesScheduleHonorsAddMessageAllowlist(t *testing.T) {
 	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1")
 	service := &fakeMessageFilesService{}
 	handler := newTestMessageFilesHandler(service)

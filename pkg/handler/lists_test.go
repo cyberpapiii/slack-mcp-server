@@ -72,7 +72,6 @@ func TestUnitListsHandlerReturnsTypedPagination(t *testing.T) {
 }
 
 func TestUnitListsDeleteRequiresFreshExactPreview(t *testing.T) {
-	t.Setenv("SLACK_MCP_LISTS_WRITE_TOOL", "true")
 	item := provider.ListItem{
 		ID: "Rec1", ListID: "F1", UpdatedTimestamp: "100.1",
 		Fields: []provider.ListFieldValue{{ColumnID: "Col1", Text: "Before"}},
@@ -98,7 +97,6 @@ func TestUnitListsDeleteRequiresFreshExactPreview(t *testing.T) {
 }
 
 func TestUnitListsDeleteRejectsChangedOrExpiredStateWithoutMutation(t *testing.T) {
-	t.Setenv("SLACK_MCP_LISTS_WRITE_TOOL", "true")
 	item := provider.ListItem{ID: "Rec1", ListID: "F1", UpdatedTimestamp: "100.1", Fields: []provider.ListFieldValue{{ColumnID: "Col1", Text: "Before"}}}
 	api := &fakeListsAPI{item: item}
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
@@ -125,7 +123,6 @@ func TestUnitListsDeleteRejectsChangedOrExpiredStateWithoutMutation(t *testing.T
 }
 
 func TestUnitListsDeleteDoesNotRetryMutation(t *testing.T) {
-	t.Setenv("SLACK_MCP_LISTS_WRITE_TOOL", "true")
 	api := &fakeListsAPI{
 		item:      provider.ListItem{ID: "Rec1", ListID: "F1", UpdatedTimestamp: "100.1", Fields: []provider.ListFieldValue{}},
 		deleteErr: &provider.ListsAPIError{Kind: provider.ListsErrorRateLimit, RetryAfter: 5 * time.Second},
@@ -142,7 +139,6 @@ func TestUnitListsDeleteDoesNotRetryMutation(t *testing.T) {
 }
 
 func TestUnitListsHandlerMapsPlanScopeAndPermissionErrors(t *testing.T) {
-	t.Setenv("SLACK_MCP_LISTS_WRITE_TOOL", "true")
 	for _, kind := range []provider.ListsErrorKind{provider.ListsErrorUnavailable, provider.ListsErrorScope, provider.ListsErrorPermission} {
 		api := &fakeListsAPI{getItemErr: &provider.ListsAPIError{Kind: kind, SlackCode: string(kind)}}
 		handler := newTestListsHandler(api)
@@ -154,7 +150,6 @@ func TestUnitListsHandlerMapsPlanScopeAndPermissionErrors(t *testing.T) {
 }
 
 func TestUnitListsHandlerRejectsInvalidArgumentsBeforeAPI(t *testing.T) {
-	t.Setenv("SLACK_MCP_LISTS_WRITE_TOOL", "true")
 	handler := newTestListsHandler(&fakeListsAPI{})
 	result, err := handler.CreateList(context.Background(), listRequest(map[string]any{"name": "", "schema": "bad"}))
 	require.NoError(t, err)

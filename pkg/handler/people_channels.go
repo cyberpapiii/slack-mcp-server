@@ -21,9 +21,6 @@ import (
 )
 
 const (
-	profileWriteGate  = "SLACK_MCP_PROFILE_WRITE_TOOL"
-	channelCreateGate = "SLACK_MCP_CHANNEL_CREATE_TOOL"
-	channelInviteGate = "SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL"
 	maxPeoplePageSize = 200
 	maxEmojiPageSize  = 200
 )
@@ -94,9 +91,6 @@ func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.
 
 func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsersSetProfileHandler called", request)
-	if !requireToolEnabled(profileWriteGate, "users_set_profile") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "users_set_profile is disabled"}), nil
-	}
 	identity, err := h.requireUserIdentity()
 	if err != nil {
 		return NewTypedErrorResult(err), nil
@@ -115,9 +109,6 @@ func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.
 
 func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsersSetStatusHandler called", request)
-	if !requireToolEnabled(profileWriteGate, "users_set_status") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "users_set_status is disabled"}), nil
-	}
 	identity, err := h.requireUserIdentity()
 	if err != nil {
 		return NewTypedErrorResult(err), nil
@@ -165,9 +156,6 @@ func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallT
 
 func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ChannelsCreateHandler called", request)
-	if !requireToolEnabled(channelCreateGate, "channels_create") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "channels_create is disabled"}), nil
-	}
 	name := strings.TrimSpace(request.GetString("name", ""))
 	if !channelNamePattern.MatchString(name) {
 		return NewTypedErrorResult(invalidArguments("name must be 1-80 lowercase letters, numbers, hyphens, or underscores")), nil
@@ -204,9 +192,6 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 
 func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ChannelsInviteHandler called", request)
-	if !requireToolEnabled(channelInviteGate, "channels_invite") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "channels_invite is disabled"}), nil
-	}
 	channelID, err := requiredChannelID(request)
 	if err != nil {
 		return NewTypedErrorResult(invalidArguments(err.Error())), nil

@@ -34,11 +34,6 @@ type UsergroupMeActionResult struct {
 	UserCount int    `json:"user_count,omitempty" jsonschema_description:"Number of members after action"`
 }
 
-// UsergroupListResult is the legacy usergroups_me structured contract.
-type UsergroupListResult struct {
-	Usergroups []UserGroup `json:"usergroups" jsonschema_description:"List of user groups"`
-}
-
 type membershipAction string
 
 const (
@@ -129,15 +124,6 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsCreateHandler called", request)
 
-	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_create") {
-		h.logger.Error("Usergroups write tool disabled by default")
-		return nil, errors.New(
-			"by default, the usergroups_create tool is disabled to guard Slack workspaces against accidental workspace-visible mutations. " +
-				"To enable it, set the SLACK_MCP_USERGROUPS_WRITE_TOOL environment variable to true or 1, " +
-				"or add 'usergroups_create' to SLACK_MCP_ENABLED_TOOLS",
-		)
-	}
-
 	name := request.GetString("name", "")
 	if name == "" {
 		return nil, errors.New("name is required")
@@ -172,15 +158,6 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 
 func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsUpdateHandler called", request)
-
-	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_update") {
-		h.logger.Error("Usergroups write tool disabled by default")
-		return nil, errors.New(
-			"by default, the usergroups_update tool is disabled to guard Slack workspaces against accidental workspace-visible mutations. " +
-				"To enable it, set the SLACK_MCP_USERGROUPS_WRITE_TOOL environment variable to true or 1, " +
-				"or add 'usergroups_update' to SLACK_MCP_ENABLED_TOOLS",
-		)
-	}
 
 	usergroupID := request.GetString("usergroup_id", "")
 	if usergroupID == "" {
@@ -227,15 +204,6 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsUsersUpdateHandler called", request)
 
-	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_users_update") {
-		h.logger.Error("Usergroups write tool disabled by default")
-		return nil, errors.New(
-			"by default, the usergroups_users_update tool is disabled to guard Slack workspaces against accidental workspace-visible mutations. " +
-				"To enable it, set the SLACK_MCP_USERGROUPS_WRITE_TOOL environment variable to true or 1, " +
-				"or add 'usergroups_users_update' to SLACK_MCP_ENABLED_TOOLS",
-		)
-	}
-
 	usergroupID := request.GetString("usergroup_id", "")
 	if usergroupID == "" {
 		return nil, errors.New("usergroup_id is required")
@@ -259,31 +227,8 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 	)
 
 	result := newUserGroupFromSlack(updated)
-	result.Users = strings.Join(updated.Users, ",")
 
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Updated user group members for "+result.ID), nil
-}
-
-func (h *UsergroupsHandler) UsergroupsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsergroupsMeHandler called", request)
-
-	action := request.GetString("action", "")
-	if action != "list" && action != "join" && action != "leave" {
-		return nil, errors.New("action must be 'list', 'join', or 'leave'")
-	}
-
-	authResp, err := h.api.AuthTest()
-	if err != nil {
-		h.logger.Error("AuthTest failed", zap.Error(err))
-		return nil, err
-	}
-	currentUserID := authResp.UserID
-	h.logger.Debug("Current user ID", zap.String("user_id", currentUserID))
-
-	if action == "list" {
-		return h.handleListMyGroups(ctx, currentUserID, true)
-	}
-	return h.handleMyGroupMembership(ctx, currentUserID, request.GetString("usergroup_id", ""), membershipAction(action))
 }
 
 func (h *UsergroupsHandler) UsergroupsMineHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -292,14 +237,11 @@ func (h *UsergroupsHandler) UsergroupsMineHandler(ctx context.Context, request m
 	if err != nil {
 		return nil, err
 	}
-	return h.handleListMyGroups(ctx, currentUserID, false)
+	return h.handleListMyGroups(ctx, currentUserID)
 }
 
 func (h *UsergroupsHandler) UsergroupsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsJoinHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_join") {
-		return nil, errors.New("usergroups_join is disabled")
-	}
 	currentUserID, err := h.currentUserID()
 	if err != nil {
 		return nil, err
@@ -309,9 +251,6 @@ func (h *UsergroupsHandler) UsergroupsJoinHandler(ctx context.Context, request m
 
 func (h *UsergroupsHandler) UsergroupsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsergroupsLeaveHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_USERGROUPS_WRITE_TOOL", "usergroups_leave") {
-		return nil, errors.New("usergroups_leave is disabled")
-	}
 	currentUserID, err := h.currentUserID()
 	if err != nil {
 		return nil, err
@@ -400,7 +339,7 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
 }
 
-func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserID string, legacy bool) (*mcp.CallToolResult, error) {
+func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserID string) (*mcp.CallToolResult, error) {
 	options := []slack.GetUserGroupsOption{
 		slack.GetUserGroupsOptionIncludeUsers(true),
 		slack.GetUserGroupsOptionIncludeCount(true),
@@ -439,9 +378,6 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 		return nil, err
 	}
 
-	if legacy {
-		return mcp.NewToolResultStructured(UsergroupListResult{Usergroups: userGroupList}, string(csvBytes)), nil
-	}
 	return NewStructuredResult(UsergroupPageData{Usergroups: userGroupList}, SlackResultMeta("", false, ""), string(csvBytes)), nil
 }
 

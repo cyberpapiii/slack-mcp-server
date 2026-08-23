@@ -48,7 +48,6 @@ func TestUnitDNDGetReturnsActorAndUTCState(t *testing.T) {
 }
 
 func TestUnitDNDSetValidatesDuration(t *testing.T) {
-	t.Setenv("SLACK_MCP_DND_TOOL", "true")
 	api := &fakeDNDAPI{status: &slack.DNDStatus{}}
 	handler := NewDNDHandler(api, userIdentity, zap.NewNop())
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"minutes": 0}}}
@@ -63,7 +62,6 @@ func TestUnitDNDSetValidatesDuration(t *testing.T) {
 }
 
 func TestUnitDNDMutationsRejectBotIdentity(t *testing.T) {
-	t.Setenv("SLACK_MCP_DND_TOOL", "true")
 	api := &fakeDNDAPI{status: &slack.DNDStatus{}}
 	handler := NewDNDHandler(api, func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "bot"}
@@ -83,7 +81,6 @@ func TestUnitDNDErrorsAreTyped(t *testing.T) {
 }
 
 func TestUnitDNDMutationTimeoutIsOutcomeUnknown(t *testing.T) {
-	t.Setenv("SLACK_MCP_DND_TOOL", "true")
 	api := &fakeDNDAPI{err: context.DeadlineExceeded}
 	handler := NewDNDHandler(api, userIdentity, zap.NewNop())
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"minutes": 30}}}

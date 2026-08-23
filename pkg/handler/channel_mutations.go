@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
-	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
@@ -179,23 +178,8 @@ func requiredPresentString(request mcp.CallToolRequest, field string) (string, e
 }
 
 func requireChannelMutationAllowed(toolName, channelID string) error {
-	config := strings.TrimSpace(os.Getenv(channelManagementGate))
-	enabledTools := strings.TrimSpace(os.Getenv("SLACK_MCP_ENABLED_TOOLS"))
-	allowlisted := isToolInEnabledList(enabledTools, toolName)
-	if enabledTools != "" && !allowlisted {
-		return fmt.Errorf("%s is disabled by SLACK_MCP_ENABLED_TOOLS", toolName)
-	}
-	if config == "" {
-		if allowlisted {
-			return nil
-		}
-		return fmt.Errorf("%s is disabled; set %s or add it to SLACK_MCP_ENABLED_TOOLS", toolName, channelManagementGate)
-	}
-	if envutil.IsTruthy(config) {
-		return nil
-	}
-	if !isChannelAllowedForConfig(channelID, config) {
-		return fmt.Errorf("%s is not allowed for channel %q", toolName, channelID)
+	if !isChannelAllowedForConfig(channelID, os.Getenv(channelManagementGate)) {
+		return fmt.Errorf("%s is not allowed for channel %q by %s", toolName, channelID, channelManagementGate)
 	}
 	return nil
 }

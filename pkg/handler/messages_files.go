@@ -80,9 +80,6 @@ func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Sto
 
 func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "FilesUploadHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_FILE_UPLOAD_TOOL", "files_upload") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "files_upload is disabled"}), nil
-	}
 	filename := strings.TrimSpace(request.GetString("filename", ""))
 	if filename == "" || filename != filepath.Base(filename) || strings.ContainsAny(filename, "\x00\r\n") {
 		return messageFilesInvalid("filename must be a non-empty base filename"), nil
@@ -191,12 +188,8 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 }
 
 func requireMessageLifecycleTool(tool, channelID string) error {
-	config := os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")
-	if !requireToolEnabled("SLACK_MCP_ADD_MESSAGE_TOOL", tool) && config == "" {
-		return &ToolError{Code: "tool_disabled", Message: tool + " is disabled"}
-	}
-	if config != "" && !isChannelAllowedForConfig(channelID, config) {
-		return &ToolError{Code: "permission_denied", Message: tool + " is not allowed for this channel"}
+	if !isChannelAllowedForConfig(channelID, os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")) {
+		return &ToolError{Code: "permission_denied", Message: tool + " is not allowed for this channel by SLACK_MCP_ADD_MESSAGE_TOOL"}
 	}
 	return nil
 }

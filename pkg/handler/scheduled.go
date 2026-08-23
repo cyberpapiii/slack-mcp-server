@@ -89,9 +89,6 @@ func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest
 
 func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ScheduledCancelHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_SCHEDULED_MESSAGE_TOOL", "scheduled_message_cancel") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "scheduled_message_cancel is disabled"}), nil
-	}
 	action := strings.TrimSpace(request.GetString("action", ""))
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	scheduledMessageID := strings.TrimSpace(request.GetString("scheduled_message_id", ""))

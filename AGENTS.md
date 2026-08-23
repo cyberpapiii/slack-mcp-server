@@ -48,7 +48,7 @@ The full set, grouped (★ = local-only or fork-extended):
 | Conversations | ★`conversations_open`, ★`conversations_unreads` (browser session / xoxc+xoxd), `conversations_mark`, `conversations_join`, `conversations_leave` |
 | Channels | `channels_list`, ★`channels_starred`, ★`channels_me` |
 | Reactions | `reactions_add`, `reactions_remove`, ★`reactions_get` |
-| Usergroups | `usergroups_list`, `usergroups_mine`, `usergroups_join`, `usergroups_leave`, legacy `usergroups_me`, `usergroups_create`, `usergroups_update`, `usergroups_users_update` |
+| Usergroups | `usergroups_list`, `usergroups_mine`, `usergroups_join`, `usergroups_leave`, `usergroups_create`, `usergroups_update`, `usergroups_users_update` |
 | Users | `users_search` |
 | Activity | ★`activity_unreads`, ★`activity_mark_read` (browser session / xoxc+xoxd) |
 | Saved items | ★`saved_list`, ★`saved_update`, ★`saved_clear_completed` |
@@ -73,32 +73,17 @@ Documented solutions: `docs/solutions/`, past problems solved in this repo (bugs
 
 Plug deployment uses `SLACK_MCP_ENABLED_TOOLS` as an allowlist. Adding a new tool to the server does **not** expose it in Cursor until the name is added to that env list and Plug is restarted.
 
-Side-effecting tools require explicit env opt-in. Every gate below is enforced **at registration** (`shouldAddTool`, `pkg/server/server.go`), so a disabled tool never appears in `tools/list`, and all but `SLACK_MCP_FILES_LIST_TOOL` are re-checked in the handler:
+Tool registration has one switch: a tool registers iff its name is in the resolved enabled-tools list (`addEnabledTool`, `pkg/server/server.go`). That list comes from `SLACK_MCP_ENABLED_TOOLS` / `--enabled-tools` when set, otherwise from `SLACK_MCP_TOOL_PRESET` (`daily-power`, the read-only default, or `legacy-full`). Matching is an exact per-entry comparison. A tool outside the list never appears in `tools/list`; there are no per-tool boolean gate variables. Any leftover `SLACK_MCP_*_TOOL` variable other than the three below is ignored and logged as a warning at startup.
 
-| Env var | Gates | Accepted values |
-|---------|-------|-----------------|
-| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message` | `true`/`1`, or a comma-separated channel allowlist (`!C123…` negates) |
-| `SLACK_MCP_REACTION_TOOL` | `reactions_add`, `reactions_remove` | `true`/`1`, or a comma-separated channel allowlist (`!C123…` negates) |
-| `SLACK_MCP_ATTACHMENT_TOOL` | `attachment_get_data` | `true`, `1`, or `yes` |
-| `SLACK_MCP_MARK_TOOL` | `conversations_mark` | `true`, `1`, or `yes` |
-| `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL` | `conversations_join`, `conversations_leave` | `true`, `1`, or `yes` |
-| `SLACK_MCP_USERGROUPS_WRITE_TOOL` | `usergroups_create`, `usergroups_update`, `usergroups_users_update` | `true`, `1`, or `yes` |
-| `SLACK_MCP_FILES_LIST_TOOL` | `files_list` | `true`, `1`, or `yes` (registration gate only) |
-| `SLACK_MCP_SCHEDULED_MESSAGE_TOOL` | `scheduled_message_cancel` | `true`, `1`, or `yes` |
-| `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | channel rename/topic/purpose/archive | `true`/`1`/`yes`, or a channel allowlist |
-| `SLACK_MCP_LISTS_WRITE_TOOL` | Lists and List-item mutations | `true`, `1`, or `yes` |
-| `SLACK_MCP_DND_TOOL` | DND set/end | `true`, `1`, or `yes` |
-| `SLACK_MCP_ACTIVITY_MARK_TOOL` | `activity_mark_read` | `true`, `1`, or `yes` |
-| `SLACK_MCP_SAVED_WRITE_TOOL` | `saved_update`, `saved_clear_completed` | `true`, `1`, or `yes` |
-| `SLACK_MCP_FILE_UPLOAD_TOOL` | `files_upload` | `true`, `1`, or `yes` |
-| `SLACK_MCP_CHANNEL_CREATE_TOOL` | `channels_create` | `true`, `1`, or `yes` |
-| `SLACK_MCP_PROFILE_WRITE_TOOL` | `users_set_profile`, `users_set_status` | `true`, `1`, or `yes` |
-| `SLACK_MCP_CANVAS_WRITE_TOOL` | `canvases_create`, `canvases_update` | `true`, `1`, or `yes` |
-| `SLACK_MCP_DRAFT_WRITE_TOOL` | `drafts_create`, `drafts_update`, `drafts_delete` | `true`, `1`, or `yes` |
+Three write tools additionally take a channel allow/block list, checked in the handler on every call:
 
-The boolean gates accept only `true`, `1`, or `yes`, matched case-insensitively and ignoring surrounding whitespace (`envutil.IsTruthy` in `pkg/envutil`). Any other value, **including `false`**, leaves the tool disabled. The channel-allowlist gates (`ADD_MESSAGE`, `REACTION`, `CHANNEL_MANAGEMENT`) are not plain booleans: their value may be the channel configuration, so any non-empty value enables registration and handlers recheck the target.
+| Env var | Scopes | Value |
+|---------|--------|-------|
+| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message` (and the messages_* lifecycle tools) | empty or `true`/`1`/`yes` = every channel; `C1,C2` = only those; `!C1,!C2` = all except those |
+| `SLACK_MCP_REACTION_TOOL` | `reactions_add`, `reactions_remove` | same shape |
+| `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | channel rename/topic/purpose/archive | same shape |
 
-Gate vars and the allowlist interact: when `SLACK_MCP_ENABLED_TOOLS` is set, the allowlist alone decides registration: a gated tool named in it registers without its dedicated env var, and one absent from it stays unregistered even when the env var is set. When `SLACK_MCP_ENABLED_TOOLS` is unset, a gated tool registers only if its own env var is truthy, or non-empty for the two channel-allowlist gates. Matching is an **exact** per-entry comparison (`isToolInEnabledList`, `slices.Contains`), not a substring test.
+A denied channel returns a `permission_denied` tool error that names the variable. Setting one of these to `false` does not disable the tool; it is read as a one-entry channel list and blocks every channel (startup warns). To turn a tool off, drop it from the enabled-tools list.
 
 - MCP resources (`slack://…/channels`, `slack://…/users`) always register after cache warm-up; they ignore `SLACK_MCP_ENABLED_TOOLS`.
 

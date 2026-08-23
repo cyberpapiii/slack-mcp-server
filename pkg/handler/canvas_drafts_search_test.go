@@ -39,7 +39,6 @@ func (f *fakeCanvasAPI) UpdateCanvas(_ context.Context, request provider.CanvasU
 }
 
 func TestCanvasHandlersValidateAndReturnPartialRead(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "canvases_create,canvases_update")
 	api := &fakeCanvasAPI{doc: provider.CanvasDocument{CanvasID: "F1", Preview: "preview", Limitation: "metadata only"}}
 	handler := NewCanvasHandler(api, zap.NewNop())
 
@@ -104,7 +103,6 @@ func TestDraftsUnsupportedIsTyped(t *testing.T) {
 }
 
 func TestDraftDeleteRequiresBoundOneUseApproval(t *testing.T) {
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "drafts_delete")
 	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
 	handler := NewDraftsHandler(api, approval.NewStore(time.Minute), func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user"}

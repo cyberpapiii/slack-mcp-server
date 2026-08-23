@@ -4,6 +4,7 @@
 .DEFAULT_GOAL := help
 
 TAG ?=
+RELEASE_REMOTE ?= personal
 GO=go
 PACKAGE = $(shell go list -m)
 GIT_COMMIT_HASH = $(shell git rev-parse HEAD)
@@ -63,6 +64,7 @@ build-all-platforms: clean ## Build the project for all platforms (read-only: ru
 
 .PHONY: build-dxt
 build-dxt: ## Build DXT extension
+	mkdir -p ./build/extension.dxt/server
 	$(foreach os,$(OSES),$(foreach arch,$(ARCHS), \
 		EXECUTABLE=$(BINARY_NAME)-$(os)-$(arch)$(if $(findstring windows,$(os)),.exe,); \
 		DIRNAME=$(BINARY_NAME)-$(os)-$(arch); \
@@ -157,9 +159,10 @@ tidy: ## Tidy the go modules
 prepare: tidy format ## Tidy modules and format the code (the mutating half of the old `build`)
 
 .PHONY: release
-release: ## Create release tag. Usage: make release TAG=v1.2.3
+release: ## Create release tag. Usage: make release TAG=v1.2.3 [RELEASE_REMOTE=personal]
 	@if [ -z "$(TAG)" ]; then \
-	  echo "Usage: make release TAG=vX.Y.Z"; exit 1; \
+	  echo "Usage: make release TAG=vX.Y.Z [RELEASE_REMOTE=<remote>]"; exit 1; \
 	fi
+	@git remote get-url "$(RELEASE_REMOTE)" >/dev/null 2>&1 || { echo "unknown remote $(RELEASE_REMOTE); origin is upstream, set RELEASE_REMOTE to your fork"; exit 1; }
 	git tag -a "$(TAG)" -m "Release $(TAG)"
-	git push origin "$(TAG)"
+	git push "$(RELEASE_REMOTE)" "$(TAG)"

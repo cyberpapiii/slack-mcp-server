@@ -70,9 +70,6 @@ type ListItemDeleteResult = ToolResult[ListItemDeleteData]
 
 func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ListsCreateList called", request)
-	if disabled := listsWriteDisabled("lists_create"); disabled != nil {
-		return disabled, nil
-	}
 	var input provider.CreateListRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return NewTypedErrorResult(err), nil
@@ -89,9 +86,6 @@ func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolReque
 
 func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ListsUpdateList called", request)
-	if disabled := listsWriteDisabled("lists_update"); disabled != nil {
-		return disabled, nil
-	}
 	var input provider.UpdateListRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return NewTypedErrorResult(err), nil
@@ -126,9 +120,6 @@ func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolReques
 
 func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ListsCreateItem called", request)
-	if disabled := listsWriteDisabled("lists_items_create"); disabled != nil {
-		return disabled, nil
-	}
 	var input provider.CreateListItemRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return NewTypedErrorResult(err), nil
@@ -145,9 +136,6 @@ func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolReque
 
 func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ListsUpdateItems called", request)
-	if disabled := listsWriteDisabled("lists_items_update"); disabled != nil {
-		return disabled, nil
-	}
 	var input provider.UpdateListItemsRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return NewTypedErrorResult(err), nil
@@ -163,9 +151,6 @@ func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequ
 
 func (h *ListsHandler) PrepareDeleteItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ListsPrepareDeleteItem called", request)
-	if disabled := listsWriteDisabled("lists_item_delete"); disabled != nil {
-		return disabled, nil
-	}
 	listID := request.GetString("list_id", "")
 	itemID := request.GetString("item_id", "")
 	if listID == "" || itemID == "" {
@@ -192,9 +177,6 @@ func (h *ListsHandler) PrepareDeleteItem(ctx context.Context, request mcp.CallTo
 
 func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ListsDeleteItem called", request)
-	if disabled := listsWriteDisabled("lists_item_delete"); disabled != nil {
-		return disabled, nil
-	}
 	token := strings.TrimSpace(request.GetString("approval_token", ""))
 	listID := strings.TrimSpace(request.GetString("list_id", ""))
 	itemID := strings.TrimSpace(request.GetString("item_id", ""))
@@ -217,13 +199,6 @@ func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolReque
 	}
 	data := ListItemDeleteData{Phase: "executed", ListID: listID, ItemID: itemID, Status: "deleted"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Deleted Slack List item "+itemID), nil
-}
-
-func listsWriteDisabled(tool string) *mcp.CallToolResult {
-	if requireToolEnabled("SLACK_MCP_LISTS_WRITE_TOOL", tool) {
-		return nil
-	}
-	return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: tool + " is disabled"})
 }
 
 func decodeArguments(request mcp.CallToolRequest, output any) error {

@@ -17,13 +17,13 @@ func registerDailyPowerLifecycleTools(s *mcpserver.MCPServer, api *provider.ApiP
 
 	if service, err := api.Scheduled(); err == nil {
 		h := handler.NewScheduledHandler(service, approvals, api.Identity, logger)
-		addEnabledTool(s, enabledTools, ToolScheduledMessagesList, "", newDailyPowerTool(ToolScheduledMessagesList,
+		addEnabledTool(s, enabledTools, newDailyPowerTool(ToolScheduledMessagesList,
 			mcp.WithDescription("List pending scheduled Slack messages with stable IDs and UTC post times."),
 			mcp.WithString("channel_id"), mcp.WithString("cursor"), mcp.WithString("oldest"), mcp.WithString("latest"), mcp.WithString("text_query"),
 			mcp.WithNumber("limit", mcp.DefaultNumber(50)),
 		), h.List)
 
-		addEnabledTool(s, enabledTools, ToolScheduledMessageCancel, "SLACK_MCP_SCHEDULED_MESSAGE_TOOL", newDailyPowerTool(ToolScheduledMessageCancel,
+		addEnabledTool(s, enabledTools, newDailyPowerTool(ToolScheduledMessageCancel,
 			mcp.WithDescription("Preview or execute cancellation of one pending scheduled message. Prepare first, then confirm the exact target before execute."),
 			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute")),
 			mcp.WithString("channel_id", mcp.Required()), mcp.WithString("scheduled_message_id", mcp.Required()), mcp.WithString("approval_token"),
@@ -49,14 +49,14 @@ func registerDailyPowerLifecycleTools(s *mcpserver.MCPServer, api *provider.ApiP
 
 	if dnd, err := api.DND(); err == nil {
 		h := handler.NewDNDHandler(dnd, api.Identity, logger)
-		addEnabledTool(s, enabledTools, ToolDNDGet, "", newDailyPowerTool(ToolDNDGet, mcp.WithDescription("Read the authenticated user's Do Not Disturb and snooze state.")), h.Get)
+		addEnabledTool(s, enabledTools, newDailyPowerTool(ToolDNDGet, mcp.WithDescription("Read the authenticated user's Do Not Disturb and snooze state.")), h.Get)
 
-		addEnabledTool(s, enabledTools, ToolDNDSetSnooze, "SLACK_MCP_DND_TOOL", newDailyPowerTool(ToolDNDSetSnooze,
+		addEnabledTool(s, enabledTools, newDailyPowerTool(ToolDNDSetSnooze,
 			mcp.WithDescription("Set a bounded Do Not Disturb snooze for the authenticated user. Requires client confirmation."),
 			mcp.WithNumber("minutes", mcp.Required(), mcp.Min(1), mcp.Max(10080)),
 		), h.SetSnooze)
 
-		addEnabledTool(s, enabledTools, ToolDNDEndSnooze, "SLACK_MCP_DND_TOOL", newDailyPowerTool(ToolDNDEndSnooze, mcp.WithDescription("End the authenticated user's current Do Not Disturb snooze. Requires client confirmation.")), h.EndSnooze)
+		addEnabledTool(s, enabledTools, newDailyPowerTool(ToolDNDEndSnooze, mcp.WithDescription("End the authenticated user's current Do Not Disturb snooze. Requires client confirmation.")), h.EndSnooze)
 
 	} else {
 		logger.Info("DND tools unavailable", zap.Error(err))
@@ -66,14 +66,13 @@ func registerDailyPowerLifecycleTools(s *mcpserver.MCPServer, api *provider.ApiP
 }
 
 func registerChannelMutationTools(s *mcpserver.MCPServer, h *handler.ChannelMutationHandler, enabledTools []string) {
-	gate := "SLACK_MCP_CHANNEL_MANAGEMENT_TOOL"
-	addEnabledTool(s, enabledTools, ToolChannelsRename, gate, newDailyPowerTool(ToolChannelsRename, mcp.WithDescription("Rename one ordinary channel. Requires client confirmation."), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("name", mcp.Required())), h.ConversationsRenameHandler)
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolChannelsRename, mcp.WithDescription("Rename one ordinary channel. Requires client confirmation."), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("name", mcp.Required())), h.ConversationsRenameHandler)
 
-	addEnabledTool(s, enabledTools, ToolChannelsSetTopic, gate, newDailyPowerTool(ToolChannelsSetTopic, mcp.WithDescription("Set or clear one ordinary channel topic. Requires client confirmation."), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("topic", mcp.Required())), h.ConversationsSetTopicHandler)
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolChannelsSetTopic, mcp.WithDescription("Set or clear one ordinary channel topic. Requires client confirmation."), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("topic", mcp.Required())), h.ConversationsSetTopicHandler)
 
-	addEnabledTool(s, enabledTools, ToolChannelsSetPurpose, gate, newDailyPowerTool(ToolChannelsSetPurpose, mcp.WithDescription("Set or clear one ordinary channel purpose. Requires client confirmation."), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("purpose", mcp.Required())), h.ConversationsSetPurposeHandler)
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolChannelsSetPurpose, mcp.WithDescription("Set or clear one ordinary channel purpose. Requires client confirmation."), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("purpose", mcp.Required())), h.ConversationsSetPurposeHandler)
 
-	addEnabledTool(s, enabledTools, ToolChannelsArchive, gate, newDailyPowerTool(ToolChannelsArchive,
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolChannelsArchive,
 		mcp.WithDescription("Preview or archive one ordinary channel. Prepare first, then confirm the exact observed channel before execute."),
 		mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute")), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("approval_token"),
 	), h.ConversationsArchiveHandler)
@@ -81,10 +80,9 @@ func registerChannelMutationTools(s *mcpserver.MCPServer, h *handler.ChannelMuta
 }
 
 func registerListsTools(s *mcpserver.MCPServer, h *handler.ListsHandler, enabledTools []string) {
-	gate := "SLACK_MCP_LISTS_WRITE_TOOL"
-	addEnabledTool(s, enabledTools, ToolListsItemsList, "", newDailyPowerTool(ToolListsItemsList, mcp.WithDescription("List items for a known Slack List ID."), mcp.WithString("list_id", mcp.Required()), mcp.WithNumber("limit"), mcp.WithString("cursor"), mcp.WithBoolean("archived")), h.ListItems)
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolListsItemsList, mcp.WithDescription("List items for a known Slack List ID."), mcp.WithString("list_id", mcp.Required()), mcp.WithNumber("limit"), mcp.WithString("cursor"), mcp.WithBoolean("archived")), h.ListItems)
 
-	addEnabledTool(s, enabledTools, ToolListsCreate, gate, newDailyPowerTool(ToolListsCreate,
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolListsCreate,
 		mcp.WithDescription("Create a Slack List. Requires client confirmation."),
 		mcp.WithString("name", mcp.Required()),
 		mcp.WithArray("description_blocks", mcp.Items(openObjectSchema())),
@@ -92,13 +90,13 @@ func registerListsTools(s *mcpserver.MCPServer, h *handler.ListsHandler, enabled
 		mcp.WithString("copy_from_list_id"), mcp.WithBoolean("include_copied_list_records"), mcp.WithBoolean("todo_mode"),
 	), h.CreateList)
 
-	addEnabledTool(s, enabledTools, ToolListsUpdate, gate, newDailyPowerTool(ToolListsUpdate, mcp.WithDescription("Update Slack List metadata. Requires client confirmation."), mcp.WithString("id", mcp.Required()), mcp.WithString("name"), mcp.WithArray("description_blocks", mcp.Items(openObjectSchema())), mcp.WithBoolean("todo_mode")), h.UpdateList)
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolListsUpdate, mcp.WithDescription("Update Slack List metadata. Requires client confirmation."), mcp.WithString("id", mcp.Required()), mcp.WithString("name"), mcp.WithArray("description_blocks", mcp.Items(openObjectSchema())), mcp.WithBoolean("todo_mode")), h.UpdateList)
 
-	addEnabledTool(s, enabledTools, ToolListsItemsCreate, gate, newDailyPowerTool(ToolListsItemsCreate, mcp.WithDescription("Create one Slack List item. Requires client confirmation."), mcp.WithString("list_id", mcp.Required()), mcp.WithString("duplicated_item_id"), mcp.WithString("parent_item_id"), mcp.WithArray("initial_fields", mcp.Items(listFieldItemSchema(false)))), h.CreateItem)
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolListsItemsCreate, mcp.WithDescription("Create one Slack List item. Requires client confirmation."), mcp.WithString("list_id", mcp.Required()), mcp.WithString("duplicated_item_id"), mcp.WithString("parent_item_id"), mcp.WithArray("initial_fields", mcp.Items(listFieldItemSchema(false)))), h.CreateItem)
 
-	addEnabledTool(s, enabledTools, ToolListsItemsUpdate, gate, newDailyPowerTool(ToolListsItemsUpdate, mcp.WithDescription("Update typed cells on Slack List items. Requires client confirmation."), mcp.WithString("list_id", mcp.Required()), mcp.WithArray("cells", mcp.Required(), mcp.MinItems(1), mcp.Items(listFieldItemSchema(true)))), h.UpdateItems)
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolListsItemsUpdate, mcp.WithDescription("Update typed cells on Slack List items. Requires client confirmation."), mcp.WithString("list_id", mcp.Required()), mcp.WithArray("cells", mcp.Required(), mcp.MinItems(1), mcp.Items(listFieldItemSchema(true)))), h.UpdateItems)
 
-	addEnabledTool(s, enabledTools, ToolListsItemDelete, gate, newDailyPowerTool(ToolListsItemDelete,
+	addEnabledTool(s, enabledTools, newDailyPowerTool(ToolListsItemDelete,
 		mcp.WithDescription("Preview or delete one Slack List item. Prepare first, then confirm the exact item before execute."),
 		mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute")), mcp.WithString("list_id", mcp.Required()), mcp.WithString("item_id", mcp.Required()), mcp.WithString("approval_token"),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

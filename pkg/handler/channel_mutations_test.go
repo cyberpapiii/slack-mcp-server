@@ -67,7 +67,6 @@ func mutationRequest(arguments map[string]any) mcp.CallToolRequest {
 
 func TestChannelMetadataHandlersSupportDistinctActionsAndExplicitClearing(t *testing.T) {
 	t.Setenv(channelManagementGate, "true")
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "")
 	tests := []struct {
 		name   string
 		args   map[string]any
@@ -121,7 +120,6 @@ func TestChannelMetadataHandlerAcceptsPrivateChannelID(t *testing.T) {
 
 func TestChannelMutationHandlerRechecksChannelAllowlist(t *testing.T) {
 	t.Setenv(channelManagementGate, "C456")
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "channels_rename")
 	service := &fakeChannelMutationService{}
 	_, err := newTestChannelMutationHandler(service).ConversationsRenameHandler(
 		context.Background(), mutationRequest(map[string]any{"channel_id": "C123", "name": "new-name"}),
@@ -130,26 +128,14 @@ func TestChannelMutationHandlerRechecksChannelAllowlist(t *testing.T) {
 	assert.Empty(t, service.action)
 }
 
-func TestChannelMutationHandlerAllowlistEntryEnablesWithoutDedicatedGate(t *testing.T) {
+func TestChannelMutationHandlerEmptyAllowlistAllowsAllChannels(t *testing.T) {
 	t.Setenv(channelManagementGate, "")
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "channels_rename")
 	service := &fakeChannelMutationService{}
 	_, err := newTestChannelMutationHandler(service).ConversationsRenameHandler(
 		context.Background(), mutationRequest(map[string]any{"channel_id": "C123", "name": "new-name"}),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "rename", service.action)
-}
-
-func TestChannelMutationHandlerExplicitAllowlistExclusionOverridesGate(t *testing.T) {
-	t.Setenv(channelManagementGate, "true")
-	t.Setenv("SLACK_MCP_ENABLED_TOOLS", "channels_list")
-	service := &fakeChannelMutationService{}
-	_, err := newTestChannelMutationHandler(service).ConversationsRenameHandler(
-		context.Background(), mutationRequest(map[string]any{"channel_id": "C123", "name": "new-name"}),
-	)
-	require.ErrorContains(t, err, "disabled by SLACK_MCP_ENABLED_TOOLS")
-	assert.Empty(t, service.action)
 }
 
 func TestArchiveHandlerUsesPrepareThenExactArchiveSeam(t *testing.T) {

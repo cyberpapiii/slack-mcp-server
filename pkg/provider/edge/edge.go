@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"runtime/trace"
+	"strconv"
 	"strings"
 	"time"
 
@@ -285,16 +286,12 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 		return nil, err
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
-		wait, err := parseRetryAfter(resp)
-		if err != nil {
-			return nil, err
-		}
-		lg.InfoContext(ctx, "got rate limited, waiting", "delay", wait)
-
 		// Drain and close the rate-limited response so the connection can be
 		// reused instead of leaked.
 		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
+		wait := parseRetryAfter(resp)
+		lg.InfoContext(ctx, "got rate limited, waiting", "delay", wait)
 
 		// The first attempt consumed the one-shot body reader; rebuild it, or
 		// the retry would post an empty body.
@@ -318,14 +315,9 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			lg.DebugContext(ctx, "edge.do: still rate limited after one retry")
-			wait, err = parseRetryAfter(resp)
-			// parseRetryAfter only reads headers; close body once on both paths.
 			_, _ = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
-			if err != nil {
-				return nil, err
-			}
-			return nil, &slack.RateLimitedError{RetryAfter: wait}
+			return nil, &slack.RateLimitedError{RetryAfter: parseRetryAfter(resp)}
 		}
 	}
 	if resp.StatusCode < http.StatusOK || http.StatusMultipleChoices <= resp.StatusCode {
@@ -336,16 +328,16 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 	return resp, err
 }
 
-func parseRetryAfter(resp *http.Response) (time.Duration, error) {
-	strWait := resp.Header.Get("Retry-After")
-	if strWait == "" {
-		return 0, errors.New("got rate limited, but did not get a Retry-After header")
+// defaultRetryAfter covers 429 responses whose Retry-After header is missing
+// or unparsable, so callers still see a retryable RateLimitedError.
+const defaultRetryAfter = 5 * time.Second
+
+func parseRetryAfter(resp *http.Response) time.Duration {
+	secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After")))
+	if err != nil || secs < 0 {
+		return defaultRetryAfter
 	}
-	wait, err := time.ParseDuration(strWait + "s")
-	if err != nil {
-		return 0, err
-	}
-	return wait, nil
+	return time.Duration(secs) * time.Second
 }
 
 // values returns url.Values from a struct.  If omitempty is true, then the

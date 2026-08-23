@@ -80,7 +80,7 @@ func TestNewUserGroupFromSlack_UsersJoin(t *testing.T) {
 	})
 }
 
-func TestUsergroupsMineAndLegacyMeKeepDistinctContracts(t *testing.T) {
+func TestUsergroupsMineReturnsTypedPage(t *testing.T) {
 	api := &fakeUsergroupsAPI{groups: []slack.UserGroup{{ID: "S1", Name: "eng", Users: []string{"U1"}}}}
 	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
 
@@ -88,16 +88,9 @@ func TestUsergroupsMineAndLegacyMeKeepDistinctContracts(t *testing.T) {
 	require.NoError(t, err)
 	_, ok := mine.StructuredContent.(ToolResult[UsergroupPageData])
 	require.True(t, ok)
-
-	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"action": "list"}}}
-	legacy, err := handler.UsergroupsMeHandler(context.Background(), request)
-	require.NoError(t, err)
-	_, ok = legacy.StructuredContent.(UsergroupListResult)
-	require.True(t, ok)
 }
 
 func TestUsergroupsJoinRechecksMembershipBeforeReplacing(t *testing.T) {
-	t.Setenv("SLACK_MCP_USERGROUPS_WRITE_TOOL", "true")
 	api := &fakeUsergroupsAPI{members: [][]string{{"U2"}, {"U2"}}}
 	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
@@ -107,7 +100,6 @@ func TestUsergroupsJoinRechecksMembershipBeforeReplacing(t *testing.T) {
 }
 
 func TestUsergroupsJoinRejectsConcurrentMembershipDrift(t *testing.T) {
-	t.Setenv("SLACK_MCP_USERGROUPS_WRITE_TOOL", "true")
 	api := &fakeUsergroupsAPI{members: [][]string{{"U2"}, {"U2", "U3"}}}
 	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
@@ -119,7 +111,6 @@ func TestUsergroupsJoinRejectsConcurrentMembershipDrift(t *testing.T) {
 }
 
 func TestUsergroupsLeaveRemovesOnlyCurrentUser(t *testing.T) {
-	t.Setenv("SLACK_MCP_USERGROUPS_WRITE_TOOL", "true")
 	api := &fakeUsergroupsAPI{members: [][]string{{"U2", "U1", "U3"}, {"U3", "U1", "U2"}}}
 	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}

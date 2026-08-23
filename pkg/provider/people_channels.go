@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -353,10 +352,7 @@ func (c *MCPSlackClient) UpdateUserProfileContext(ctx context.Context, update Us
 	if token == "" {
 		token = c.authProvider.SlackToken()
 	}
-	endpoint := "https://slack.com/api/users.profile.set"
-	if os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
-		endpoint = "https://slack-gov.com/api/users.profile.set"
-	}
+	endpoint := slackAPIBase() + "users.profile.set"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
 	if err != nil {
 		return nil, err

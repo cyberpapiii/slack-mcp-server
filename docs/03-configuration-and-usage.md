@@ -272,11 +272,6 @@ docker-compose up -d
 | `SLACK_MCP_SERVER_CA_INSECURE`    | No        | `false`                   | Trust all insecure requests (NOT RECOMMENDED)                                                                                                                                                                                                                                             |
 | `SLACK_MCP_ADD_MESSAGE_TOOL`      | No        | `nil`                     | Channel-allowlist gate for `conversations_add_message`: any non-empty value enables registration when `SLACK_MCP_ENABLED_TOOLS` is unset (`true`/`1` = all channels, or comma-separated IDs; `!C…` negates). See `AGENTS.md`. |
 | `SLACK_MCP_REACTION_TOOL`         | No        | `nil`                     | Same channel-allowlist gate shape as `ADD_MESSAGE` for `reactions_add` / `reactions_remove`.                                                                                                                                                                                              |
-| `SLACK_MCP_ATTACHMENT_TOOL`       | No        | `nil`                     | Boolean gate for `attachment_get_data`: only `true`, `1`, or `yes` (case-insensitive).                                                                                                                                                                                                    |
-| `SLACK_MCP_MARK_TOOL`             | No        | `nil`                     | Boolean gate for `conversations_mark`: only `true`, `1`, or `yes`.                                                                                                                                                                                                                        |
-| `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL` | No      | `nil`                     | Boolean gate for `conversations_join` / `conversations_leave`: only `true`, `1`, or `yes`.                                                                                                                                                                                                |
-| `SLACK_MCP_USERGROUPS_WRITE_TOOL` | No        | `nil`                     | Boolean gate for `usergroups_create` / `usergroups_update` / `usergroups_users_update`: only `true`, `1`, or `yes`.                                                                                                                                                                      |
-| `SLACK_MCP_FILES_LIST_TOOL`       | No        | `nil`                     | Boolean gate for `files_list` (registration only; no handler re-check): only `true`, `1`, or `yes`.                                                                                                                                                                                       |
 | `SLACK_MCP_ADD_MESSAGE_MARK`      | No        | `nil`                     | When `conversations_add_message` is enabled (via `SLACK_MCP_ADD_MESSAGE_TOOL` or `SLACK_MCP_ENABLED_TOOLS`), set to `true`, `1`, or `yes` to automatically mark sent messages as read.                                                                                                   |
 | `SLACK_MCP_ADD_MESSAGE_UNFURLING` | No        | `nil`                     | Enable to let Slack unfurl posted links, or set a comma-separated list of domains, e.g. `github.com,slack.com`, to whitelist unfurling only for them. If the text contains both a whitelisted and an unknown domain, unfurling is disabled for security reasons.                                         |
 | `SLACK_MCP_USERS_CACHE`           | No        | OS cache dir + `users_cache.json` (team-prefixed; see README) | Path to the users cache file. Used to cache Slack user information to avoid repeated API calls on startup.                                                                                                                                                                  |
@@ -284,16 +279,15 @@ docker-compose up -d
 | `SLACK_MCP_CACHE_TTL`             | No        | `24h`                     | Cache time-to-live. Supports duration format (`24h`, `30m`) or seconds (`3600`). Set to `0` to disable TTL (cache forever). When the cache expires, the server serves stale data immediately while a background refresh fetches fresh data.                                                       |
 | `SLACK_MCP_MIN_REFRESH_INTERVAL`  | No        | `30s`                     | Minimum interval between forced cache refreshes. Prevents API abuse from repeated force-refresh requests. Supports duration format (`30s`, `1m`) or seconds (`60`). Set to `0` to disable rate limiting.                                                                                  |
 | `SLACK_MCP_LOG_LEVEL`             | No        | `info`                    | Log-level for stdout or stderr. Valid values are: `debug`, `info`, `warn`, `error`, `panic` and `fatal`                                                                                                                                                                                   |
-| `SLACK_MCP_ENABLED_TOOLS`         | No        | `nil`                     | Comma-separated allowlist. When set, it alone decides which tools register (a gated tool named here registers without its dedicated env var; one absent stays off even if its env var is set). When unset, gated tools need their own env var (`true`/`1`/`yes` for boolean gates; any non-empty value for `ADD_MESSAGE` / `REACTION`). Full names and gate table: `AGENTS.md`. |
+| `SLACK_MCP_ENABLED_TOOLS`         | No        | `nil`                     | Comma-separated allowlist; the only switch for which tools register. Overrides `SLACK_MCP_TOOL_PRESET`. Tool names: `AGENTS.md`.                                                                                                                                                         |
 
 ### Tool registration and permissions
 
-Canonical rules (registration-time gating, boolean vs channel-allowlist gates, allowlist interaction): **`AGENTS.md` "Tool surface"**. Summary:
+Canonical rules: **`AGENTS.md` "Tool surface"**. Summary:
 
-- When `SLACK_MCP_ENABLED_TOOLS` is set, that allowlist alone decides registration.
-- When unset, gated tools register only if their dedicated env var is truthy (`true`/`1`/`yes` for boolean gates) or non-empty (`ADD_MESSAGE` / `REACTION` channel lists).
-- Channel-allowlist gates still apply channel restrictions in the handler when set; boolean gates have no channel list.
-- Usergroups read tools register by default; write tools need `SLACK_MCP_USERGROUPS_WRITE_TOOL` or an allowlist entry. Matching OAuth scopes (`usergroups:read` / `usergroups:write`) still required.
+- A tool registers iff its name is in `SLACK_MCP_ENABLED_TOOLS` (or, when that is unset, in the `SLACK_MCP_TOOL_PRESET` list; `daily-power` is the read-only default).
+- `SLACK_MCP_ADD_MESSAGE_TOOL`, `SLACK_MCP_REACTION_TOOL`, and `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` are channel allow/block lists checked per call; they do not enable or disable tools.
+- Usergroups write tools still need the `usergroups:write` OAuth scope.
 
 #### Examples
 
@@ -350,13 +344,12 @@ Expose only specific tools:
 
 #### Behavior matrix
 
-Channel-allowlist gates (`ADD_MESSAGE`, `REACTION`) only. Boolean gates: unset/`false` → off; only `true`/`1`/`yes` → on. Full table: `AGENTS.md`.
+Applies to `conversations_add_message` / `SLACK_MCP_ADD_MESSAGE_TOOL`; `reactions_*` and channel management follow the same shape with their own variable.
 
-| `ENABLED_TOOLS` | Tool-specific env var | Write tool registered? | Channel restrictions |
-|-----------------|----------------------|------------------------|---------------------|
-| empty/not set   | not set              | No                     | N/A                 |
-| empty/not set   | `true`               | Yes                    | None                |
-| empty/not set   | `C123,C456`          | Yes                    | Only listed channels |
-| includes tool   | not set              | Yes                    | None                |
-| includes tool   | `C123,C456`          | Yes                    | Only listed channels |
-| excludes tool   | any                  | No                     | N/A                 |
+| Tool in enabled list? | `SLACK_MCP_ADD_MESSAGE_TOOL` | Registered? | Channel restriction |
+|-----------------------|------------------------------|-------------|---------------------|
+| no                    | any                          | No          | N/A                 |
+| yes                   | unset or `true`              | Yes         | None                |
+| yes                   | `C123,C456`                  | Yes         | Only listed channels |
+| yes                   | `!C123`                      | Yes         | Every channel except C123 |
+| yes                   | `false`                      | Yes         | Every channel denied (startup warns) |

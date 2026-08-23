@@ -15,8 +15,6 @@ import (
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 )
 
-const slackListsAPIBase = "https://slack.com/api/"
-
 type ListsErrorKind string
 
 const (
@@ -307,9 +305,9 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 	}
 	base := c.APIBase
 	if base == "" {
-		base = slackListsAPIBase
+		base = slackAPIBase()
 	}
-	if base != slackListsAPIBase && !strings.HasPrefix(base, "http://127.0.0.1:") {
+	if base != slackAPIBase() && !strings.HasPrefix(base, "http://127.0.0.1:") {
 		return errors.New("Slack Lists API base must be Slack or loopback test server")
 	}
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, base+method, bytes.NewReader(encoded))

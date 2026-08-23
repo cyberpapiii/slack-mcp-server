@@ -6,17 +6,23 @@ import (
 	"golang.org/x/time/rate"
 )
 
-type tier struct {
-	t time.Duration
-	b int
+// Tier is a process-wide Slack rate-limit budget. Every caller of the same
+// tier shares one limiter, so concurrent tool calls split the burst instead of
+// each minting a fresh one.
+type Tier struct {
+	lim *rate.Limiter
 }
 
-func (t tier) Limiter() *rate.Limiter {
-	return rate.NewLimiter(rate.Every(t.t), t.b)
+func newTier(every time.Duration, burst int) Tier {
+	return Tier{lim: rate.NewLimiter(rate.Every(every), burst)}
+}
+
+func (t Tier) Limiter() *rate.Limiter {
+	return t.lim
 }
 
 var (
-	Tier2      = tier{t: 3 * time.Second, b: 3}
-	Tier2boost = tier{t: 300 * time.Millisecond, b: 5}
-	Tier3      = tier{t: 1200 * time.Millisecond, b: 4}
+	Tier2      = newTier(3*time.Second, 3)
+	Tier2boost = newTier(300*time.Millisecond, 5)
+	Tier3      = newTier(1200*time.Millisecond, 4)
 )

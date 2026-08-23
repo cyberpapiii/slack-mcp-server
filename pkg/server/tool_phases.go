@@ -25,7 +25,6 @@ var immediateOnlyToolNames = map[string]struct{}{
 	ToolUsergroupsCreate:        {},
 	ToolUsergroupsUpdate:        {},
 	ToolUsergroupsUsersUpdate:   {},
-	ToolUsergroupsMe:            {}, // join/leave mutate membership
 	ToolUsergroupsJoin:          {},
 	ToolUsergroupsLeave:         {},
 	ToolSavedUpdate:             {},

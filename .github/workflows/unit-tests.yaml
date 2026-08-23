@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - master
-  pull_request_target:
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,9 @@ jobs:
 
       - name: Download dependencies
         run: make deps
+
+      - name: Lint
+        run: make lint
 
       - name: Run unit tests
         run: make test

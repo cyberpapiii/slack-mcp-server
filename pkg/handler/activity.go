@@ -227,9 +227,6 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ActivityMarkReadHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_ACTIVITY_MARK_TOOL", "activity_mark_read") {
-		return nil, &ToolError{Code: "tool_disabled", Message: "activity_mark_read is disabled"}
-	}
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {

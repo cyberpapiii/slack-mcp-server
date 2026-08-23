@@ -66,7 +66,6 @@ func TestUnitScheduledListReturnsStableTypedFieldsAndExcerpt(t *testing.T) {
 }
 
 func TestUnitScheduledCancelPrepareExecuteRevalidatesAndConsumesApproval(t *testing.T) {
-	t.Setenv("SLACK_MCP_SCHEDULED_MESSAGE_TOOL", "true")
 	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
 	service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}, {Messages: []provider.ScheduledMessage{target}}}}
 	handler := newTestScheduledHandler(service)
@@ -92,7 +91,6 @@ func TestUnitScheduledCancelPrepareExecuteRevalidatesAndConsumesApproval(t *test
 }
 
 func TestUnitScheduledCancelRejectsStateDriftBeforeMutation(t *testing.T) {
-	t.Setenv("SLACK_MCP_SCHEDULED_MESSAGE_TOOL", "true")
 	before := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
 	after := before
 	after.Text = "changed"
@@ -109,7 +107,6 @@ func TestUnitScheduledCancelRejectsStateDriftBeforeMutation(t *testing.T) {
 }
 
 func TestUnitScheduledCancelReturnsRetryAfterAndOutcomeUnknown(t *testing.T) {
-	t.Setenv("SLACK_MCP_SCHEDULED_MESSAGE_TOOL", "true")
 	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
 	for _, test := range []struct {
 		name string
@@ -135,7 +132,6 @@ func TestUnitScheduledCancelReturnsRetryAfterAndOutcomeUnknown(t *testing.T) {
 }
 
 func TestUnitScheduledCancelMapsPermissionError(t *testing.T) {
-	t.Setenv("SLACK_MCP_SCHEDULED_MESSAGE_TOOL", "true")
 	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
 	service := &fakeScheduledService{
 		pages:     []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}, {Messages: []provider.ScheduledMessage{target}}},

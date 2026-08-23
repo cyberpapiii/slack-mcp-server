@@ -183,7 +183,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 			}
 		}
 
-		if resp.ResponseMetadata.NextCursor == "" || fetched >= limit {
+		if stopErr != nil || resp.ResponseMetadata.NextCursor == "" || fetched >= limit {
 			break
 		}
 		cursor = resp.ResponseMetadata.NextCursor
@@ -244,9 +244,6 @@ func parseSavedUpdateParams(request mcp.CallToolRequest) (itemID, ts, mark strin
 
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "SavedUpdateHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_SAVED_WRITE_TOOL", "saved_update") {
-		return nil, &ToolError{Code: "tool_disabled", Message: "saved_update is disabled"}
-	}
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {
@@ -286,9 +283,6 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "SavedClearCompletedHandler called", request)
-	if !requireToolEnabled("SLACK_MCP_SAVED_WRITE_TOOL", "saved_clear_completed") {
-		return nil, &ToolError{Code: "tool_disabled", Message: "saved_clear_completed is disabled"}
-	}
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		reason := h.apiProvider.BrowserDegradedReason()
 		if reason == "" {

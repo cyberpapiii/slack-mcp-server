@@ -33,9 +33,6 @@ type CanvasUpdateResult = ToolResult[CanvasMutationData]
 
 func (h *CanvasHandler) Create(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "CanvasCreate called", request)
-	if !requireToolEnabled("SLACK_MCP_CANVAS_WRITE_TOOL", "canvases_create") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "canvases_create is disabled"}), nil
-	}
 	var input provider.CanvasCreateRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return NewTypedErrorResult(err), nil
@@ -76,9 +73,6 @@ var canvasOperations = map[string]struct{}{
 
 func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "CanvasUpdate called", request)
-	if !requireToolEnabled("SLACK_MCP_CANVAS_WRITE_TOOL", "canvases_update") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "canvases_update is disabled"}), nil
-	}
 	var input provider.CanvasUpdateRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return NewTypedErrorResult(err), nil
@@ -159,9 +153,6 @@ func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*
 
 func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DraftsCreate called", request)
-	if !requireToolEnabled("SLACK_MCP_DRAFT_WRITE_TOOL", "drafts_create") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "drafts_create is disabled"}), nil
-	}
 	draft, err := decodeDraft(request, false)
 	if err != nil {
 		return NewTypedErrorResult(err), nil
@@ -176,9 +167,6 @@ func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 
 func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DraftsUpdate called", request)
-	if !requireToolEnabled("SLACK_MCP_DRAFT_WRITE_TOOL", "drafts_update") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "drafts_update is disabled"}), nil
-	}
 	draft, err := decodeDraft(request, true)
 	if err != nil {
 		return NewTypedErrorResult(err), nil
@@ -193,9 +181,6 @@ func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 
 func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DraftsDelete called", request)
-	if !requireToolEnabled("SLACK_MCP_DRAFT_WRITE_TOOL", "drafts_delete") {
-		return NewTypedErrorResult(&ToolError{Code: "tool_disabled", Message: "drafts_delete is disabled"}), nil
-	}
 	action := strings.TrimSpace(request.GetString("action", "prepare"))
 	id := strings.TrimSpace(request.GetString("draft_id", ""))
 	if id == "" || (action != "prepare" && action != "execute") {

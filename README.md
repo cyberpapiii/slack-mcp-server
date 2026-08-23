@@ -181,20 +181,7 @@ Update the members of a user group. This replaces all existing members.
 
 > **Required OAuth scopes:** `usergroups:write`
 
-### 14. usergroups_me:
-Manage your user group membership: list groups you're in, join a group, or leave a group.
-
-- **Parameters:**
-  - `action` (string, required): Action to perform - `list` to see your groups, `join` to add yourself, `leave` to remove yourself.
-  - `usergroup_id` (string, optional): ID of the user group (e.g., "S1234567890"). Required for `join` and `leave` actions.
-
-- **Returns:**
-  - For `list`: CSV with groups you're a member of
-  - For `join`/`leave`: JSON with result message and updated group info
-
-> **Required OAuth scopes:** `usergroups:read` (for list), `usergroups:read` + `usergroups:write` (for join/leave)
-
-### 15. conversations_unreads
+### 14. conversations_unreads
 Get unread messages across all channels. Uses a single API call to identify channels with unreads, then fetches only those messages. Results are prioritized: DMs > partner channels (Slack Connect) > internal channels.
 
 > **Note:** This tool requires browser session tokens (`xoxc`/`xoxd`) and uses Slack's `client.counts` state. It is not available with standard OAuth (`xoxp`) or bot (`xoxb`) tokens.
@@ -206,16 +193,16 @@ Get unread messages across all channels. Uses a single API call to identify chan
   - `max_messages_per_channel` (number, default: 10): Maximum messages to fetch per channel.
   - `mentions_only` (boolean, default: false): If true, only returns channels where you have @mentions.
 
-### 16. conversations_mark
+### 15. conversations_mark
 Mark a channel or DM as read.
 
-> **Note:** Marking messages as read is disabled by default for safety. To enable, set `SLACK_MCP_MARK_TOOL` to `true`, `1`, or `yes` (or list `conversations_mark` in `SLACK_MCP_ENABLED_TOOLS`). See Environment Variables / `AGENTS.md`.
+> **Note:** Marking messages as read is off in the default `daily-power` preset. Enable it by listing `conversations_mark` in `SLACK_MCP_ENABLED_TOOLS` or using the `legacy-full` preset. See Environment Variables / `AGENTS.md`.
 
 - **Parameters:**
   - `channel_id` (string, required): ID of the channel in format `Cxxxxxxxxxx` or its name starting with `#...` or `@...` (e.g., `#general`, `@username`).
   - `ts` (string, optional): Timestamp of the message to mark as read up to. If not provided, marks all messages as read.
 
-### 17. activity_unreads
+### 16. activity_unreads
 Get unread Activity items: thread replies you're following and @mentions in threads. Returns the same data as Slack's Activity panel "Unreads" tab. Zero false positives.
 
 > **Note:** This tool requires browser session tokens (`xoxc`/`xoxd`). It is not available with standard OAuth (`xoxp`) or bot (`xoxb`) tokens.
@@ -225,7 +212,7 @@ Get unread Activity items: thread replies you're following and @mentions in thre
   - `max_messages_per_thread` (number, default `10`): Max messages to fetch per thread when `include_messages` is true.
   - `limit` (number, default `30`): Max Activity items to return.
 
-### 18. activity_mark_read
+### 17. activity_mark_read
 Mark an Activity item as read. Use the `key`, `feed_ts`, and `type` values from `activity_unreads` output.
 
 > **Note:** This tool requires browser session tokens (`xoxc`/`xoxd`). It is not available with standard OAuth (`xoxp`) or bot (`xoxb`) tokens.
@@ -286,15 +273,11 @@ Fetches a CSV directory of all users in the workspace.
 | `SLACK_MCP_SERVER_CA`             | No        | `nil`                     | Path to CA certificate                                                                                                                                                                                                                                                                    |
 | `SLACK_MCP_SERVER_CA_TOOLKIT`     | No        | `nil`                     | Removed. Setting this fatals; use `SLACK_MCP_SERVER_CA` with a current PEM.                                                                                                                                                                                                               |
 | `SLACK_MCP_SERVER_CA_INSECURE`    | No        | `false`                   | Trust all insecure requests (NOT RECOMMENDED)                                                                                                                                                                                                                                             |
-| `SLACK_MCP_ADD_MESSAGE_TOOL`      | No        | `nil`                     | Channel-allowlist gate for `conversations_add_message` (any non-empty value enables when allowlist unset; `true`/`1` or comma-separated IDs; `!C…` negates). Full gate rules: `AGENTS.md`. |
-| `SLACK_MCP_ADD_MESSAGE_MARK`      | No        | `nil`                     | When `conversations_add_message` is enabled (via `SLACK_MCP_ADD_MESSAGE_TOOL` or `SLACK_MCP_ENABLED_TOOLS`), set to `true`, `1`, or `yes` to automatically mark sent messages as read.                                                                                                   |
+| `SLACK_MCP_ADD_MESSAGE_TOOL`      | No        | `nil`                     | Channel allow/block list for `conversations_add_message` and the `messages_*` tools: empty or `true` = every channel; `C1,C2` only those; `!C1` all except. Registration itself is decided by `SLACK_MCP_ENABLED_TOOLS` / the preset. Rules: `AGENTS.md`. |
+| `SLACK_MCP_ADD_MESSAGE_MARK`      | No        | `nil`                     | When `conversations_add_message` is enabled, set to `true`, `1`, or `yes` to automatically mark sent messages as read.                                                                                                                                                                    |
 | `SLACK_MCP_ADD_MESSAGE_UNFURLING` | No        | `nil`                     | Enable to let Slack unfurl posted links or set comma-separated list of domains e.g. `github.com,slack.com` to whitelist unfurling only for them. If text contains whitelisted and unknown domain unfurling will be disabled for security reasons.                                         |
-| `SLACK_MCP_REACTION_TOOL`        | No        | `nil`                     | Channel-allowlist gate for `reactions_add` / `reactions_remove` (same shape as `ADD_MESSAGE`).                                                                                                                                                                                            |
-| `SLACK_MCP_ATTACHMENT_TOOL`      | No        | `nil`                     | Boolean gate for `attachment_get_data`: only `true`, `1`, or `yes`.                                                                                                                                                                                                                       |
-| `SLACK_MCP_MARK_TOOL`             | No        | `nil`                     | Boolean gate for `conversations_mark`: only `true`, `1`, or `yes`.                                                                                                                                                                                                                        |
-| `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL` | No      | `nil`                     | Boolean gate for `conversations_join` / `conversations_leave`: only `true`, `1`, or `yes`.                                                                                                                                                                                                |
-| `SLACK_MCP_USERGROUPS_WRITE_TOOL` | No        | `nil`                     | Boolean gate for `usergroups_create` / `usergroups_update` / `usergroups_users_update`: only `true`, `1`, or `yes`.                                                                                                                                                                      |
-| `SLACK_MCP_FILES_LIST_TOOL`       | No        | `nil`                     | Boolean gate for `files_list` (registration only): only `true`, `1`, or `yes`.                                                                                                                                                                                                            |
+| `SLACK_MCP_REACTION_TOOL`        | No        | `nil`                     | Channel allow/block list for `reactions_add` / `reactions_remove` (same shape as `ADD_MESSAGE`).                                                                                                                                                                                           |
+| `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | No      | `nil`                     | Channel allow/block list for channel rename/topic/purpose/archive (same shape as `ADD_MESSAGE`).                                                                                                                                                                                          |
 | `SLACK_MCP_ALLOW_UNAUTHENTICATED` | No        | `nil`                     | `sse`/`http` only: must be exactly `true` to start without `SLACK_MCP_API_KEY` (`1`/`yes` rejected). Loopback/dev only.                                                                                                                                                                   |
 | `SLACK_MCP_USERS_CACHE`           | No        | `~/Library/Caches/slack-mcp-server/users_cache.json` (macOS)<br>`~/.cache/slack-mcp-server/users_cache.json` (Linux)<br>`%LocalAppData%/slack-mcp-server/users_cache.json` (Windows) | Path to the users cache file. Used to cache Slack user information to avoid repeated API calls on startup. |
 | `SLACK_MCP_CHANNELS_CACHE`        | No        | `~/Library/Caches/slack-mcp-server/channels_cache_v2.json` (macOS)<br>`~/.cache/slack-mcp-server/channels_cache_v2.json` (Linux)<br>`%LocalAppData%/slack-mcp-server/channels_cache_v2.json` (Windows) | Path to the channels cache file. Used to cache Slack channel information to avoid repeated API calls on startup. |

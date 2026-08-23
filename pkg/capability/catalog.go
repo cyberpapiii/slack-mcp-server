@@ -105,7 +105,6 @@ var catalog = []Entry{
 	legacy("file.list", "files_list", "slack_search_public_and_private", "file_page", ConfirmationNone, "files:read"),
 	legacy("user.search", "users_search", "slack_search_users", "user_page", ConfirmationNone, "users:read"),
 	local("usergroup.list", "usergroups_list", "usergroup_page", ConfirmationNone, AuthOAuth, MigrationActive, "usergroups:read"),
-	local("usergroup.mine.manage", "usergroups_me", "usergroup_membership", ConfirmationChange, AuthOAuth, MigrationLegacy, "usergroups:read", "usergroups:write"),
 	local("usergroup.mine.list", "usergroups_mine", "usergroup_page", ConfirmationNone, AuthOAuth, MigrationActive, "usergroups:read"),
 	local("usergroup.mine.join", "usergroups_join", "usergroup_membership", ConfirmationChange, AuthOAuth, MigrationActive, "usergroups:read", "usergroups:write"),
 	local("usergroup.mine.leave", "usergroups_leave", "usergroup_membership", ConfirmationChange, AuthOAuth, MigrationActive, "usergroups:read", "usergroups:write"),

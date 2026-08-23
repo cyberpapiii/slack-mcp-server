@@ -55,6 +55,9 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 		ch.logger.Error("Slack GetFileContext failed", zap.Error(err))
 		return nil, err
 	}
+	if buf.Len() > maxFileSizeBytes {
+		return nil, fmt.Errorf("downloaded %d bytes, exceeds maximum allowed size of %d bytes", buf.Len(), maxFileSizeBytes)
+	}
 
 	content := buf.Bytes()
 
@@ -242,14 +245,6 @@ func isTextMimetype(mimetype string) bool {
 // ConversationsHistoryHandler streams conversation history as CSV
 
 func (ch *ConversationsHandler) parseParamsToolFilesGet(request mcp.CallToolRequest) (*filesGetParams, error) {
-	if !requireToolEnabled("SLACK_MCP_ATTACHMENT_TOOL", "attachment_get_data") {
-		ch.logger.Error("Attachment tool disabled by default")
-		return nil, errors.New(
-			"by default, the attachment_get_data tool is disabled. " +
-				"To enable it, set the SLACK_MCP_ATTACHMENT_TOOL environment variable to true or 1, " +
-				"or add 'attachment_get_data' to SLACK_MCP_ENABLED_TOOLS",
-		)
-	}
 
 	fileID := request.GetString("file_id", "")
 	if fileID == "" {

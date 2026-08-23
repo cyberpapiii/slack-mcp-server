@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -49,21 +50,21 @@ func main() {
 	}
 	defer logger.Sync()
 
-	addMessageToolEnv := os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")
-	err = validateToolConfig(addMessageToolEnv)
-	if err != nil {
-		logger.Fatal("error in SLACK_MCP_ADD_MESSAGE_TOOL",
-			zap.String("context", "console"),
-			zap.Error(err),
-		)
+	for _, name := range channelAllowlistVars {
+		value := os.Getenv(name)
+		if err = validateToolConfig(value); err != nil {
+			logger.Fatal("error in "+name,
+				zap.String("context", "console"),
+				zap.Error(err),
+			)
+		}
+		if isFalsy(value) {
+			logger.Warn(name+"="+value+" is treated as a channel allowlist and blocks every channel; unset it, or drop the tool from SLACK_MCP_ENABLED_TOOLS to disable it",
+				zap.String("context", "console"),
+			)
+		}
 	}
-	reactionToolEnv := os.Getenv("SLACK_MCP_REACTION_TOOL")
-	if err = validateToolConfig(reactionToolEnv); err != nil {
-		logger.Fatal("error in SLACK_MCP_REACTION_TOOL",
-			zap.String("context", "console"),
-			zap.Error(err),
-		)
-	}
+	warnRemovedGateVars(logger)
 
 	err = server.ValidateEnabledTools(enabledTools)
 	if err != nil {
@@ -201,6 +202,41 @@ func resolveEnabledTools(explicit, preset string) ([]string, error) {
 // Handlers recheck mutation gates at call time. Keep that defensive check on
 // the same resolved policy used for registration, including CLI presets and
 // --enabled-tools overrides that did not originate in the environment.
+// channelAllowlistVars are the only SLACK_MCP_*_TOOL variables still read.
+// Each holds a channel allow/block list for one write tool; whether a tool is
+// registered at all is decided solely by SLACK_MCP_ENABLED_TOOLS / the preset.
+var channelAllowlistVars = []string{
+	"SLACK_MCP_ADD_MESSAGE_TOOL",
+	"SLACK_MCP_REACTION_TOOL",
+	"SLACK_MCP_CHANNEL_MANAGEMENT_TOOL",
+}
+
+func isFalsy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "0", "false", "no", "off":
+		return true
+	}
+	return false
+}
+
+// warnRemovedGateVars flags SLACK_MCP_*_TOOL variables left over from the
+// per-tool boolean gates, which are ignored now that the enabled-tools list is
+// the single switch.
+func warnRemovedGateVars(logger *zap.Logger) {
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if !strings.HasPrefix(name, "SLACK_MCP_") || !strings.HasSuffix(name, "_TOOL") {
+			continue
+		}
+		if slices.Contains(channelAllowlistVars, name) {
+			continue
+		}
+		logger.Warn(name+" is ignored; tools are enabled only via SLACK_MCP_ENABLED_TOOLS or SLACK_MCP_TOOL_PRESET",
+			zap.String("context", "console"),
+		)
+	}
+}
+
 func applyResolvedToolPolicy(enabledTools []string) error {
 	return os.Setenv("SLACK_MCP_ENABLED_TOOLS", strings.Join(enabledTools, ","))
 }

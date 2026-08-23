@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -107,8 +106,8 @@ func withOAuthFileLock(path string) func(context.Context, func() error) error {
 		defer file.Close()
 
 		for {
-			if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
-				defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+			if err := tryLockFile(file); err == nil {
+				defer unlockFile(file)
 				return fn()
 			}
 			select {

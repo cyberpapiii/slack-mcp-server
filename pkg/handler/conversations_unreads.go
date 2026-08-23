@@ -424,15 +424,6 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ConversationsLeaveHandler called", request)
 
-	if !requireToolEnabled("SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL", "conversations_leave") {
-		ch.logger.Error("Channel membership tool disabled by default")
-		return nil, errors.New(
-			"by default, the conversations_leave tool is disabled to guard Slack workspaces against accidental channel membership changes. " +
-				"To enable it, set the SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL environment variable to true or 1, " +
-				"or add 'conversations_leave' to SLACK_MCP_ENABLED_TOOLS",
-		)
-	}
-
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
 		return nil, fmt.Errorf("channel_id is required")
@@ -460,15 +451,6 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 
 func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(ch.logger, "ConversationsJoinHandler called", request)
-
-	if !requireToolEnabled("SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL", "conversations_join") {
-		ch.logger.Error("Channel membership tool disabled by default")
-		return nil, errors.New(
-			"by default, the conversations_join tool is disabled to guard Slack workspaces against accidental channel membership changes. " +
-				"To enable it, set the SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL environment variable to true or 1, " +
-				"or add 'conversations_join' to SLACK_MCP_ENABLED_TOOLS",
-		)
-	}
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
@@ -597,17 +579,10 @@ func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, re
 		return nil, err
 	}
 
-	// Try to force cache refresh in background since we have a new channel
-	go func() {
-		_ = ch.apiProvider.ForceRefreshChannels(context.Background())
-	}()
+	ch.apiProvider.UpsertChannel(channel)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully opened conversation. Channel ID: %s", channel.Conversation.ID)), nil
 }
-
-// isToolInEnabledList checks for an exact tool name match in a comma-separated list.
-// Unlike strings.Contains, this avoids false positives from partial matches
-// in comma-separated lists (e.g., matching "foo" inside "foobar,baz").
 
 func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolRequest) (*unreadsParams, error) {
 	// GetInt only substitutes its default for an absent key, so a caller-supplied
@@ -642,14 +617,6 @@ func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolReque
 }
 
 func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest) (*markParams, error) {
-	if !requireToolEnabled("SLACK_MCP_MARK_TOOL", "conversations_mark") {
-		ch.logger.Error("Mark tool disabled by default")
-		return nil, errors.New(
-			"by default, the conversations_mark tool is disabled to prevent accidental marking of messages as read. " +
-				"To enable it, set the SLACK_MCP_MARK_TOOL environment variable to true or 1, " +
-				"or add 'conversations_mark' to SLACK_MCP_ENABLED_TOOLS",
-		)
-	}
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {

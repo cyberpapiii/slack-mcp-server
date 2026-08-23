@@ -25,7 +25,6 @@ func TestToolPhaseRegistry_WriteToolsAreImmediateOnly(t *testing.T) {
 		ToolUsergroupsCreate,
 		ToolUsergroupsUpdate,
 		ToolUsergroupsUsersUpdate,
-		ToolUsergroupsMe,
 		ToolSavedUpdate,
 		ToolSavedClearCompleted,
 		ToolFilesUpload,

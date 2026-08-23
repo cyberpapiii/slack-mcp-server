@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
@@ -51,7 +51,6 @@ const (
 	ToolChannelsStarred             = "channels_starred"
 	ToolChannelsMe                  = "channels_me"
 	ToolUsergroupsList              = "usergroups_list"
-	ToolUsergroupsMe                = "usergroups_me"
 	ToolUsergroupsMine              = "usergroups_mine"
 	ToolUsergroupsJoin              = "usergroups_join"
 	ToolUsergroupsLeave             = "usergroups_leave"
@@ -138,66 +137,30 @@ func ValidateEnabledTools(tools []string) error {
 	return nil
 }
 
-// channelListGates are gate variables whose value is a channel allowlist, not
-// a boolean, e.g. "C1234567890,D0987654321" or "!C1234567890". For these, any
-// non-empty value means "enabled", because the value IS the configuration.
-// Every other gate variable is a boolean and goes through envutil.IsTruthy.
-var channelListGates = map[string]bool{
-	"SLACK_MCP_ADD_MESSAGE_TOOL":        true,
-	"SLACK_MCP_REACTION_TOOL":           true,
-	"SLACK_MCP_CHANNEL_MANAGEMENT_TOOL": true,
-}
-
-func shouldAddTool(name string, enabledTools []string, envVarName string) bool {
-	if envVarName == "" {
-		if len(enabledTools) == 0 {
-			return true
-		}
-		return slices.Contains(enabledTools, name)
-	}
-
-	if len(enabledTools) > 0 && slices.Contains(enabledTools, name) {
-		return true
-	}
-
-	if len(enabledTools) == 0 {
-		value := os.Getenv(envVarName)
-		if channelListGates[envVarName] {
-			return value != ""
-		}
-		return envutil.IsTruthy(value)
-	}
-
-	return false
-}
-
-func addEnabledTool(s *server.MCPServer, enabledTools []string, name, gate string, tool mcp.Tool, fn server.ToolHandlerFunc) {
-	if shouldAddTool(name, enabledTools, gate) {
+// Tools exist iff SLACK_MCP_ENABLED_TOOLS (or the preset that fills it) names
+// them. Naming a write tool is the consent; SLACK_MCP_ADD_MESSAGE_TOOL,
+// SLACK_MCP_REACTION_TOOL and SLACK_MCP_CHANNEL_MANAGEMENT_TOOL only narrow
+// those tools to channel allowlists inside the handlers.
+func addEnabledTool(s *server.MCPServer, enabledTools []string, tool mcp.Tool, fn server.ToolHandlerFunc) {
+	if slices.Contains(enabledTools, tool.Name) {
 		s.AddTool(tool, fn)
 	}
 }
 
-func addCacheDependentTool(ms *MCPServer, enabledTools []string, name, gate string, tool mcp.Tool, fn server.ToolHandlerFunc) {
-	if shouldAddTool(name, enabledTools, gate) {
-		guardCacheDependentRegistration(name)
+func addCacheDependentTool(ms *MCPServer, enabledTools []string, tool mcp.Tool, fn server.ToolHandlerFunc) {
+	if slices.Contains(enabledTools, tool.Name) {
+		guardCacheDependentRegistration(tool.Name)
 		ms.server.AddTool(tool, fn)
 	}
 }
 
 func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledTools []string) *MCPServer {
-	s := server.NewMCPServer(
-		"Slack MCP Server",
-		version.Version,
+	opts := append([]server.ServerOption{
 		server.WithLogging(),
-		server.WithRecovery(),
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, true),
-		// mcp-go applies middlewares in reverse registration order; register
-		// auth first so it stays outermost and API-key failures stay protocol errors.
-		server.WithToolHandlerMiddleware(auth.BuildMiddleware(provider.ServerTransport(), logger)),
-		server.WithToolHandlerMiddleware(buildLoggerMiddleware(logger)),
-		server.WithToolHandlerMiddleware(buildErrorRecoveryMiddleware(logger)),
-	)
+	}, toolHandlerOptions(provider.ServerTransport(), logger)...)
+	s := server.NewMCPServer("Slack MCP Server", version.Version, opts...)
 
 	registerCoreTools(s, provider, logger, enabledTools)
 
@@ -256,7 +219,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	conversationsHandler := handler.NewConversationsHandler(provider, logger)
 	channelsHandler := handler.NewChannelsHandler(provider, logger)
 
-	addCacheDependentTool(s, enabledTools, ToolChannelsList, "", mcp.NewTool(ToolChannelsList,
+	addCacheDependentTool(s, enabledTools, mcp.NewTool(ToolChannelsList,
 		mcp.WithDescription("List channels in the workspace, filtered by channel_types. Returns CSV; the cursor value in the last row paginates."),
 		mcp.WithTitleAnnotation("List Channels"),
 		mcp.WithReadOnlyHintAnnotation(true),
@@ -283,7 +246,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 		),
 	), channelsHandler.ChannelsHandler)
 
-	addCacheDependentTool(s, enabledTools, ToolChannelsMe, "", mcp.NewTool(ToolChannelsMe,
+	addCacheDependentTool(s, enabledTools, mcp.NewTool(ToolChannelsMe,
 		mcp.WithDescription("List only the channels you have joined, unlike channels_list which returns all workspace channels. Useful on large workspaces where channels_list returns thousands of results."),
 		mcp.WithTitleAnnotation("My Channels"),
 		mcp.WithReadOnlyHintAnnotation(true),
@@ -300,7 +263,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	), channelsHandler.ChannelsMeHandler)
 
 	if !provider.IsBotToken() {
-		addCacheDependentTool(s, enabledTools, ToolChannelsStarred, "", mcp.NewTool(ToolChannelsStarred,
+		addCacheDependentTool(s, enabledTools, mcp.NewTool(ToolChannelsStarred,
 			mcp.WithDescription("List channels and DMs the user has starred (bookmarked). Returns only that subset, not the full channel list."),
 			mcp.WithTitleAnnotation("List Starred Channels"),
 			mcp.WithReadOnlyHintAnnotation(true),
@@ -316,7 +279,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 	}
 
 	if browserSession {
-		addCacheDependentTool(s, enabledTools, ToolConversationsUnreads, "", newDailyPowerTool(ToolConversationsUnreads,
+		addCacheDependentTool(s, enabledTools, newDailyPowerTool(ToolConversationsUnreads,
 			mcp.WithDescription("Get unread messages across all channels using Slack browser session state (xoxc/xoxd). Requires a healthy browser session. Results are prioritized: DMs, then group DMs, then partner channels, then internal channels."),
 			mcp.WithBoolean("include_messages",
 				mcp.Description("If true (default), returns the actual unread messages. If false, returns only a summary of channels with unreads."),
@@ -349,8 +312,8 @@ func (s *MCPServer) registerCacheDependentTools() {
 		), conversationsHandler.ConversationsUnreadsHandler)
 	}
 
-	addActivityUnreads := browserSession && shouldAddTool(ToolActivityUnreads, enabledTools, "")
-	addActivityMarkRead := browserSession && shouldAddTool(ToolActivityMarkRead, enabledTools, "SLACK_MCP_ACTIVITY_MARK_TOOL")
+	addActivityUnreads := browserSession && slices.Contains(enabledTools, ToolActivityUnreads)
+	addActivityMarkRead := browserSession && slices.Contains(enabledTools, ToolActivityMarkRead)
 	if addActivityUnreads || addActivityMarkRead {
 		activityHandler := handler.NewActivityHandler(provider, logger, conversationsHandler)
 		if addActivityUnreads {
@@ -468,12 +431,34 @@ func (s *MCPServer) ServeStdio() error {
 // buildErrorRecoveryMiddleware converts tool handler errors into MCP tool results
 // with isError=true, allowing LLMs to see the error and retry with different parameters.
 // Without this, errors become JSON-RPC -32603 protocol errors that crash MCP clients.
+// toolHandlerOptions is the middleware stack every tool call runs through.
+// mcp-go wraps middlewares in reverse registration order. Auth stays outermost
+// so API-key failures remain protocol errors; WithRecovery sits innermost so a
+// panic becomes an error that errorRecovery turns into an isError tool result
+// instead of a JSON-RPC -32603.
+func toolHandlerOptions(transport string, logger *zap.Logger) []server.ServerOption {
+	return []server.ServerOption{
+		server.WithToolHandlerMiddleware(auth.BuildMiddleware(transport, logger)),
+		server.WithToolHandlerMiddleware(buildLoggerMiddleware(logger)),
+		server.WithToolHandlerMiddleware(buildErrorRecoveryMiddleware(logger)),
+		server.WithRecovery(),
+	}
+}
+
 func buildErrorRecoveryMiddleware(logger *zap.Logger) server.ToolHandlerMiddleware {
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			res, err := next(ctx, req)
 			if err != nil {
-				logger.Warn("Tool call returned error, converting to isError tool result",
+				// A *handler.ToolError is an expected, typed outcome (bad
+				// arguments, permission, rate limit); everything else is
+				// a defect worth a warning.
+				var typed *handler.ToolError
+				level := logger.Warn
+				if errors.As(err, &typed) {
+					level = logger.Debug
+				}
+				level("Tool call returned error, converting to isError tool result",
 					zap.String("tool", req.Params.Name),
 					zap.Error(err),
 				)

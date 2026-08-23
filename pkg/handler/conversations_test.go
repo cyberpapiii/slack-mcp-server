@@ -673,18 +673,6 @@ func TestUnitCheckSendStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("available when add_message enabled via env var", func(t *testing.T) {
-		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "true")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "")
-		defer cleanup1()
-		defer cleanup2()
-
-		got := checkSendStatus("C123")
-		if got != "available" {
-			t.Errorf("expected 'available', got %q", got)
-		}
-	})
-
 	t.Run("available when add_message in enabled tools list", func(t *testing.T) {
 		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
 		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_add_message,channels_list")
@@ -699,7 +687,7 @@ func TestUnitCheckSendStatus(t *testing.T) {
 
 	t.Run("not available when channel not in allowlist", func(t *testing.T) {
 		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "C456,C789")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "")
+		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_add_message")
 		defer cleanup1()
 		defer cleanup2()
 
@@ -711,7 +699,7 @@ func TestUnitCheckSendStatus(t *testing.T) {
 
 	t.Run("available when channel in allowlist", func(t *testing.T) {
 		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "C123,C456")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "")
+		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_add_message")
 		defer cleanup1()
 		defer cleanup2()
 
@@ -723,7 +711,7 @@ func TestUnitCheckSendStatus(t *testing.T) {
 
 	t.Run("not available when channel in blocklist", func(t *testing.T) {
 		cleanup1 := setEnv("SLACK_MCP_ADD_MESSAGE_TOOL", "!C123")
-		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "")
+		cleanup2 := setEnv("SLACK_MCP_ENABLED_TOOLS", "conversations_add_message")
 		defer cleanup1()
 		defer cleanup2()
 
@@ -1098,46 +1086,6 @@ func TestUnitIsToolInEnabledList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := isToolInEnabledList(tt.enabledTools, tt.toolName)
 			assert.Equal(t, tt.want, got, "isToolInEnabledList(%q, %q)", tt.enabledTools, tt.toolName)
-		})
-	}
-}
-
-// Env truthy (true/1/yes) or exact SLACK_MCP_ENABLED_TOOLS entry.
-func TestUnitRequireToolEnabled(t *testing.T) {
-	const envVar = "SLACK_MCP_TEST_REQUIRE_TOOL_ENABLED"
-	const toolName = "conversations_leave"
-
-	tests := []struct {
-		name         string
-		envValue     string
-		enabledTools string
-		want         bool
-	}{
-		{"neither env var nor allowlist set - disabled", "", "", false},
-		{"env var true - enabled", "true", "", true},
-		{"env var 1 - enabled", "1", "", true},
-		{"env var yes - enabled", "yes", "", true},
-		{"env var TRUE - case insensitive, enabled", "TRUE", "", true},
-		{"env var padded true - whitespace tolerant, enabled", "  true  ", "", true},
-		{"env var false - disabled", "false", "", false},
-		{"env var 0 - disabled", "0", "", false},
-		{"env var no - disabled", "no", "", false},
-		{"env var off - disabled", "off", "", false},
-		{"env var empty - disabled", "", "", false},
-		{"env var maybe - disabled", "maybe", "", false},
-		{"tool named in allowlist - enabled without env var", "", "channels_list," + toolName, true},
-		{"allowlist wins over env var false", "false", "channels_list," + toolName, true},
-		{"allowlist has substring-colliding name only - still disabled", "", toolName + "_extra", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(envVar, tt.envValue)
-			t.Setenv("SLACK_MCP_ENABLED_TOOLS", tt.enabledTools)
-
-			assert.Equal(t, tt.want, requireToolEnabled(envVar, toolName),
-				"requireToolEnabled with %s=%q, SLACK_MCP_ENABLED_TOOLS=%q",
-				envVar, tt.envValue, tt.enabledTools)
 		})
 	}
 }

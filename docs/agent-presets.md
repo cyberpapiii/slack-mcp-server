@@ -45,20 +45,18 @@ User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files,Cursor
   detail: full]`. Attachments have no ID-addressable fetch path, so the
   `detail: full` re-fetch is the lossless recovery route.
 
-Side-effecting tools still need registration opt-in. Canonical gate table (boolean vs channel-allowlist, `true`/`1`/`yes`, allowlist interaction): `AGENTS.md` "Tool surface". Common local trio:
+Which tools register is decided only by `SLACK_MCP_ENABLED_TOOLS` (or the `SLACK_MCP_TOOL_PRESET` fallback). Three write tools also honor a per-call channel allow/block list (`AGENTS.md` "Tool surface"):
 
-- `SLACK_MCP_ADD_MESSAGE_TOOL`: posting
+- `SLACK_MCP_ADD_MESSAGE_TOOL`: posting and message lifecycle
 - `SLACK_MCP_REACTION_TOOL`: reactions
-- `SLACK_MCP_ATTACHMENT_TOOL`: file download
-
-Also gated: `SLACK_MCP_MARK_TOOL`, `SLACK_MCP_CHANNEL_MEMBERSHIP_TOOL`, `SLACK_MCP_USERGROUPS_WRITE_TOOL`, `SLACK_MCP_FILES_LIST_TOOL`, `SLACK_MCP_SCHEDULED_MESSAGE_TOOL`, `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL`, `SLACK_MCP_LISTS_WRITE_TOOL`, `SLACK_MCP_DND_TOOL`, `SLACK_MCP_ACTIVITY_MARK_TOOL`, `SLACK_MCP_SAVED_WRITE_TOOL`, `SLACK_MCP_FILE_UPLOAD_TOOL`, `SLACK_MCP_PROFILE_WRITE_TOOL`, `SLACK_MCP_CANVAS_WRITE_TOOL`, and `SLACK_MCP_DRAFT_WRITE_TOOL`. When `SLACK_MCP_ENABLED_TOOLS` is set, naming a gated tool in that list registers it without its dedicated env var.
+- `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL`: rename/topic/purpose/archive
 
 ## Preset: read-only triage
 
 Best for inbox review, search, and channel discovery without posting.
 
 ```toml
-SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_get_message,conversations_search_messages,conversations_mark,channels_list,channels_me,channels_starred,conversations_unreads,reactions_get,users_search,files_list,usergroups_list,usergroups_me,activity_unreads,saved_list"
+SLACK_MCP_ENABLED_TOOLS = "slack_auth_status,conversations_history,conversations_replies,conversations_get_message,conversations_search_messages,conversations_mark,channels_list,channels_me,channels_starred,conversations_unreads,reactions_get,users_search,files_list,usergroups_list,activity_unreads,saved_list"
 ```
 
 ## Preset: daily power (default)
@@ -85,9 +83,6 @@ Power-user preset with all 69 tools implemented by this custom server. It does
 not use Slack's official MCP.
 
 ```toml
-SLACK_MCP_ADD_MESSAGE_TOOL = "true"
-SLACK_MCP_REACTION_TOOL = "true"
-SLACK_MCP_ATTACHMENT_TOOL = "true"
 SLACK_MCP_TOOL_PRESET = "legacy-full"
 ```
 

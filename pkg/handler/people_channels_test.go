@@ -79,7 +79,6 @@ func TestPeopleHandlerProfileReadDefaultsToActor(t *testing.T) {
 }
 
 func TestPeopleHandlerProfileUpdateSupportsExplicitClears(t *testing.T) {
-	t.Setenv(profileWriteGate, "true")
 	service := &fakePeopleChannelsService{profile: provider.UserProfile{UserID: "U1"}}
 	result, err := newPeopleHandler(service).SetUserProfile(context.Background(), peopleRequest(map[string]any{
 		"display_name": "", "custom_fields": map[string]any{"X1": map[string]any{"value": "blue"}},
@@ -93,7 +92,6 @@ func TestPeopleHandlerProfileUpdateSupportsExplicitClears(t *testing.T) {
 }
 
 func TestPeopleHandlerRejectsEmptyProfileMutation(t *testing.T) {
-	t.Setenv(profileWriteGate, "true")
 	service := &fakePeopleChannelsService{}
 	result, err := newPeopleHandler(service).SetUserProfile(context.Background(), peopleRequest(map[string]any{}))
 	require.NoError(t, err)
@@ -104,7 +102,6 @@ func TestPeopleHandlerRejectsEmptyProfileMutation(t *testing.T) {
 }
 
 func TestPeopleHandlerStatusNormalizesEmojiAndDoesNotRetry(t *testing.T) {
-	t.Setenv(profileWriteGate, "true")
 	service := &fakePeopleChannelsService{err: context.DeadlineExceeded}
 	result, err := newPeopleHandler(service).SetUserStatus(context.Background(), peopleRequest(map[string]any{
 		"status_text": "Heads down", "status_emoji": "focus", "status_expiration": 123,
@@ -118,7 +115,6 @@ func TestPeopleHandlerStatusNormalizesEmojiAndDoesNotRetry(t *testing.T) {
 }
 
 func TestPeopleHandlerStatusRejectsHalfWrappedEmoji(t *testing.T) {
-	t.Setenv(profileWriteGate, "true")
 	service := &fakePeopleChannelsService{}
 	result, err := newPeopleHandler(service).SetUserStatus(context.Background(), peopleRequest(map[string]any{
 		"status_text": "Heads down", "status_emoji": "focus:",
@@ -147,8 +143,6 @@ func TestPeopleHandlerEmojiAndMembersExposeNextCursor(t *testing.T) {
 }
 
 func TestPeopleHandlerCreateAndInviteValidateBeforeOneMutation(t *testing.T) {
-	t.Setenv(channelCreateGate, "true")
-	t.Setenv(channelInviteGate, "true")
 	service := &fakePeopleChannelsService{channel: provider.ChannelState{ChannelID: "C1", Name: "new-room"}}
 	handler := newPeopleHandler(service)
 
@@ -169,18 +163,4 @@ func TestPeopleHandlerCreateAndInviteValidateBeforeOneMutation(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, bad.IsError)
 	assert.Equal(t, 1, service.createCalls)
-}
-
-func TestPeopleHandlerWriteGatesFailClosed(t *testing.T) {
-	service := &fakePeopleChannelsService{}
-	handler := newPeopleHandler(service)
-
-	profile, _ := handler.SetUserProfile(context.Background(), peopleRequest(map[string]any{"title": "Editor"}))
-	created, _ := handler.CreateChannel(context.Background(), peopleRequest(map[string]any{"name": "room"}))
-	invited, _ := handler.InviteChannelMembers(context.Background(), peopleRequest(map[string]any{"channel_id": "C1", "user_ids": []string{"U2"}}))
-
-	assert.True(t, profile.IsError)
-	assert.True(t, created.IsError)
-	assert.True(t, invited.IsError)
-	assert.Zero(t, service.updateCalls+service.createCalls+service.inviteCalls)
 }

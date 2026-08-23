@@ -99,7 +99,6 @@ func TestUnitActivityChannelLabel(t *testing.T) {
 }
 
 func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
-	t.Setenv("SLACK_MCP_ACTIVITY_MARK_TOOL", "true")
 	h := NewActivityHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
 	ctx := context.Background()
 
