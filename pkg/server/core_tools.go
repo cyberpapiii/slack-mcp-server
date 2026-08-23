@@ -105,7 +105,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 	), conversationsHandler.ConversationsGetMessageHandler)
 
 	addEnabledTool(s, enabledTools, newTool(ToolConversationsAddMessage,
-		mcp.WithDescription("Post a message to a channel or DM by channel_id. Pass thread_ts to reply in a thread."),
+		mcp.WithDescription("Post a text-only message to a channel or DM by channel_id. Pass thread_ts to reply in a thread. This tool cannot attach files; to post a message with a file, use files_upload with channel_id and initial_comment instead."),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),
@@ -126,7 +126,7 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 	), conversationsHandler.ConversationsAddMessageHandler)
 
 	addEnabledTool(s, enabledTools, newTool(ToolConversationsDraftMessage,
-		mcp.WithDescription("Preview how a message would render and whether it could be sent; nothing is saved or sent. Send it with conversations_add_message; to save a Slack draft use drafts_create."),
+		mcp.WithDescription("Preview how a message would render and whether it could be sent; nothing is saved or sent. Send it with conversations_add_message, or with files_upload if it needs a file attached; to save a Slack draft use drafts_create."),
 		mcp.WithString("channel_id",
 			mcp.Required(),
 			mcp.Description(descChannelID),

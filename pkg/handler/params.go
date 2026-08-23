@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -12,6 +13,36 @@ import (
 
 func invalidArguments(message string) *ToolError {
 	return &ToolError{Code: "invalid_arguments", Message: message}
+}
+
+// fileParamHints are the substrings that show up in a parameter name an agent
+// invented while trying to attach something. Matching substrings rather than an
+// exact list keeps the signpost working for names nobody predicted.
+var fileParamHints = []string{"file", "attach", "upload", "image", "photo", "screenshot", "media", "document"}
+
+// signpostFileParam builds the error for a caller that passed a file-shaped
+// parameter to a tool that cannot attach one. Naming files_upload matters more
+// than rejecting the call. A client that loads tool schemas on demand holds no
+// list to consult, so this error text is the only place it can learn that the
+// capability exists at all; without it the caller concludes Slack cannot attach
+// files and reaches for something outside the server entirely.
+func signpostFileParam(request mcp.CallToolRequest, known ...string) *ToolError {
+	for key := range request.GetArguments() {
+		if slices.Contains(known, key) {
+			continue
+		}
+		lower := strings.ToLower(key)
+		for _, hint := range fileParamHints {
+			if !strings.Contains(lower, hint) {
+				continue
+			}
+			return invalidArguments(fmt.Sprintf(
+				"%q is not a parameter of this tool, and this tool cannot attach files. To post a message with a file, call files_upload with channel_id and initial_comment: it uploads the file and posts the message together in one call.",
+				key,
+			))
+		}
+	}
+	return nil
 }
 
 // decodeArguments parses the request arguments into output, rejecting unknown
