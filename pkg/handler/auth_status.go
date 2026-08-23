@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -66,12 +64,7 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 		Summary:                  buildAuthSummary(usersReady, channelsReady, browserOK, degradedReason),
 	}
 
-	raw, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("marshal auth status: %w", err)
-	}
-
-	return NewStructuredResult(payload, SystemResultMeta(), string(raw)), nil
+	return NewStructuredResult(payload, SystemResultMeta(), fallbackJSON(payload)), nil
 }
 
 func capabilityAvailability(standardOAuth, botToken, browserOK bool, degradedReason string) map[string]string {

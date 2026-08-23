@@ -406,3 +406,14 @@ func TestErrorRecoveryMiddleware(t *testing.T) {
 func TestUnitGetMessageToolNameRegistered(t *testing.T) {
 	assert.Contains(t, ValidToolNames, "conversations_get_message")
 }
+
+func TestNormalizeAnnotationsMakesReadsNonDestructive(t *testing.T) {
+	readTool := mcp.NewTool("r", mcp.WithReadOnlyHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true))
+	got := normalizeAnnotations(readTool)
+	assert.False(t, *got.Annotations.DestructiveHint)
+	assert.True(t, *got.Annotations.IdempotentHint)
+
+	writeTool := mcp.NewTool("w", mcp.WithDestructiveHintAnnotation(true))
+	got = normalizeAnnotations(writeTool)
+	assert.True(t, *got.Annotations.DestructiveHint)
+}

@@ -16,18 +16,18 @@ func registerCustomPowerTools(s *mcpserver.MCPServer, api *provider.ApiProvider,
 			addEnabledTool(s, enabled, newDailyPowerTool(name, append([]mcp.ToolOption{mcp.WithDescription(description)}, options...)...), fn)
 		}
 		add(ToolFilesUpload, "Upload a file to Slack using Slack's supported external-upload flow.", []mcp.ToolOption{
-			mcp.WithString("filename", mcp.Required()), mcp.WithString("content_base64"), mcp.WithString("content"),
-			mcp.WithString("title"), mcp.WithString("channel_id"), mcp.WithString("initial_comment"),
-			mcp.WithString("thread_ts"), mcp.WithString("alt_text"), mcp.WithString("snippet_type"),
+			mcp.WithString("filename", mcp.Required(), mcp.Description("File name including extension, e.g. report.csv; no directory path.")), mcp.WithString("content_base64", mcp.Description("Base64-encoded file bytes; use this or content, not both. Max 50 MiB decoded.")), mcp.WithString("content", mcp.Description("Plain-text file contents; use this or content_base64, not both. Max 50 MiB.")),
+			mcp.WithString("title", mcp.Description("Title shown in Slack; defaults to filename.")), mcp.WithString("channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) to share the file into; omit to upload without sharing.")), mcp.WithString("initial_comment", mcp.Description("Message text posted with the file when sharing; up to 40000 characters.")),
+			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to share into a thread; needs channel_id.")), mcp.WithString("alt_text", mcp.Description("Screen-reader description for image files; up to 1000 characters.")), mcp.WithString("snippet_type", mcp.Description("Syntax type for text snippets, e.g. python or javascript; unsupported types fail.")),
 		}, h.FilesUpload)
 		add(ToolMessagesSchedule, "Schedule a Slack message for a future time.", []mcp.ToolOption{
-			mcp.WithString("channel_id", mcp.Required()), mcp.WithString("text", mcp.Required()), mcp.WithString("post_at", mcp.Required()), mcp.WithString("thread_ts"),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) to post into; names are not resolved.")), mcp.WithString("text", mcp.Required(), mcp.Description("Message text, non-empty and up to 40000 characters.")), mcp.WithString("post_at", mcp.Required(), mcp.Description("Unix seconds or RFC 3339 time between 5 seconds and 120 days in the future.")), mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to schedule a thread reply.")),
 		}, h.MessagesSchedule)
 		add(ToolMessagesUpdate, "Edit a Slack message that the authenticated user owns.", []mcp.ToolOption{
-			mcp.WithString("channel_id", mcp.Required()), mcp.WithString("timestamp", mcp.Required()), mcp.WithString("text", mcp.Required()),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) containing the message; names are not resolved.")), mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to edit, e.g. 1712345678.123456.")), mcp.WithString("text", mcp.Required(), mcp.Description("Replacement message text, non-empty and up to 40000 characters.")),
 		}, h.MessagesUpdate)
 		add(ToolMessagesDelete, "Preview or delete a Slack message. Prepare first, then execute with the approval token.", []mcp.ToolOption{
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute")), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("timestamp", mcp.Required()), mcp.WithString("approval_token"),
+			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)), mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) containing the message; names are not resolved.")), mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to delete, e.g. 1712345678.123456.")), mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
 		}, h.MessagesDelete)
 	} else {
 		logger.Warn("File and message mutation tools unavailable", zap.Error(err))
@@ -35,21 +35,21 @@ func registerCustomPowerTools(s *mcpserver.MCPServer, api *provider.ApiProvider,
 
 	if service, err := api.PeopleChannels(); err == nil {
 		h := handler.NewPeopleChannelsHandler(service, api.Identity, logger)
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolUsersGetProfile, mcp.WithDescription("Read a full Slack user profile."), mcp.WithString("user_id"), mcp.WithBoolean("include_labels")), h.GetUserProfile)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolUsersGetProfile, mcp.WithDescription("Read a full Slack user profile."), mcp.WithString("user_id", mcp.Description("User ID starting with U or W; defaults to the authenticated user.")), mcp.WithBoolean("include_labels", mcp.Description("Include the display labels of custom profile fields; defaults to true."))), h.GetUserProfile)
 
 		addEnabledTool(s, enabled, newDailyPowerTool(ToolUsersSetProfile, mcp.WithDescription("Update the authenticated user's Slack profile."),
-			mcp.WithString("first_name"), mcp.WithString("last_name"), mcp.WithString("real_name"), mcp.WithString("display_name"), mcp.WithString("pronouns"),
-			mcp.WithString("email"), mcp.WithString("phone"), mcp.WithString("skype"), mcp.WithString("title"), mcp.WithString("start_date"), mcp.WithObject("custom_fields")), h.SetUserProfile)
+			mcp.WithString("first_name", mcp.Description("First name, up to 80 characters; empty string clears it.")), mcp.WithString("last_name", mcp.Description("Last name, up to 80 characters; empty string clears it.")), mcp.WithString("real_name", mcp.Description("Full name, up to 80 characters; empty string clears it.")), mcp.WithString("display_name", mcp.Description("Display name shown in Slack, up to 80 characters; empty string clears it.")), mcp.WithString("pronouns", mcp.Description("Pronouns, up to 100 characters; empty string clears them.")),
+			mcp.WithString("email", mcp.Description("Email address, up to 320 characters; empty string clears it.")), mcp.WithString("phone", mcp.Description("Phone number, up to 100 characters; empty string clears it.")), mcp.WithString("skype", mcp.Description("Skype handle, up to 100 characters; empty string clears it.")), mcp.WithString("title", mcp.Description("Job title, up to 100 characters; empty string clears it.")), mcp.WithString("start_date", mcp.Description("Start date in YYYY-MM-DD format; empty string clears it.")), mcp.WithObject("custom_fields", mcp.Description("Map of custom field ID (Xf...) to {value, alt} objects; at most 50 fields."))), h.SetUserProfile)
 
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolUsersSetStatus, mcp.WithDescription("Set or clear the authenticated user's Slack status."), mcp.WithString("status_text", mcp.Required()), mcp.WithString("status_emoji", mcp.Required()), mcp.WithNumber("status_expiration")), h.SetUserStatus)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolUsersSetStatus, mcp.WithDescription("Set or clear the authenticated user's Slack status."), mcp.WithString("status_text", mcp.Required(), mcp.Description("Status text, up to 100 characters; empty string clears the status.")), mcp.WithString("status_emoji", mcp.Required(), mcp.Description("Emoji name such as :palm_tree: (colons optional); empty string clears it.")), mcp.WithNumber("status_expiration", mcp.Description("Unix seconds when the status clears; 0 keeps it until changed."))), h.SetUserStatus)
 
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolEmojiList, mcp.WithDescription("List and search workspace custom emoji."), mcp.WithString("query"), mcp.WithString("cursor"), mcp.WithNumber("limit")), h.ListEmoji)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolEmojiList, mcp.WithDescription("List and search workspace custom emoji."), mcp.WithString("query", mcp.Description("Case-insensitive substring to match against emoji names.")), mcp.WithString("cursor", mcp.Description(descCursor)), mcp.WithNumber("limit", mcp.Description("Maximum emoji per page, 1 to 200; defaults to 100."))), h.ListEmoji)
 
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsCreate, mcp.WithDescription("Create a public or private Slack channel."), mcp.WithString("name", mcp.Required()), mcp.WithBoolean("is_private"), mcp.WithString("team_id")), h.CreateChannel)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsCreate, mcp.WithDescription("Create a public or private Slack channel."), mcp.WithString("name", mcp.Required(), mcp.Description("Channel name, 1 to 80 lowercase letters, numbers, hyphens, or underscores.")), mcp.WithBoolean("is_private", mcp.Description("Create a private channel; defaults to false (public).")), mcp.WithString("team_id", mcp.Description("Workspace (team) ID for Enterprise Grid orgs; defaults to the authenticated user's team."))), h.CreateChannel)
 
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsMembers, mcp.WithDescription("List channel member user IDs."), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("cursor"), mcp.WithNumber("limit")), h.ListChannelMembers)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsMembers, mcp.WithDescription("List channel member user IDs."), mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)), mcp.WithString("cursor", mcp.Description(descCursor)), mcp.WithNumber("limit", mcp.Description("Maximum member IDs per page, 1 to 200; defaults to 100."))), h.ListChannelMembers)
 
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsInvite, mcp.WithDescription("Invite users to a Slack channel."), mcp.WithString("channel_id", mcp.Required()), mcp.WithArray("user_ids", mcp.Required(), mcp.Items(map[string]any{"type": "string"}))), h.InviteChannelMembers)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsInvite, mcp.WithDescription("Invite users to a Slack channel."), mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)), mcp.WithArray("user_ids", mcp.Required(), mcp.Items(map[string]any{"type": "string"}), mcp.Description("User IDs starting with U or W to invite; 1 to 1000 entries, duplicates ignored."))), h.InviteChannelMembers)
 
 	} else {
 		logger.Warn("People and channel tools unavailable", zap.Error(err))
@@ -57,29 +57,29 @@ func registerCustomPowerTools(s *mcpserver.MCPServer, api *provider.ApiProvider,
 
 	if service, err := api.Canvases(); err == nil {
 		h := handler.NewCanvasHandler(service, logger)
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolCanvasesCreate, mcp.WithDescription("Create a Slack canvas from Markdown."), mcp.WithString("title"), mcp.WithString("markdown")), h.Create)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolCanvasesCreate, mcp.WithDescription("Create a Slack canvas from Markdown."), mcp.WithString("title", mcp.Description("Canvas title; at least one of title or markdown is required.")), mcp.WithString("markdown", mcp.Description("Initial canvas body in Slack-flavored Markdown; at least one of title or markdown is required."))), h.Create)
 
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolCanvasesRead, mcp.WithDescription("Read canvas metadata, preview, and matching section IDs. Slack does not expose a full public canvas export."), mcp.WithString("canvas_id", mcp.Required()), mcp.WithArray("section_types", mcp.Items(map[string]any{"type": "string"})), mcp.WithString("contains_text")), h.Read)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolCanvasesRead, mcp.WithDescription("Read canvas metadata, preview, and matching section IDs. Slack does not expose a full public canvas export."), mcp.WithString("canvas_id", mcp.Required(), mcp.Description("Canvas ID, a Slack file ID starting with F (e.g. F1234567890).")), mcp.WithArray("section_types", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Section types to look up, e.g. h1, h2, h3, list, table, any_header; returns matching section IDs.")), mcp.WithString("contains_text", mcp.Description("Return IDs of sections whose text contains this string; combinable with section_types."))), h.Read)
 
 		change := map[string]any{"type": "object", "required": []string{"operation", "markdown"}, "properties": map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"insert_at_start", "insert_at_end", "insert_before", "insert_after", "replace"}}, "section_id": map[string]any{"type": "string"}, "markdown": map[string]any{"type": "string"}}, "additionalProperties": false}
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolCanvasesUpdate, mcp.WithDescription("Apply exactly one Markdown edit to a Slack canvas."), mcp.WithString("canvas_id", mcp.Required()), mcp.WithArray("changes", mcp.Required(), mcp.MinItems(1), mcp.MaxItems(1), mcp.Items(change))), h.Update)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolCanvasesUpdate, mcp.WithDescription("Apply exactly one Markdown edit to a Slack canvas."), mcp.WithString("canvas_id", mcp.Required(), mcp.Description("Canvas ID, a Slack file ID starting with F (e.g. F1234567890).")), mcp.WithArray("changes", mcp.Required(), mcp.MinItems(1), mcp.MaxItems(1), mcp.Items(change), mcp.Description("Exactly one edit object with operation, markdown, and section_id (needed for insert_before and insert_after)."))), h.Update)
 	}
 
 	drafts := handler.NewDraftsHandler(api.Drafts(), approvals, api.Identity, logger)
-	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsList, mcp.WithDescription("List persisted Slack drafts from the authenticated browser session."), mcp.WithString("cursor"), mcp.WithNumber("limit")), drafts.List)
+	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsList, mcp.WithDescription("List persisted Slack drafts from the authenticated browser session."), mcp.WithString("cursor", mcp.Description(descCursor)), mcp.WithNumber("limit", mcp.Description("Maximum drafts per page, 1 to 100; defaults to 50."))), drafts.List)
 
-	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsGet, mcp.WithDescription("Read one persisted Slack draft."), mcp.WithString("draft_id", mcp.Required())), drafts.Get)
+	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsGet, mcp.WithDescription("Read one persisted Slack draft."), mcp.WithString("draft_id", mcp.Required(), mcp.Description("Draft ID as returned by drafts_list or drafts_create."))), drafts.Get)
 
-	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsCreate, mcp.WithDescription("Create a persisted Slack draft without sending it."), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("text", mcp.Required()), mcp.WithString("thread_ts")), drafts.Create)
+	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsCreate, mcp.WithDescription("Create a persisted Slack draft without sending it."), mcp.WithString("channel_id", mcp.Required(), mcp.Description("Destination channel or DM ID (Cxxxxxxxxxx or Dxxxxxxxxxx); names are not resolved.")), mcp.WithString("text", mcp.Required(), mcp.Description("Draft message text; required and non-empty.")), mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to draft a thread reply."))), drafts.Create)
 
-	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsUpdate, mcp.WithDescription("Update a persisted Slack draft without sending it."), mcp.WithString("id", mcp.Required()), mcp.WithString("channel_id", mcp.Required()), mcp.WithString("text", mcp.Required()), mcp.WithString("thread_ts")), drafts.Update)
+	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsUpdate, mcp.WithDescription("Update a persisted Slack draft without sending it."), mcp.WithString("id", mcp.Required(), mcp.Description("ID of the draft to update, as returned by drafts_list or drafts_create.")), mcp.WithString("channel_id", mcp.Required(), mcp.Description("Destination channel or DM ID (Cxxxxxxxxxx or Dxxxxxxxxxx); names are not resolved.")), mcp.WithString("text", mcp.Required(), mcp.Description("Replacement draft text; required and non-empty.")), mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to target a thread; omit for a top-level draft."))), drafts.Update)
 
-	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsDelete, mcp.WithDescription("Preview or delete a persisted Slack draft."), mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute")), mcp.WithString("draft_id", mcp.Required()), mcp.WithString("approval_token")), drafts.Delete)
+	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsDelete, mcp.WithDescription("Preview or delete a persisted Slack draft."), mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)), mcp.WithString("draft_id", mcp.Required(), mcp.Description("ID of the draft to delete, as returned by drafts_list.")), mcp.WithString("approval_token", mcp.Description(descApprovalToken))), drafts.Delete)
 
 	if service, err := api.SemanticSearch(); err == nil {
 		h := handler.NewSemanticSearchHandler(service, logger)
 		addEnabledTool(s, enabled, newDailyPowerTool(ToolSearchSemantic, mcp.WithDescription("Search Slack messages and files semantically when Slack Real-time Search is enabled for the app."),
-			mcp.WithString("query", mcp.Required()), mcp.WithArray("content_types", mcp.Items(map[string]any{"type": "string", "enum": []string{"messages", "files"}})),
-			mcp.WithArray("channel_types", mcp.Items(map[string]any{"type": "string"})), mcp.WithString("context_channel_id"), mcp.WithString("cursor"), mcp.WithBoolean("include_bots"), mcp.WithNumber("limit")), h.Search)
+			mcp.WithString("query", mcp.Required(), mcp.Description("Natural-language search query or question.")), mcp.WithArray("content_types", mcp.Items(map[string]any{"type": "string", "enum": []string{"messages", "files"}}), mcp.Description("Result kinds to include; defaults to messages only.")),
+			mcp.WithArray("channel_types", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Channel kinds to search: public_channel, private_channel, mpim, im; defaults to public_channel.")), mcp.WithString("context_channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) Slack uses to scope or bias results when applicable.")), mcp.WithString("cursor", mcp.Description(descCursor)), mcp.WithBoolean("include_bots", mcp.Description("Include messages authored by bots; defaults to false.")), mcp.WithNumber("limit", mcp.Description("Maximum results per page, 1 to 20; defaults to 20."))), h.Search)
 	}
 }

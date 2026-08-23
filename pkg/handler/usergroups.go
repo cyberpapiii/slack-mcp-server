@@ -16,22 +16,22 @@ import (
 )
 
 type UserGroup struct {
-	ID          string `csv:"id" json:"id" jsonschema_description:"User group ID"`
-	Name        string `csv:"name" json:"name" jsonschema_description:"Group display name"`
-	Handle      string `csv:"handle" json:"handle" jsonschema_description:"@mention handle"`
-	Description string `csv:"description" json:"description" jsonschema_description:"Group description"`
-	UserCount   int    `csv:"user_count" json:"user_count" jsonschema_description:"Number of members"`
-	IsExternal  bool   `csv:"is_external" json:"is_external" jsonschema_description:"Whether group is external"`
-	DateCreate  string `csv:"date_create" json:"date_create,omitempty" jsonschema_description:"Creation timestamp"`
-	DateUpdate  string `csv:"date_update" json:"date_update,omitempty" jsonschema_description:"Last update timestamp"`
-	Users       string `csv:"users,omitempty" json:"users,omitempty" jsonschema_description:"Semicolon-separated user IDs when include_users=true"`
+	ID          string `csv:"id" json:"id" jsonschema:"User group ID"`
+	Name        string `csv:"name" json:"name" jsonschema:"Group display name"`
+	Handle      string `csv:"handle" json:"handle" jsonschema:"@mention handle"`
+	Description string `csv:"description" json:"description" jsonschema:"Group description"`
+	UserCount   int    `csv:"user_count" json:"user_count" jsonschema:"Number of members"`
+	IsExternal  bool   `csv:"is_external" json:"is_external" jsonschema:"Whether group is external"`
+	DateCreate  string `csv:"date_create" json:"date_create,omitempty" jsonschema:"Creation timestamp"`
+	DateUpdate  string `csv:"date_update" json:"date_update,omitempty" jsonschema:"Last update timestamp"`
+	Users       string `csv:"users,omitempty" json:"users,omitempty" jsonschema:"Semicolon-separated user IDs when include_users=true"`
 }
 
 type UsergroupMeActionResult struct {
-	Message   string `json:"message" jsonschema_description:"Result message"`
-	GroupID   string `json:"group_id" jsonschema_description:"User group ID"`
-	GroupName string `json:"group_name,omitempty" jsonschema_description:"User group name"`
-	UserCount int    `json:"user_count,omitempty" jsonschema_description:"Number of members after action"`
+	Message   string `json:"message" jsonschema:"Result message"`
+	GroupID   string `json:"group_id" jsonschema:"User group ID"`
+	GroupName string `json:"group_name,omitempty" jsonschema:"User group name"`
+	UserCount int    `json:"user_count,omitempty" jsonschema:"Number of members after action"`
 }
 
 type membershipAction string

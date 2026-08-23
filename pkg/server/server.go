@@ -101,7 +101,14 @@ const (
 	ToolDraftsDelete                = "drafts_delete"
 	ToolSearchSemantic              = "search_semantic"
 
-	toolDetailDescription = "Output fidelity: 'standard' (compact CSV) or 'full' (all columns, including UserID and Permalink where available). When omitted, follows SLACK_MCP_COMPACT_OUTPUT (compact/standard unless that env is false/0/no, then full). Overrides the server-wide default for this call only. Output may begin with `#users:` (UserID=name legend) and `#link_template:` (build message permalinks from Channel + MsgID) comment lines before the CSV header."
+	descChannelID = "Channel ID (Cxxxxxxxxxx) or a channel/DM name starting with # or @, e.g. #general or @username."
+	descCursor    = "Pagination cursor from the previous response."
+	// descChannelIDRaw is for tools whose handler passes the ID straight to Slack
+	// without resolving #name or @name.
+	descChannelIDRaw      = "Channel ID starting with C or G (Cxxxxxxxxxx); names are not resolved."
+	descPrepareAction     = "prepare returns data.approval_token and a preview; execute performs the change."
+	descApprovalToken     = "Token from the prepare call; required for execute."
+	toolDetailDescription = "'standard' (compact CSV) or 'full' (adds UserID and Permalink columns); omit for the server default, normally standard. Output may begin with `#users:` (UserID=name legend) and `#link_template:` comment lines before the CSV header."
 )
 
 var ValidToolNames = capability.LegacyFullLocalTools()
@@ -143,15 +150,27 @@ func ValidateEnabledTools(tools []string) error {
 // those tools to channel allowlists inside the handlers.
 func addEnabledTool(s *server.MCPServer, enabledTools []string, tool mcp.Tool, fn server.ToolHandlerFunc) {
 	if slices.Contains(enabledTools, tool.Name) {
-		s.AddTool(tool, fn)
+		s.AddTool(normalizeAnnotations(tool), fn)
 	}
 }
 
 func addCacheDependentTool(ms *MCPServer, enabledTools []string, tool mcp.Tool, fn server.ToolHandlerFunc) {
 	if slices.Contains(enabledTools, tool.Name) {
 		guardCacheDependentRegistration(tool.Name)
-		ms.server.AddTool(tool, fn)
+		ms.server.AddTool(normalizeAnnotations(tool), fn)
 	}
+}
+
+// normalizeAnnotations keeps the hint set coherent: a read-only tool is never
+// destructive and always idempotent, whatever the per-tool options said or
+// left at the mcp-go defaults. Clients that prompt on destructiveHint then
+// stay quiet for reads.
+func normalizeAnnotations(tool mcp.Tool) mcp.Tool {
+	if tool.Annotations.ReadOnlyHint != nil && *tool.Annotations.ReadOnlyHint {
+		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(false)
+		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(true)
+	}
+	return tool
 }
 
 func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledTools []string) *MCPServer {
@@ -235,7 +254,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 			mcp.Description("Maximum number of items to return, an integer between 1 and 999. Default is 100."),
 		),
 		mcp.WithString("cursor",
-			mcp.Description("Pagination cursor. Pass the cursor value from the last row of the previous response."),
+			mcp.Description(descCursor),
 		),
 		mcp.WithString("query",
 			mcp.Description("Optional keyword to filter channels. Case-insensitive substring match against the fields specified by query_targets. Example: 'marketing' returns channels like #marketing, #marketing-ops."),
@@ -343,7 +362,6 @@ func (s *MCPServer) registerCacheDependentTools() {
 			guardCacheDependentRegistration(ToolActivityMarkRead)
 			s.server.AddTool(newDailyPowerTool(ToolActivityMarkRead,
 				mcp.WithDescription("Mark an Activity item as read. Use the key, feed_ts, and type values from activity_unreads output."),
-				mcp.WithTitleAnnotation("Mark Activity Read"),
 				mcp.WithString("key",
 					mcp.Description("Activity item key from activity_unreads output, e.g. 'thread_v2-C092WJP9Z38-1772545632.256259'."),
 					mcp.Required(),

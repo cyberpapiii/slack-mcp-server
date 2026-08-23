@@ -37,9 +37,9 @@ type ChannelMutationHandler struct {
 }
 
 type ChannelMutationData struct {
-	Action        string                         `json:"action" jsonschema_description:"Mutation performed"`
+	Action        string                         `json:"action" jsonschema:"Mutation performed"`
 	Phase         string                         `json:"phase"`
-	Channel       *provider.ChannelMutationState `json:"channel,omitempty" jsonschema_description:"Observed or resulting channel state"`
+	Channel       *provider.ChannelMutationState `json:"channel,omitempty" jsonschema:"Observed or resulting channel state"`
 	ApprovalToken string                         `json:"approval_token,omitempty"`
 	ExpiresAt     string                         `json:"expires_at,omitempty"`
 }

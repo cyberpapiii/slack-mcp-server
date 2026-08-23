@@ -25,12 +25,15 @@ func TestDailyPowerToolContractsAreComplete(t *testing.T) {
 			assert.Equal(t, capability.ConfirmationNone, entry.Confirmation)
 
 			tool := newDailyPowerTool(name, mcp.WithDescription("contract test"))
-			assert.Equal(t, "object", tool.OutputSchema.Type)
-			assert.NotEmpty(t, tool.OutputSchema.Properties)
-			assert.Contains(t, tool.OutputSchema.Properties, "schema_version")
-			assert.Contains(t, tool.OutputSchema.Properties, "meta")
-			assert.Contains(t, tool.OutputSchema.Properties, "data")
-			assert.Contains(t, tool.OutputSchema.Properties, "error")
+			if _, declared := outputSchemaByTool[name]; declared {
+				assert.Equal(t, "object", tool.OutputSchema.Type)
+				assert.Contains(t, tool.OutputSchema.Properties, "schema_version")
+				assert.Contains(t, tool.OutputSchema.Properties, "meta")
+				assert.Contains(t, tool.OutputSchema.Properties, "data")
+				assert.Contains(t, tool.OutputSchema.Properties, "error")
+			} else {
+				assert.Empty(t, tool.OutputSchema.Type, "only approval-flow and diagnostics tools advertise an output schema")
+			}
 
 			require.NotNil(t, tool.Annotations.ReadOnlyHint)
 			require.NotNil(t, tool.Annotations.DestructiveHint)
@@ -82,6 +85,20 @@ func TestListsWriteToolsDeclareObjectArrayContracts(t *testing.T) {
 	assert.ElementsMatch(t, []string{"original_url"}, link["required"])
 }
 
+func TestOutputSchemaToolsExposeApprovalToken(t *testing.T) {
+	for name := range outputSchemaByTool {
+		if name == ToolSlackAuthStatus {
+			continue
+		}
+		tool := newDailyPowerTool(name, mcp.WithDescription("contract test"))
+		data, ok := tool.OutputSchema.Properties["data"].(map[string]any)
+		require.True(t, ok, "%s data schema", name)
+		props, ok := data["properties"].(map[string]any)
+		require.True(t, ok, "%s data properties", name)
+		assert.Contains(t, props, "approval_token", "%s prepare must return data.approval_token", name)
+	}
+}
+
 func TestDailyPowerContractsDoNotClaimLegacyTools(t *testing.T) {
 	for _, name := range capability.LegacyFullLocalTools() {
 		if slices.Contains(capability.DailyPowerLocalTools(), name) {
@@ -103,7 +120,6 @@ func TestAllActiveLocalToolsHaveTypedContracts(t *testing.T) {
 		behavior, ok := capability.BehaviorForLocalTool(entry.LocalTool)
 		require.True(t, ok, "active tool %q has no behavior contract", entry.LocalTool)
 		tool := newDailyPowerTool(entry.LocalTool, mcp.WithDescription("contract test"))
-		assert.Equal(t, "object", tool.OutputSchema.Type)
 		require.NotNil(t, tool.Annotations.ReadOnlyHint)
 		require.NotNil(t, tool.Annotations.DestructiveHint)
 		require.NotNil(t, tool.Annotations.IdempotentHint)

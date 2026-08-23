@@ -17,16 +17,16 @@ import (
 )
 
 type Channel struct {
-	ID          string `csv:"id" json:"id" jsonschema_description:"Channel ID"`
-	Name        string `csv:"name" json:"name" jsonschema_description:"Channel name"`
-	Topic       string `csv:"topic" json:"topic,omitempty" jsonschema_description:"Channel topic"`
-	Purpose     string `csv:"purpose" json:"purpose,omitempty" jsonschema_description:"Channel purpose"`
-	MemberCount int    `csv:"member_count" json:"member_count" jsonschema_description:"Number of members"`
-	Cursor      string `csv:"cursor" json:"cursor,omitempty" jsonschema_description:"Pagination cursor"`
+	ID          string `csv:"id" json:"id" jsonschema:"Channel ID"`
+	Name        string `csv:"name" json:"name" jsonschema:"Channel name"`
+	Topic       string `csv:"topic" json:"topic,omitempty" jsonschema:"Channel topic"`
+	Purpose     string `csv:"purpose" json:"purpose,omitempty" jsonschema:"Channel purpose"`
+	MemberCount int    `csv:"member_count" json:"member_count" jsonschema:"Number of members"`
+	Cursor      string `csv:"cursor" json:"cursor,omitempty" jsonschema:"Pagination cursor"`
 }
 
 type ChannelList struct {
-	Channels []Channel `json:"channels" jsonschema_description:"List of channels"`
+	Channels []Channel `json:"channels" jsonschema:"List of channels"`
 }
 
 type ChannelsHandler struct {

@@ -17,13 +17,15 @@ func newDailyPowerTool(name string, options ...mcp.ToolOption) mcp.Tool {
 	if !ok {
 		panic(fmt.Sprintf("daily-power tool %q has no active catalog entry", name))
 	}
-	outputSchema, expectedResultType := dailyPowerOutputSchema(name)
-	if expectedResultType == "" || entry.ResultType != expectedResultType {
+	expectedResultType, ok := resultTypeByTool[name]
+	if !ok || entry.ResultType != expectedResultType {
 		panic(fmt.Sprintf("daily-power tool %q result contract mismatch: catalog=%q server=%q", name, entry.ResultType, expectedResultType))
 	}
 
+	if schema, ok := outputSchemaByTool[name]; ok {
+		options = append(options, schema)
+	}
 	options = append(options,
-		outputSchema,
 		mcp.WithTitleAnnotation(behavior.Title),
 		mcp.WithReadOnlyHintAnnotation(behavior.ReadOnly),
 		mcp.WithDestructiveHintAnnotation(behavior.Destructive),
@@ -33,86 +35,74 @@ func newDailyPowerTool(name string, options ...mcp.ToolOption) mcp.Tool {
 	return mcp.NewTool(name, options...)
 }
 
-func dailyPowerOutputSchema(name string) (mcp.ToolOption, string) {
-	switch name {
-	case ToolSlackAuthStatus:
-		return mcp.WithOutputSchema[handler.AuthStatusResult](), "diagnostics"
-	case ToolConversationsGetMessage:
-		return mcp.WithOutputSchema[handler.MessageResult](), "message"
-	case ToolConversationsUnreads:
-		return mcp.WithOutputSchema[handler.UnreadPageResult](), "unread_page"
-	case ToolUsergroupsList, ToolUsergroupsMine:
-		return mcp.WithOutputSchema[handler.UsergroupPageResult](), "usergroup_page"
-	case ToolUsergroupsJoin, ToolUsergroupsLeave:
-		return mcp.WithOutputSchema[handler.UsergroupMembershipResult](), "usergroup_membership"
-	case ToolActivityUnreads:
-		return mcp.WithOutputSchema[handler.ActivityPageResult](), "activity_page"
-	case ToolSavedList:
-		return mcp.WithOutputSchema[handler.SavedPageResult](), "saved_page"
-	case ToolScheduledMessagesList:
-		return mcp.WithOutputSchema[handler.ScheduledPageResult](), "scheduled_message_page"
-	case ToolScheduledMessageCancel:
-		return mcp.WithOutputSchema[handler.ScheduledCancelResult](), "scheduled_message_mutation"
-	case ToolChannelsRename, ToolChannelsSetTopic, ToolChannelsSetPurpose, ToolChannelsArchive:
-		return mcp.WithOutputSchema[handler.ChannelMutationResult](), "channel_mutation"
-	case ToolListsCreate:
-		return mcp.WithOutputSchema[handler.ListCreateResult](), "list_create"
-	case ToolListsUpdate:
-		return mcp.WithOutputSchema[handler.ListMutationResult](), "list_mutation"
-	case ToolListsItemsList:
-		return mcp.WithOutputSchema[handler.ListItemsPageResult](), "list_items_page"
-	case ToolListsItemsCreate:
-		return mcp.WithOutputSchema[handler.ListItemResult](), "list_item"
-	case ToolListsItemsUpdate:
-		return mcp.WithOutputSchema[handler.ListItemMutationResult](), "list_item_mutation"
-	case ToolListsItemDelete:
-		return mcp.WithOutputSchema[handler.ListItemDeleteResult](), "list_item_mutation"
-	case ToolDNDGet, ToolDNDSetSnooze, ToolDNDEndSnooze:
-		return mcp.WithOutputSchema[handler.DNDStateResult](), "dnd_state"
-	case ToolConversationsMark:
-		return mcp.WithOutputSchema[handler.ActionResult](), "read_progress"
-	case ToolReactionsRemove:
-		return mcp.WithOutputSchema[handler.ActionResult](), "reaction_mutation"
-	case ToolActivityMarkRead:
-		return mcp.WithOutputSchema[handler.ActionResult](), "activity_mutation"
-	case ToolSavedUpdate, ToolSavedClearCompleted:
-		return mcp.WithOutputSchema[handler.ActionResult](), "saved_mutation"
-	case ToolUsergroupsCreate, ToolUsergroupsUpdate, ToolUsergroupsUsersUpdate:
-		return mcp.WithOutputSchema[handler.UsergroupMutationResult](), "usergroup_mutation"
-	case ToolFilesUpload:
-		return mcp.WithOutputSchema[handler.FileUploadResult](), "file_mutation"
-	case ToolMessagesSchedule:
-		return mcp.WithOutputSchema[handler.MessageMutationResult](), "scheduled_message"
-	case ToolMessagesUpdate, ToolMessagesDelete:
-		return mcp.WithOutputSchema[handler.MessageMutationResult](), "message_mutation"
-	case ToolChannelsCreate, ToolChannelsInvite:
-		if name == ToolChannelsInvite {
-			return mcp.WithOutputSchema[handler.ChannelResult](), "conversation_membership"
-		}
-		return mcp.WithOutputSchema[handler.ChannelResult](), "conversation"
-	case ToolChannelsMembers:
-		return mcp.WithOutputSchema[handler.ChannelMembersResult](), "member_page"
-	case ToolEmojiList:
-		return mcp.WithOutputSchema[handler.EmojiPageResult](), "emoji_page"
-	case ToolUsersGetProfile, ToolUsersSetProfile, ToolUsersSetStatus:
-		return mcp.WithOutputSchema[handler.ProfileResult](), "user_profile"
-	case ToolCanvasesCreate, ToolCanvasesRead, ToolCanvasesUpdate:
-		if name == ToolCanvasesRead {
-			return mcp.WithOutputSchema[handler.CanvasReadResult](), "canvas"
-		}
-		if name == ToolCanvasesCreate {
-			return mcp.WithOutputSchema[handler.CanvasCreateResult](), "canvas"
-		}
-		return mcp.WithOutputSchema[handler.CanvasUpdateResult](), "canvas"
-	case ToolDraftsList:
-		return mcp.WithOutputSchema[handler.DraftPageResult](), "draft_page"
-	case ToolDraftsGet:
-		return mcp.WithOutputSchema[handler.DraftResult](), "draft"
-	case ToolDraftsCreate, ToolDraftsUpdate, ToolDraftsDelete:
-		return mcp.WithOutputSchema[handler.DraftMutationResult](), "draft_mutation"
-	case ToolSearchSemantic:
-		return mcp.WithOutputSchema[handler.SemanticSearchResult](), "semantic_search_page"
-	default:
-		return nil, ""
-	}
+// outputSchemaByTool lists the tools whose structured result an agent must
+// parse to continue: the diagnostics report, and the prepare/execute tools
+// whose prepare phase returns data.approval_token. Every other tool still
+// returns the same ToolResult envelope as structuredContent; it is
+// self-describing JSON, so advertising its schema in tools/list would only
+// cost tokens on every session.
+var outputSchemaByTool = map[string]mcp.ToolOption{
+	ToolSlackAuthStatus:        mcp.WithOutputSchema[handler.AuthStatusResult](),
+	ToolScheduledMessageCancel: mcp.WithOutputSchema[handler.ScheduledCancelResult](),
+	ToolChannelsArchive:        mcp.WithOutputSchema[handler.ChannelMutationResult](),
+	ToolListsItemDelete:        mcp.WithOutputSchema[handler.ListItemDeleteResult](),
+	ToolMessagesDelete:         mcp.WithOutputSchema[handler.MessageMutationResult](),
+	ToolDraftsDelete:           mcp.WithOutputSchema[handler.DraftMutationResult](),
+}
+
+// resultTypeByTool is cross-checked against the capability catalog so the two
+// cannot drift.
+var resultTypeByTool = map[string]string{
+	ToolSlackAuthStatus:         "diagnostics",
+	ToolConversationsGetMessage: "message",
+	ToolConversationsUnreads:    "unread_page",
+	ToolUsergroupsList:          "usergroup_page",
+	ToolUsergroupsMine:          "usergroup_page",
+	ToolUsergroupsJoin:          "usergroup_membership",
+	ToolUsergroupsLeave:         "usergroup_membership",
+	ToolActivityUnreads:         "activity_page",
+	ToolSavedList:               "saved_page",
+	ToolScheduledMessagesList:   "scheduled_message_page",
+	ToolScheduledMessageCancel:  "scheduled_message_mutation",
+	ToolChannelsRename:          "channel_mutation",
+	ToolChannelsSetTopic:        "channel_mutation",
+	ToolChannelsSetPurpose:      "channel_mutation",
+	ToolChannelsArchive:         "channel_mutation",
+	ToolListsCreate:             "list_create",
+	ToolListsUpdate:             "list_mutation",
+	ToolListsItemsList:          "list_items_page",
+	ToolListsItemsCreate:        "list_item",
+	ToolListsItemsUpdate:        "list_item_mutation",
+	ToolListsItemDelete:         "list_item_mutation",
+	ToolDNDGet:                  "dnd_state",
+	ToolDNDSetSnooze:            "dnd_state",
+	ToolDNDEndSnooze:            "dnd_state",
+	ToolConversationsMark:       "read_progress",
+	ToolReactionsRemove:         "reaction_mutation",
+	ToolActivityMarkRead:        "activity_mutation",
+	ToolSavedUpdate:             "saved_mutation",
+	ToolSavedClearCompleted:     "saved_mutation",
+	ToolUsergroupsCreate:        "usergroup_mutation",
+	ToolUsergroupsUpdate:        "usergroup_mutation",
+	ToolUsergroupsUsersUpdate:   "usergroup_mutation",
+	ToolFilesUpload:             "file_mutation",
+	ToolMessagesSchedule:        "scheduled_message",
+	ToolMessagesUpdate:          "message_mutation",
+	ToolMessagesDelete:          "message_mutation",
+	ToolChannelsCreate:          "conversation",
+	ToolChannelsInvite:          "conversation_membership",
+	ToolChannelsMembers:         "member_page",
+	ToolEmojiList:               "emoji_page",
+	ToolUsersGetProfile:         "user_profile",
+	ToolUsersSetProfile:         "user_profile",
+	ToolUsersSetStatus:          "user_profile",
+	ToolCanvasesCreate:          "canvas",
+	ToolCanvasesRead:            "canvas",
+	ToolCanvasesUpdate:          "canvas",
+	ToolDraftsList:              "draft_page",
+	ToolDraftsGet:               "draft",
+	ToolDraftsCreate:            "draft_mutation",
+	ToolDraftsUpdate:            "draft_mutation",
+	ToolDraftsDelete:            "draft_mutation",
+	ToolSearchSemantic:          "semantic_search_page",
 }
