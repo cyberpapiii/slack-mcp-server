@@ -25,7 +25,9 @@ func TestEveryToolConstantIsInTable(t *testing.T) {
 	t.Setenv("SLACK_MCP_XOXD_TOKEN", "demo")
 	require.True(t, provider.IsDemoCredentials())
 
-	api := provider.New("stdio", zap.NewNop())
+	api, err := provider.New("stdio", zap.NewNop())
+	require.NoError(t, err)
+	t.Cleanup(api.Close)
 	srv := NewMCPServer(api, zap.NewNop(), ValidToolNames)
 	api.SkipCache()
 	srv.RegisterCacheDependentTools()

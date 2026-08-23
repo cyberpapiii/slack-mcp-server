@@ -69,7 +69,11 @@ func main() {
 		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS", err)
 	}
 
-	p := provider.New(transport, logger)
+	p, err := provider.New(transport, logger)
+	if err != nil {
+		fatal(logger, "Failed to initialize Slack provider", err)
+	}
+	defer p.Close()
 	s := server.NewMCPServer(p, logger, enabledTools)
 	logStartupAuthStatus(p, logger)
 

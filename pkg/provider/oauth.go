@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
 )
 
@@ -96,7 +97,7 @@ func (r *SlackOAuthRefresher) Refresh(ctx context.Context, refreshToken string) 
 	if r.ClientSecret != "" {
 		form.Set("client_secret", r.ClientSecret)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://slack.com/api/oauth.v2.access", strings.NewReader(form.Encode()))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, transportpkg.SlackAPIBase()+"oauth.v2.access", strings.NewReader(form.Encode()))
 	if err != nil {
 		return OAuthRefreshResult{}, errors.New("build Slack OAuth refresh request")
 	}
@@ -106,12 +107,8 @@ func (r *SlackOAuthRefresher) Refresh(ctx context.Context, refreshToken string) 
 		return OAuthRefreshResult{}, fmt.Errorf("refresh Slack OAuth token: %w", err)
 	}
 	defer responseHTTP.Body.Close()
-	if responseHTTP.StatusCode == http.StatusTooManyRequests {
-		retryAfter := time.Minute
-		if parsed, err := time.ParseDuration(strings.TrimSpace(responseHTTP.Header.Get("Retry-After")) + "s"); err == nil && parsed > 0 {
-			retryAfter = parsed
-		}
-		return OAuthRefreshResult{}, &slack.RateLimitedError{RetryAfter: retryAfter}
+	if rateLimited := transportpkg.RateLimited(responseHTTP); rateLimited != nil {
+		return OAuthRefreshResult{}, rateLimited
 	}
 	if responseHTTP.StatusCode != http.StatusOK {
 		return OAuthRefreshResult{}, fmt.Errorf("refresh Slack OAuth token: HTTP %d", responseHTTP.StatusCode)
@@ -401,7 +398,7 @@ func ExchangeOAuthAuthorizationCode(
 	if clientSecret != "" {
 		form.Set("client_secret", clientSecret)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://slack.com/api/oauth.v2.access", strings.NewReader(form.Encode()))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, transportpkg.SlackAPIBase()+"oauth.v2.access", strings.NewReader(form.Encode()))
 	if err != nil {
 		return OAuthTokenRecord{}, errors.New("build Slack OAuth exchange request")
 	}

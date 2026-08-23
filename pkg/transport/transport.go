@@ -6,18 +6,21 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	utls "github.com/refraction-networking/utls"
+	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 )
@@ -319,20 +322,18 @@ func detectBrowserFromUserAgent(userAgent string) utls.ClientHelloID {
 	return utls.HelloChrome_Auto
 }
 
-// ProvideHTTPClient creates an HTTP client with optional uTLS support.
-func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client {
+// ProvideHTTPClient builds the HTTP client every Slack call shares. Build it
+// once per credential set: each call owns a fresh connection pool.
+func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) (*http.Client, error) {
 	if os.Getenv("SLACK_MCP_PROXY") != "" && os.Getenv("SLACK_MCP_CUSTOM_TLS") != "" {
-		logger.Fatal("SLACK_MCP_PROXY and SLACK_MCP_CUSTOM_TLS cannot be used together",
-			zap.String("reason", "Custom TLS fingerprinting has no effect when using a proxy, as the target server sees the proxy's TLS handshake"))
+		return nil, errors.New("SLACK_MCP_PROXY and SLACK_MCP_CUSTOM_TLS cannot be used together: custom TLS fingerprinting has no effect when using a proxy, as the target server sees the proxy's TLS handshake")
 	}
 
 	var proxy func(*http.Request) (*url.URL, error)
 	if proxyURL := os.Getenv("SLACK_MCP_PROXY"); proxyURL != "" {
 		parsed, err := url.Parse(proxyURL)
 		if err != nil {
-			logger.Fatal("Failed to parse proxy URL",
-				zap.String("proxy_url", proxyURL),
-				zap.Error(err))
+			return nil, fmt.Errorf("parse SLACK_MCP_PROXY %q: %w", proxyURL, err)
 		}
 		proxy = http.ProxyURL(parsed)
 	}
@@ -343,15 +344,13 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client 
 	}
 
 	if os.Getenv("SLACK_MCP_SERVER_CA_TOOLKIT") != "" {
-		logger.Fatal("SLACK_MCP_SERVER_CA_TOOLKIT is no longer supported (embedded CA expired); set SLACK_MCP_SERVER_CA to your HTTP Toolkit CA PEM path")
+		return nil, errors.New("SLACK_MCP_SERVER_CA_TOOLKIT is no longer supported (embedded CA expired); set SLACK_MCP_SERVER_CA to your HTTP Toolkit CA PEM path")
 	}
 
 	if localCertFile := os.Getenv("SLACK_MCP_SERVER_CA"); localCertFile != "" {
 		certs, err := os.ReadFile(localCertFile)
 		if err != nil {
-			logger.Fatal("Failed to read local certificate file",
-				zap.String("cert_file", localCertFile),
-				zap.Error(err))
+			return nil, fmt.Errorf("read SLACK_MCP_SERVER_CA %q: %w", localCertFile, err)
 		}
 		if ok := rootCAs.AppendCertsFromPEM(certs); !ok {
 			logger.Warn("No certs appended, using system certs only")
@@ -361,7 +360,7 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client 
 	insecure := false
 	if envutil.IsTruthy(os.Getenv("SLACK_MCP_SERVER_CA_INSECURE")) {
 		if localCertFile := os.Getenv("SLACK_MCP_SERVER_CA"); localCertFile != "" {
-			logger.Fatal("SLACK_MCP_SERVER_CA and SLACK_MCP_SERVER_CA_INSECURE cannot be used together")
+			return nil, errors.New("SLACK_MCP_SERVER_CA and SLACK_MCP_SERVER_CA_INSECURE cannot be used together")
 		}
 		insecure = true
 	}
@@ -431,5 +430,37 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) *http.Client 
 		Timeout:   30 * time.Second,
 	}
 
-	return client
+	return client, nil
+}
+
+// SlackDomain is the Slack host the whole process talks to;
+// SLACK_MCP_GOVSLACK switches every Web API, edge and OAuth call to GovSlack.
+func SlackDomain() string {
+	if envutil.IsTruthy(os.Getenv("SLACK_MCP_GOVSLACK")) {
+		return "slack-gov.com"
+	}
+	return "slack.com"
+}
+
+// SlackAPIBase is the Web API root for direct HTTP calls and for slack.Client
+// construction before the workspace URL is known.
+func SlackAPIBase() string {
+	return "https://" + SlackDomain() + "/api/"
+}
+
+// defaultRetryAfter covers 429 responses whose Retry-After header is missing
+// or unparsable, so callers still see a retryable RateLimitedError.
+const defaultRetryAfter = 5 * time.Second
+
+// RateLimited converts a 429 response into slack.RateLimitedError carrying
+// the server's Retry-After; nil for every other status.
+func RateLimited(resp *http.Response) *slack.RateLimitedError {
+	if resp.StatusCode != http.StatusTooManyRequests {
+		return nil
+	}
+	secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After")))
+	if err != nil || secs < 0 {
+		return &slack.RateLimitedError{RetryAfter: defaultRetryAfter}
+	}
+	return &slack.RateLimitedError{RetryAfter: time.Duration(secs) * time.Second}
 }

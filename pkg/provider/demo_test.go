@@ -22,7 +22,9 @@ func TestDemoCredentialsBuildFullClient(t *testing.T) {
 			}
 			require.True(t, IsDemoCredentials())
 
-			ap := New("stdio", zap.NewNop())
+			ap, err := New("stdio", zap.NewNop())
+			require.NoError(t, err)
+			defer ap.Close()
 			require.NotNil(t, ap.WebAPI(), "demo must expose the Web API surface")
 
 			auth, err := ap.Slack().AuthTest()

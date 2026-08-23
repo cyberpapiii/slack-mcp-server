@@ -55,7 +55,7 @@ func (ap *ApiProvider) Lists() (*ListsClient, error) {
 		return nil, ErrUserOAuthRequired
 	}
 	return &ListsClient{
-		HTTPClient: transportpkg.ProvideHTTPClient(client.authProvider.Cookies(), client.logger),
+		HTTPClient: client.httpClient,
 		TokenProvider: func() string {
 			token, _ := client.oauthAccessToken.Load().(string)
 			return token
@@ -304,9 +304,9 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 	}
 	base := c.APIBase
 	if base == "" {
-		base = slackAPIBase()
+		base = transportpkg.SlackAPIBase()
 	}
-	if base != slackAPIBase() && !strings.HasPrefix(base, "http://127.0.0.1:") {
+	if base != transportpkg.SlackAPIBase() && !strings.HasPrefix(base, "http://127.0.0.1:") {
 		return errors.New("Slack Lists API base must be Slack or loopback test server")
 	}
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, base+method, bytes.NewReader(encoded))

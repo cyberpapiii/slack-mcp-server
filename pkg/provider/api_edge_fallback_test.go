@@ -136,7 +136,7 @@ func TestAttachBrowserRejectsProviderIdentityMismatch(t *testing.T) {
 	browserAuth, err := auth.NewValueAuth("xoxc-browser", "xoxd-cookie")
 	require.NoError(t, err)
 
-	err = c.attachBrowserSession(browserAuth, &slack.AuthTestResponse{TeamID: "T1", UserID: "U2"})
+	err = c.attachBrowserSession(browserAuth, &slack.AuthTestResponse{TeamID: "T1", UserID: "U2"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "identity mismatch")
 	assert.False(t, c.browserFeaturesAvailable())

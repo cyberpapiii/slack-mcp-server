@@ -14,12 +14,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"runtime/trace"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/rusq/slackauth"
 	"github.com/rusq/slackdump/v3/auth"
 	"github.com/rusq/tagops"
@@ -46,13 +45,6 @@ func OptionHTTPClient(client httpClient) func(*Client) {
 	}
 }
 
-func getSlackBaseDomain() string {
-	if os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
-		return "slack-gov.com"
-	}
-	return "slack.com"
-}
-
 // NewWithInfo is the same as New, but doesn't call the AuthTest on
 // initialisation.  Caller must ensure that the token is valid.
 func NewWithInfo(info *slack.AuthTestResponse, prov auth.Provider, opt ...Option) (*Client, error) {
@@ -65,7 +57,7 @@ func NewWithInfo(info *slack.AuthTestResponse, prov auth.Provider, opt ...Option
 		token:        prov.SlackToken(),
 		teamID:       info.TeamID,
 		webclientAPI: info.URL + "api/",
-		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", getSlackBaseDomain(), info.TeamID),
+		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", transport.SlackDomain(), info.TeamID),
 	}
 
 	for _, o := range opt {
@@ -210,7 +202,7 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 		// reused instead of leaked.
 		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
-		wait := parseRetryAfter(resp)
+		wait := transport.RateLimited(resp).RetryAfter
 		lg.InfoContext(ctx, "got rate limited, waiting", "delay", wait)
 
 		// The first attempt consumed the one-shot body reader; rebuild it, or
@@ -237,7 +229,7 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 			lg.DebugContext(ctx, "edge.do: still rate limited after one retry")
 			_, _ = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
-			return nil, &slack.RateLimitedError{RetryAfter: parseRetryAfter(resp)}
+			return nil, transport.RateLimited(resp)
 		}
 	}
 	if resp.StatusCode < http.StatusOK || http.StatusMultipleChoices <= resp.StatusCode {
@@ -246,18 +238,6 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 		return nil, slack.StatusCodeError{Code: resp.StatusCode, Status: string(body)}
 	}
 	return resp, err
-}
-
-// defaultRetryAfter covers 429 responses whose Retry-After header is missing
-// or unparsable, so callers still see a retryable RateLimitedError.
-const defaultRetryAfter = 5 * time.Second
-
-func parseRetryAfter(resp *http.Response) time.Duration {
-	secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After")))
-	if err != nil || secs < 0 {
-		return defaultRetryAfter
-	}
-	return time.Duration(secs) * time.Second
 }
 
 // values returns url.Values from a struct.  If omitempty is true, then the

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	utls "github.com/refraction-networking/utls"
 	"github.com/stretchr/testify/assert"
@@ -211,7 +212,8 @@ func unwrapUA(t *testing.T, c *http.Client) *UserAgentTransport {
 
 func TestProvideHTTPClientStandardTransportDefaults(t *testing.T) {
 	clearTransportEnv(t)
-	c := ProvideHTTPClient([]*http.Cookie{{Name: "d", Value: "v"}}, zap.NewNop())
+	c, err := ProvideHTTPClient([]*http.Cookie{{Name: "d", Value: "v"}}, zap.NewNop())
+	require.NoError(t, err)
 	ua := unwrapUA(t, c)
 	assert.Equal(t, defaultUA, ua.userAgent)
 	assert.Len(t, ua.cookies, 1)
@@ -226,7 +228,8 @@ func TestProvideHTTPClientHonorsUserAgentInsecureAndCustomTLS(t *testing.T) {
 	t.Setenv("SLACK_MCP_USER_AGENT", "Mozilla/5.0 Gecko/20100101 Firefox/121.0")
 	t.Setenv("SLACK_MCP_SERVER_CA_INSECURE", "true")
 	t.Setenv("SLACK_MCP_CUSTOM_TLS", "1")
-	c := ProvideHTTPClient(nil, zap.NewNop())
+	c, err := ProvideHTTPClient(nil, zap.NewNop())
+	require.NoError(t, err)
 	ua := unwrapUA(t, c)
 	assert.Equal(t, "Mozilla/5.0 Gecko/20100101 Firefox/121.0", ua.userAgent)
 	inner, ok := ua.roundTripper.(*uTLSTransport)
@@ -245,7 +248,8 @@ func TestProvideHTTPClientProxyAndServerCA(t *testing.T) {
 
 	t.Setenv("SLACK_MCP_PROXY", "http://proxy.local:3128")
 	t.Setenv("SLACK_MCP_SERVER_CA", pem)
-	c := ProvideHTTPClient(nil, zap.NewNop())
+	c, err := ProvideHTTPClient(nil, zap.NewNop())
+	require.NoError(t, err)
 	inner, ok := unwrapUA(t, c).roundTripper.(*http.Transport)
 	require.True(t, ok)
 	u, err := inner.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "slack.com"}})
@@ -263,7 +267,8 @@ func TestProvideHTTPClientUnparsableCAWarnsAndContinues(t *testing.T) {
 	pem := filepath.Join(t.TempDir(), "junk.pem")
 	require.NoError(t, os.WriteFile(pem, []byte("not a pem"), 0o600))
 	t.Setenv("SLACK_MCP_SERVER_CA", pem)
-	c := ProvideHTTPClient(nil, zap.NewNop())
+	c, err := ProvideHTTPClient(nil, zap.NewNop())
+	require.NoError(t, err)
 	require.NotNil(t, c)
 	assert.NotNil(t, unwrapUA(t, c).roundTripper.(*http.Transport).TLSClientConfig)
 }
@@ -278,4 +283,61 @@ func pemEncode(der []byte) []byte {
 
 func verifyOpts(pool *x509.CertPool) x509.VerifyOptions {
 	return x509.VerifyOptions{Roots: pool, DNSName: "example.com"}
+}
+
+func TestProvideHTTPClientRejectsConflictingAndBrokenEnv(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"proxy with custom TLS", map[string]string{"SLACK_MCP_PROXY": "http://p:1", "SLACK_MCP_CUSTOM_TLS": "1"}, "cannot be used together"},
+		{"unparsable proxy", map[string]string{"SLACK_MCP_PROXY": "http://[::1"}, "parse SLACK_MCP_PROXY"},
+		{"removed toolkit var", map[string]string{"SLACK_MCP_SERVER_CA_TOOLKIT": "1"}, "no longer supported"},
+		{"missing CA file", map[string]string{"SLACK_MCP_SERVER_CA": filepath.Join(t.TempDir(), "nope.pem")}, "read SLACK_MCP_SERVER_CA"},
+		{"CA with insecure", map[string]string{"SLACK_MCP_SERVER_CA": "x.pem", "SLACK_MCP_SERVER_CA_INSECURE": "true"}, "cannot be used together"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearTransportEnv(t)
+			if ca, ok := tc.env["SLACK_MCP_SERVER_CA"]; ok && ca == "x.pem" {
+				ca = filepath.Join(t.TempDir(), "x.pem")
+				require.NoError(t, os.WriteFile(ca, []byte("x"), 0o600))
+				tc.env["SLACK_MCP_SERVER_CA"] = ca
+			}
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			c, err := ProvideHTTPClient(nil, zap.NewNop())
+			require.Error(t, err)
+			assert.Nil(t, c)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+func TestRateLimited(t *testing.T) {
+	assert.Nil(t, RateLimited(&http.Response{StatusCode: http.StatusOK}))
+
+	withHeader := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{" 7 "}}}
+	limited := RateLimited(withHeader)
+	require.NotNil(t, limited)
+	assert.Equal(t, 7*time.Second, limited.RetryAfter)
+
+	for _, raw := range []string{"", "soon", "-1"} {
+		resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{raw}}}
+		limited := RateLimited(resp)
+		require.NotNil(t, limited, raw)
+		assert.Equal(t, defaultRetryAfter, limited.RetryAfter, raw)
+	}
+}
+
+func TestSlackDomain(t *testing.T) {
+	t.Setenv("SLACK_MCP_GOVSLACK", "")
+	assert.Equal(t, "slack.com", SlackDomain())
+	assert.Equal(t, "https://slack.com/api/", SlackAPIBase())
+
+	t.Setenv("SLACK_MCP_GOVSLACK", "1")
+	assert.Equal(t, "slack-gov.com", SlackDomain())
+	assert.Equal(t, "https://slack-gov.com/api/", SlackAPIBase())
 }

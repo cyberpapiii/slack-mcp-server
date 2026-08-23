@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
+	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
 )
 
@@ -442,18 +443,13 @@ func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params Seman
 		return SemanticSearchPage{}, err
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	httpClient, err := c.authProvider.HTTPClient()
-	if err != nil {
-		return SemanticSearchPage{}, err
-	}
-	response, err := httpClient.Do(request)
+	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return SemanticSearchPage{}, err
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusTooManyRequests {
-		seconds, _ := strconv.Atoi(response.Header.Get("Retry-After"))
-		return SemanticSearchPage{}, &slack.RateLimitedError{RetryAfter: time.Duration(seconds) * time.Second}
+	if rateLimited := transportpkg.RateLimited(response); rateLimited != nil {
+		return SemanticSearchPage{}, rateLimited
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))

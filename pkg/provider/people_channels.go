@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
@@ -352,21 +351,20 @@ func (c *MCPSlackClient) UpdateUserProfileContext(ctx context.Context, update Us
 	if token == "" {
 		token = c.authProvider.SlackToken()
 	}
-	endpoint := slackAPIBase() + "users.profile.set"
+	endpoint := transportpkg.SlackAPIBase() + "users.profile.set"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := transportpkg.ProvideHTTPClient(c.authProvider.Cookies(), c.logger).Do(req)
+	response, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusTooManyRequests {
-		retryAfter, _ := strconv.Atoi(response.Header.Get("Retry-After"))
-		return nil, &slack.RateLimitedError{RetryAfter: time.Duration(retryAfter) * time.Second}
+	if rateLimited := transportpkg.RateLimited(response); rateLimited != nil {
+		return nil, rateLimited
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("Slack users.profile.set returned HTTP %d", response.StatusCode)
