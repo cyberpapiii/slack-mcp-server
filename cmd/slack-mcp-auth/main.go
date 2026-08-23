@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -28,7 +29,14 @@ const (
 )
 
 var openURL = func(target string) error {
-	return exec.Command("open", target).Start()
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", target).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+	default:
+		return exec.Command("xdg-open", target).Start()
+	}
 }
 
 type loginOptions struct {

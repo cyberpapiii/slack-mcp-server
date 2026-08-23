@@ -11,8 +11,9 @@ make test          # all tests except *Integration*, with -race (CI gate)
 make test-integration  # needs Slack/ngrok secrets
 make build         # outputs ./build/slack-mcp-server (read-only: no tidy/format)
 make prepare       # go mod tidy + go fmt, the only targets that rewrite files
-make deploy-local  # build bin/slack-mcp-server + plug server disable/enable slack
+make deploy-local  # build bin/slack-mcp-server + bin/slack-mcp-auth, codesign, plug server disable/enable slack
 go build -o bin/slack-mcp-server ./cmd/slack-mcp-server  # manual equivalent
+go build -o build/slack-mcp-auth ./cmd/slack-mcp-auth      # OAuth helper: manifest / login / status / logout (docs/01)
 ```
 
 `make lint && make test` is the whole verification gate. Neither mutates the
@@ -70,6 +71,7 @@ A denied channel returns a `permission_denied` tool error that names the variabl
 
 ```
 cmd/slack-mcp-server/main.go   → flags, cache warmup goroutine, transport
+cmd/slack-mcp-auth/            → OAuth login helper; writes the rotating credential to macOS Keychain
 pkg/capability/catalog.go    → the tool table (names, hints, presets, phases, scopes)
 pkg/server/                  → tool registration (server.go, core_tools.go, daily_power_tools.go, custom_power_tools.go), middleware
 pkg/handler/                 → per-tool handlers; csv_result.go holds the CSV contract
