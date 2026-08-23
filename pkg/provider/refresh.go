@@ -46,12 +46,13 @@ func (f *refreshFlight) inFlight() bool {
 // do runs fetch as the leader, or waits for the in-flight leader and returns
 // its error. A failed leader fails its waiters too; the callers' own retry
 // policy decides whether to try again, so one Slack outage costs one fetch.
-func (f *refreshFlight) do(ctx context.Context, fetch func(context.Context) error) error {
+func (f *refreshFlight) do(ctx context.Context, fetch func(context.Context) error) (err error) {
 	call, leader := f.begin()
 	if leader {
-		err := fetch(ctx)
-		f.finish(call, err)
-		return err
+		// Deferred so a recovered panic in fetch cannot leave the flight
+		// open forever (server.WithRecovery swallows handler panics).
+		defer func() { f.finish(call, err) }()
+		return fetch(ctx)
 	}
 	select {
 	case <-call.done:
@@ -73,8 +74,9 @@ func (ap *ApiProvider) spawnBackgroundRefresh(f *refreshFlight, what string, fet
 	go func() {
 		ctx, cancel := context.WithTimeout(ap.lifetime(), ap.backgroundRefreshTimeout)
 		defer cancel()
-		err := fetch(ctx)
-		f.finish(call, err)
+		var err error
+		defer func() { f.finish(call, err) }()
+		err = fetch(ctx)
 		if err != nil {
 			ap.logger.Warn("Background refresh failed, continuing with stale data",
 				zap.String("cache", what), zap.Error(err))

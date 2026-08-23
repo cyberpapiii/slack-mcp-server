@@ -129,6 +129,7 @@ func TestUnitListsClientTypedErrors(t *testing.T) {
 		{"scope", 200, `{"ok":false,"error":"missing_scope"}`, "", ListsErrorScope},
 		{"permission", 200, `{"ok":false,"error":"no_permission"}`, "", ListsErrorPermission},
 		{"rate limit", 429, `{"ok":false,"error":"ratelimited"}`, "7", ListsErrorRateLimit},
+		{"rate limit without header", 429, `{"ok":false,"error":"ratelimited"}`, "", ListsErrorRateLimit},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -144,7 +145,11 @@ func TestUnitListsClientTypedErrors(t *testing.T) {
 			require.ErrorAs(t, err, &typed)
 			assert.Equal(t, test.kind, typed.Kind)
 			if test.kind == ListsErrorRateLimit {
-				assert.Equal(t, 7*time.Second, typed.RetryAfter)
+				want := 7 * time.Second
+				if test.retryAfter == "" {
+					want = 5 * time.Second
+				}
+				assert.Equal(t, want, typed.RetryAfter, "missing Retry-After falls back to the shared 5s default")
 				assert.True(t, typed.Retryable())
 			}
 		})

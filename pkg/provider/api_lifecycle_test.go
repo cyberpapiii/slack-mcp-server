@@ -161,3 +161,15 @@ func TestUnitBrowserCallWithoutBrowserSession(t *testing.T) {
 	_, err = c.ActivityFeed(context.Background(), 10)
 	assert.ErrorIs(t, err, ErrBrowserSessionUnavailable)
 }
+
+func TestUnitRefreshFlightReleasesAfterPanic(t *testing.T) {
+	f := &refreshFlight{}
+	func() {
+		defer func() { _ = recover() }()
+		_ = f.do(context.Background(), func(context.Context) error { panic("boom") })
+	}()
+	require.False(t, f.inFlight(), "a recovered panic must not leave the flight open")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, f.do(ctx, func(context.Context) error { return nil }), "next caller becomes leader")
+}

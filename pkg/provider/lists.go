@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -327,9 +326,8 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 		return fmt.Errorf("call %s: %w", method, err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusTooManyRequests {
-		retryAfter, _ := strconv.Atoi(response.Header.Get("Retry-After"))
-		return &ListsAPIError{Kind: ListsErrorRateLimit, StatusCode: response.StatusCode, RetryAfter: time.Duration(retryAfter) * time.Second}
+	if limited := transportpkg.RateLimited(response); limited != nil {
+		return &ListsAPIError{Kind: ListsErrorRateLimit, StatusCode: response.StatusCode, RetryAfter: limited.RetryAfter}
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil {
