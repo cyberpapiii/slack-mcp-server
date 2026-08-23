@@ -115,7 +115,7 @@ Fetches a CSV directory of all users in the workspace.
 | `SLACK_MCP_PROXY` | | Proxy URL for outgoing requests. |
 | `SLACK_MCP_USER_AGENT` / `SLACK_MCP_CUSTOM_TLS` | | Custom User-Agent, and a matching TLS handshake, for enterprise networks. |
 | `SLACK_MCP_SERVER_CA` / `SLACK_MCP_SERVER_CA_INSECURE` | | Extra CA PEM path; `true` trusts every certificate (debugging only). `SLACK_MCP_SERVER_CA_TOOLKIT` is removed and fatals if set. |
-| `SLACK_MCP_GOVSLACK` | | `true` routes API calls to `slack-gov.com`. |
+| `SLACK_MCP_GOVSLACK` | | `true`/`1`/`yes` routes every API, edge, and OAuth call to `slack-gov.com`. |
 | `SLACK_MCP_LOG_LEVEL` / `SLACK_MCP_LOG_FORMAT` / `SLACK_MCP_LOG_COLOR` | `info` / auto / auto | Zap level; `json` or console (auto: JSON when not a TTY or in a container); colour on or off. |
 | `SLACK_MCP_LOG_PARAMS` | unset | `debug` logs full tool parameters at Info (may include message text). |
 
