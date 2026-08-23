@@ -48,19 +48,13 @@ func main() {
 
 	enabledTools, err := resolveEnabledTools(enabledToolsFlag, toolPreset)
 	if err != nil {
-		logger.Fatal("error in SLACK_MCP_ENABLED_TOOLS / SLACK_MCP_TOOL_PRESET",
-			zap.String("context", "console"),
-			zap.Error(err),
-		)
+		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS / SLACK_MCP_TOOL_PRESET", err)
 	}
 
 	for _, name := range channelAllowlistVars {
 		value := os.Getenv(name)
 		if err = validateToolConfig(value); err != nil {
-			logger.Fatal("error in "+name,
-				zap.String("context", "console"),
-				zap.Error(err),
-			)
+			fatal(logger, "error in "+name, err)
 		}
 		if isFalsy(value) {
 			logger.Warn(name+"="+value+" is treated as a channel allowlist and blocks every channel; unset it, or drop the tool from SLACK_MCP_ENABLED_TOOLS to disable it",
@@ -72,10 +66,7 @@ func main() {
 
 	err = server.ValidateEnabledTools(enabledTools)
 	if err != nil {
-		logger.Fatal("error in SLACK_MCP_ENABLED_TOOLS",
-			zap.String("context", "console"),
-			zap.Error(err),
-		)
+		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS", err)
 	}
 
 	p := provider.New(transport, logger)
@@ -99,78 +90,39 @@ func main() {
 		startCacheWarmup(p, s, logger)
 	}
 
+	if ready, _ := p.IsReady(); !ready {
+		logger.Info("Slack MCP Server is still warming up caches, serving immediately",
+			zap.String("context", "console"),
+		)
+	}
+
 	switch transport {
 	case "stdio":
-		if ready, _ := p.IsReady(); !ready {
-			logger.Info("Slack MCP Server is still warming up caches, serving immediately",
-				zap.String("context", "console"),
-			)
-		}
 		if err := s.ServeStdio(); err != nil {
-			logger.Fatal("Server error",
-				zap.String("context", "console"),
-				zap.Error(err),
-			)
+			fatal(logger, "Server error", err)
 		}
-	case "sse":
+	case "sse", "http":
 		if err := auth.RequireAPIKeyOrOptOut(logger); err != nil {
-			logger.Fatal("Server error",
-				zap.String("context", "console"),
-				zap.Error(err),
-			)
+			fatal(logger, "Server error", err)
 		}
-
 		host, port := listenHostPort()
 		addr := host + ":" + port
-		sseServer := s.ServeSSE(addr)
+		var srv interface{ Start(string) error }
+		path := ""
+		if transport == "sse" {
+			srv = s.ServeSSE(addr)
+			path = "/sse"
+		} else {
+			srv = s.ServeHTTP(addr)
+		}
 		logger.Info(
-			fmt.Sprintf("SSE server listening on %s:%s/sse", host, port),
+			fmt.Sprintf("%s server listening on %s%s", strings.ToUpper(transport), addr, path),
 			zap.String("context", "console"),
 			zap.String("host", host),
 			zap.String("port", port),
 		)
-
-		if ready, _ := p.IsReady(); !ready {
-			logger.Info("Slack MCP Server is still warming up caches",
-				zap.String("context", "console"),
-			)
-		}
-
-		if err := sseServer.Start(addr); err != nil {
-			logger.Fatal("Server error",
-				zap.String("context", "console"),
-				zap.Error(err),
-			)
-		}
-	case "http":
-		if err := auth.RequireAPIKeyOrOptOut(logger); err != nil {
-			logger.Fatal("Server error",
-				zap.String("context", "console"),
-				zap.Error(err),
-			)
-		}
-
-		host, port := listenHostPort()
-		addr := host + ":" + port
-		httpServer := s.ServeHTTP(addr)
-		logger.Info(
-			fmt.Sprintf("HTTP server listening on %s:%s", host, port),
-			zap.String("context", "console"),
-			zap.String("host", host),
-			zap.String("port", port),
-		)
-
-		if ready, _ := p.IsReady(); !ready {
-			logger.Info("Slack MCP Server is still warming up caches",
-				zap.String("context", "console"),
-			)
-		}
-
-		if err := httpServer.Start(addr); err != nil {
-			logger.Fatal("Server error",
-				zap.String("context", "console"),
-				zap.Error(err),
-			)
+		if err := srv.Start(addr); err != nil {
+			fatal(logger, "Server error", err)
 		}
 	default:
 		logger.Fatal("Invalid transport type",
@@ -179,6 +131,10 @@ func main() {
 			zap.String("allowed", "stdio, sse, http"),
 		)
 	}
+}
+
+func fatal(logger *zap.Logger, msg string, err error) {
+	logger.Fatal(msg, zap.String("context", "console"), zap.Error(err))
 }
 
 func resolveEnabledTools(explicit, preset string) ([]string, error) {
