@@ -488,27 +488,20 @@ func buildLoggerMiddleware(logger *zap.Logger) server.ToolHandlerMiddleware {
 	logParams := strings.EqualFold(os.Getenv("SLACK_MCP_LOG_PARAMS"), "debug")
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			logger.Info("Request received",
-				zap.String("tool", req.Params.Name),
-			)
+			fields := []zap.Field{zap.String("tool", req.Params.Name)}
 			if logParams {
-				logger.Info("Request params",
-					zap.String("tool", req.Params.Name),
-					zap.Any("params", req.Params),
-				)
+				fields = append(fields, zap.Any("params", req.Params))
 			}
+			logger.Info("Request received", fields...)
 
 			startTime := time.Now()
-
 			res, err := next(ctx, req)
-
-			duration := time.Since(startTime)
 
 			logger.Info("Request finished",
 				zap.String("tool", req.Params.Name),
-				zap.Duration("duration", duration),
+				zap.Duration("duration", time.Since(startTime)),
+				zap.Bool("is_error", err != nil || (res != nil && res.IsError)),
 			)
-
 			return res, err
 		}
 	}

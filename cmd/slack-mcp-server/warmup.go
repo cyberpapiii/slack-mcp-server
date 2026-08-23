@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	warmupMaxAttempts    = 3
+	// warmupFastAttempts is how many attempts run at warmupRetryDelay before
+	// the loop drops to warmupSlowRetryDelay; it never stops retrying.
+	warmupFastAttempts   = 3
 	warmupRetryDelay     = 30 * time.Second
 	warmupSlowRetryDelay = 5 * time.Minute
 	// Match provider background refresh budget so cold large workspaces can
@@ -19,9 +21,9 @@ const (
 	warmupRefreshTimeout = 15 * time.Minute
 )
 
-// warmupNextDelay: nextAttempt is 1-based. Fast for attempts <= warmupMaxAttempts, else slow.
+// warmupNextDelay: nextAttempt is 1-based. Fast for attempts <= warmupFastAttempts, else slow.
 func warmupNextDelay(nextAttempt int) time.Duration {
-	if nextAttempt <= warmupMaxAttempts {
+	if nextAttempt <= warmupFastAttempts {
 		return warmupRetryDelay
 	}
 	return warmupSlowRetryDelay
@@ -30,17 +32,8 @@ func warmupNextDelay(nextAttempt int) time.Duration {
 func startCacheWarmup(p *provider.ApiProvider, s *server.MCPServer, logger *zap.Logger) {
 	go func() {
 		for attempt := 1; ; attempt++ {
-			if provider.IsDemoCredentials() {
-				logger.Info("Demo credentials are set, skip cache warm-up",
-					zap.String("context", "console"),
-				)
-				p.SkipCache()
-				s.RegisterCacheDependentTools()
-				return
-			}
-
-			refreshUsersCache(p, logger)
-			refreshChannelsCache(p, logger)
+			warm(logger, "users", p.RefreshUsers)
+			warm(logger, "channels", p.RefreshChannels)
 
 			ready, err := p.IsReady()
 			if ready {
@@ -59,17 +52,17 @@ func startCacheWarmup(p *provider.ApiProvider, s *server.MCPServer, logger *zap.
 			}
 
 			switch {
-			case attempt < warmupMaxAttempts:
+			case attempt < warmupFastAttempts:
 				logger.Warn("Cache warm-up incomplete, retrying",
 					zap.String("context", "console"),
 					zap.Int("attempt", attempt),
 					zap.Error(err),
 					zap.Duration("next_retry_in", warmupRetryDelay),
 				)
-			case attempt == warmupMaxAttempts:
+			case attempt == warmupFastAttempts:
 				logger.Error("Cache warm-up failed after retries; cache-dependent tools will not be available until a background retry succeeds",
 					zap.String("context", "console"),
-					zap.Int("attempts", warmupMaxAttempts),
+					zap.Int("attempts", warmupFastAttempts),
 					zap.Duration("slow_retry_every", warmupSlowRetryDelay),
 					zap.Error(err),
 				)
@@ -86,31 +79,16 @@ func startCacheWarmup(p *provider.ApiProvider, s *server.MCPServer, logger *zap.
 	}()
 }
 
-func refreshUsersCache(p *provider.ApiProvider, logger *zap.Logger) {
-	logger.Info("Caching users collection...",
-		zap.String("context", "console"),
-	)
+// warm runs one cache refresh under the warm-up budget and logs a failure;
+// the caller decides whether to retry.
+func warm(logger *zap.Logger, what string, refresh func(context.Context) error) {
+	logger.Info("Caching "+what+" collection...", zap.String("context", "console"))
 	ctx, cancel := context.WithTimeout(context.Background(), warmupRefreshTimeout)
 	defer cancel()
-	err := p.RefreshUsers(ctx)
-	if err != nil {
-		logger.Error("Users cache warm-up failed; server continues with degraded cache",
+	if err := refresh(ctx); err != nil {
+		logger.Error("Cache warm-up failed; server continues with degraded cache",
 			zap.String("context", "console"),
-			zap.Error(err),
-		)
-	}
-}
-
-func refreshChannelsCache(p *provider.ApiProvider, logger *zap.Logger) {
-	logger.Info("Caching channels collection...",
-		zap.String("context", "console"),
-	)
-	ctx, cancel := context.WithTimeout(context.Background(), warmupRefreshTimeout)
-	defer cancel()
-	err := p.RefreshChannels(ctx)
-	if err != nil {
-		logger.Error("Channels cache warm-up failed; server continues with degraded cache",
-			zap.String("context", "console"),
+			zap.String("cache", what),
 			zap.Error(err),
 		)
 	}

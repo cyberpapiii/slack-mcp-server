@@ -31,15 +31,11 @@ var silentPassWarnOnce sync.Once
 // RequireAPIKeyOrOptOut returns an error if no API key is configured for a
 // network transport and the operator has not explicitly opted out via
 // SLACK_MCP_ALLOW_UNAUTHENTICATED=true.
-func apiKeyFromEnv(logger *zap.Logger, warnDeprecated bool) string {
+func apiKeyFromEnv() string {
 	if key := os.Getenv("SLACK_MCP_API_KEY"); key != "" {
 		return key
 	}
-	key := os.Getenv("SLACK_MCP_SSE_API_KEY")
-	if key != "" && warnDeprecated {
-		logger.Warn("SLACK_MCP_SSE_API_KEY is deprecated, please use SLACK_MCP_API_KEY")
-	}
-	return key
+	return os.Getenv("SLACK_MCP_SSE_API_KEY")
 }
 
 func allowUnauthenticated() bool {
@@ -48,7 +44,10 @@ func allowUnauthenticated() bool {
 }
 
 func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
-	if apiKeyFromEnv(logger, true) != "" {
+	if apiKeyFromEnv() != "" {
+		if os.Getenv("SLACK_MCP_API_KEY") == "" {
+			logger.Warn("SLACK_MCP_SSE_API_KEY is deprecated, please use SLACK_MCP_API_KEY")
+		}
 		return nil
 	}
 
@@ -71,7 +70,7 @@ func constantTimeEqualAPIKey(configured, provided string) bool {
 }
 
 func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
-	keyA := apiKeyFromEnv(logger, true)
+	keyA := apiKeyFromEnv()
 
 	if keyA == "" {
 		if allowUnauthenticated() {
@@ -144,12 +143,6 @@ func BuildMiddleware(transport string, logger *zap.Logger) server.ToolHandlerMid
 			)
 
 			if authenticated, err := IsAuthenticated(ctx, transport, logger); !authenticated {
-				logger.Error("Authentication failed",
-					zap.String("context", "http"),
-					zap.String("transport", transport),
-					zap.String("tool", req.Params.Name),
-					zap.Error(err),
-				)
 				return nil, err
 			}
 
@@ -170,23 +163,10 @@ func IsAuthenticated(ctx context.Context, transport string, logger *zap.Logger) 
 		return true, nil
 
 	case "sse", "http":
-		authenticated, err := validateToken(ctx, logger)
-
-		if err != nil {
-			logger.Error("HTTP/SSE authentication error",
-				zap.String("context", "http"),
-				zap.Error(err),
-			)
+		// validateToken logs the specific reason once; callers add nothing.
+		if authenticated, err := validateToken(ctx, logger); !authenticated || err != nil {
 			return false, fmt.Errorf("unauthorized")
 		}
-
-		if !authenticated {
-			logger.Warn("HTTP/SSE unauthorized request",
-				zap.String("context", "http"),
-			)
-			return false, fmt.Errorf("unauthorized")
-		}
-
 		return true, nil
 
 	default:
