@@ -132,20 +132,6 @@ type filesListParams struct {
 	cursor  string
 }
 
-type FileListResult struct {
-	FileID     string `csv:"FileID"`
-	Name       string `csv:"Name"`
-	Title      string `csv:"Title"`
-	Mimetype   string `csv:"Mimetype"`
-	Filetype   string `csv:"Filetype"`
-	PrettyType string `csv:"PrettyType"`
-	Size       int    `csv:"Size"`
-	UserID     string `csv:"UserID"`
-	Created    string `csv:"Created"`
-	Permalink  string `csv:"Permalink"`
-	Cursor     string `csv:"Cursor"`
-}
-
 type usersSearchParams struct {
 	query string
 	limit int
@@ -477,16 +463,19 @@ type renderOptions struct {
 	mode         text.OutputMode
 	workspaceURL string
 	channelName  func(channelID string) string
-	nextCursor   string
+	meta         ResultMeta
+	// trailer is appended after the message rows: a companion CSV table
+	// (saved state, activity feed keys) under its own "#<name>:" line.
+	trailer string
 }
 
 // render builds the per-call rendering context for message CSV output.
-func (ch *ConversationsHandler) render(mode text.OutputMode, nextCursor string) renderOptions {
+func (ch *ConversationsHandler) render(mode text.OutputMode, meta ResultMeta) renderOptions {
 	return renderOptions{
 		mode:         mode,
 		workspaceURL: ch.apiProvider.WorkspaceURL(),
 		channelName:  ch.channelDisplayName,
-		nextCursor:   nextCursor,
+		meta:         meta,
 	}
 }
 
@@ -500,19 +489,18 @@ func (ch *ConversationsHandler) channelDisplayName(channelID string) string {
 }
 
 func marshalMessagesToCSV(messages []Message, opts renderOptions) (*mcp.CallToolResult, error) {
-	meta := SlackResultMeta(opts.nextCursor, false, "")
 	if opts.mode != text.ModeFull {
-		return marshalMessagesToCompactCSV(messages, opts, meta)
+		return marshalMessagesToCompactCSV(messages, opts)
 	}
 	csvBytes, err := gocsv.MarshalBytes(&messages)
 	if err != nil {
 		return nil, err
 	}
-	return NewCSVResult(buildChannelsLegend(messages, opts.channelName), meta, string(csvBytes)), nil
+	return NewCSVResult(buildChannelsLegend(messages, opts.channelName), opts.meta, string(csvBytes)+opts.trailer), nil
 }
 
 // marshalMessagesToCompactCSV converts messages to the default agent CSV format.
-func marshalMessagesToCompactCSV(messages []Message, opts renderOptions, meta ResultMeta) (*mcp.CallToolResult, error) {
+func marshalMessagesToCompactCSV(messages []Message, opts renderOptions) (*mcp.CallToolResult, error) {
 	compact := make([]CompactMessage, len(messages))
 	for i, m := range messages {
 		user := m.RealName
@@ -551,31 +539,18 @@ func marshalMessagesToCompactCSV(messages []Message, opts renderOptions, meta Re
 	}
 
 	legend := buildLegendHeader(messages, opts)
-	return NewCSVResult(legend, meta, string(csvBytes)), nil
+	return NewCSVResult(legend, opts.meta, string(csvBytes)+opts.trailer), nil
 }
 
 // buildChannelsLegend emits "#channels: C1=#general, D2=@bob" for every
 // distinct conversation ID in the page that the cache can name. The Channel
 // column itself always holds the bare ID.
 func buildChannelsLegend(messages []Message, channelName func(string) string) string {
-	if channelName == nil {
-		return ""
+	ids := make([]string, len(messages))
+	for i, m := range messages {
+		ids[i] = m.Channel
 	}
-	seen := make(map[string]bool)
-	var parts []string
-	for _, m := range messages {
-		if m.Channel == "" || seen[m.Channel] {
-			continue
-		}
-		seen[m.Channel] = true
-		if name := channelName(m.Channel); name != "" {
-			parts = append(parts, m.Channel+"="+name)
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return "#channels: " + strings.Join(parts, ", ") + "\n"
+	return channelsLegend(ids, channelName)
 }
 
 // buildLegendHeader emits comment lines (agent-oriented, not CSV data) that

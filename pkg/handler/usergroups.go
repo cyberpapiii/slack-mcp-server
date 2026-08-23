@@ -16,15 +16,15 @@ import (
 )
 
 type UserGroup struct {
-	ID          string `csv:"id" json:"id" jsonschema:"User group ID"`
-	Name        string `csv:"name" json:"name" jsonschema:"Group display name"`
-	Handle      string `csv:"handle" json:"handle" jsonschema:"@mention handle"`
-	Description string `csv:"description" json:"description" jsonschema:"Group description"`
-	UserCount   int    `csv:"user_count" json:"user_count" jsonschema:"Number of members"`
-	IsExternal  bool   `csv:"is_external" json:"is_external" jsonschema:"Whether group is external"`
-	DateCreate  string `csv:"date_create" json:"date_create,omitempty" jsonschema:"Creation timestamp"`
-	DateUpdate  string `csv:"date_update" json:"date_update,omitempty" jsonschema:"Last update timestamp"`
-	Users       string `csv:"users,omitempty" json:"users,omitempty" jsonschema:"Semicolon-separated user IDs when include_users=true"`
+	ID          string `csv:"ID" json:"id" jsonschema:"User group ID"`
+	Name        string `csv:"Name" json:"name" jsonschema:"Group display name"`
+	Handle      string `csv:"Handle" json:"handle" jsonschema:"@mention handle"`
+	Description string `csv:"Description" json:"description" jsonschema:"Group description"`
+	UserCount   int    `csv:"UserCount" json:"user_count" jsonschema:"Number of members"`
+	IsExternal  bool   `csv:"IsExternal" json:"is_external" jsonschema:"Whether group is external"`
+	DateCreate  string `csv:"DateCreate" json:"date_create,omitempty" jsonschema:"Creation timestamp"`
+	DateUpdate  string `csv:"DateUpdate" json:"date_update,omitempty" jsonschema:"Last update timestamp"`
+	Users       string `csv:"Users" json:"users,omitempty" jsonschema:"Semicolon-separated user IDs when include_users=true"`
 }
 
 type UsergroupMeActionResult struct {
@@ -118,7 +118,7 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 		return nil, err
 	}
 
-	return NewStructuredResult(UsergroupPageData{Usergroups: userGroupList}, SlackResultMeta("", false, ""), string(csvBytes)), nil
+	return NewCSVResult("", SlackResultMeta("", false, ""), string(csvBytes)), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -378,7 +378,7 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 		return nil, err
 	}
 
-	return NewStructuredResult(UsergroupPageData{Usergroups: userGroupList}, SlackResultMeta("", false, ""), string(csvBytes)), nil
+	return NewCSVResult("", SlackResultMeta("", false, ""), string(csvBytes)), nil
 }
 
 func sameMemberSet(a, b []string) bool {

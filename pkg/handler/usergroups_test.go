@@ -62,9 +62,7 @@ func TestNewUserGroupFromSlack_UsersJoin(t *testing.T) {
 
 		csvBytes, err := gocsv.MarshalBytes(&[]UserGroup{ug})
 		require.NoError(t, err)
-		assert.NotContains(t, string(csvBytes), "U1")
-		// Header still includes users column via omitempty on empty field.
-		assert.True(t, strings.Contains(string(csvBytes), "id") || strings.Contains(string(csvBytes), "ID") || len(csvBytes) > 0)
+		assert.Equal(t, "ID,Name,Handle,Description,UserCount,IsExternal,DateCreate,DateUpdate,Users\nS1,eng,,,0,false,,,\n", string(csvBytes))
 	})
 
 	t.Run("CSV round-trip keeps multi-user cell intact", func(t *testing.T) {
@@ -80,14 +78,22 @@ func TestNewUserGroupFromSlack_UsersJoin(t *testing.T) {
 	})
 }
 
-func TestUsergroupsMineReturnsTypedPage(t *testing.T) {
-	api := &fakeUsergroupsAPI{groups: []slack.UserGroup{{ID: "S1", Name: "eng", Users: []string{"U1"}}}}
+func TestUsergroupsListAndMineReturnCSVOnly(t *testing.T) {
+	api := &fakeUsergroupsAPI{groups: []slack.UserGroup{
+		{ID: "S1", Name: "eng", Handle: "eng", UserCount: 2, Users: []string{"U1", "U2"}},
+		{ID: "S2", Name: "ops", Handle: "ops", UserCount: 1, Users: []string{"U3"}},
+	}}
 	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
+
+	list, err := handler.UsergroupsListHandler(context.Background(), mcp.CallToolRequest{})
+	require.NoError(t, err)
+	assert.Nil(t, list.StructuredContent)
+	assert.Equal(t, "ID,Name,Handle,Description,UserCount,IsExternal,DateCreate,DateUpdate,Users\nS1,eng,eng,,2,false,,,U1;U2\nS2,ops,ops,,1,false,,,U3\n", ResultText(list))
 
 	mine, err := handler.UsergroupsMineHandler(context.Background(), mcp.CallToolRequest{})
 	require.NoError(t, err)
-	_, ok := mine.StructuredContent.(ToolResult[UsergroupPageData])
-	require.True(t, ok)
+	assert.Nil(t, mine.StructuredContent)
+	assert.Equal(t, "ID,Name,Handle,Description,UserCount,IsExternal,DateCreate,DateUpdate,Users\nS1,eng,eng,,2,false,,,U1;U2\n", ResultText(mine))
 }
 
 func TestUsergroupsJoinRechecksMembershipBeforeReplacing(t *testing.T) {

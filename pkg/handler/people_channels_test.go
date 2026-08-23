@@ -124,22 +124,35 @@ func TestPeopleHandlerStatusRejectsHalfWrappedEmoji(t *testing.T) {
 	assert.Zero(t, service.statusCalls)
 }
 
-func TestPeopleHandlerEmojiAndMembersExposeNextCursor(t *testing.T) {
+func TestPeopleHandlerEmojiAndMembersReturnCSVWithNextCursor(t *testing.T) {
 	service := &fakePeopleChannelsService{
-		emoji:   provider.EmojiPage{Emoji: []provider.Emoji{{Name: "wave"}}, NextCursor: "10"},
-		members: provider.ChannelMembersPage{ChannelID: "C1", UserIDs: []string{"U1"}, NextCursor: "next"},
+		emoji:   provider.EmojiPage{Emoji: []provider.Emoji{{Name: "wave", URL: "https://emoji/wave.png"}, {Name: "hi", AliasFor: "wave"}}, NextCursor: "10"},
+		members: provider.ChannelMembersPage{ChannelID: "C1", UserIDs: []string{"U1", "U2"}, NextCursor: "next"},
 	}
 	handler := newPeopleHandler(service)
+	handler.UserName = func(id string) string {
+		if id == "U1" {
+			return "Alice Smith"
+		}
+		return ""
+	}
 
 	emojiResult, err := handler.ListEmoji(context.Background(), peopleRequest(map[string]any{"limit": 10}))
 	require.NoError(t, err)
-	emoji := emojiResult.StructuredContent.(ToolResult[EmojiPageData])
-	assert.Equal(t, "10", emoji.Meta.NextCursor)
+	assert.Nil(t, emojiResult.StructuredContent)
+	assert.Equal(t, "#next_cursor: 10\nName,URL,Alias\nwave,https://emoji/wave.png,\nhi,,wave\n", ResultText(emojiResult))
 
 	membersResult, err := handler.ListChannelMembers(context.Background(), peopleRequest(map[string]any{"channel_id": "C1", "limit": 10}))
 	require.NoError(t, err)
-	members := membersResult.StructuredContent.(ToolResult[ChannelMembersData])
-	assert.Equal(t, "next", members.Meta.NextCursor)
+	assert.Nil(t, membersResult.StructuredContent)
+	assert.Equal(t, "#next_cursor: next\nUserID,Name\nU1,Alice Smith\nU2,\n", ResultText(membersResult))
+}
+
+func TestPeopleHandlerMembersLastPageHasNoCursorLine(t *testing.T) {
+	service := &fakePeopleChannelsService{members: provider.ChannelMembersPage{ChannelID: "C1", UserIDs: []string{"U1"}}}
+	result, err := newPeopleHandler(service).ListChannelMembers(context.Background(), peopleRequest(map[string]any{"channel_id": "C1"}))
+	require.NoError(t, err)
+	assert.Equal(t, "UserID,Name\nU1,\n", ResultText(result))
 }
 
 func TestPeopleHandlerCreateAndInviteValidateBeforeOneMutation(t *testing.T) {

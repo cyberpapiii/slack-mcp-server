@@ -108,6 +108,7 @@ func runChannelTest(t *testing.T, env *testEnv, channelType string, expectedChan
 	require.NotEmpty(t, toolOutput.String(), "No tool output captured")
 
 	reader := csv.NewReader(strings.NewReader(toolOutput.String()))
+	reader.Comment = '#'
 	rows, err := reader.ReadAll()
 	require.NoError(t, err, "Failed to parse CSV")
 	require.GreaterOrEqual(t, len(rows), 1, "CSV must have at least a header row")
@@ -208,6 +209,7 @@ func TestIntegrationChannelsListQueryFilter(t *testing.T) {
 	}
 
 	reader := csv.NewReader(strings.NewReader(toolOutput.String()))
+	reader.Comment = '#'
 	rows, err := reader.ReadAll()
 	require.NoError(t, err, "Failed to parse CSV")
 	require.GreaterOrEqual(t, len(rows), 1, "CSV must have at least a header row")
@@ -370,4 +372,36 @@ func TestUnitSortChannelsPopularityPaginatesInSortedOrder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"C04", "C01"}, channelIDs(page2), "page 2 continues the popularity order")
 	assert.Empty(t, cursor)
+}
+
+func TestUnitChannelsCSVCursorLineAndHeader(t *testing.T) {
+	rows := []Channel{
+		{ID: "C01", Name: "#general", Topic: "t", Purpose: "p", MemberCount: 12},
+		{ID: "C02", Name: "#random", MemberCount: 3},
+	}
+
+	result, err := marshalRowsToCSV("", &rows, "page-2")
+	require.NoError(t, err)
+	assert.Nil(t, result.StructuredContent)
+	lines := strings.Split(ResultText(result), "\n")
+	assert.Equal(t, "#next_cursor: page-2", lines[0])
+	assert.Equal(t, "ID,Name,Topic,Purpose,MemberCount", lines[1])
+	assert.Equal(t, "C01,#general,t,p,12", lines[2])
+
+	last, err := marshalRowsToCSV("", &rows, "")
+	require.NoError(t, err)
+	assert.Nil(t, last.StructuredContent)
+	body := ResultText(last)
+	assert.True(t, strings.HasPrefix(body, "ID,Name,Topic,Purpose,MemberCount\n"), body)
+	assert.NotContains(t, body, "#next_cursor")
+	assert.NotContains(t, body, "Cursor")
+}
+
+func TestUnitStarredChannelsCSVHeader(t *testing.T) {
+	rows := []StarredChannel{{ID: "D01", Name: "@bob", ChannelType: "dm", IsMuted: true, MemberCount: 2}}
+
+	result, err := marshalRowsToCSV("", &rows, "")
+	require.NoError(t, err)
+	assert.Nil(t, result.StructuredContent)
+	assert.Equal(t, "ID,Name,ChannelType,IsMuted,MemberCount\nD01,@bob,dm,true,2\n", ResultText(result))
 }

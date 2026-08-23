@@ -31,8 +31,6 @@ type DNDStateData struct {
 	SnoozeMinutesLeft int    `json:"snooze_minutes_left,omitempty"`
 }
 
-type DNDStateResult = ToolResult[DNDStateData]
-
 type DNDHandler struct {
 	api      DNDAPI
 	identity func() provider.ProviderIdentity

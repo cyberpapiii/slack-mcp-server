@@ -102,13 +102,13 @@ const (
 	ToolSearchSemantic              = "search_semantic"
 
 	descChannelID = "Channel ID (Cxxxxxxxxxx) or a channel/DM name starting with # or @, e.g. #general or @username."
-	descCursor    = "Pagination cursor from the previous response."
+	descCursor    = "Pagination cursor from the #next_cursor line of the previous response."
 	// descChannelIDRaw is for tools whose handler passes the ID straight to Slack
 	// without resolving #name or @name.
 	descChannelIDRaw      = "Channel ID starting with C or G (Cxxxxxxxxxx); names are not resolved."
 	descPrepareAction     = "prepare returns data.approval_token and a preview; execute performs the change."
 	descApprovalToken     = "Token from the prepare call; required for execute."
-	toolDetailDescription = "'standard' (compact CSV) or 'full' (adds UserID and Permalink columns); omit for the server default, normally standard. Output may begin with `#users:` (UserID=name legend) and `#link_template:` comment lines before the CSV header."
+	toolDetailDescription = "'standard' (compact CSV) or 'full' (adds UserID and Permalink columns); omit for the server default, normally standard. Comment lines may precede the CSV header: `#channels:` (ID=name), `#users:` (UserID=name), `#link_template:`, `#partial:`, `#next_cursor:`."
 )
 
 var ValidToolNames = capability.LegacyFullLocalTools()
@@ -239,12 +239,11 @@ func (s *MCPServer) registerCacheDependentTools() {
 	channelsHandler := handler.NewChannelsHandler(provider, logger)
 
 	addCacheDependentTool(s, enabledTools, mcp.NewTool(ToolChannelsList,
-		mcp.WithDescription("List channels in the workspace, filtered by channel_types. Returns CSV; the cursor value in the last row paginates."),
+		mcp.WithDescription("List channels in the workspace, filtered by channel_types. Returns CSV."),
 		mcp.WithTitleAnnotation("List Channels"),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("channel_types",
-			mcp.Required(),
-			mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Example: 'public_channel,private_channel,im'"),
+			mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Default: 'public_channel,private_channel'."),
 		),
 		mcp.WithString("sort",
 			mcp.Description("Sort order. Allowed value: 'popularity' sorts by number of members in each channel."),
@@ -277,7 +276,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 			mcp.Description("Maximum number of items to return (1-999)."),
 		),
 		mcp.WithString("cursor",
-			mcp.Description("Cursor for pagination."),
+			mcp.Description(descCursor),
 		),
 	), channelsHandler.ChannelsMeHandler)
 
@@ -299,7 +298,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 
 	if browserSession {
 		addCacheDependentTool(s, enabledTools, newDailyPowerTool(ToolConversationsUnreads,
-			mcp.WithDescription("Get unread messages across all channels using Slack browser session state (xoxc/xoxd). Requires a healthy browser session. Results are prioritized: DMs, then group DMs, then partner channels, then internal channels."),
+			mcp.WithDescription("Get unread messages per channel and DM, prioritized DMs, group DMs, partner channels, then internal channels. For thread replies and @mentions use activity_unreads. Needs a Slack browser session (xoxc/xoxd)."),
 			mcp.WithBoolean("include_messages",
 				mcp.Description("If true (default), returns the actual unread messages. If false, returns only a summary of channels with unreads."),
 				mcp.DefaultBool(true),
@@ -338,7 +337,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 		if addActivityUnreads {
 			guardCacheDependentRegistration(ToolActivityUnreads)
 			s.server.AddTool(newDailyPowerTool(ToolActivityUnreads,
-				mcp.WithDescription("Get unread Activity items (thread replies and @mentions). Returns the same data as Slack's Activity panel Unreads tab. Requires browser session tokens (xoxc/xoxd)."),
+				mcp.WithDescription("Get unread Activity items (thread replies and @mentions), as in Slack's Activity panel Unreads tab. Returns CSV: with include_messages=true the message rows come first, then an `#activity_items:` line and an item table (Type,Channel,MsgID,ThreadTs,UnreadCount,FeedTs,Key) whose Key, FeedTs and Type feed activity_mark_read. For unread channel messages use conversations_unreads. Needs a Slack browser session (xoxc/xoxd)."),
 				mcp.WithBoolean("include_messages",
 					mcp.Description("If true (default), fetches unread reply messages per thread. If false, returns summary only."),
 					mcp.DefaultBool(true),
@@ -361,17 +360,17 @@ func (s *MCPServer) registerCacheDependentTools() {
 		if addActivityMarkRead {
 			guardCacheDependentRegistration(ToolActivityMarkRead)
 			s.server.AddTool(newDailyPowerTool(ToolActivityMarkRead,
-				mcp.WithDescription("Mark an Activity item as read. Use the key, feed_ts, and type values from activity_unreads output."),
+				mcp.WithDescription("Mark an Activity item as read. Use the Key, FeedTs and Type values from the activity_unreads item table."),
 				mcp.WithString("key",
-					mcp.Description("Activity item key from activity_unreads output, e.g. 'thread_v2-C092WJP9Z38-1772545632.256259'."),
+					mcp.Description("Key column from activity_unreads, e.g. 'thread_v2-C092WJP9Z38-1772545632.256259'."),
 					mcp.Required(),
 				),
 				mcp.WithString("feed_ts",
-					mcp.Description("Feed timestamp from activity_unreads output."),
+					mcp.Description("FeedTs column from activity_unreads."),
 					mcp.Required(),
 				),
 				mcp.WithString("type",
-					mcp.Description("Item type from activity_unreads output: thread_v2, at_user, at_user_group, at_channel, at_everyone."),
+					mcp.Description("Type column from activity_unreads: thread_v2, at_user, at_user_group, at_channel, at_everyone."),
 					mcp.Required(),
 				),
 			), activityHandler.ActivityMarkReadHandler)

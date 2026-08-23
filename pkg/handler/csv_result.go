@@ -24,3 +24,26 @@ func NewCSVResult(legend string, meta ResultMeta, csv string) *mcp.CallToolResul
 	sb.WriteString(csv)
 	return mcp.NewToolResultText(sb.String())
 }
+
+// channelsLegend emits "#channels: C1=#general, D2=@bob" for every distinct
+// ID that channelName can label, or "" when none can be named.
+func channelsLegend(channelIDs []string, channelName func(string) string) string {
+	if channelName == nil {
+		return ""
+	}
+	seen := make(map[string]bool)
+	var parts []string
+	for _, id := range channelIDs {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if name := channelName(id); name != "" {
+			parts = append(parts, id+"="+name)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "#channels: " + strings.Join(parts, ", ") + "\n"
+}

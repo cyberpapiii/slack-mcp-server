@@ -52,8 +52,6 @@ type ActionData struct {
 	ActivityKey string `json:"activity_key,omitempty"`
 }
 
-type ActionResult = ToolResult[ActionData]
-
 // ToolResult keeps success and error structured content under one object
 // schema. Text content remains the compatibility representation.
 type ToolResult[T any] struct {
@@ -63,37 +61,6 @@ type ToolResult[T any] struct {
 	Error         *ErrorPayload `json:"error,omitempty"`
 }
 
-type MessageData struct {
-	Found   bool     `json:"found"`
-	Message *Message `json:"message,omitempty"`
-}
-
-type UnreadPageData struct {
-	Channels []UnreadChannel `json:"channels,omitempty"`
-	Messages []Message       `json:"messages,omitempty"`
-}
-
-type ActivityPageData struct {
-	Items    []ActivityItem `json:"items,omitempty"`
-	Messages []Message      `json:"messages,omitempty"`
-}
-
-type SavedPageData struct {
-	Items    []SavedItemRow `json:"items,omitempty"`
-	Messages []Message      `json:"messages,omitempty"`
-}
-
-type UsergroupPageData struct {
-	Usergroups []UserGroup `json:"usergroups,omitempty"`
-}
-
-type MessageResult = ToolResult[MessageData]
-type UnreadPageResult = ToolResult[UnreadPageData]
-type ActivityPageResult = ToolResult[ActivityPageData]
-type SavedPageResult = ToolResult[SavedPageData]
-type UsergroupPageResult = ToolResult[UsergroupPageData]
-type UsergroupMembershipResult = ToolResult[UsergroupMeActionResult]
-type UsergroupMutationResult = ToolResult[UserGroup]
 type AuthStatusResult = ToolResult[AuthStatusData]
 
 func SlackResultMeta(nextCursor string, partial bool, partialReason string) ResultMeta {

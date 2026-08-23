@@ -61,11 +61,6 @@ type ListItemDeleteData struct {
 	Status        string             `json:"status"`
 }
 
-type ListCreateResult = ToolResult[ListCreateData]
-type ListMutationResult = ToolResult[ListMutationData]
-type ListItemsPageResult = ToolResult[provider.ListItemsPage]
-type ListItemResult = ToolResult[provider.ListItem]
-type ListItemMutationResult = ToolResult[ListItemMutationData]
 type ListItemDeleteResult = ToolResult[ListItemDeleteData]
 
 func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

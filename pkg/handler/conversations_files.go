@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gocarina/gocsv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -194,34 +193,86 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 		nextCursor = nextPage.Cursor
 	}
 
-	results := make([]FileListResult, 0, len(files))
-	for i, f := range files {
-		cursor := ""
-		if i == len(files)-1 {
-			cursor = nextCursor
+	resolver := ch.newUserResolver(ctx)
+	userName := func(id string) string {
+		name, realName, _ := resolver.resolve(id)
+		if realName != "" {
+			return realName
 		}
-		results = append(results, FileListResult{
-			FileID:     f.ID,
-			Name:       f.Name,
-			Title:      f.Title,
-			Mimetype:   f.Mimetype,
-			Filetype:   f.Filetype,
-			PrettyType: f.PrettyType,
-			Size:       f.Size,
-			UserID:     f.User,
-			Created:    f.Created.Time().Format(time.RFC3339),
-			Permalink:  f.Permalink,
-			Cursor:     cursor,
-		})
+		return name
+	}
+	rows := make([]fileRow, 0, len(files))
+	for _, f := range files {
+		rows = append(rows, fileRowFromSlack(f, params.channel, userName))
 	}
 
-	csvBytes, err := gocsv.MarshalBytes(&results)
+	result, err := marshalFilesToCSV(rows, nextCursor, ch.channelDisplayName)
 	if err != nil {
 		ch.logger.Error("Failed to marshal files to CSV", zap.Error(err))
 		return nil, err
 	}
+	return result, nil
+}
 
-	return mcp.NewToolResultText(string(csvBytes)), nil
+// fileRow is one files_list CSV row. FileID feeds attachment_get_data;
+// Channel and MsgID locate the message the file was shared in.
+type fileRow struct {
+	FileID   string `csv:"FileID"`
+	Name     string `csv:"Name"`
+	Filetype string `csv:"Filetype"`
+	Size     int    `csv:"Size"`
+	Created  string `csv:"Created"`
+	User     string `csv:"User"`
+	Channel  string `csv:"Channel"`
+	MsgID    string `csv:"MsgID"`
+}
+
+func fileRowFromSlack(f slack.File, preferredChannel string, userName func(string) string) fileRow {
+	channel, msgID := fileShare(f, preferredChannel)
+	return fileRow{
+		FileID:   f.ID,
+		Name:     f.Name,
+		Filetype: f.Filetype,
+		Size:     f.Size,
+		Created:  f.Created.Time().Format(time.RFC3339),
+		User:     userName(f.User),
+		Channel:  channel,
+		MsgID:    msgID,
+	}
+}
+
+// fileShare picks the conversation a file row reports: the channel the
+// caller filtered on when the file is shared there, otherwise the first
+// conversation Slack lists. msgID is that share's message timestamp when
+// Slack reports one.
+func fileShare(f slack.File, preferredChannel string) (channel, msgID string) {
+	ids := make([]string, 0, len(f.Channels)+len(f.Groups)+len(f.IMs))
+	ids = append(ids, f.Channels...)
+	ids = append(ids, f.Groups...)
+	ids = append(ids, f.IMs...)
+	if len(ids) == 0 {
+		return "", ""
+	}
+	channel = ids[0]
+	for _, id := range ids {
+		if id == preferredChannel {
+			channel = id
+		}
+	}
+	for _, shares := range []map[string][]slack.ShareFileInfo{f.Shares.Public, f.Shares.Private} {
+		if infos := shares[channel]; len(infos) > 0 {
+			return channel, infos[0].Ts
+		}
+	}
+	return channel, ""
+}
+
+func marshalFilesToCSV(rows []fileRow, nextCursor string, channelName func(string) string) (*mcp.CallToolResult, error) {
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.Channel)
+	}
+	return marshalRowsToCSV(channelsLegend(ids, channelName), &rows, nextCursor)
 }
 
 func isImageMimetype(mimetype string) bool {

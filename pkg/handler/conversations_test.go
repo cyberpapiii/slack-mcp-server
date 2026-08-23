@@ -1022,7 +1022,7 @@ func TestUnitCompactCSVChannelsLegendAndCursor(t *testing.T) {
 		mode:         text.ModeStandard,
 		workspaceURL: "https://loop.slack.com/",
 		channelName:  func(id string) string { return names[id] },
-		nextCursor:   "cursor-2",
+		meta:         SlackResultMeta("cursor-2", false, ""),
 	}
 	result, err := marshalMessagesToCSV(messages, opts)
 	require.NoError(t, err)
@@ -1038,7 +1038,7 @@ func TestUnitCompactCSVChannelsLegendAndCursor(t *testing.T) {
 
 func TestUnitFullCSVCarriesCursorLine(t *testing.T) {
 	messages := compactCSVFixtureMessagesN(1)
-	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeFull, nextCursor: "c9"})
+	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeFull, meta: SlackResultMeta("c9", false, "")})
 	require.NoError(t, err)
 	body := csvResultBody(t, result)
 	assert.True(t, strings.HasPrefix(body, "#next_cursor: c9\n"), body)
@@ -1370,8 +1370,8 @@ func TestUnitSortChannelsByPriority(t *testing.T) {
 	t.Run("type outranks mention count: a silent DM beats a busy channel", func(t *testing.T) {
 		// The tiebreakers must not have become the primary key.
 		channels := []UnreadChannel{
-			{ChannelID: "C_busy", ChannelType: "internal", UnreadCount: 99, Latest: "1800000000.000000"},
-			{ChannelID: "D_quiet", ChannelType: "dm", UnreadCount: 0, Latest: "1000000000.000000"},
+			{ChannelID: "C_busy", ChannelType: "internal", UnreadCount: 99, LastRead: "1800000000.000000"},
+			{ChannelID: "D_quiet", ChannelType: "dm", UnreadCount: 0, LastRead: "1000000000.000000"},
 		}
 		ch.sortChannelsByPriority(channels)
 		assert.Equal(t, []string{"D_quiet", "C_busy"}, unreadIDs(channels))
@@ -1508,10 +1508,7 @@ func TestUnitParseParamsToolUnreadsChannelTypes(t *testing.T) {
 // TestUnitMarshalUnreadChannelsToCSV pins the exact wire contract of the
 // summary (include_messages=false) output.
 func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
-	ch := newUnreadsTestHandler()
-
-	// gocsv uses Go field names, not json tags.
-	const header = "ChannelID,ChannelName,ChannelType,UnreadCount,LastRead,Latest\n"
+	const header = "Channel,Name,Type,UnreadCount,LastRead\n"
 
 	t.Run("three channels, comma in a name is quoted", func(t *testing.T) {
 		channels := []UnreadChannel{
@@ -1521,7 +1518,6 @@ func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
 				ChannelType: "dm",
 				UnreadCount: 2,
 				LastRead:    "1700000000.000100",
-				Latest:      "1700000900.000200",
 			},
 			{
 				ChannelID:   "C222",
@@ -1529,7 +1525,6 @@ func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
 				ChannelType: "partner",
 				UnreadCount: 7,
 				LastRead:    "1700000100.000000",
-				Latest:      "1700000800.000000",
 			},
 			{
 				ChannelID:   "C333",
@@ -1537,34 +1532,44 @@ func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
 				ChannelType: "internal",
 				UnreadCount: 0,
 				LastRead:    "",
-				Latest:      "",
 			},
 		}
 
-		res, err := ch.marshalUnreadChannelsToCSV(channels)
+		res, err := marshalUnreadChannelsToCSV(channels, unreadsCoverage{}.meta())
 		require.NoError(t, err)
-		require.Len(t, res.Content, 1)
-		got := res.Content[0].(mcp.TextContent).Text
-		structured, ok := res.StructuredContent.(ToolResult[UnreadPageData])
-		require.True(t, ok)
-		require.NotNil(t, structured.Data)
-		assert.Equal(t, channels, structured.Data.Channels)
-		assert.Equal(t, TrustUntrusted, structured.Meta.Provenance.Trust)
-
+		assert.Nil(t, res.StructuredContent)
 		assert.Equal(t, header+
-			"D111,@alice,dm,2,1700000000.000100,1700000900.000200\n"+
-			"C222,\"#eng, product\",partner,7,1700000100.000000,1700000800.000000\n"+
-			"C333,#general,internal,0,,\n",
-			got)
+			"D111,@alice,dm,2,1700000000.000100\n"+
+			"C222,\"#eng, product\",partner,7,1700000100.000000\n"+
+			"C333,#general,internal,0,\n",
+			csvResultBody(t, res))
 	})
 
 	t.Run("empty and nil slices still emit the header row", func(t *testing.T) {
 		for _, channels := range [][]UnreadChannel{nil, {}} {
-			res, err := ch.marshalUnreadChannelsToCSV(channels)
+			res, err := marshalUnreadChannelsToCSV(channels, unreadsCoverage{}.meta())
 			require.NoError(t, err)
-			require.Len(t, res.Content, 1)
-			assert.Equal(t, header, res.Content[0].(mcp.TextContent).Text)
+			assert.Equal(t, header, csvResultBody(t, res))
 		}
+	})
+
+	t.Run("coverage gaps become one #partial line ahead of the header", func(t *testing.T) {
+		coverage := unreadsCoverage{
+			mutedUnavailable: true,
+			maxChannels:      2,
+			dropped:          3,
+			failed:           []string{"C_ERR"},
+			unbounded:        []string{"D_NEW"},
+		}
+		res, err := marshalUnreadChannelsToCSV(nil, coverage.meta())
+		require.NoError(t, err)
+		assert.Equal(t,
+			"#partial: muted-channel preferences unavailable; "+
+				"max_channels=2 reached, 3 more unread channels not listed; "+
+				"history fetch failed for C_ERR; "+
+				"no last-read bound for D_NEW (messages not fetched)\n"+
+				header,
+			csvResultBody(t, res))
 	})
 }
 
@@ -1614,7 +1619,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 	}
 
 	t.Run("read channel excluded, mention count preserved, silent channel kept at zero", func(t *testing.T) {
-		got := ch.collectUnreadChannels(defaultUnreadsParams(), counts(), users, channelsCache)
+		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), counts(), users, channelsCache)
 
 		require.Len(t, got, 2)
 		assert.ElementsMatch(t, []string{"C_MENTION", "C_SILENT"}, unreadIDs(got),
@@ -1631,7 +1636,6 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 
 		// Timestamps round-trip through fasttime.SlackString().
 		assert.Equal(t, "1700000000.000100", byID["C_MENTION"].LastRead)
-		assert.Equal(t, "1700000900.000200", byID["C_MENTION"].Latest)
 	})
 
 	t.Run("names, types and cache misses", func(t *testing.T) {
@@ -1643,7 +1647,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 				{ID: "C_UNKNOWN", HasUnreads: true},
 			},
 		}
-		got := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
+		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
 		require.Len(t, got, 4)
 
 		byID := map[string]UnreadChannel{}
@@ -1674,7 +1678,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 				{ID: "D_UNKNOWN", HasUnreads: true},
 			},
 		}
-		got := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
+		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
 		require.Len(t, got, 7)
 
 		byID := map[string]UnreadChannel{}
@@ -1701,14 +1705,14 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 	t.Run("muted channels are dropped", func(t *testing.T) {
 		p := defaultUnreadsParams()
 		p.mutedChannels = map[string]bool{"C_MENTION": true}
-		got := ch.collectUnreadChannels(p, counts(), users, channelsCache)
+		got, _ := ch.collectUnreadChannels(p, counts(), users, channelsCache)
 		assert.Equal(t, []string{"C_SILENT"}, unreadIDs(got))
 
 		// collect only reads mutedChannels; include_muted is upstream.
 		p2 := defaultUnreadsParams()
 		p2.includeMuted = true
 		p2.mutedChannels = map[string]bool{"C_MENTION": true}
-		got2 := ch.collectUnreadChannels(p2, counts(), users, channelsCache)
+		got2, _ := ch.collectUnreadChannels(p2, counts(), users, channelsCache)
 		assert.Equal(t, []string{"C_SILENT"}, unreadIDs(got2),
 			"include_muted alone does not undo an already-populated mutedChannels map")
 	})
@@ -1720,7 +1724,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		c.MPIMs = []edge.ChannelSnapshot{{ID: "G_MPIM", HasUnreads: true, MentionCount: 0}}
 		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true, MentionCount: 1}}
 
-		got := ch.collectUnreadChannels(p, c, users, channelsCache)
+		got, _ := ch.collectUnreadChannels(p, c, users, channelsCache)
 		assert.Equal(t, []string{"D_ALICE", "C_MENTION"}, unreadIDs(got),
 			"the zero-mention channel and the zero-mention MPIM are both dropped")
 	})
@@ -1746,14 +1750,14 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 			t.Run(tc.channelTypes, func(t *testing.T) {
 				p := defaultUnreadsParams()
 				p.channelTypes = tc.channelTypes
-				got := ch.collectUnreadChannels(p, c, users, channelsCache)
+				got, _ := ch.collectUnreadChannels(p, c, users, channelsCache)
 				assert.ElementsMatch(t, tc.wantIDs, unreadIDs(got))
 			})
 		}
 
 		t.Run("all", func(t *testing.T) {
 			p := defaultUnreadsParams()
-			got := ch.collectUnreadChannels(p, c, users, channelsCache)
+			got, _ := ch.collectUnreadChannels(p, c, users, channelsCache)
 			require.Len(t, got, 5)
 			assert.Equal(t, []string{"D_ALICE", "G_MPIM", "C_EXT", "C_MENTION", "C_SILENT"}, unreadIDs(got))
 		})
@@ -1765,8 +1769,9 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		p := defaultUnreadsParams()
 		p.maxChannels = 2
 
-		got := ch.collectUnreadChannels(p, c, users, channelsCache)
+		got, dropped := ch.collectUnreadChannels(p, c, users, channelsCache)
 		require.Len(t, got, 2)
+		assert.Equal(t, 1, dropped)
 		assert.Equal(t, "D_ALICE", got[0].ChannelID, "the DM survives truncation because sorting runs first")
 	})
 
@@ -1778,7 +1783,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 			p := defaultUnreadsParams()
 			p.maxChannels = maxChannels
 
-			got := ch.collectUnreadChannels(p, c, users, channelsCache)
+			got, _ := ch.collectUnreadChannels(p, c, users, channelsCache)
 			assert.ElementsMatch(t, []string{"D_ALICE", "C_MENTION", "C_SILENT"}, unreadIDs(got),
 				"a non-positive limit slices with a negative bound unless guarded; "+
 					"the guard skips truncation entirely rather than returning nothing")
@@ -1786,7 +1791,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 	})
 
 	t.Run("nothing unread yields a nil slice", func(t *testing.T) {
-		got := ch.collectUnreadChannels(defaultUnreadsParams(), edge.ClientCountsResponse{}, users, channelsCache)
+		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), edge.ClientCountsResponse{}, users, channelsCache)
 		assert.Nil(t, got)
 	})
 
@@ -1795,10 +1800,9 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		c := edge.ClientCountsResponse{
 			Channels: []edge.ChannelSnapshot{{ID: "C_SILENT", HasUnreads: true}},
 		}
-		got := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
+		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
 		require.Len(t, got, 1)
 		assert.Equal(t, "", got[0].LastRead)
-		assert.Equal(t, "", got[0].Latest)
 	})
 }
 
@@ -1974,7 +1978,7 @@ func TestUnitUnreadsZeroLastReadNeverReachesSlack(t *testing.T) {
 	p := defaultUnreadsParams()
 	p.includeMessages = false
 
-	channels := ch.collectUnreadChannels(p, counts, users, channelsCache)
+	channels, _ := ch.collectUnreadChannels(p, counts, users, channelsCache)
 	require.Len(t, channels, 2)
 
 	fake := &fakeHistoryFetcher{

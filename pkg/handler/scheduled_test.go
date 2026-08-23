@@ -45,24 +45,19 @@ func scheduledRequest(args map[string]any) mcp.CallToolRequest {
 	return request
 }
 
-func TestUnitScheduledListReturnsStableTypedFieldsAndExcerpt(t *testing.T) {
+func TestUnitScheduledListReturnsCSVRowsFilteredByQuery(t *testing.T) {
 	service := &fakeScheduledService{pages: []provider.ScheduledPage{{
-		Messages:   []provider.ScheduledMessage{{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "abcdefghijklmnopqrstuvwxyz", PostAt: time.Date(2026, 8, 9, 16, 0, 0, 0, time.FixedZone("EDT", -4*3600))}},
+		Messages: []provider.ScheduledMessage{
+			{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "abcdefghijklmnopqrstuvwxyz", PostAt: time.Date(2026, 8, 9, 16, 0, 0, 0, time.FixedZone("EDT", -4*3600))},
+			{ScheduledMessageID: "Q2", ChannelID: "C1", Text: "unrelated", PostAt: time.Date(2026, 8, 9, 17, 0, 0, 0, time.UTC)},
+		},
 		NextCursor: "next",
 	}}}
 	handler := newTestScheduledHandler(service)
 	result, err := handler.List(context.Background(), scheduledRequest(map[string]any{"limit": 25, "text_query": "abc"}))
 	require.NoError(t, err)
-	structured, ok := result.StructuredContent.(ToolResult[ScheduledPageData])
-	require.True(t, ok)
-	require.NotNil(t, structured.Data)
-	require.Len(t, structured.Data.Messages, 1)
-	message := structured.Data.Messages[0]
-	assert.Equal(t, "Q1", message.ScheduledMessageID)
-	assert.Equal(t, "C1", message.ChannelID)
-	assert.Equal(t, "2026-08-09T20:00:00Z", message.PostAt)
-	assert.Equal(t, "abcdefghijklmnopqrstuvwx…", message.TextExcerpt)
-	assert.Equal(t, "next", structured.Meta.NextCursor)
+	assert.Nil(t, result.StructuredContent)
+	assert.Equal(t, "#next_cursor: next\nScheduledID,Channel,PostAt,Text\nQ1,C1,2026-08-09T20:00:00Z,abcdefghijklmnopqrstuvwxyz\n", ResultText(result))
 }
 
 func TestUnitScheduledCancelPrepareExecuteRevalidatesAndConsumesApproval(t *testing.T) {

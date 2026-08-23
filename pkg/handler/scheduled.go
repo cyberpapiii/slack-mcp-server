@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -33,8 +34,13 @@ type ScheduledMessage struct {
 	PostAt             string `json:"post_at"`
 }
 
-type ScheduledPageData struct {
-	Messages []ScheduledMessage `json:"messages"`
+// ScheduledRow is one scheduled_messages_list CSV row. ScheduledID and
+// Channel are the two arguments scheduled_message_cancel needs.
+type ScheduledRow struct {
+	ScheduledID string `csv:"ScheduledID"`
+	Channel     string `csv:"Channel"`
+	PostAt      string `csv:"PostAt"`
+	Text        string `csv:"Text"`
 }
 
 type ScheduledCancelData struct {
@@ -46,7 +52,6 @@ type ScheduledCancelData struct {
 	Outcome       string            `json:"outcome"`
 }
 
-type ScheduledPageResult = ToolResult[ScheduledPageData]
 type ScheduledCancelResult = ToolResult[ScheduledCancelData]
 
 type ScheduledHandler struct {
@@ -77,14 +82,23 @@ func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest
 		return NewTypedErrorResult(scheduledError(err, false)), nil
 	}
 	query := strings.ToLower(strings.TrimSpace(request.GetString("text_query", "")))
-	data := ScheduledPageData{Messages: make([]ScheduledMessage, 0, len(page.Messages))}
+	rows := make([]ScheduledRow, 0, len(page.Messages))
 	for _, message := range page.Messages {
 		if query != "" && !strings.Contains(strings.ToLower(message.Text), query) {
 			continue
 		}
-		data.Messages = append(data.Messages, scheduledResultMessage(message))
+		rows = append(rows, ScheduledRow{
+			ScheduledID: message.ScheduledMessageID,
+			Channel:     message.ChannelID,
+			PostAt:      message.PostAt.UTC().Format(time.RFC3339),
+			Text:        message.Text,
+		})
 	}
-	return NewStructuredResult(data, SlackResultMeta(page.NextCursor, false, ""), fallbackJSON(data)), nil
+	csvBytes, err := gocsv.MarshalBytes(&rows)
+	if err != nil {
+		return nil, err
+	}
+	return NewCSVResult("", SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
 }
 
 func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

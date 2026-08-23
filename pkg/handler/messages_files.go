@@ -57,7 +57,6 @@ type MessageMutationData struct {
 	Outcome            string                    `json:"outcome"`
 }
 
-type FileUploadResult = ToolResult[FileUploadData]
 type MessageMutationResult = ToolResult[MessageMutationData]
 
 type MessageFilesHandler struct {

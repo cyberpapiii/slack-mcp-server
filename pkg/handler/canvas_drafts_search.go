@@ -2,13 +2,17 @@ package handler
 
 import (
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
 )
@@ -26,10 +30,6 @@ type CanvasMutationData struct {
 	CanvasID string `json:"canvas_id"`
 	Status   string `json:"status"`
 }
-
-type CanvasCreateResult = ToolResult[CanvasMutationData]
-type CanvasReadResult = ToolResult[provider.CanvasDocument]
-type CanvasUpdateResult = ToolResult[CanvasMutationData]
 
 func (h *CanvasHandler) Create(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "CanvasCreate called", request)
@@ -107,6 +107,9 @@ type DraftsHandler struct {
 	approvals *approval.Store
 	identity  func() provider.ProviderIdentity
 	logger    *zap.Logger
+	// ChannelName resolves a conversation ID to its cached "#name" or "@user"
+	// label for the #channels legend. nil leaves the legend out.
+	ChannelName func(channelID string) string
 }
 
 func NewDraftsHandler(api provider.DraftsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *DraftsHandler {
@@ -121,9 +124,17 @@ type DraftMutationData struct {
 	ExpiresAt     string          `json:"expires_at,omitempty"`
 }
 
-type DraftPageResult = ToolResult[provider.DraftPage]
-type DraftResult = ToolResult[provider.Draft]
 type DraftMutationResult = ToolResult[DraftMutationData]
+
+// DraftRow is one drafts_list CSV row. DraftID feeds drafts_get, drafts_update,
+// and drafts_delete; the handlers re-read the draft's update stamp themselves.
+type DraftRow struct {
+	DraftID  string `csv:"DraftID"`
+	Channel  string `csv:"Channel"`
+	ThreadTs string `csv:"ThreadTs"`
+	Updated  string `csv:"Updated"`
+	Text     string `csv:"Text"`
+}
 
 func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DraftsList called", request)
@@ -135,7 +146,26 @@ func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (
 	if err != nil {
 		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
 	}
-	return NewStructuredResult(page, SlackResultMeta(page.NextCursor, false, ""), fallbackJSON(page)), nil
+	rows := make([]DraftRow, len(page.Drafts))
+	channelIDs := make([]string, len(page.Drafts))
+	for i, draft := range page.Drafts {
+		rows[i] = DraftRow{DraftID: draft.ID, Channel: draft.ChannelID, ThreadTs: draft.ThreadTS, Updated: slackTsTime(draft.UpdatedTS), Text: draft.Text}
+		channelIDs[i] = draft.ChannelID
+	}
+	csvBytes, err := gocsv.MarshalBytes(&rows)
+	if err != nil {
+		return nil, err
+	}
+	return NewCSVResult(channelsLegend(channelIDs, h.ChannelName), SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
+}
+
+// slackTsTime renders a Slack "seconds.micros" timestamp as RFC3339 and
+// passes anything else through unchanged.
+func slackTsTime(ts string) string {
+	if rendered, err := text.TimestampToIsoRFC3339(ts); err == nil {
+		return rendered
+	}
+	return ts
 }
 
 func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -250,13 +280,49 @@ func draftDeleteBinding(identity func() provider.ProviderIdentity, draft provide
 type SemanticSearchHandler struct {
 	api    provider.SemanticSearchAPI
 	logger *zap.Logger
+	// ChannelName resolves a conversation ID to its cached "#name" or "@user"
+	// label for the #channels legend. nil leaves the legend out.
+	ChannelName func(channelID string) string
 }
 
 func NewSemanticSearchHandler(api provider.SemanticSearchAPI, logger *zap.Logger) *SemanticSearchHandler {
 	return &SemanticSearchHandler{api: api, logger: logger}
 }
 
-type SemanticSearchResult = ToolResult[provider.SemanticSearchPage]
+// semanticMessageColumns mirror the history row shape so message hits read
+// like conversations_history output. Slack returns author IDs only, hence
+// UserID rather than a resolved User column. semanticFileColumns extend them
+// when the page can contain file hits; FileID feeds attachment_get_data.
+var (
+	semanticMessageColumns = []string{"UserID", "Channel", "Text", "Time", "MsgID"}
+	semanticFileColumns    = []string{"Type", "UserID", "Channel", "Text", "Time", "MsgID", "FileID", "Title", "FileType"}
+)
+
+func semanticSearchCSV(items []provider.SemanticSearchItem, includeFiles bool) (string, error) {
+	for _, item := range items {
+		includeFiles = includeFiles || item.Kind == "file"
+	}
+	header := semanticMessageColumns
+	if includeFiles {
+		header = semanticFileColumns
+	}
+	var sb strings.Builder
+	w := csv.NewWriter(&sb)
+	_ = w.Write(header)
+	for _, item := range items {
+		row := []string{item.AuthorUserID, item.ChannelID, item.Content, "", item.MessageTS}
+		if item.MessageTS != "" {
+			row[3] = slackTsTime(item.MessageTS)
+		}
+		if includeFiles {
+			row = append([]string{item.Kind}, row...)
+			row = append(row, item.FileID, item.Title, item.FileType)
+		}
+		_ = w.Write(row)
+	}
+	w.Flush()
+	return sb.String(), w.Error()
+}
 
 func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "SemanticSearch called", request)
@@ -283,7 +349,15 @@ func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallTool
 	if err != nil {
 		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
 	}
-	return NewStructuredResult(page, SlackResultMeta(page.NextCursor, false, ""), fallbackJSON(page)), nil
+	csvText, err := semanticSearchCSV(page.Items, slices.Contains(input.ContentTypes, "files"))
+	if err != nil {
+		return nil, err
+	}
+	channelIDs := make([]string, len(page.Items))
+	for i, item := range page.Items {
+		channelIDs[i] = item.ChannelID
+	}
+	return NewCSVResult(channelsLegend(channelIDs, h.ChannelName), SlackResultMeta(page.NextCursor, false, ""), csvText), nil
 }
 
 func canvasDraftSearchError(err error, mutation bool) error {

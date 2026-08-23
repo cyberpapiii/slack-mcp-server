@@ -65,6 +65,7 @@ func TestCanvasHandlersValidateAndReturnPartialRead(t *testing.T) {
 
 type fakeDraftsAPI struct {
 	draft       provider.Draft
+	nextCursor  string
 	deletedID   string
 	unsupported bool
 }
@@ -73,7 +74,7 @@ func (f *fakeDraftsAPI) ListDrafts(context.Context, string, int) (provider.Draft
 	if f.unsupported {
 		return provider.DraftPage{}, provider.ErrPersistedDraftsUnsupported
 	}
-	return provider.DraftPage{Drafts: []provider.Draft{f.draft}}, nil
+	return provider.DraftPage{Drafts: []provider.Draft{f.draft}, NextCursor: f.nextCursor}, nil
 }
 func (f *fakeDraftsAPI) GetDraft(context.Context, string) (provider.Draft, error) {
 	if f.unsupported {
@@ -102,6 +103,32 @@ func TestDraftsUnsupportedIsTyped(t *testing.T) {
 	assert.Equal(t, "unsupported", result.StructuredContent.(ToolResult[struct{}]).Error.Code)
 }
 
+func TestDraftsListReturnsCSVWithChannelsLegendAndNextCursor(t *testing.T) {
+	api := &fakeDraftsAPI{
+		draft:      provider.Draft{ID: "D1", ChannelID: "C1", ThreadTS: "1723456789.000100", Text: "hello, world", UpdatedTS: "1723456789.000200"},
+		nextCursor: "page2",
+	}
+	handler := NewDraftsHandler(api, approval.NewStore(time.Minute), nil, zap.NewNop())
+	handler.ChannelName = func(id string) string {
+		if id == "C1" {
+			return "#general"
+		}
+		return ""
+	}
+	result, err := handler.List(context.Background(), capabilityRequest(map[string]any{"limit": 20}))
+	require.NoError(t, err)
+	assert.Nil(t, result.StructuredContent)
+	assert.Equal(t, "#channels: C1=#general\n#next_cursor: page2\nDraftID,Channel,ThreadTs,Updated,Text\nD1,C1,1723456789.000100,2024-08-12T09:59:49Z,\"hello, world\"\n", ResultText(result))
+}
+
+func TestDraftsListWithoutChannelResolverOmitsLegend(t *testing.T) {
+	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
+	handler := NewDraftsHandler(api, approval.NewStore(time.Minute), nil, zap.NewNop())
+	result, err := handler.List(context.Background(), capabilityRequest(map[string]any{}))
+	require.NoError(t, err)
+	assert.Equal(t, "DraftID,Channel,ThreadTs,Updated,Text\nD1,C1,,,draft\n", ResultText(result))
+}
+
 func TestDraftDeleteRequiresBoundOneUseApproval(t *testing.T) {
 	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
 	handler := NewDraftsHandler(api, approval.NewStore(time.Minute), func() provider.ProviderIdentity {
@@ -127,23 +154,43 @@ func TestDraftDeleteRequiresBoundOneUseApproval(t *testing.T) {
 
 type fakeSemanticAPI struct {
 	request provider.SemanticSearchRequest
+	items   []provider.SemanticSearchItem
 }
 
 func (f *fakeSemanticAPI) SearchSemantic(_ context.Context, request provider.SemanticSearchRequest) (provider.SemanticSearchPage, error) {
 	f.request = request
-	return provider.SemanticSearchPage{Items: []provider.SemanticSearchItem{{Content: "match"}}, NextCursor: "next"}, nil
+	return provider.SemanticSearchPage{Items: f.items, NextCursor: "next"}, nil
 }
 
 func TestSemanticSearchHandlerSupportsMessageAndFileFilters(t *testing.T) {
-	api := &fakeSemanticAPI{}
+	api := &fakeSemanticAPI{items: []provider.SemanticSearchItem{
+		{Kind: "message", AuthorUserID: "U1", ChannelID: "C1", MessageTS: "1723456789.000200", Content: "launch plan draft"},
+		{Kind: "file", AuthorUserID: "U2", FileID: "F1", Title: "Launch plan", FileType: "canvas", Content: "plan, v2"},
+	}}
 	handler := NewSemanticSearchHandler(api, zap.NewNop())
+	handler.ChannelName = func(id string) string { return map[string]string{"C1": "#launch"}[id] }
 	result, err := handler.Search(context.Background(), capabilityRequest(map[string]any{"query": "launch plan", "content_types": []any{"messages", "files"}}))
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 	assert.Equal(t, 20, api.request.Limit)
-	assert.Equal(t, "next", result.StructuredContent.(ToolResult[provider.SemanticSearchPage]).Meta.NextCursor)
+	assert.Nil(t, result.StructuredContent)
+	assert.Equal(t, "#channels: C1=#launch\n#next_cursor: next\n"+
+		"Type,UserID,Channel,Text,Time,MsgID,FileID,Title,FileType\n"+
+		"message,U1,C1,launch plan draft,2024-08-12T09:59:49Z,1723456789.000200,,,\n"+
+		"file,U2,,\"plan, v2\",,,F1,Launch plan,canvas\n", ResultText(result))
 
 	invalid, err := handler.Search(context.Background(), capabilityRequest(map[string]any{"query": "x", "content_types": []any{"canvases"}}))
 	require.NoError(t, err)
 	assert.True(t, invalid.IsError)
+}
+
+func TestSemanticSearchMessagesOnlyUsesHistoryShapedColumns(t *testing.T) {
+	api := &fakeSemanticAPI{items: []provider.SemanticSearchItem{
+		{Kind: "message", AuthorUserID: "U1", ChannelID: "C1", MessageTS: "1723456789.000200", Content: "match"},
+	}}
+	handler := NewSemanticSearchHandler(api, zap.NewNop())
+	result, err := handler.Search(context.Background(), capabilityRequest(map[string]any{"query": "match", "content_types": []any{"messages"}}))
+	require.NoError(t, err)
+	assert.Nil(t, result.StructuredContent)
+	assert.Equal(t, "#next_cursor: next\nUserID,Channel,Text,Time,MsgID\nU1,C1,match,2024-08-12T09:59:49Z,1723456789.000200\n", ResultText(result))
 }

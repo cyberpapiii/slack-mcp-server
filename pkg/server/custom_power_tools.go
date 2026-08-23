@@ -35,6 +35,16 @@ func registerCustomPowerTools(s *mcpserver.MCPServer, api *provider.ApiProvider,
 
 	if service, err := api.PeopleChannels(); err == nil {
 		h := handler.NewPeopleChannelsHandler(service, api.Identity, logger)
+		h.UserName = func(id string) string {
+			u, ok := api.ProvideUsersMap().Users[id]
+			if !ok {
+				return ""
+			}
+			if u.RealName != "" {
+				return u.RealName
+			}
+			return u.Name
+		}
 		addEnabledTool(s, enabled, newDailyPowerTool(ToolUsersGetProfile, mcp.WithDescription("Read a full Slack user profile."), mcp.WithString("user_id", mcp.Description("User ID starting with U or W; defaults to the authenticated user.")), mcp.WithBoolean("include_labels", mcp.Description("Include the display labels of custom profile fields; defaults to true."))), h.GetUserProfile)
 
 		addEnabledTool(s, enabled, newDailyPowerTool(ToolUsersSetProfile, mcp.WithDescription("Update the authenticated user's Slack profile."),
@@ -47,7 +57,7 @@ func registerCustomPowerTools(s *mcpserver.MCPServer, api *provider.ApiProvider,
 
 		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsCreate, mcp.WithDescription("Create a public or private Slack channel."), mcp.WithString("name", mcp.Required(), mcp.Description("Channel name, 1 to 80 lowercase letters, numbers, hyphens, or underscores.")), mcp.WithBoolean("is_private", mcp.Description("Create a private channel; defaults to false (public).")), mcp.WithString("team_id", mcp.Description("Workspace (team) ID for Enterprise Grid orgs; defaults to the authenticated user's team."))), h.CreateChannel)
 
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsMembers, mcp.WithDescription("List channel member user IDs."), mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)), mcp.WithString("cursor", mcp.Description(descCursor)), mcp.WithNumber("limit", mcp.Description("Maximum member IDs per page, 1 to 200; defaults to 100."))), h.ListChannelMembers)
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsMembers, mcp.WithDescription("List channel members. Returns CSV with UserID and Name (empty when the user is not in the cache)."), mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)), mcp.WithString("cursor", mcp.Description(descCursor)), mcp.WithNumber("limit", mcp.Description("Maximum members per page, 1 to 200; defaults to 100."))), h.ListChannelMembers)
 
 		addEnabledTool(s, enabled, newDailyPowerTool(ToolChannelsInvite, mcp.WithDescription("Invite users to a Slack channel."), mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)), mcp.WithArray("user_ids", mcp.Required(), mcp.Items(map[string]any{"type": "string"}), mcp.Description("User IDs starting with U or W to invite; 1 to 1000 entries, duplicates ignored."))), h.InviteChannelMembers)
 
@@ -65,7 +75,14 @@ func registerCustomPowerTools(s *mcpserver.MCPServer, api *provider.ApiProvider,
 		addEnabledTool(s, enabled, newDailyPowerTool(ToolCanvasesUpdate, mcp.WithDescription("Apply exactly one Markdown edit to a Slack canvas."), mcp.WithString("canvas_id", mcp.Required(), mcp.Description("Canvas ID, a Slack file ID starting with F (e.g. F1234567890).")), mcp.WithArray("changes", mcp.Required(), mcp.MinItems(1), mcp.MaxItems(1), mcp.Items(change), mcp.Description("Exactly one edit object with operation, markdown, and section_id (needed for insert_before and insert_after)."))), h.Update)
 	}
 
+	channelName := func(id string) string {
+		if cached, ok := api.ProvideChannelsMaps().Channels[id]; ok {
+			return cached.Name
+		}
+		return ""
+	}
 	drafts := handler.NewDraftsHandler(api.Drafts(), approvals, api.Identity, logger)
+	drafts.ChannelName = channelName
 	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsList, mcp.WithDescription("List persisted Slack drafts from the authenticated browser session."), mcp.WithString("cursor", mcp.Description(descCursor)), mcp.WithNumber("limit", mcp.Description("Maximum drafts per page, 1 to 100; defaults to 50."))), drafts.List)
 
 	addEnabledTool(s, enabled, newDailyPowerTool(ToolDraftsGet, mcp.WithDescription("Read one persisted Slack draft."), mcp.WithString("draft_id", mcp.Required(), mcp.Description("Draft ID as returned by drafts_list or drafts_create."))), drafts.Get)
@@ -78,7 +95,8 @@ func registerCustomPowerTools(s *mcpserver.MCPServer, api *provider.ApiProvider,
 
 	if service, err := api.SemanticSearch(); err == nil {
 		h := handler.NewSemanticSearchHandler(service, logger)
-		addEnabledTool(s, enabled, newDailyPowerTool(ToolSearchSemantic, mcp.WithDescription("Search Slack messages and files semantically when Slack Real-time Search is enabled for the app."),
+		h.ChannelName = channelName
+		addEnabledTool(s, enabled, newDailyPowerTool(ToolSearchSemantic, mcp.WithDescription("Semantic (meaning-based) search over messages and files; use for natural-language questions when exact keywords are unknown. For keyword, from:, in:, or date-filtered search use conversations_search_messages. Only works when Slack Real-time Search is enabled for the app."),
 			mcp.WithString("query", mcp.Required(), mcp.Description("Natural-language search query or question.")), mcp.WithArray("content_types", mcp.Items(map[string]any{"type": "string", "enum": []string{"messages", "files"}}), mcp.Description("Result kinds to include; defaults to messages only.")),
 			mcp.WithArray("channel_types", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Channel kinds to search: public_channel, private_channel, mpim, im; defaults to public_channel.")), mcp.WithString("context_channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) Slack uses to scope or bias results when applicable.")), mcp.WithString("cursor", mcp.Description(descCursor)), mcp.WithBoolean("include_bots", mcp.Description("Include messages authored by bots; defaults to false.")), mcp.WithNumber("limit", mcp.Description("Maximum results per page, 1 to 20; defaults to 20."))), h.Search)
 	}

@@ -19,13 +19,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// UnreadChannel is one summary row of conversations_unreads. LastRead is the
+// oldest bound for a conversations_history follow-up; conversations_mark
+// needs no timestamp, so Latest is not carried.
 type UnreadChannel struct {
-	ChannelID   string `json:"channel_id"`
-	ChannelName string `json:"channel_name"`
-	ChannelType string `json:"channel_type"` // "dm", "group_dm", "partner", "internal"
-	UnreadCount int    `json:"unread_count"`
-	LastRead    string `json:"last_read"`
-	Latest      string `json:"latest"`
+	ChannelID   string `csv:"Channel" json:"channel_id"`
+	ChannelName string `csv:"Name" json:"channel_name"`
+	ChannelType string `csv:"Type" json:"channel_type"` // "dm", "group_dm", "partner", "internal"
+	UnreadCount int    `csv:"UnreadCount" json:"unread_count"`
+	LastRead    string `csv:"LastRead" json:"last_read"`
 }
 
 func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -77,7 +79,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	usersMap := ch.apiProvider.ProvideUsersMap()
 	channelsMaps := ch.apiProvider.ProvideChannelsMaps()
 
-	unreadChannels := ch.collectUnreadChannels(params, counts, usersMap, channelsMaps)
+	unreadChannels, dropped := ch.collectUnreadChannels(params, counts, usersMap, channelsMaps)
 
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
 
@@ -85,8 +87,10 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		return cancelledToolResult(), nil
 	}
 
+	coverage := unreadsCoverage{mutedUnavailable: params.mutedUnavailable, maxChannels: params.maxChannels, dropped: dropped}
+
 	if !params.includeMessages {
-		return ch.marshalUnreadChannelsToCSV(unreadChannels)
+		return marshalUnreadChannelsToCSV(unreadChannels, coverage.meta())
 	}
 
 	var allMessages []Message
@@ -103,6 +107,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 			// No bound: unbounded history would mislead. Same conservative 1
 			// as the summary/backfill path.
 			unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, 0, nil)
+			coverage.unbounded = append(coverage.unbounded, unreadChannels[i].ChannelID)
 			continue
 		}
 
@@ -120,27 +125,48 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 				zap.Error(err))
 			// Failed fetch must not render 0 unread when HasUnreads was true.
 			unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, 0, err)
+			coverage.failed = append(coverage.failed, unreadChannels[i].ChannelID)
 			continue
 		}
 
 		// Zero-row window still reports ≥1 when HasUnreads was true.
 		unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, len(history.Messages), nil)
 
-		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, unreadChannels[i].ChannelName, false, mode)
+		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, unreadChannels[i].ChannelID, false, mode)
 		allMessages = append(allMessages, channelMessages...)
 	}
 
 	ch.logger.Debug("Fetched unread messages", zap.Int("total", len(allMessages)))
 
-	rendered, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: ch.apiProvider.WorkspaceURL()})
-	if err != nil {
-		return nil, err
+	return marshalMessagesToCSV(allMessages, ch.render(mode, coverage.meta()))
+}
+
+// unreadsCoverage records why a conversations_unreads page may under-report
+// and renders that as the result's partial meta.
+type unreadsCoverage struct {
+	mutedUnavailable bool
+	maxChannels      int
+	dropped          int      // unread channels cut by max_channels
+	failed           []string // channels whose history fetch failed
+	unbounded        []string // channels with no last_read, so no history window
+}
+
+func (c unreadsCoverage) meta() ResultMeta {
+	var reasons []string
+	if c.mutedUnavailable {
+		reasons = append(reasons, "muted-channel preferences unavailable")
 	}
-	return NewStructuredResult(
-		UnreadPageData{Channels: unreadChannels, Messages: allMessages},
-		SlackResultMeta("", params.mutedUnavailable, "muted-channel preferences unavailable"),
-		ResultText(rendered),
-	), nil
+	if c.dropped > 0 {
+		reasons = append(reasons, fmt.Sprintf("max_channels=%d reached, %d more unread channels not listed", c.maxChannels, c.dropped))
+	}
+	if len(c.failed) > 0 {
+		reasons = append(reasons, "history fetch failed for "+strings.Join(c.failed, " "))
+	}
+	if len(c.unbounded) > 0 {
+		reasons = append(reasons, "no last-read bound for "+strings.Join(c.unbounded, " ")+" (messages not fetched)")
+	}
+	reason := strings.Join(reasons, "; ")
+	return SlackResultMeta("", reason != "", reason)
 }
 
 func unreadCountFromHistory(current, msgCount int, fetchErr error) int {
@@ -234,9 +260,9 @@ func slackTS(t fasttime.Time) string {
 }
 
 // collectUnreadChannels turns a client.counts snapshot into the sorted, limited
-// list of unread channels. Pure: no API calls. The caller supplies the cache
-// snapshots.
-func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts edge.ClientCountsResponse, usersMap *provider.UsersCache, channelsMaps *provider.ChannelsCache) []UnreadChannel {
+// list of unread channels plus the count cut by max_channels. Pure: no API
+// calls. The caller supplies the cache snapshots.
+func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts edge.ClientCountsResponse, usersMap *provider.UsersCache, channelsMaps *provider.ChannelsCache) ([]UnreadChannel, int) {
 	var unreadChannels []UnreadChannel
 
 	for _, snap := range counts.Channels {
@@ -276,7 +302,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelType: channelType,
 			UnreadCount: snap.MentionCount,
 			LastRead:    slackTS(snap.LastRead),
-			Latest:      slackTS(snap.Latest),
 		})
 	}
 
@@ -313,7 +338,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelType: "group_dm",
 			UnreadCount: snap.MentionCount,
 			LastRead:    slackTS(snap.LastRead),
-			Latest:      slackTS(snap.Latest),
 		})
 	}
 
@@ -351,18 +375,19 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelType: "dm",
 			UnreadCount: snap.MentionCount,
 			LastRead:    slackTS(snap.LastRead),
-			Latest:      slackTS(snap.Latest),
 		})
 	}
 
 	ch.sortChannelsByPriority(unreadChannels)
 
 	// maxChannels > 0 backstop: non-positive would slice negative and panic.
+	dropped := 0
 	if params.maxChannels > 0 && len(unreadChannels) > params.maxChannels {
+		dropped = len(unreadChannels) - params.maxChannels
 		unreadChannels = unreadChannels[:params.maxChannels]
 	}
 
-	return unreadChannels
+	return unreadChannels, dropped
 }
 
 // slackRetryAfter checks if an error is a Slack rate limit error and returns
@@ -504,17 +529,14 @@ func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel)
 	})
 }
 
-// marshalUnreadChannelsToCSV converts unread channels to CSV format
-func (ch *ConversationsHandler) marshalUnreadChannelsToCSV(channels []UnreadChannel) (*mcp.CallToolResult, error) {
+// marshalUnreadChannelsToCSV renders the include_messages=false summary. Rows
+// carry their own Name column, so no "#channels:" legend is needed.
+func marshalUnreadChannelsToCSV(channels []UnreadChannel, meta ResultMeta) (*mcp.CallToolResult, error) {
 	csvBytes, err := gocsv.MarshalBytes(&channels)
 	if err != nil {
 		return nil, err
 	}
-	return NewStructuredResult(
-		UnreadPageData{Channels: channels},
-		SlackResultMeta("", false, ""),
-		string(csvBytes),
-	), nil
+	return NewCSVResult("", meta, string(csvBytes)), nil
 }
 
 func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Context, request mcp.CallToolRequest) ([]string, error) {
@@ -634,7 +656,7 @@ func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest)
 		channel = channelsMaps.Channels[chn].ID
 	}
 
-	ts := request.GetString("ts", "")
+	ts := request.GetString("timestamp", "")
 
 	return &markParams{
 		channel: channel,

@@ -46,7 +46,7 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 	}
 
 	messages := ch.convertMessagesFromHistory(ctx, []slack.Message{*msg}, channel, true, mode)
-	return marshalMessagesToCSV(messages, ch.render(mode, ""))
+	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta("", false, "")))
 }
 
 func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -91,7 +91,7 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 	if history.HasMore {
 		nextCursor = history.ResponseMetaData.NextCursor
 	}
-	return marshalMessagesToCSV(messages, ch.render(mode, nextCursor))
+	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
 
 // ConversationsRepliesHandler streams thread replies as CSV
@@ -133,7 +133,7 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	if !hasMore {
 		nextCursor = ""
 	}
-	return marshalMessagesToCSV(messages, ch.render(mode, nextCursor))
+	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
 
 func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -174,7 +174,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	if messagesRes.Pagination.Page < messagesRes.Pagination.PageCount {
 		nextCursor = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("page:%d", messagesRes.Pagination.Page+1)))
 	}
-	return marshalMessagesToCSV(messages, ch.render(mode, nextCursor))
+	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
 
 // UnreadChannel represents a channel with unread messages

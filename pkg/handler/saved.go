@@ -14,14 +14,29 @@ import (
 	"go.uber.org/zap"
 )
 
+// SavedItemRow is one saved ("Later") message. Channel and MsgID are the
+// saved_update item_id and ts arguments; Slack's item_id is the channel ID,
+// so it is not carried twice.
 type SavedItemRow struct {
-	ItemID      string `csv:"ItemID" json:"item_id"`
-	ChannelID   string `csv:"ChannelID" json:"channel_id"`
-	ChannelName string `csv:"ChannelName" json:"channel_name"`
-	Ts          string `csv:"Ts" json:"ts"`
+	ChannelID   string `csv:"Channel" json:"channel_id"`
+	Ts          string `csv:"MsgID" json:"ts"`
 	DateCreated string `csv:"DateCreated" json:"date_created"`
 	DateDue     string `csv:"DateDue" json:"date_due,omitempty"`
 	State       string `csv:"State" json:"state"`
+}
+
+// renderSavedItems is the include_messages=false output: rows keyed by the
+// bare channel ID with a "#channels:" legend.
+func renderSavedItems(items []SavedItemRow, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
+	csvBytes, err := gocsv.MarshalBytes(&items)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal saved items: %v", err)
+	}
+	ids := make([]string, len(items))
+	for i, item := range items {
+		ids[i] = item.ChannelID
+	}
+	return NewCSVResult(channelsLegend(ids, channelName), meta, string(csvBytes)), nil
 }
 
 type SavedHandler struct {
@@ -56,7 +71,6 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 		return nil, err
 	}
 
-	channelsMaps := h.apiProvider.ProvideChannelsMaps()
 	rl := limiter.Tier3.Limiter()
 
 	var allItems []SavedItemRow
@@ -91,15 +105,8 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 				break
 			}
 
-			channelName := item.ItemID
-			if cached, ok := channelsMaps.Channels[item.ItemID]; ok {
-				channelName = cached.Name
-			}
-
 			row := SavedItemRow{
-				ItemID:      item.ItemID,
 				ChannelID:   item.ItemID,
-				ChannelName: channelName,
 				Ts:          item.Ts,
 				DateCreated: formatUnixTs(item.DateCreated),
 				DateDue:     formatUnixTs(item.DateDue),
@@ -128,7 +135,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 						zap.Error(err))
 					allMessages = append(allMessages, Message{
 						MsgID:   item.Ts,
-						Channel: channelName,
+						Channel: item.ItemID,
 						Text:    "[message content unavailable: channel access denied]",
 						Time:    formatUnixTs(item.DateCreated),
 					})
@@ -170,7 +177,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 					} else {
 						allMessages = append(allMessages, Message{
 							MsgID:   item.Ts,
-							Channel: channelName,
+							Channel: item.ItemID,
 							Text:    "[saved item: message not found in channel history]",
 							Time:    formatUnixTs(item.DateCreated),
 						})
@@ -190,47 +197,29 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	}
 
 	if includeMessages && len(allMessages) > 0 {
-		rendered, err := marshalMessagesToCSV(allMessages, renderOptions{mode: mode, workspaceURL: h.apiProvider.WorkspaceURL()})
+		opts := h.convHandler.render(mode, SlackResultMeta(nextCursor, false, ""))
+		trailer, err := csvSection("saved_items", &allItems)
 		if err != nil {
 			return nil, err
 		}
-		partialReason := ""
-		if nextCursor != "" {
-			partialReason = "result stopped at the requested item limit"
-		}
-		return NewStructuredResult(
-			SavedPageData{Items: allItems, Messages: allMessages},
-			SlackResultMeta(nextCursor, nextCursor != "", partialReason),
-			ResultText(rendered),
-		), nil
+		opts.trailer = trailer
+		return marshalMessagesToCSV(allMessages, opts)
 	}
 
-	csvBytes, err := gocsv.MarshalBytes(&allItems)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal saved items: %v", err)
-	}
-	partialReason := ""
-	if nextCursor != "" {
-		partialReason = "result stopped at the requested item limit"
-	}
-	return NewStructuredResult(
-		SavedPageData{Items: allItems},
-		SlackResultMeta(nextCursor, nextCursor != "", partialReason),
-		string(csvBytes),
-	), nil
+	return renderSavedItems(allItems, h.convHandler.channelDisplayName, SlackResultMeta(nextCursor, false, ""))
 }
 
 // parseSavedUpdateParams: schema uses date_due:0 to clear; key presence (not truthiness) gates the required-field check.
 func parseSavedUpdateParams(request mcp.CallToolRequest) (itemID, ts, mark string, dateDue int64, err error) {
-	itemID = request.GetString("item_id", "")
-	ts = request.GetString("ts", "")
+	itemID = request.GetString("channel_id", "")
+	ts = request.GetString("timestamp", "")
 	mark = request.GetString("mark", "")
 	dateDue = int64(request.GetInt("date_due", 0))
 
 	_, dateDueProvided := request.GetArguments()["date_due"]
 
 	if itemID == "" || ts == "" {
-		return "", "", "", 0, fmt.Errorf("item_id and ts are required parameters")
+		return "", "", "", 0, fmt.Errorf("channel_id and timestamp are required parameters")
 	}
 	if mark == "" && !dateDueProvided {
 		return "", "", "", 0, fmt.Errorf("at least one of mark or date_due must be provided")

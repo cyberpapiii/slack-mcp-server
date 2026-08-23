@@ -17,16 +17,22 @@ import (
 )
 
 type Channel struct {
-	ID          string `csv:"id" json:"id" jsonschema:"Channel ID"`
-	Name        string `csv:"name" json:"name" jsonschema:"Channel name"`
-	Topic       string `csv:"topic" json:"topic,omitempty" jsonschema:"Channel topic"`
-	Purpose     string `csv:"purpose" json:"purpose,omitempty" jsonschema:"Channel purpose"`
-	MemberCount int    `csv:"member_count" json:"member_count" jsonschema:"Number of members"`
-	Cursor      string `csv:"cursor" json:"cursor,omitempty" jsonschema:"Pagination cursor"`
+	ID          string `csv:"ID" json:"id" jsonschema:"Channel ID"`
+	Name        string `csv:"Name" json:"name" jsonschema:"Channel name"`
+	Topic       string `csv:"Topic" json:"topic,omitempty" jsonschema:"Channel topic"`
+	Purpose     string `csv:"Purpose" json:"purpose,omitempty" jsonschema:"Channel purpose"`
+	MemberCount int    `csv:"MemberCount" json:"member_count" jsonschema:"Number of members"`
 }
 
-type ChannelList struct {
-	Channels []Channel `json:"channels" jsonschema:"List of channels"`
+// marshalRowsToCSV renders one page of tabular rows as CSV text. rows is a
+// pointer to a slice of csv-tagged structs; nextCursor becomes the
+// "#next_cursor:" comment line when more pages exist.
+func marshalRowsToCSV(legend string, rows any, nextCursor string) (*mcp.CallToolResult, error) {
+	csvBytes, err := gocsv.MarshalBytes(rows)
+	if err != nil {
+		return nil, err
+	}
+	return NewCSVResult(legend, SlackResultMeta(nextCursor, false, ""), string(csvBytes)), nil
 }
 
 type ChannelsHandler struct {
@@ -115,7 +121,7 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	}
 
 	sortType := request.GetString("sort", "popularity")
-	types := request.GetString("channel_types", provider.PubChanType)
+	types := request.GetString("channel_types", "public_channel,private_channel")
 	cursor := request.GetString("cursor", "")
 	limit := request.GetInt("limit", 0)
 	query := request.GetString("query", "")
@@ -201,21 +207,12 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		}
 	}
 
-	if len(channelList) > 0 && nextcur != "" {
-		channelList[len(channelList)-1].Cursor = nextcur
-		ch.logger.Debug("Added cursor to last channel", zap.String("cursor", nextcur))
-	}
-
-	csvBytes, err := gocsv.MarshalBytes(&channelList)
+	result, err := marshalRowsToCSV("", &channelList, nextcur)
 	if err != nil {
 		ch.logger.Error("Failed to marshal channels to CSV", zap.Error(err))
 		return nil, err
 	}
-
-	return mcp.NewToolResultStructured(
-		ChannelList{Channels: channelList},
-		string(csvBytes),
-	), nil
+	return result, nil
 }
 
 // slackMaxChannelsPageSize is users.conversations max page size.
@@ -317,16 +314,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 		})
 	}
 
-	if len(channelList) > 0 && slackNextCursor != "" {
-		channelList[len(channelList)-1].Cursor = slackNextCursor
-	}
-
-	csvBytes, err := gocsv.MarshalBytes(&channelList)
-	if err != nil {
-		return nil, err
-	}
-
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	return marshalRowsToCSV("", &channelList, slackNextCursor)
 }
 
 func filterChannelsByTypes(channels map[string]provider.Channel, types []string) []provider.Channel {
@@ -374,11 +362,11 @@ func filterChannelsByTypes(channels map[string]provider.Channel, types []string)
 }
 
 type StarredChannel struct {
-	ChannelID   string `csv:"channel_id"`
-	ChannelName string `csv:"channel_name"`
-	ChannelType string `csv:"channel_type"` // "dm", "group_dm", "internal", "partner"
-	IsMuted     bool   `csv:"is_muted"`
-	MemberCount int    `csv:"member_count"`
+	ID          string `csv:"ID"`
+	Name        string `csv:"Name"`
+	ChannelType string `csv:"ChannelType"` // "dm", "group_dm", "internal", "partner"
+	IsMuted     bool   `csv:"IsMuted"`
+	MemberCount int    `csv:"MemberCount"`
 }
 
 func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -425,16 +413,16 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	var result []StarredChannel
 	for _, id := range starredIDs {
 		sc := StarredChannel{
-			ChannelID: id,
-			IsMuted:   mutedChannels[id],
+			ID:      id,
+			IsMuted: mutedChannels[id],
 		}
 
 		if cached, ok := channelsMaps.Channels[id]; ok {
-			sc.ChannelName = cached.Name
+			sc.Name = cached.Name
 			sc.MemberCount = cached.MemberCount
 			sc.ChannelType = classifyChannelType(cached)
 		} else {
-			sc.ChannelName = id
+			sc.Name = id
 			sc.ChannelType = "internal"
 		}
 
@@ -450,13 +438,12 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	ch.logger.Debug("Returning starred channels", zap.Int("count", len(result)))
 
-	csvBytes, err := gocsv.MarshalBytes(&result)
+	rendered, err := marshalRowsToCSV("", &result, "")
 	if err != nil {
 		ch.logger.Error("Failed to marshal starred channels to CSV", zap.Error(err))
 		return nil, err
 	}
-
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	return rendered, nil
 }
 
 func classifyChannelType(ch provider.Channel) string {
