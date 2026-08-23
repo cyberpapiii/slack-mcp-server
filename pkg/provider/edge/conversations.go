@@ -22,7 +22,7 @@ type conversationsGenericInfoResponse struct {
 	UnchangedChannelIDs []string        `json:"unchanged_channel_ids"`
 }
 
-func (cl *Client) ConversationsGenericInfo(ctx context.Context, channelID ...string) ([]slack.Channel, error) {
+func (cl *Client) conversationsGenericInfo(ctx context.Context, channelID ...string) ([]slack.Channel, error) {
 	ctx, task := trace.NewTask(ctx, "ConversationsGenericInfo")
 	defer task.End()
 	trace.Logf(ctx, "params", "channelID=%v", channelID)
@@ -46,12 +46,12 @@ func (cl *Client) ConversationsGenericInfo(ctx context.Context, channelID ...str
 		UpdatedChannels: string(b),
 		WebClientFields: webclientReason("fallback:UnknownFetchManager"),
 	}
-	resp, err := cl.PostForm(ctx, "conversations.genericInfo", values(form, true))
+	resp, err := cl.postForm(ctx, "conversations.genericInfo", values(form, true))
 	if err != nil {
 		return nil, err
 	}
 	var r conversationsGenericInfoResponse
-	if err := cl.ParseResponse(&r, resp); err != nil {
+	if err := cl.parseResponse(&r, resp); err != nil {
 		return nil, err
 	}
 	if err := r.validate("conversations.genericInfo"); err != nil {
@@ -60,70 +60,12 @@ func (cl *Client) ConversationsGenericInfo(ctx context.Context, channelID ...str
 	return r.Channels, nil
 }
 
-type conversationsViewForm struct {
-	BaseRequest
-	CanonicalAvatars             bool   `json:"canonical_avatars"`
-	NoUserProfile                bool   `json:"no_user_profile"`
-	IgnoreReplies                bool   `json:"ignore_replies"`
-	NoSelf                       bool   `json:"no_self"`
-	IncludeFullUsers             bool   `json:"include_full_users"`
-	IncludeUseCases              bool   `json:"include_use_cases"`
-	IncludeStories               bool   `json:"include_stories"`
-	NoMembers                    bool   `json:"no_members"`
-	IncludeMutationTimestamps    bool   `json:"include_mutation_timestamps"`
-	Count                        int    `json:"count"`
-	Channel                      string `json:"channel"`
-	IncludeFreeTeamExtraMessages bool   `json:"include_free_team_extra_messages"`
-	WebClientFields
-}
-
-type ConversationsViewResponse struct {
-	Users  []User            `json:"users"`
-	IM     IM                `json:"im"`
-	Emojis map[string]string `json:"emojis"`
-}
-
-func (cl *Client) ConversationsView(ctx context.Context, channelID string) (ConversationsViewResponse, error) {
-	ctx, task := trace.NewTask(ctx, "ConversationsView")
-	defer task.End()
-	trace.Logf(ctx, "params", "channelID=%v", channelID)
-
-	form := conversationsViewForm{
-		BaseRequest: BaseRequest{
-			Token: cl.token,
-		},
-		CanonicalAvatars: true,
-		NoUserProfile:    true,
-		IgnoreReplies:    true,
-		NoSelf:           true,
-		NoMembers:        true,
-		Count:            50,
-		Channel:          channelID,
-		WebClientFields:  webclientReason(""),
-	}
-	resp, err := cl.PostForm(ctx, "conversations.view", values(form, true))
-	if err != nil {
-		return ConversationsViewResponse{}, err
-	}
-	var r = struct {
-		baseResponse
-		ConversationsViewResponse
-	}{}
-	if err := cl.ParseResponse(&r, resp); err != nil {
-		return ConversationsViewResponse{}, err
-	}
-	if err := r.validate("conversations.view"); err != nil {
-		return ConversationsViewResponse{}, err
-	}
-	return r.ConversationsViewResponse, nil
-}
-
-type ConversationsLeaveRequest struct {
+type conversationsLeaveRequest struct {
 	BaseRequest
 	Channel string `json:"channel"`
 }
 
-type ConversationsLeaveResponse struct {
+type conversationsLeaveResponse struct {
 	baseResponse
 	NotInChannel bool `json:"not_in_channel,omitempty"`
 }
@@ -132,18 +74,18 @@ func (cl *Client) LeaveConversation(ctx context.Context, channelID string) (bool
 	ctx, task := trace.NewTask(ctx, "LeaveConversation")
 	defer task.End()
 
-	form := ConversationsLeaveRequest{
+	form := conversationsLeaveRequest{
 		BaseRequest: BaseRequest{Token: cl.token},
 		Channel:     channelID,
 	}
 
-	resp, err := cl.PostForm(ctx, "conversations.leave", values(form, true))
+	resp, err := cl.postForm(ctx, "conversations.leave", values(form, true))
 	if err != nil {
 		return false, err
 	}
 
-	r := &ConversationsLeaveResponse{}
-	if err := cl.ParseResponse(r, resp); err != nil {
+	r := &conversationsLeaveResponse{}
+	if err := cl.parseResponse(r, resp); err != nil {
 		return false, err
 	}
 

@@ -36,16 +36,9 @@ type Client struct {
 	webclientAPI string
 	token        string
 	teamID       string
-	tape         io.WriteCloser
 }
 
 type Option func(*Client)
-
-func WithTape(tape io.WriteCloser) Option {
-	return func(cl *Client) {
-		cl.tape = tape
-	}
-}
 
 func OptionHTTPClient(client httpClient) func(*Client) {
 	return func(cl *Client) {
@@ -53,51 +46,11 @@ func OptionHTTPClient(client httpClient) func(*Client) {
 	}
 }
 
-var (
-	ErrNoTeamID = errors.New("teamID is empty")
-	ErrNoToken  = errors.New("token is empty")
-)
-
 func getSlackBaseDomain() string {
 	if os.Getenv("SLACK_MCP_GOVSLACK") == "true" {
 		return "slack-gov.com"
 	}
 	return "slack.com"
-}
-
-func NewWithClient(workspaceName string, teamID string, token string, cl *http.Client, opt ...Option) (*Client, error) {
-	if teamID == "" {
-		return nil, ErrNoTeamID
-	}
-	if token == "" {
-		return nil, ErrNoToken
-	}
-	// The default tape is a no-op: recorded bodies include the xoxc token, so
-	// recording must never be on by default.  Callers that want a tape pass
-	// WithTape(...), which the option loop below now actually applies.
-	c := &Client{
-		cl:           cl,
-		token:        token,
-		teamID:       teamID,
-		webclientAPI: fmt.Sprintf("https://%s.%s/api/", workspaceName, getSlackBaseDomain()),
-		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", getSlackBaseDomain(), teamID),
-		tape:         nopTape{},
-	}
-
-	for _, o := range opt {
-		o(c)
-	}
-	return c, nil
-}
-
-type nopTape struct{}
-
-func (nopTape) Write(p []byte) (n int, err error) {
-	return len(p), nil
-}
-
-func (nopTape) Close() error {
-	return nil
 }
 
 // NewWithInfo is the same as New, but doesn't call the AuthTest on
@@ -113,20 +66,12 @@ func NewWithInfo(info *slack.AuthTestResponse, prov auth.Provider, opt ...Option
 		teamID:       info.TeamID,
 		webclientAPI: info.URL + "api/",
 		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", getSlackBaseDomain(), info.TeamID),
-		tape:         nopTape{},
 	}
 
 	for _, o := range opt {
 		o(c)
 	}
 	return c, nil
-}
-
-func (cl *Client) Close() error {
-	if cl.tape != nil {
-		return cl.tape.Close()
-	}
-	return nil
 }
 
 type BaseRequest struct {
@@ -151,46 +96,37 @@ type ResponseMetadata struct {
 	NextCursor string   `json:"next_cursor,omitempty"`
 }
 
-func (r *BaseRequest) SetToken(token string) {
+func (r *BaseRequest) setToken(token string) {
 	r.Token = token
 }
 
-func (r *BaseRequest) IsTokenSet() bool {
+func (r *BaseRequest) isTokenSet() bool {
 	return len(r.Token) > 0
 }
 
-type PostRequest interface {
-	SetToken(string)
-	IsTokenSet() bool
+type postRequest interface {
+	setToken(string)
+	isTokenSet() bool
 }
 
 const (
 	hdrContentType = "Content-Type"
 )
 
-// PostJSON posts a request to the edge API.  The request is marshalled to
+// postJSON posts a request to the edge API.  The request is marshalled to
 // JSON and the response is unmarshalled to the req, which must be a pointer
 // to a struct.
-func (cl *Client) PostJSON(ctx context.Context, path string, req PostRequest) (*http.Response, error) {
-	if !req.IsTokenSet() {
-		req.SetToken(cl.token)
+func (cl *Client) postJSON(ctx context.Context, path string, req postRequest) (*http.Response, error) {
+	if !req.isTokenSet() {
+		req.setToken(cl.token)
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
-	tape := cl.recorder(bytes.NewReader(data))
-	defer cl.record([]byte("\n\n"))
-	r, err := http.NewRequestWithContext(ctx, http.MethodPost, cl.edgeAPI+path, tape)
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, cl.edgeAPI+path, bytes.NewReader(data))
 	if err != nil {
 		return nil, err
-	}
-	// The body reader is a TeeReader, so http.NewRequestWithContext cannot
-	// derive GetBody itself; set it so the 429 retry in do() can replay the
-	// body.  The replay is deliberately not re-wrapped in cl.recorder: the
-	// tape records the payload once, not once per attempt.
-	r.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(data)), nil
 	}
 	r.Header.Set(hdrContentType, "application/json")
 
@@ -198,11 +134,11 @@ func (cl *Client) PostJSON(ctx context.Context, path string, req PostRequest) (*
 }
 
 // callEdgeAPI calls the edge API.
-func (cl *Client) callEdgeAPI(ctx context.Context, v any, endpoint string, req PostRequest) error {
-	r, err := cl.PostJSON(ctx, endpoint, req)
+func (cl *Client) callEdgeAPI(ctx context.Context, v any, endpoint string, req postRequest) error {
+	r, err := cl.postJSON(ctx, endpoint, req)
 	// A transport error may yield a nil response; io.EOF in particular is
 	// returned whenever the server closes a pooled keep-alive connection.
-	// Forwarding nil to ParseResponse would panic on its first dereference.
+	// Forwarding nil to parseResponse would panic on its first dereference.
 	if r == nil {
 		if err != nil {
 			return fmt.Errorf("edge %s: no response: %w", endpoint, err)
@@ -213,43 +149,27 @@ func (cl *Client) callEdgeAPI(ctx context.Context, v any, endpoint string, req P
 		_ = r.Body.Close()
 		return err
 	}
-	return cl.ParseResponse(v, r)
+	return cl.parseResponse(v, r)
 }
 
-// PostForm sends a POST request to a webclient API with form values.
-func (cl *Client) PostForm(ctx context.Context, path string, form url.Values) (*http.Response, error) {
-	return cl.PostFormRaw(ctx, cl.webclientAPI+path, form)
+// postForm sends a POST request to a webclient API with form values.
+func (cl *Client) postForm(ctx context.Context, path string, form url.Values) (*http.Response, error) {
+	return cl.postFormRaw(ctx, cl.webclientAPI+path, form)
 }
 
-func (cl *Client) record(b []byte) {
-	if cl.tape != nil {
-		if _, err := cl.tape.Write(b); err != nil {
-			slog.Default().Error("error writing to tape", "error", err)
-		}
-	}
-}
-
-func (cl *Client) PostFormRaw(ctx context.Context, url string, form url.Values) (*http.Response, error) {
+func (cl *Client) postFormRaw(ctx context.Context, url string, form url.Values) (*http.Response, error) {
 	if form["token"] == nil {
 		form.Set("token", cl.token)
 	}
-	encoded := form.Encode()
-	r := cl.recorder(strings.NewReader(encoded))
-	defer cl.record([]byte("\n\n"))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, r)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
-	}
-	// See the note in PostJSON: GetBody must be set explicitly, and the
-	// replayed body is not re-recorded onto the tape.
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(strings.NewReader(encoded)), nil
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return do(ctx, cl.cl, req)
 }
 
-func (cl *Client) ParseResponse(req any, r *http.Response) error {
+func (cl *Client) parseResponse(req any, r *http.Response) error {
 	if r == nil {
 		return errors.New("nil response")
 	}
@@ -257,7 +177,7 @@ func (cl *Client) ParseResponse(req any, r *http.Response) error {
 	if r.StatusCode < http.StatusOK || http.StatusMultipleChoices <= r.StatusCode {
 		return fmt.Errorf("error: status code: %s", r.Status)
 	}
-	bodyBytes, err := io.ReadAll(cl.recorder(r.Body))
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		return err
 	}
@@ -380,14 +300,7 @@ func webclientReason(reason string) WebClientFields {
 	}
 }
 
-func (cl *Client) recorder(r io.Reader) io.Reader {
-	if cl.tape == nil {
-		return r
-	}
-	return io.TeeReader(r, cl.tape)
-}
-
-// Pagination contains the pagination information.  It is truly fucked, Slack
+// pagination contains the pagination information.  It is truly fucked, Slack
 // does not allow to seek past Page 100, when page > 100 requested, Slack
 // returns the first page (Page=1).  Seems to be an internal limitation.  The
 // workaround would be to use the Query parameter, to be more specific about
@@ -395,7 +308,7 @@ func (cl *Client) recorder(r io.Reader) io.Reader {
 // through all 65536 runes of unicode give or take the special characters.
 //
 // For now, this doesn't work as a replacement for conversation.list (202403).
-type Pagination struct {
+type pagination struct {
 	TotalCount int64  `json:"total_count"`
 	Page       int    `json:"page"`
 	PerPage    int    `json:"per_page"`

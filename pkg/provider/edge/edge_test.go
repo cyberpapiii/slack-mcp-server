@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -83,7 +82,7 @@ func TestUnitEdgeParseResponseNil(t *testing.T) {
 		return nil, errors.New("should not be called")
 	})
 
-	if err := cl.ParseResponse(&struct{}{}, nil); err == nil {
+	if err := cl.parseResponse(&struct{}{}, nil); err == nil {
 		t.Fatal("expected an error for a nil response, got nil")
 	}
 }
@@ -202,25 +201,15 @@ func TestUnitEdgeRetryContextCancel(t *testing.T) {
 // Fixture-driven tests for the constructor, response parsing and the three
 // endpoints the fork's tools depend on.
 //
-// These build their clients through NewWithClient, which is both the cheap
-// seam (plain strings + *http.Client, no auth.Provider) and the constructor
-// that used to create tape.txt in the working directory and drop its options.
+// These build their clients through NewWithInfo with a fake auth provider
+// whose *http.Client carries a fake transport.
 // ---------------------------------------------------------------------------
 
 // roundTripperFunc adapts a plain function to http.RoundTripper so a real
-// *http.Client can be handed to NewWithClient.
+// *http.Client can be handed to the fake auth provider.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
-
-// memTape is an in-memory io.WriteCloser, used to prove WithTape is applied.
-type memTape struct {
-	buf    strings.Builder
-	closed int
-}
-
-func (m *memTape) Write(p []byte) (int, error) { return m.buf.Write(p) }
-func (m *memTape) Close() error                { m.closed++; return nil }
 
 // jsonResponse builds a canned response with the given status and body.
 func jsonResponse(status int, body string) *http.Response {
@@ -234,34 +223,24 @@ func jsonResponse(status int, body string) *http.Response {
 	}
 }
 
-// newFixtureClient builds a Client whose transport is fake, via NewWithClient.
+// newFixtureClient builds a Client whose transport is fake, via NewWithInfo.
 func newFixtureClient(t *testing.T, fake roundTripperFunc) *Client {
 	t.Helper()
-	cl, err := NewWithClient("testws", "T123", "xoxc-test", &http.Client{Transport: fake})
+	cl, err := NewWithInfo(
+		&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"},
+		fakeAuthProvider{cl: &http.Client{Transport: fake}},
+	)
 	if err != nil {
-		t.Fatalf("NewWithClient: %v", err)
+		t.Fatalf("NewWithInfo: %v", err)
 	}
 	return cl
 }
 
-// TestUnitNewWithClient pins the constructor's contract: no tape file on disk,
-// a no-op tape by default, and options actually applied.
-func TestUnitNewWithClient(t *testing.T) {
-	t.Run("defaults to a no-op tape and writes no file", func(t *testing.T) {
-		// Run in a scratch directory so a regression would be visible here
-		// rather than polluting the package directory.
-		t.Chdir(t.TempDir())
-
-		cl, err := NewWithClient("testws", "T123", "xoxc-test", &http.Client{})
-		if err != nil {
-			t.Fatalf("NewWithClient: %v", err)
-		}
-		if _, ok := cl.tape.(nopTape); !ok {
-			t.Fatalf("expected the default tape to be nopTape, got %T", cl.tape)
-		}
-		if _, err := os.Stat("tape.txt"); !os.IsNotExist(err) {
-			t.Fatalf("NewWithClient created tape.txt (stat err = %v)", err)
-		}
+// TestUnitNewWithInfo pins the constructor's contract: the API bases derive
+// from the auth response and options are applied.
+func TestUnitNewWithInfo(t *testing.T) {
+	t.Run("derives API bases", func(t *testing.T) {
+		cl := newFixtureClient(t, nil)
 		if cl.webclientAPI != "https://testws.slack.com/api/" {
 			t.Fatalf("unexpected webclientAPI: %q", cl.webclientAPI)
 		}
@@ -271,35 +250,17 @@ func TestUnitNewWithClient(t *testing.T) {
 	})
 
 	t.Run("applies options", func(t *testing.T) {
-		tape := &memTape{}
 		fn := doFunc(func(*http.Request) (*http.Response, error) {
 			return nil, errors.New("not called")
 		})
-
-		cl, err := NewWithClient("testws", "T123", "xoxc-test", &http.Client{},
-			WithTape(tape), OptionHTTPClient(fn))
-		if err != nil {
-			t.Fatalf("NewWithClient: %v", err)
-		}
-		if cl.tape != io.WriteCloser(tape) {
-			t.Fatalf("WithTape was not applied, tape is %T", cl.tape)
-		}
+		cl := newTestClient(t, fn)
 		if _, ok := cl.cl.(doFunc); !ok {
 			t.Fatalf("OptionHTTPClient was not applied, client is %T", cl.cl)
 		}
 	})
-
-	t.Run("rejects empty teamID and token", func(t *testing.T) {
-		if _, err := NewWithClient("testws", "", "xoxc-test", &http.Client{}); !errors.Is(err, ErrNoTeamID) {
-			t.Fatalf("expected ErrNoTeamID, got %v", err)
-		}
-		if _, err := NewWithClient("testws", "T123", "", &http.Client{}); !errors.Is(err, ErrNoToken) {
-			t.Fatalf("expected ErrNoToken, got %v", err)
-		}
-	})
 }
 
-// TestUnitParseResponse tables the decode contract.  ParseResponse itself only
+// TestUnitParseResponse tables the decode contract.  parseResponse itself only
 // guards the status and unmarshals; turning `"ok":false` into an error is
 // baseResponse.validate's job and every endpoint calls the pair, so the table
 // runs the pair too.  The nil-response row lives in
@@ -339,7 +300,7 @@ func TestUnitParseResponse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var r baseResponse
-			err := cl.ParseResponse(&r, jsonResponse(tt.status, tt.body))
+			err := cl.parseResponse(&r, jsonResponse(tt.status, tt.body))
 			if err == nil {
 				err = r.validate("test.endpoint")
 			}
@@ -627,40 +588,5 @@ func TestUnitActivityFeed(t *testing.T) {
 	}
 	if thread.Item.Message != nil {
 		t.Error("items[1] should have no message")
-	}
-}
-
-// TestUnitUsersListConcurrentBuckets calls UsersList with one channel ID and
-// one DM ID so splitDMs fills both buckets and both errgroup goroutines run
-// at once.  Under -race that exercises the path where the old shared-slice
-// append in UsersList could be flagged; it also pins that the two result
-// sets are joined in public-then-DM order.
-func TestUnitUsersListConcurrentBuckets(t *testing.T) {
-	cl := newFixtureClient(t, func(r *http.Request) (*http.Response, error) {
-		t.Logf("fake got: %s", r.URL.String())
-		switch {
-		case strings.Contains(r.URL.Path, "users/list"):
-			return jsonResponse(http.StatusOK,
-				`{"ok":true,"results":[{"id":"U-PUB","name":"pub-user"}],"next_marker":""}`), nil
-		case strings.Contains(r.URL.Path, "conversations.view"):
-			return jsonResponse(http.StatusOK,
-				`{"ok":true,"users":[{"id":"U-DM","name":"dm-user"}]}`), nil
-		default:
-			t.Errorf("unexpected request URL: %s", r.URL)
-			return jsonResponse(http.StatusOK, `{"ok":true}`), nil
-		}
-	})
-
-	uu, err := cl.UsersList(context.Background(), "C111", "D222")
-	if err != nil {
-		t.Fatalf("UsersList: %v", err)
-	}
-	if len(uu) != 2 {
-		t.Fatalf("got %d users, want 2: %+v", len(uu), uu)
-	}
-	// Public-channel users come first, DM users after, the order the old
-	// sequential-in-practice code produced.
-	if uu[0].ID != "U-PUB" || uu[1].ID != "U-DM" {
-		t.Errorf("user IDs = %q, %q; want U-PUB then U-DM", uu[0].ID, uu[1].ID)
 	}
 }

@@ -57,13 +57,6 @@ const (
 	browserStateDegraded
 )
 
-type browserRuntimeStatus struct {
-	Timestamp string `json:"timestamp"`
-	State     string `json:"state"`
-	Reason    string `json:"reason,omitempty"`
-}
-
-var browserStatusWriter = writeBrowserRuntimeStatus
 var browserDegradationNotifier = notifyBrowserDegradation
 
 // Atomic rename via CreateTemp; unpredictable name avoids symlink races.
@@ -203,26 +196,6 @@ func startupJitter(logger *zap.Logger) {
 	jitter := time.Duration(rand.Intn(3000)) * time.Millisecond
 	logger.Info("Startup jitter", zap.Duration("delay", jitter))
 	time.Sleep(jitter)
-}
-
-func browserRuntimeStatePath() string {
-	return filepath.Join(getCacheDir(), "browser_auth_runtime.json")
-}
-
-func writeBrowserRuntimeStatus(state, reason string, logger *zap.Logger) {
-	status := browserRuntimeStatus{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		State:     state,
-		Reason:    reason,
-	}
-	data, err := json.MarshalIndent(status, "", "  ")
-	if err != nil {
-		logger.Warn("Failed to marshal browser runtime status", zap.Error(err))
-		return
-	}
-	if err := atomicWriteFile(browserRuntimeStatePath(), data, 0600); err != nil {
-		logger.Warn("Failed to write browser runtime status", zap.Error(err))
-	}
 }
 
 // Reason is argv to a fixed script (never interpolated into AppleScript source).
@@ -484,18 +457,12 @@ func (c *MCPSlackClient) browserDegradedReason() string {
 	return ""
 }
 
-func (c *MCPSlackClient) effectiveOAuth() bool {
-	return c.isOAuth
-}
-
 func (c *MCPSlackClient) initBrowserState() {
 	if c.isOAuth && !c.browserConfigured {
 		c.browserState.Store(int32(browserStateOAuthOnly))
-		browserStatusWriter("oauth_only", "", c.logger)
 		return
 	}
 	c.browserState.Store(int32(browserStateActive))
-	browserStatusWriter("browser_active", "", c.logger)
 }
 
 func (c *MCPSlackClient) degradeBrowserSession(reason error) {
@@ -511,8 +478,7 @@ func (c *MCPSlackClient) degradeBrowserSession(reason error) {
 	}
 	c.browserReason.Store(reasonText)
 	c.browserState.Store(int32(browserStateDegraded))
-	browserStatusWriter("browser_degraded", reasonText, c.logger)
-	c.logger.Warn("Browser-session Slack auth degraded", zap.String("reason", reasonText), zap.Bool("standard_oauth", c.effectiveOAuth()))
+	c.logger.Warn("Browser-session Slack auth degraded", zap.String("reason", reasonText), zap.Bool("standard_oauth", c.isOAuth))
 	c.browserNotifyOnce.Do(func() {
 		browserDegradationNotifier(reasonText, c.logger)
 	})
@@ -553,7 +519,7 @@ func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, t
 }
 
 func (c *MCPSlackClient) LeaveConversationContext(ctx context.Context, channelID string) (bool, error) {
-	if c.isEnterprise && !c.effectiveOAuth() {
+	if c.isEnterprise && !c.isOAuth {
 		// Edge webclient path bypasses enterprise_is_restricted on session tokens.
 		notInChannel, err := c.edgeClient.LeaveConversation(ctx, channelID)
 		if err == nil {
@@ -568,7 +534,7 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 	// Enterprise + session: edge alone is partial (issue #73); merge with fully
 	// paginated standard API and return empty cursor. OAuth / non-Enterprise: standard only.
 	if c.isEnterprise {
-		if c.effectiveOAuth() {
+		if c.isOAuth {
 			return std.GetConversationsContext(ctx, params)
 		}
 
@@ -683,7 +649,7 @@ func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool,
 }
 
 func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error) {
-	if c.effectiveOAuth() {
+	if c.isOAuth {
 		params := slack.StarsParameters{
 			Count: limit,
 			Page:  1,
@@ -742,7 +708,7 @@ func (c *MCPSlackClient) IsBotToken() bool {
 }
 
 func (c *MCPSlackClient) IsOAuth() bool {
-	return c.effectiveOAuth()
+	return c.isOAuth
 }
 
 // ConfiguredWithBrowserSession reports construction-time xoxc/xoxd (or similar
@@ -772,7 +738,6 @@ func (c *MCPSlackClient) attachBrowserSession(browserAuth auth.ValueAuth, browse
 	c.browserConfigured = true
 	c.browserState.Store(int32(browserStateActive))
 	c.browserReason.Store("")
-	browserStatusWriter("browser_active", "", c.logger)
 	return nil
 }
 

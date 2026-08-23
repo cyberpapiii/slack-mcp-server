@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -43,7 +42,7 @@ func keychainCommandRunner() commandRunner {
 func (s *KeychainCredentialStore) Load(ctx context.Context) (OAuthTokenRecord, error) {
 	raw, err := s.run(ctx, nil, "security", "find-generic-password", "-s", s.Service, "-a", s.Account, "-w")
 	if err != nil {
-		if errors.Is(err, ErrCredentialNotFound) || isKeychainItemNotFound(err) {
+		if errors.Is(err, ErrCredentialNotFound) {
 			return OAuthTokenRecord{}, fmt.Errorf("%w: macOS Keychain item does not exist", ErrCredentialNotFound)
 		}
 		return OAuthTokenRecord{}, errors.New("macOS Keychain lookup failed")
@@ -56,11 +55,6 @@ func (s *KeychainCredentialStore) Load(ctx context.Context) (OAuthTokenRecord, e
 		return OAuthTokenRecord{}, err
 	}
 	return record, nil
-}
-
-func isKeychainItemNotFound(err error) bool {
-	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr) && exitErr.ExitCode() == 44
 }
 
 func (s *KeychainCredentialStore) SaveIfGeneration(ctx context.Context, expected uint64, record OAuthTokenRecord) error {

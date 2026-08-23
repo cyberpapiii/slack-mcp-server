@@ -9,10 +9,6 @@ import (
 )
 
 func TestDemoCredentialsBuildFullClient(t *testing.T) {
-	origWriter := browserStatusWriter
-	defer func() { browserStatusWriter = origWriter }()
-	browserStatusWriter = func(state, reason string, logger *zap.Logger) {}
-
 	for name, env := range map[string]map[string]string{
 		"xoxp":      {"SLACK_MCP_XOXP_TOKEN": "demo"},
 		"xoxc_xoxd": {"SLACK_MCP_XOXC_TOKEN": "demo", "SLACK_MCP_XOXD_TOKEN": "demo"},

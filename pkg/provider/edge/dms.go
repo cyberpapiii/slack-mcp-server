@@ -22,7 +22,7 @@ type imListResponse struct {
 	IMs []IM `json:"ims,omitempty"`
 }
 
-func (cl *Client) IMList(ctx context.Context) ([]IM, error) {
+func (cl *Client) imList(ctx context.Context) ([]IM, error) {
 	ctx, task := trace.NewTask(ctx, "IMList")
 	defer task.End()
 
@@ -35,12 +35,12 @@ func (cl *Client) IMList(ctx context.Context) ([]IM, error) {
 	lim := limiter.Tier2boost.Limiter()
 	var IMs []IM
 	for {
-		resp, err := cl.PostForm(ctx, "im.list", values(form, true))
+		resp, err := cl.postForm(ctx, "im.list", values(form, true))
 		if err != nil {
 			return nil, err
 		}
 		r := imListResponse{}
-		if err := cl.ParseResponse(&r, resp); err != nil {
+		if err := cl.parseResponse(&r, resp); err != nil {
 			return nil, err
 		}
 		if err := r.validate("im.list"); err != nil {

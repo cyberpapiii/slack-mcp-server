@@ -46,12 +46,12 @@ func (cl *Client) DraftsList(ctx context.Context, limit int, activeOnly bool, cu
 		form.Set("next_ts", cursor)
 	}
 	addDraftWebClientFields(form, "drafts/list")
-	response, err := cl.PostForm(ctx, "drafts.list", form)
+	response, err := cl.postForm(ctx, "drafts.list", form)
 	if err != nil {
 		return nil, "", err
 	}
 	var parsed draftsResponse
-	if err := cl.ParseResponse(&parsed, response); err != nil {
+	if err := cl.parseResponse(&parsed, response); err != nil {
 		return nil, "", err
 	}
 	if err := parsed.validate("drafts.list"); err != nil {
@@ -90,24 +90,24 @@ func (cl *Client) DraftDelete(ctx context.Context, id, lastUpdatedTS string) err
 		"client_last_updated_ts": {padDraftTimestamp(lastUpdatedTS)},
 	}
 	addDraftWebClientFields(form, "drafts/delete")
-	response, err := cl.PostForm(ctx, "drafts.delete", form)
+	response, err := cl.postForm(ctx, "drafts.delete", form)
 	if err != nil {
 		return err
 	}
 	var parsed baseResponse
-	if err := cl.ParseResponse(&parsed, response); err != nil {
+	if err := cl.parseResponse(&parsed, response); err != nil {
 		return err
 	}
 	return parsed.validate("drafts.delete")
 }
 
 func (cl *Client) postDraft(ctx context.Context, method string, form url.Values) (Draft, error) {
-	response, err := cl.PostForm(ctx, method, form)
+	response, err := cl.postForm(ctx, method, form)
 	if err != nil {
 		return Draft{}, err
 	}
 	var parsed draftsResponse
-	if err := cl.ParseResponse(&parsed, response); err != nil {
+	if err := cl.parseResponse(&parsed, response); err != nil {
 		return Draft{}, err
 	}
 	if err := parsed.validate(method); err != nil {

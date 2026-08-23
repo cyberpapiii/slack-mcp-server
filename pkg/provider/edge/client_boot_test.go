@@ -34,7 +34,7 @@ func TestUnitClientUserBootResponseIgnoresUnreadJSON(t *testing.T) {
 	assert.True(t, got.IMs[0].IsShared)
 	assert.Equal(t, []any{"C1", "C2"}, got.Starred)
 	require.Len(t, got.Channels, 1)
-	ch := got.Channels[0].SlackChannel()
+	ch := got.Channels[0].slackChannel()
 	assert.Equal(t, "C1", ch.ID)
 	assert.Equal(t, "general", ch.Name)
 	assert.True(t, ch.IsChannel)

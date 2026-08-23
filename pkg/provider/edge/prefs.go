@@ -36,13 +36,13 @@ func (cl *Client) GetMutedChannels(ctx context.Context) (map[string]bool, error)
 		WebClientFields: webclientReason("prefs"),
 	}
 
-	resp, err := cl.PostForm(ctx, "users.prefs.get", values(form, true))
+	resp, err := cl.postForm(ctx, "users.prefs.get", values(form, true))
 	if err != nil {
 		return nil, err
 	}
 
 	var prefsResp userPrefsGetResponse
-	if err := cl.ParseResponse(&prefsResp, resp); err != nil {
+	if err := cl.parseResponse(&prefsResp, resp); err != nil {
 		return nil, err
 	}
 	if err := prefsResp.validate("users.prefs.get"); err != nil {

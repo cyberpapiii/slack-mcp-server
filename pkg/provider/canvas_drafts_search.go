@@ -199,14 +199,7 @@ type DraftsAPI interface {
 
 type UnsupportedDraftsProvider struct{}
 
-type draftsEdgeAPI interface {
-	DraftsList(context.Context, int, bool, string) ([]edge.Draft, string, error)
-	DraftCreate(context.Context, string, string, string) (edge.Draft, error)
-	DraftUpdate(context.Context, string, string, string, string, string) (edge.Draft, error)
-	DraftDelete(context.Context, string, string) error
-}
-
-type BrowserDraftsProvider struct{ client draftsEdgeAPI }
+type BrowserDraftsProvider struct{ client *edge.Client }
 
 func (ap *ApiProvider) Drafts() DraftsAPI {
 	client, ok := ap.client.(*MCPSlackClient)

@@ -17,9 +17,9 @@ import (
 
 const perPage = 100
 
-var ErrPagination = errors.New("pagination fault")
+var errPagination = errors.New("pagination fault")
 
-type Channel struct {
+type searchChannel struct {
 	slack.GroupConversation
 	IsChannel  bool              `json:"is_channel"`
 	IsGeneral  bool              `json:"is_general"`
@@ -29,12 +29,12 @@ type Channel struct {
 	Properties *slack.Properties `json:"properties"`
 }
 
-type SearchResponse[T any] struct {
+type searchResponse[T any] struct {
 	baseResponse
 	Module     string          `json:"module"`
 	Query      string          `json:"query"`
 	Filters    json.RawMessage `json:"filters"`
-	Pagination Pagination      `json:"pagination"`
+	Pagination pagination      `json:"pagination"`
 	Items      []T             `json:"items"`
 }
 
@@ -78,7 +78,7 @@ type searchSortType string
 
 const sstName searchSortType = "name"
 
-func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Channel, error) {
+func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Channel, error) {
 	ctx, task := trace.NewTask(ctx, "SearchChannels")
 	defer task.End()
 	lg := slog.With("in", "SearchChannels", "query", query)
@@ -132,12 +132,12 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 	var cc []slack.Channel
 	seenCursor := make(map[string]struct{})
 	for page := 0; page < maxPages; page++ {
-		resp, err := cl.PostForm(ctx, ep, values(form, true))
+		resp, err := cl.postForm(ctx, ep, values(form, true))
 		if err != nil {
 			return nil, err
 		}
-		var sr SearchResponse[Channel]
-		if err := cl.ParseResponse(&sr, resp); err != nil {
+		var sr searchResponse[searchChannel]
+		if err := cl.parseResponse(&sr, resp); err != nil {
 			return nil, err
 		}
 		if err := sr.validate(ep); err != nil {
@@ -164,7 +164,7 @@ func (cl *Client) SearchChannels(ctx context.Context, query string) ([]slack.Cha
 			break
 		}
 		if _, dup := seenCursor[sr.Pagination.NextCursor]; dup {
-			return nil, ErrPagination
+			return nil, errPagination
 		}
 		seenCursor[sr.Pagination.NextCursor] = struct{}{}
 		lg.DebugContext(ctx, "pagination", "next_cursor", sr.Pagination.NextCursor)

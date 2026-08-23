@@ -46,12 +46,12 @@ func (cl *Client) ClientCounts(ctx context.Context) (ClientCountsResponse, error
 		WebClientFields:       webclientReason("client-counts-api/fetchClientCounts"),
 	}
 
-	resp, err := cl.PostForm(ctx, "client.counts", values(form, true))
+	resp, err := cl.postForm(ctx, "client.counts", values(form, true))
 	if err != nil {
 		return ClientCountsResponse{}, err
 	}
 	r := ClientCountsResponse{}
-	if err := cl.ParseResponse(&r, resp); err != nil {
+	if err := cl.parseResponse(&r, resp); err != nil {
 		return ClientCountsResponse{}, err
 	}
 	if err := r.validate("client.counts"); err != nil {
@@ -80,7 +80,7 @@ type IM struct {
 	ConnectedTeamIds []string       `json:"connected_team_ids"`
 }
 
-func (c IM) SlackChannel() slack.Channel {
+func (c IM) slackChannel() slack.Channel {
 	var members []string
 	if c.User != "" {
 		members = []string{c.User}
@@ -168,12 +168,12 @@ func (cl *Client) ActivityFeed(ctx context.Context, limit int) (ActivityFeedResp
 		WebClientFields: webclientReason("fetchActivityFeed"),
 	}
 
-	resp, err := cl.PostForm(ctx, "activity.feed", values(form, true))
+	resp, err := cl.postForm(ctx, "activity.feed", values(form, true))
 	if err != nil {
 		return ActivityFeedResponse{}, err
 	}
 	r := ActivityFeedResponse{}
-	if err := cl.ParseResponse(&r, resp); err != nil {
+	if err := cl.parseResponse(&r, resp); err != nil {
 		return ActivityFeedResponse{}, err
 	}
 	if err := r.validate("activity.feed"); err != nil {
@@ -204,12 +204,12 @@ func (cl *Client) ActivityMarkRead(ctx context.Context, itemType, feedTs, key st
 		WebClientFields: webclientReason("mark-as-read-v2"),
 	}
 
-	resp, err := cl.PostForm(ctx, "activity.markRead", values(form, true))
+	resp, err := cl.postForm(ctx, "activity.markRead", values(form, true))
 	if err != nil {
 		return err
 	}
 	r := baseResponse{}
-	if err := cl.ParseResponse(&r, resp); err != nil {
+	if err := cl.parseResponse(&r, resp); err != nil {
 		return err
 	}
 	if err := r.validate("activity.markRead"); err != nil {

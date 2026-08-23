@@ -33,11 +33,11 @@ func (cl *Client) ClientUserBoot(ctx context.Context) (*ClientUserBootResponse, 
 		WebClientFields:            webclientReason("initial-data"),
 	}
 	var ub ClientUserBootResponse
-	resp, err := cl.PostForm(ctx, "client.userBoot", values(form, true))
+	resp, err := cl.postForm(ctx, "client.userBoot", values(form, true))
 	if err != nil {
 		return nil, err
 	}
-	if err := cl.ParseResponse(&ub, resp); err != nil {
+	if err := cl.parseResponse(&ub, resp); err != nil {
 		return nil, err
 	}
 	if err := ub.validate("client.userBoot"); err != nil {
@@ -81,7 +81,7 @@ type UserBootChannel struct {
 	Members            []string      `json:"members"`
 }
 
-func (c *UserBootChannel) SlackChannel() slack.Channel {
+func (c *UserBootChannel) slackChannel() slack.Channel {
 	// IM: first non-empty Members entry (self ID unavailable here).
 	var userID string
 	if c.IsIM && len(c.Members) > 0 {

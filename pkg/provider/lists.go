@@ -45,7 +45,6 @@ func (e *ListsAPIError) Retryable() bool { return e.Kind == ListsErrorRateLimit 
 
 type ListsClient struct {
 	HTTPClient    *http.Client
-	Token         string
 	TokenProvider func() string
 	APIBase       string
 }
@@ -292,7 +291,7 @@ func (c *ListsClient) DeleteItem(ctx context.Context, listID, itemID string) err
 }
 
 func (c *ListsClient) call(ctx context.Context, method string, requestBody any, output any) error {
-	token := c.Token
+	var token string
 	if c.TokenProvider != nil {
 		token = c.TokenProvider()
 	}

@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func testToken() string { return "xoxp-test" }
+
 func TestUnitListsClientExactMethodsAndJSON(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -90,7 +92,7 @@ func TestUnitListsClientExactMethodsAndJSON(t *testing.T) {
 				_, _ = writer.Write([]byte(test.response))
 			}))
 			defer server.Close()
-			client := &ListsClient{HTTPClient: server.Client(), Token: "xoxp-test", APIBase: server.URL + "/"}
+			client := &ListsClient{HTTPClient: server.Client(), TokenProvider: testToken, APIBase: server.URL + "/"}
 			require.NoError(t, test.invoke(context.Background(), client))
 		})
 	}
@@ -108,7 +110,7 @@ func TestUnitListsItemsPaginationAndFieldRoundTrip(t *testing.T) {
 	}))
 	defer server.Close()
 	archived := false
-	client := &ListsClient{HTTPClient: server.Client(), Token: "xoxp-test", APIBase: server.URL + "/"}
+	client := &ListsClient{HTTPClient: server.Client(), TokenProvider: testToken, APIBase: server.URL + "/"}
 	page, err := client.ListItems(context.Background(), ListItemsRequest{ListID: "F1", Limit: 25, Cursor: "next", Archived: &archived})
 	require.NoError(t, err)
 	assert.Equal(t, "after", page.NextCursor)
@@ -136,7 +138,7 @@ func TestUnitListsClientTypedErrors(t *testing.T) {
 				_, _ = writer.Write([]byte(test.response))
 			}))
 			defer server.Close()
-			client := &ListsClient{HTTPClient: server.Client(), Token: "xoxp-test", APIBase: server.URL + "/"}
+			client := &ListsClient{HTTPClient: server.Client(), TokenProvider: testToken, APIBase: server.URL + "/"}
 			_, err := client.ListItems(context.Background(), ListItemsRequest{ListID: "F1"})
 			var typed *ListsAPIError
 			require.ErrorAs(t, err, &typed)
@@ -150,7 +152,7 @@ func TestUnitListsClientTypedErrors(t *testing.T) {
 }
 
 func TestUnitListsRejectUnsupportedFieldTypeBeforeHTTP(t *testing.T) {
-	client := &ListsClient{Token: "xoxp-test"}
+	client := &ListsClient{TokenProvider: testToken}
 	_, _, err := client.CreateList(context.Background(), CreateListRequest{
 		Name: "Bad", Schema: []ListColumn{{Key: "mystery", Name: "Mystery", Type: "quantum"}},
 	})
@@ -220,7 +222,7 @@ func TestUnitListsMutationResponseFailuresReportUnknownOutcome(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &ListsClient{HTTPClient: test.client, Token: "xoxp-test", APIBase: "http://127.0.0.1:1/"}
+			client := &ListsClient{HTTPClient: test.client, TokenProvider: testToken, APIBase: "http://127.0.0.1:1/"}
 			err := test.invoke(client)
 			var typed *ListsAPIError
 			require.ErrorAs(t, err, &typed)

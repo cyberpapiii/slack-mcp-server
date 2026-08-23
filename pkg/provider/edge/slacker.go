@@ -47,20 +47,20 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 			}
 			var ch = make([]slack.Channel, 0, len(ub.Channels))
 			for _, c := range ub.Channels {
-				ch = append(ch, c.SlackChannel())
+				ch = append(ch, c.slackChannel())
 			}
 			resultC <- channelResult{Channels: ch, Err: err}
 		},
 		func() {
-			ims, err := cl.IMList(ctx)
+			ims, err := cl.imList(ctx)
 			var ch = make([]slack.Channel, 0, len(ims))
 			for _, c := range ims {
-				ch = append(ch, c.SlackChannel())
+				ch = append(ch, c.slackChannel())
 			}
 			resultC <- channelResult{Channels: ch, Err: err}
 		},
 		func() {
-			ch, err := cl.SearchChannels(ctx, "")
+			ch, err := cl.searchChannels(ctx, "")
 			resultC <- channelResult{Channels: ch, Err: err}
 		},
 	}
@@ -97,7 +97,7 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 		}
 	}
 
-	mpims, err := cl.ConversationsGenericInfo(ctx, fetchIDs...)
+	mpims, err := cl.conversationsGenericInfo(ctx, fetchIDs...)
 	if err != nil {
 		return channels, "", nil
 	}

@@ -9,7 +9,7 @@ import (
 
 // users/search API (edge cache; xoxc/xoxd only)
 
-type UsersSearchResponse struct {
+type usersSearchResponse struct {
 	Ok      bool         `json:"ok"`
 	Error   string       `json:"error,omitempty"`
 	Results []slack.User `json:"results,omitempty"`
@@ -28,7 +28,7 @@ func (cl *Client) UsersSearch(ctx context.Context, query string, count int) ([]s
 		Count: count,
 	}
 
-	var resp UsersSearchResponse
+	var resp usersSearchResponse
 	if err := cl.callEdgeAPI(ctx, &resp, "users/search", req); err != nil {
 		return nil, err
 	}

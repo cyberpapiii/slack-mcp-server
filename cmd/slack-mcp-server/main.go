@@ -39,16 +39,20 @@ func main() {
 	if toolPreset == "" {
 		toolPreset = os.Getenv("SLACK_MCP_TOOL_PRESET")
 	}
-	enabledTools, err := resolveEnabledTools(enabledToolsFlag, toolPreset)
-	if err != nil {
-		panic(err)
-	}
-
 	logger, err := newLogger(transport)
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "failed to build logger: %v\n", err)
+		os.Exit(1)
 	}
 	defer logger.Sync()
+
+	enabledTools, err := resolveEnabledTools(enabledToolsFlag, toolPreset)
+	if err != nil {
+		logger.Fatal("error in SLACK_MCP_ENABLED_TOOLS / SLACK_MCP_TOOL_PRESET",
+			zap.String("context", "console"),
+			zap.Error(err),
+		)
+	}
 
 	for _, name := range channelAllowlistVars {
 		value := os.Getenv(name)
@@ -258,26 +262,18 @@ func validateToolConfig(config string) error {
 		return nil
 	}
 
-	items := strings.Split(config, ",")
 	hasNegated := false
 	hasPositive := false
-	validEntries := 0
-
-	for _, item := range items {
+	for _, item := range strings.Split(config, ",") {
 		item = strings.TrimSpace(item)
 		if item == "" || item == "!" {
 			return fmt.Errorf("empty channel entry in allow/block list")
 		}
-		validEntries++
 		if strings.HasPrefix(item, "!") {
 			hasNegated = true
 		} else {
 			hasPositive = true
 		}
-	}
-
-	if validEntries == 0 {
-		return fmt.Errorf("channel allow/block list has no entries")
 	}
 	if hasNegated && hasPositive {
 		return fmt.Errorf("cannot mix allowed and disallowed (! prefixed) channels")
@@ -382,7 +378,7 @@ func shouldUseJSONFormat() bool {
 
 func shouldUseColors() bool {
 	if colorEnv := os.Getenv("SLACK_MCP_LOG_COLOR"); colorEnv != "" {
-		return colorEnv == "true" || colorEnv == "1"
+		return envutil.IsTruthy(colorEnv)
 	}
 
 	if os.Getenv("NO_COLOR") != "" {

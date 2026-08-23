@@ -56,12 +56,12 @@ func (cl *Client) SavedList(ctx context.Context, filter string, limit int, curso
 		WebClientFields:   webclientReason("saved-api/savedList"),
 	}
 
-	resp, err := cl.PostForm(ctx, "saved.list", values(form, true))
+	resp, err := cl.postForm(ctx, "saved.list", values(form, true))
 	if err != nil {
 		return SavedListResponse{}, err
 	}
 	r := SavedListResponse{}
-	if err := cl.ParseResponse(&r, resp); err != nil {
+	if err := cl.parseResponse(&r, resp); err != nil {
 		return SavedListResponse{}, err
 	}
 	if err := r.validate("saved.list"); err != nil {
@@ -94,12 +94,12 @@ func (cl *Client) SavedUpdate(ctx context.Context, itemType, itemID, ts, mark st
 		WebClientFields: webclientReason("saved-api/updateSavedMessage"),
 	}
 
-	resp, err := cl.PostForm(ctx, "saved.update", values(form, true))
+	resp, err := cl.postForm(ctx, "saved.update", values(form, true))
 	if err != nil {
 		return err
 	}
 	r := baseResponse{}
-	if err := cl.ParseResponse(&r, resp); err != nil {
+	if err := cl.parseResponse(&r, resp); err != nil {
 		return err
 	}
 	if err := r.validate("saved.update"); err != nil {
@@ -122,12 +122,12 @@ func (cl *Client) SavedClearCompleted(ctx context.Context) error {
 		WebClientFields: webclientReason("manually_marked_all_completed"),
 	}
 
-	resp, err := cl.PostForm(ctx, "saved.clearCompleted", values(form, true))
+	resp, err := cl.postForm(ctx, "saved.clearCompleted", values(form, true))
 	if err != nil {
 		return err
 	}
 	r := baseResponse{}
-	if err := cl.ParseResponse(&r, resp); err != nil {
+	if err := cl.parseResponse(&r, resp); err != nil {
 		return err
 	}
 	if err := r.validate("saved.clearCompleted"); err != nil {

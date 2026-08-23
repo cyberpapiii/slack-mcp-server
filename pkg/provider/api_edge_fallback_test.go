@@ -94,18 +94,10 @@ end run`
 }
 
 func TestBrowserDegradationState(t *testing.T) {
-	origWriter := browserStatusWriter
 	origNotifier := browserDegradationNotifier
-	defer func() {
-		browserStatusWriter = origWriter
-		browserDegradationNotifier = origNotifier
-	}()
+	defer func() { browserDegradationNotifier = origNotifier }()
 
-	writes := 0
 	notifies := 0
-	browserStatusWriter = func(state, reason string, logger *zap.Logger) {
-		writes++
-	}
 	browserDegradationNotifier = func(reason string, logger *zap.Logger) {
 		notifies++
 	}
@@ -122,7 +114,6 @@ func TestBrowserDegradationState(t *testing.T) {
 	assert.Equal(t, "invalid_auth", c.browserDegradedReason())
 
 	c.degradeBrowserSession(errors.New("invalid_auth"))
-	assert.Equal(t, 2, writes, "one write for active, one for degraded")
 	assert.Equal(t, 1, notifies, "degradation should only notify once")
 }
 
@@ -136,7 +127,7 @@ func TestStandardSlackClientUsesOAuthClientWhenBrowserIsAttached(t *testing.T) {
 	c.browserState.Store(int32(browserStateActive))
 
 	assert.Same(t, oauthClient, c.standardSlackClient())
-	assert.True(t, c.effectiveOAuth())
+	assert.True(t, c.IsOAuth())
 	assert.True(t, c.ConfiguredWithBrowserSession())
 }
 
