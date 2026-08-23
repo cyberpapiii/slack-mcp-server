@@ -109,7 +109,7 @@ const (
 	descChannelIDRaw      = "Channel ID starting with C or G (Cxxxxxxxxxx); names are not resolved."
 	descPrepareAction     = "prepare returns data.approval_token and a preview; execute performs the change."
 	descApprovalToken     = "Token from the prepare call; required for execute."
-	toolDetailDescription = "'standard' (compact CSV) or 'full' (adds UserID and Permalink columns); omit for the server default, normally standard. Comment lines may precede the CSV header: `#channels:` (ID=name), `#users:` (UserID=name), `#link_template:`, `#partial:`, `#next_cursor:`."
+	toolDetailDescription = "'standard' (compact CSV) or 'full' (adds UserID and Permalink columns); omit for the server default, normally standard. Comment lines may precede the CSV header: `#channels:` (ID=name), `#users:` (UserID=name), `#link_template:`, `#attachments:` (rows carry files; fetch them with attachment_get_data), `#partial:`, `#next_cursor:`."
 )
 
 var ValidToolNames = capability.Names()
