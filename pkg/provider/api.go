@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/rusq/slackdump/v3/auth"
-	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
 
@@ -261,12 +260,17 @@ func (ap *ApiProvider) Slack() SlackAPI {
 
 // WebAPI is the Slack Web API client used for ordinary slack-go calls.
 // Browser-only and enterprise-merge methods stay on Slack().
-func (ap *ApiProvider) WebAPI() *slack.Client {
+//
+// The returned *WebClient resolves the underlying client on every call, so it
+// is safe to hold for the life of the process. It used to return the
+// *slack.Client itself, which OAuth rotation replaces, and long-lived callers
+// silently kept an access token that later expired.
+func (ap *ApiProvider) WebAPI() *WebClient {
 	client, ok := ap.client.(*MCPSlackClient)
 	if !ok || client == nil {
 		return nil
 	}
-	return client.standardSlackClient()
+	return &WebClient{resolve: client.standardSlackClient}
 }
 
 func (ap *ApiProvider) IsBotToken() bool {

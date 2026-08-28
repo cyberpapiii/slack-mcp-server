@@ -93,7 +93,7 @@ func TestUnitUploadExternalBytesPostsMultipartFileOnce(t *testing.T) {
 	defer server.Close()
 
 	client := slack.New("xoxp-test", slack.OptionHTTPClient(server.Client()))
-	err := messageFilesWebClient{current: func() *slack.Client { return client }}.UploadExternalBytes(context.Background(), server.URL, "proof.pdf", []byte("pdf"))
+	err := (&WebClient{resolve: func() *slack.Client { return client }}).UploadExternalBytes(context.Background(), server.URL, "proof.pdf", []byte("pdf"))
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls)
 }

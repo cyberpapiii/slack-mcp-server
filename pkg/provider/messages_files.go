@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,7 +11,7 @@ import (
 
 // MessageFilesClient is the narrow, testable Slack surface for outbound files
 // and message mutations. Each method is called at most once per operation.
-var _ MessageFilesClient = messageFilesWebClient{}
+var _ MessageFilesClient = (*WebClient)(nil)
 
 type MessageFilesClient interface {
 	GetUploadURLExternalContext(context.Context, slack.GetUploadURLExternalParameters) (*slack.GetUploadURLExternalResponse, error)
@@ -62,49 +61,13 @@ func NewMessageFilesProvider(client MessageFilesClient) *MessageFilesProvider {
 	return &MessageFilesProvider{client: client}
 }
 
-type messageFilesWebClient struct {
-	current func() *slack.Client
-}
-
-func (c messageFilesWebClient) UploadExternalBytes(ctx context.Context, uploadURL, filename string, data []byte) error {
-	return c.current().UploadToURL(ctx, slack.UploadToURLParameters{
-		UploadURL: uploadURL,
-		Filename:  filename,
-		Reader:    bytes.NewReader(data),
-	})
-}
-
-func (c messageFilesWebClient) GetUploadURLExternalContext(ctx context.Context, params slack.GetUploadURLExternalParameters) (*slack.GetUploadURLExternalResponse, error) {
-	return c.current().GetUploadURLExternalContext(ctx, params)
-}
-
-func (c messageFilesWebClient) CompleteUploadExternalContext(ctx context.Context, params slack.CompleteUploadExternalParameters) (*slack.CompleteUploadExternalResponse, error) {
-	return c.current().CompleteUploadExternalContext(ctx, params)
-}
-
-func (c messageFilesWebClient) ScheduleMessageContext(ctx context.Context, channelID, postAt string, options ...slack.MsgOption) (string, string, error) {
-	return c.current().ScheduleMessageContext(ctx, channelID, postAt, options...)
-}
-
-func (c messageFilesWebClient) UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
-	return c.current().UpdateMessageContext(ctx, channelID, timestamp, options...)
-}
-
-func (c messageFilesWebClient) DeleteMessageContext(ctx context.Context, channelID, timestamp string) (string, string, error) {
-	return c.current().DeleteMessageContext(ctx, channelID, timestamp)
-}
-
-func (c messageFilesWebClient) GetConversationRepliesContext(ctx context.Context, params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
-	return c.current().GetConversationRepliesContext(ctx, params)
-}
-
 // MessageFiles returns the custom local provider. No official MCP dependency.
 func (ap *ApiProvider) MessageFiles() (*MessageFilesProvider, error) {
 	web := ap.WebAPI()
 	if web == nil {
 		return nil, errors.New("configured Slack client does not support file and message mutations")
 	}
-	return NewMessageFilesProvider(messageFilesWebClient{current: ap.WebAPI}), nil
+	return NewMessageFilesProvider(web), nil
 }
 
 func (p *MessageFilesProvider) Upload(ctx context.Context, request FileUploadRequest) (UploadedFile, error) {
