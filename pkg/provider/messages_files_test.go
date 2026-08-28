@@ -93,7 +93,7 @@ func TestUnitUploadExternalBytesPostsMultipartFileOnce(t *testing.T) {
 	defer server.Close()
 
 	client := slack.New("xoxp-test", slack.OptionHTTPClient(server.Client()))
-	err := messageFilesWebClient{Client: client}.UploadExternalBytes(context.Background(), server.URL, "proof.pdf", []byte("pdf"))
+	err := messageFilesWebClient{current: func() *slack.Client { return client }}.UploadExternalBytes(context.Background(), server.URL, "proof.pdf", []byte("pdf"))
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls)
 }
@@ -105,6 +105,35 @@ func TestUnitMessageFilesUsesWebAPI(t *testing.T) {
 	got, err := (&ApiProvider{client: &MCPSlackClient{slackClient: slack.New("xoxp-test")}}).MessageFiles()
 	require.NoError(t, err)
 	require.NotNil(t, got)
+}
+
+func TestUnitMessageFilesUsesRotatedWebAPIClient(t *testing.T) {
+	oldCalls := 0
+	oldServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		oldCalls++
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C1","ts":"1.000001"}`))
+	}))
+	defer oldServer.Close()
+
+	newCalls := 0
+	newServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		newCalls++
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C1","ts":"1.000001"}`))
+	}))
+	defer newServer.Close()
+
+	client := &MCPSlackClient{slackClient: slack.New("old", slack.OptionAPIURL(oldServer.URL+"/"))}
+	provider, err := (&ApiProvider{client: client}).MessageFiles()
+	require.NoError(t, err)
+
+	client.oauthClientMu.Lock()
+	client.slackClient = slack.New("new", slack.OptionAPIURL(newServer.URL+"/"))
+	client.oauthClientMu.Unlock()
+
+	_, err = provider.Update(context.Background(), "C1", "1.000001", "updated")
+	require.NoError(t, err)
+	assert.Zero(t, oldCalls)
+	assert.Equal(t, 1, newCalls)
 }
 
 func TestUnitGetMessageFindsThreadReplyWhenHistoryOmitsIt(t *testing.T) {
