@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,7 +11,7 @@ import (
 
 // MessageFilesClient is the narrow, testable Slack surface for outbound files
 // and message mutations. Each method is called at most once per operation.
-var _ MessageFilesClient = messageFilesWebClient{}
+var _ MessageFilesClient = (*WebClient)(nil)
 
 type MessageFilesClient interface {
 	GetUploadURLExternalContext(context.Context, slack.GetUploadURLExternalParameters) (*slack.GetUploadURLExternalResponse, error)
@@ -62,25 +61,13 @@ func NewMessageFilesProvider(client MessageFilesClient) *MessageFilesProvider {
 	return &MessageFilesProvider{client: client}
 }
 
-type messageFilesWebClient struct {
-	*slack.Client
-}
-
-func (c messageFilesWebClient) UploadExternalBytes(ctx context.Context, uploadURL, filename string, data []byte) error {
-	return c.UploadToURL(ctx, slack.UploadToURLParameters{
-		UploadURL: uploadURL,
-		Filename:  filename,
-		Reader:    bytes.NewReader(data),
-	})
-}
-
 // MessageFiles returns the custom local provider. No official MCP dependency.
 func (ap *ApiProvider) MessageFiles() (*MessageFilesProvider, error) {
 	web := ap.WebAPI()
 	if web == nil {
 		return nil, errors.New("configured Slack client does not support file and message mutations")
 	}
-	return NewMessageFilesProvider(messageFilesWebClient{Client: web}), nil
+	return NewMessageFilesProvider(web), nil
 }
 
 func (p *MessageFilesProvider) Upload(ctx context.Context, request FileUploadRequest) (UploadedFile, error) {

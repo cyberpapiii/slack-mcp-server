@@ -24,6 +24,9 @@ Comment lines prepended to CSV output before the header: a channel map (`#channe
 ### Attachment reference
 How a file is named in an `AttachmentIDs` cell: `FileID (name, kind, size)`. The kind predicts what fetching it will yield rather than restating the file extension, so `image` and `text` mean `attachment_get_data` returns readable content while a raw filetype (`pdf`, `mp4`) means it returns base64 the reader cannot interpret. Size lets a reader weigh a fetch against the 5MB cap, above which `files_download` is the only route. The point is that skipping a file becomes an informed choice instead of a guess from a filename.
 
+### Rotating web client
+The Slack Web API handle returned by `WebAPI()`. It resolves the underlying client at each call rather than capturing one, so managed OAuth rotation is invisible to whoever holds it. The distinction matters because rotation swaps the client object: a captured copy keeps a token that later expires, which reads as an auth failure on some tools while the credential itself is healthy.
+
 ### Download root
 The single directory `files_download` may write into, named by `SLACK_MCP_DOWNLOAD_DIR`. The caller names a file, never a path; the server derives the destination from the root and the file's ID. Unset means the tool refuses every call, so writing to the operator's disk stays something the operator turned on.
 
