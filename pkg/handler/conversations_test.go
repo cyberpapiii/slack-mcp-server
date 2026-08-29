@@ -235,6 +235,17 @@ func TestUnitParseFlexibleDate(t *testing.T) {
 	}
 }
 
+func BenchmarkParseFlexibleDate(b *testing.B) {
+	inputs := []string{"January 2025", "1-January-2025", "January-1-2025", "2025-January-1", "5 days ago", "not-a-date"}
+	for _, input := range inputs {
+		b.Run(input, func(b *testing.B) {
+			for b.Loop() {
+				_, _, _ = parseFlexibleDate(input)
+			}
+		})
+	}
+}
+
 func TestUnitBuildDateFiltersUnit(t *testing.T) {
 	tests := []struct {
 		name    string

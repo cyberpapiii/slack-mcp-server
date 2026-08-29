@@ -42,6 +42,33 @@ var validFilterKeys = map[string]struct{}{
 	"has":    {},
 }
 
+var (
+	flexibleDateStandardFormats = [...]string{
+		"2006-01-02", "2006/01/02", "01-02-2006", "01/02/2006", "02-01-2006", "02/01/2006",
+		"Jan 2, 2006", "January 2, 2006", "2 Jan 2006", "2 January 2006",
+	}
+	flexibleDateMonthYear = regexp.MustCompile(`^(\d{4})\s+([A-Za-z]+)$|^([A-Za-z]+)\s+(\d{4})$`)
+	flexibleDateDMY       = regexp.MustCompile(`^(\d{1,2})[-\s]+([A-Za-z]+)[-\s]+(\d{4})$`)
+	flexibleDateMDY       = regexp.MustCompile(`^([A-Za-z]+)[-\s]+(\d{1,2})[-\s]+(\d{4})$`)
+	flexibleDateYMD       = regexp.MustCompile(`^(\d{4})[-\s]+([A-Za-z]+)[-\s]+(\d{1,2})$`)
+	flexibleDateDaysAgo   = regexp.MustCompile(`^(\d+)\s+days?\s+ago$`)
+
+	flexibleDateMonths = map[string]time.Month{
+		"january": time.January, "jan": time.January,
+		"february": time.February, "feb": time.February,
+		"march": time.March, "mar": time.March,
+		"april": time.April, "apr": time.April,
+		"may":  time.May,
+		"june": time.June, "jun": time.June,
+		"july": time.July, "jul": time.July,
+		"august": time.August, "aug": time.August,
+		"september": time.September, "sep": time.September, "sept": time.September,
+		"october": time.October, "oct": time.October,
+		"november": time.November, "nov": time.November,
+		"december": time.December, "dec": time.December,
+	}
+)
+
 type Message struct {
 	MsgID         string `json:"message_id"`
 	UserID        string `json:"user_id"`
@@ -700,95 +727,6 @@ func extractThreadTS(rawurl string) (string, error) {
 
 func parseFlexibleDate(dateStr string) (time.Time, string, error) {
 	dateStr = strings.TrimSpace(dateStr)
-	standardFormats := []string{
-		"2006-01-02",      // YYYY-MM-DD
-		"2006/01/02",      // YYYY/MM/DD
-		"01-02-2006",      // MM-DD-YYYY
-		"01/02/2006",      // MM/DD/YYYY
-		"02-01-2006",      // DD-MM-YYYY
-		"02/01/2006",      // DD/MM/YYYY
-		"Jan 2, 2006",     // Jan 2, 2006
-		"January 2, 2006", // January 2, 2006
-		"2 Jan 2006",      // 2 Jan 2006
-		"2 January 2006",  // 2 January 2006
-	}
-	for _, fmtStr := range standardFormats {
-		if t, err := time.Parse(fmtStr, dateStr); err == nil {
-			return t, t.Format("2006-01-02"), nil
-		}
-	}
-
-	monthMap := map[string]int{
-		"january": 1, "jan": 1,
-		"february": 2, "feb": 2,
-		"march": 3, "mar": 3,
-		"april": 4, "apr": 4,
-		"may":  5,
-		"june": 6, "jun": 6,
-		"july": 7, "jul": 7,
-		"august": 8, "aug": 8,
-		"september": 9, "sep": 9, "sept": 9,
-		"october": 10, "oct": 10,
-		"november": 11, "nov": 11,
-		"december": 12, "dec": 12,
-	}
-
-	// Month-Year patterns
-	monthYear := regexp.MustCompile(`^(\d{4})\s+([A-Za-z]+)$|^([A-Za-z]+)\s+(\d{4})$`)
-	if m := monthYear.FindStringSubmatch(dateStr); m != nil {
-		var year int
-		var monStr string
-		if m[1] != "" && m[2] != "" {
-			year, _ = strconv.Atoi(m[1])
-			monStr = strings.ToLower(m[2])
-		} else {
-			year, _ = strconv.Atoi(m[4])
-			monStr = strings.ToLower(m[3])
-		}
-		if mon, ok := monthMap[monStr]; ok {
-			t := time.Date(year, time.Month(mon), 1, 0, 0, 0, 0, time.UTC)
-			return t, t.Format("2006-01-02"), nil
-		}
-	}
-
-	// Day-Month-Year and Month-Day-Year patterns
-	dmy1 := regexp.MustCompile(`^(\d{1,2})[-\s]+([A-Za-z]+)[-\s]+(\d{4})$`)
-	if m := dmy1.FindStringSubmatch(dateStr); m != nil {
-		day, _ := strconv.Atoi(m[1])
-		year, _ := strconv.Atoi(m[3])
-		monStr := strings.ToLower(m[2])
-		if mon, ok := monthMap[monStr]; ok {
-			t := time.Date(year, time.Month(mon), day, 0, 0, 0, 0, time.UTC)
-			if t.Day() == day {
-				return t, t.Format("2006-01-02"), nil
-			}
-		}
-	}
-	mdy := regexp.MustCompile(`^([A-Za-z]+)[-\s]+(\d{1,2})[-\s]+(\d{4})$`)
-	if m := mdy.FindStringSubmatch(dateStr); m != nil {
-		monStr := strings.ToLower(m[1])
-		day, _ := strconv.Atoi(m[2])
-		year, _ := strconv.Atoi(m[3])
-		if mon, ok := monthMap[monStr]; ok {
-			t := time.Date(year, time.Month(mon), day, 0, 0, 0, 0, time.UTC)
-			if t.Day() == day {
-				return t, t.Format("2006-01-02"), nil
-			}
-		}
-	}
-	ymd := regexp.MustCompile(`^(\d{4})[-\s]+([A-Za-z]+)[-\s]+(\d{1,2})$`)
-	if m := ymd.FindStringSubmatch(dateStr); m != nil {
-		year, _ := strconv.Atoi(m[1])
-		monStr := strings.ToLower(m[2])
-		day, _ := strconv.Atoi(m[3])
-		if mon, ok := monthMap[monStr]; ok {
-			t := time.Date(year, time.Month(mon), day, 0, 0, 0, 0, time.UTC)
-			if t.Day() == day {
-				return t, t.Format("2006-01-02"), nil
-			}
-		}
-	}
-
 	lower := strings.ToLower(dateStr)
 	now := time.Now().UTC()
 	switch lower {
@@ -804,16 +742,88 @@ func parseFlexibleDate(dateStr string) (time.Time, string, error) {
 		t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 		return t, t.Format("2006-01-02"), nil
 	}
-
-	daysAgo := regexp.MustCompile(`^(\d+)\s+days?\s+ago$`)
-	if m := daysAgo.FindStringSubmatch(lower); m != nil {
+	if m := flexibleDateDaysAgo.FindStringSubmatch(lower); m != nil {
 		days, _ := strconv.Atoi(m[1])
 		t := now.AddDate(0, 0, -days)
 		t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 		return t, t.Format("2006-01-02"), nil
 	}
 
+	hasLetters := strings.ContainsAny(dateStr, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	if !hasLetters {
+		if t, normalized, ok := parseStandardDate(dateStr); ok {
+			return t, normalized, nil
+		}
+	}
+
+	// Month-Year patterns
+	if m := flexibleDateMonthYear.FindStringSubmatch(dateStr); m != nil {
+		var year int
+		var monStr string
+		if m[1] != "" && m[2] != "" {
+			year, _ = strconv.Atoi(m[1])
+			monStr = strings.ToLower(m[2])
+		} else {
+			year, _ = strconv.Atoi(m[4])
+			monStr = strings.ToLower(m[3])
+		}
+		if mon, ok := flexibleDateMonths[monStr]; ok {
+			t := time.Date(year, mon, 1, 0, 0, 0, 0, time.UTC)
+			return t, t.Format("2006-01-02"), nil
+		}
+	}
+
+	// Day-Month-Year and Month-Day-Year patterns
+	if m := flexibleDateDMY.FindStringSubmatch(dateStr); m != nil {
+		day, _ := strconv.Atoi(m[1])
+		year, _ := strconv.Atoi(m[3])
+		monStr := strings.ToLower(m[2])
+		if mon, ok := flexibleDateMonths[monStr]; ok {
+			t := time.Date(year, mon, day, 0, 0, 0, 0, time.UTC)
+			if t.Day() == day {
+				return t, t.Format("2006-01-02"), nil
+			}
+		}
+	}
+	if m := flexibleDateMDY.FindStringSubmatch(dateStr); m != nil {
+		monStr := strings.ToLower(m[1])
+		day, _ := strconv.Atoi(m[2])
+		year, _ := strconv.Atoi(m[3])
+		if mon, ok := flexibleDateMonths[monStr]; ok {
+			t := time.Date(year, mon, day, 0, 0, 0, 0, time.UTC)
+			if t.Day() == day {
+				return t, t.Format("2006-01-02"), nil
+			}
+		}
+	}
+	if m := flexibleDateYMD.FindStringSubmatch(dateStr); m != nil {
+		year, _ := strconv.Atoi(m[1])
+		monStr := strings.ToLower(m[2])
+		day, _ := strconv.Atoi(m[3])
+		if mon, ok := flexibleDateMonths[monStr]; ok {
+			t := time.Date(year, mon, day, 0, 0, 0, 0, time.UTC)
+			if t.Day() == day {
+				return t, t.Format("2006-01-02"), nil
+			}
+		}
+	}
+
+	if hasLetters {
+		if t, normalized, ok := parseStandardDate(dateStr); ok {
+			return t, normalized, nil
+		}
+	}
+
 	return time.Time{}, "", fmt.Errorf("unable to parse date: %s", dateStr)
+}
+
+func parseStandardDate(dateStr string) (time.Time, string, bool) {
+	for _, format := range flexibleDateStandardFormats {
+		if t, err := time.Parse(format, dateStr); err == nil {
+			return t, t.Format("2006-01-02"), true
+		}
+	}
+	return time.Time{}, "", false
 }
 
 func buildDateFilters(before, after, on, during string) (map[string]string, error) {
