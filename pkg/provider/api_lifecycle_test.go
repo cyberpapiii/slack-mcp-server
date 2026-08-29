@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -83,11 +84,11 @@ func TestUnitRefreshFlightWaiterHonorsOwnContext(t *testing.T) {
 }
 
 func TestUnitSearchUsersInCacheOrderIsDeterministic(t *testing.T) {
-	snapshot := &UsersCache{Users: map[string]slack.User{}, UsersInv: map[string]string{}}
+	var users []slack.User
 	for _, id := range []string{"U9", "U3", "U7", "U1", "U5", "U8", "U2", "U6", "U4"} {
-		snapshot.Users[id] = slack.User{ID: id, Name: "same-" + id}
+		users = append(users, slack.User{ID: id, Name: "same-" + id})
 	}
-	ap := newTestApiProvider(nil, snapshot)
+	ap := newTestApiProvider(nil, newUsersCache(users))
 	ap.usersReady.Store(true)
 
 	first, err := ap.searchUsersInCache("same", 3)
@@ -99,6 +100,58 @@ func TestUnitSearchUsersInCacheOrderIsDeterministic(t *testing.T) {
 		again, err := ap.searchUsersInCache("same", 3)
 		require.NoError(t, err)
 		assert.Equal(t, first, again, "same query must truncate the same way every call")
+	}
+}
+
+func TestUnitSearchUsersInCacheMatchesEveryFieldCaseInsensitively(t *testing.T) {
+	users := []slack.User{
+		{ID: "U1", Name: "literal[.*", RealName: "Jörg Example", Profile: slack.UserProfile{DisplayName: "Display Name", Email: "PERSON@EXAMPLE.COM"}},
+		{ID: "U2", Name: "deleted-match", Deleted: true},
+	}
+	ap := newTestApiProvider(nil, newUsersCache(users))
+	ap.usersReady.Store(true)
+
+	for _, query := range []string{"literal[.*", "JÖRG", "display name", "person@example.com"} {
+		results, err := ap.searchUsersInCache(query, 10)
+		require.NoError(t, err)
+		require.Len(t, results, 1, query)
+		assert.Equal(t, "U1", results[0].ID)
+	}
+	results, err := ap.searchUsersInCache("deleted-match", 10)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+
+	folded := newTestApiProvider(nil, newUsersCache([]slack.User{{ID: "U3", Name: "ſymbol Kelvin"}}))
+	folded.usersReady.Store(true)
+	for _, query := range []string{"symbol", "kelvin"} {
+		results, err := folded.searchUsersInCache(query, 10)
+		require.NoError(t, err)
+		require.Len(t, results, 1, query)
+	}
+}
+
+func BenchmarkSearchUsersInCache(b *testing.B) {
+	users := make([]slack.User, 2000)
+	for i := range users {
+		users[i] = slack.User{
+			ID:       fmt.Sprintf("U%08d", i),
+			Name:     fmt.Sprintf("person-%04d", i),
+			RealName: fmt.Sprintf("Person Number %04d", i),
+			Profile: slack.UserProfile{
+				DisplayName: fmt.Sprintf("Teammate %04d", i),
+				Email:       fmt.Sprintf("person-%04d@example.com", i),
+			},
+		}
+	}
+	ap := newTestApiProvider(nil, newUsersCache(users))
+	ap.usersReady.Store(true)
+
+	for _, query := range []string{"person-1999", "PERSON NUMBER 1999", "example.com", "missing"} {
+		b.Run(query, func(b *testing.B) {
+			for b.Loop() {
+				_, _ = ap.searchUsersInCache(query, 100)
+			}
+		})
 	}
 }
 

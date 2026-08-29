@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -14,17 +15,29 @@ import (
 type UsersCache struct {
 	Users    map[string]slack.User `json:"users"`
 	UsersInv map[string]string     `json:"users_inv"`
+	search   []userSearchEntry
+}
+
+type userSearchEntry struct {
+	id          string
+	name        string
+	realName    string
+	displayName string
+	email       string
 }
 
 func newUsersCache(users []slack.User) *UsersCache {
 	snapshot := &UsersCache{
 		Users:    make(map[string]slack.User, len(users)),
 		UsersInv: make(map[string]string, len(users)),
+		search:   make([]userSearchEntry, 0, len(users)),
 	}
 	for _, u := range users {
 		snapshot.Users[u.ID] = u
 		snapshot.UsersInv[u.Name] = u.ID
+		snapshot.search = append(snapshot.search, newUserSearchEntry(u))
 	}
+	sort.Slice(snapshot.search, func(i, j int) bool { return snapshot.search[i].id < snapshot.search[j].id })
 	return snapshot
 }
 
@@ -71,6 +84,13 @@ func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.Use
 		}
 		newSnapshot.Users[user.ID] = user
 		newSnapshot.UsersInv[user.Name] = user.ID
+		newSnapshot.search = make([]userSearchEntry, 0, len(newSnapshot.Users))
+		for id, indexedUser := range newSnapshot.Users {
+			entry := newUserSearchEntry(indexedUser)
+			entry.id = id
+			newSnapshot.search = append(newSnapshot.search, entry)
+		}
+		sort.Slice(newSnapshot.search, func(i, j int) bool { return newSnapshot.search[i].id < newSnapshot.search[j].id })
 
 		if ap.usersSnapshot.CompareAndSwap(current, newSnapshot) {
 			break
@@ -212,22 +232,37 @@ func (ap *ApiProvider) searchUsersInCache(query string, limit int) ([]slack.User
 		return nil, ErrUsersNotReady
 	}
 
-	pattern, err := regexp.Compile("(?i)" + regexp.QuoteMeta(query))
-	if err != nil {
-		return nil, err
+	query = foldSearchText(query)
+	if limit == 0 {
+		return nil, nil
 	}
 
 	usersCache := ap.usersSnapshot.Load()
+	if len(usersCache.search) == len(usersCache.Users) {
+		var results []slack.User
+		for _, entry := range usersCache.search {
+			if entry.matches(query) {
+				user := usersCache.Users[entry.id]
+				if user.Deleted {
+					continue
+				}
+				results = append(results, user)
+				if len(results) == limit {
+					break
+				}
+			}
+		}
+		return results, nil
+	}
+
+	// Hand-built snapshots in tests and older callers may not carry indexes.
 	var results []slack.User
 	for _, user := range usersCache.Users {
 		if user.Deleted {
 			continue
 		}
 
-		if pattern.MatchString(user.Name) ||
-			pattern.MatchString(user.RealName) ||
-			pattern.MatchString(user.Profile.DisplayName) ||
-			pattern.MatchString(user.Profile.Email) {
+		if newUserSearchEntry(user).matches(query) {
 			results = append(results, user)
 		}
 	}
@@ -237,4 +272,38 @@ func (ap *ApiProvider) searchUsersInCache(query string, limit int) ([]slack.User
 	}
 
 	return results, nil
+}
+
+func newUserSearchEntry(user slack.User) userSearchEntry {
+	return userSearchEntry{
+		id:          user.ID,
+		name:        foldSearchText(user.Name),
+		realName:    foldSearchText(user.RealName),
+		displayName: foldSearchText(user.Profile.DisplayName),
+		email:       foldSearchText(user.Profile.Email),
+	}
+}
+
+func (entry userSearchEntry) matches(query string) bool {
+	return strings.Contains(entry.name, query) ||
+		strings.Contains(entry.realName, query) ||
+		strings.Contains(entry.displayName, query) ||
+		strings.Contains(entry.email, query)
+}
+
+// regexp's (?i) uses Unicode simple folding. Canonicalize each fold cycle once
+// when building the cache so literal searches keep identical Unicode behavior.
+func foldSearchText(value string) string {
+	var folded strings.Builder
+	folded.Grow(len(value))
+	for _, r := range value {
+		canonical := r
+		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+			if next < canonical {
+				canonical = next
+			}
+		}
+		folded.WriteRune(canonical)
+	}
+	return folded.String()
 }
