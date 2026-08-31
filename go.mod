@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/gocarina/gocsv v0.0.0-20260824135904-1713ebc4797a
 	github.com/google/uuid v1.6.0
-	github.com/mark3labs/mcp-go v0.46.0
+	github.com/mark3labs/mcp-go v0.58.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/openai/openai-go v1.12.0
 	github.com/refraction-networking/utls v1.8.2
@@ -27,7 +27,7 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
-	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/tidwall/gjson v1.17.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
