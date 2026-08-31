@@ -146,10 +146,8 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 
 	t.Run("rate limited fetch retries then gives up", func(t *testing.T) {
 		// RetryAfter is one millisecond so exercising the retry path stays
-		// fast. The failure is scripted on the FIRST page deliberately: Tier2
-		// has a burst of 3, so three attempts draw three instantly-available
-		// tokens. A preceding successful page would push the last attempt past
-		// the burst and make this subtest block for a real 3s refill.
+		// fast. newTestApiProvider pacing is unlimited, so the three attempts
+		// do not wait on Tier2 token refills either.
 		client := &fakeChannelsClient{pages: []channelsPage{
 			{err: &slack.RateLimitedError{RetryAfter: time.Millisecond}},
 		}}

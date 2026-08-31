@@ -268,11 +268,19 @@ func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel st
 
 func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, slackMessages []slack.Message, channel string, includeActivity bool, mode text.OutputMode) []Message {
 	resolver := ch.newUserResolver(ctx)
-	var messages []Message
+	authors := make([]string, 0, len(slackMessages))
+	for _, msg := range slackMessages {
+		if rendersInHistory(msg, includeActivity) {
+			authors = append(authors, msg.User)
+		}
+	}
+	resolver.prefetch(authors)
+
+	messages := make([]Message, 0, len(slackMessages))
 	warn := false
 
 	for _, msg := range slackMessages {
-		if (msg.SubType != "" && msg.SubType != "bot_message" && msg.SubType != "thread_broadcast") && !includeActivity {
+		if !rendersInHistory(msg, includeActivity) {
 			continue
 		}
 
@@ -348,7 +356,13 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, 
 
 func (ch *ConversationsHandler) convertMessagesFromSearch(ctx context.Context, slackMessages []slack.SearchMessage, mode text.OutputMode) []Message {
 	resolver := ch.newUserResolver(ctx)
-	var messages []Message
+	authors := make([]string, 0, len(slackMessages))
+	for _, msg := range slackMessages {
+		authors = append(authors, msg.User)
+	}
+	resolver.prefetch(authors)
+
+	messages := make([]Message, 0, len(slackMessages))
 	warn := false
 
 	for _, msg := range slackMessages {
@@ -655,6 +669,42 @@ func (ch *ConversationsHandler) newUserResolver(ctx context.Context) *userResolv
 		usersMap:     ch.apiProvider.ProvideUsersMap(),
 		attemptedIDs: make(map[string]bool),
 	}
+}
+
+// rendersInHistory reports whether a conversations.history message reaches the
+// output. Activity subtypes (joins, topic changes) are dropped unless the
+// caller asked for them.
+func rendersInHistory(msg slack.Message, includeActivity bool) bool {
+	return includeActivity ||
+		msg.SubType == "" ||
+		msg.SubType == "bot_message" ||
+		msg.SubType == "thread_broadcast"
+}
+
+// prefetch resolves every uncached author on the page in one users.info call.
+// Without it a page whose authors are outside the users cache — Slack Connect
+// guests, members who joined since the last sync — costs one sequential round
+// trip and one full snapshot rebuild each. A batch that fails or comes back
+// short changes nothing: resolve still falls back to the per-user patch.
+func (r *userResolver) prefetch(userIDs []string) {
+	var missing []string
+	seen := make(map[string]bool, len(userIDs))
+	for _, id := range userIDs {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if _, cached := r.usersMap.Users[id]; !cached {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) < 2 {
+		return // one miss is exactly what resolve already does in one call
+	}
+	// Even a partial batch installs the users it did resolve, so the snapshot
+	// is reloaded either way; resolve only retries what is still missing.
+	_ = r.apiProvider.PatchUsers(r.ctx, missing)
+	r.usersMap = r.apiProvider.ProvideUsersMap()
 }
 
 func (r *userResolver) resolve(userID string) (userName, realName string, ok bool) {

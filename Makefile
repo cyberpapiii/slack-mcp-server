@@ -108,7 +108,9 @@ deps: ## Download dependencies
 
 .PHONY: test
 test: ## Run the unit tests (with the race detector); live Slack tests are behind the integration build tag
-	$(GO) test -count=1 -race -v ./...
+	# No -v: a passing run is 15 lines instead of ~1800, and a failing package
+	# still prints its full test output. Use `go test -v ./...` to see names.
+	$(GO) test -count=1 -race ./...
 
 .PHONY: test-integration
 test-integration: ## Run the live Slack tests (needs SLACK_MCP_XOXP_TOKEN, SLACK_MCP_OPENAI_API, ngrok)

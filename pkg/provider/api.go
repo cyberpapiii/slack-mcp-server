@@ -12,6 +12,7 @@ import (
 
 	"github.com/rusq/slackdump/v3/auth"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 const usersNotReadyMsg = "users cache is not ready yet, sync process is still running... please wait"
@@ -50,6 +51,11 @@ type ApiProvider struct {
 
 	// Test-overridable; production always uses defaultBackgroundRefreshTimeout.
 	backgroundRefreshTimeout time.Duration
+
+	// Test-overridable pacing for conversations.list. Production leaves this
+	// nil and shares the process-wide limiter.Tier2 budget; tests inject an
+	// unlimited limiter so the suite does not sleep on a real 3s token refill.
+	conversationsLimiter *rate.Limiter
 
 	usersSnapshot  atomic.Pointer[UsersCache] // immutable snapshot; atomic load, no copy
 	usersCachePath string
