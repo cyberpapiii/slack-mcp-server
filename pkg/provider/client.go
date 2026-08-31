@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
-	"github.com/rusq/slackdump/v3/auth"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
@@ -46,7 +46,7 @@ type MCPSlackClient struct {
 	httpClient *http.Client
 
 	authResponse *slack.AuthTestResponse
-	authProvider auth.Provider
+	authProvider slackcreds.Credentials
 	logger       *zap.Logger
 
 	isEnterprise bool
@@ -92,7 +92,7 @@ func startupJitter(logger *zap.Logger) {
 
 // authTest builds the HTTP client for authProvider's credentials and proves
 // them against auth.test. Demo credentials skip the network entirely.
-func authTest(authProvider auth.Provider, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
+func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
 	httpClient, err := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 	if err != nil {
 		return nil, nil, err
@@ -117,7 +117,7 @@ func authTest(authProvider auth.Provider, logger *zap.Logger) (*http.Client, *sl
 	return httpClient, authResp, nil
 }
 
-func newMCPSlackClient(authProvider auth.Provider, logger *zap.Logger) (*MCPSlackClient, error) {
+func newMCPSlackClient(authProvider slackcreds.Credentials, logger *zap.Logger) (*MCPSlackClient, error) {
 	if !IsDemoCredentials() {
 		startupJitter(logger)
 	}

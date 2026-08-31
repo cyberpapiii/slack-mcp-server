@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
-	"github.com/rusq/slackdump/v3/auth"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
@@ -146,7 +146,7 @@ func (c *MCPSlackClient) ConfiguredWithBrowserSession() bool {
 
 // attachBrowserSession adds browser-only Slack surfaces to an OAuth-primary
 // client. Standard Web API calls continue to use the OAuth client.
-func (c *MCPSlackClient) attachBrowserSession(browserAuth auth.ValueAuth, browserIdentity *slack.AuthTestResponse, httpClient *http.Client) error {
+func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, browserIdentity *slack.AuthTestResponse, httpClient *http.Client) error {
 	if browserIdentity == nil || c.authResponse == nil {
 		return errors.New("cannot verify OAuth and browser provider identities")
 	}
@@ -201,7 +201,7 @@ func attachBrowserToOAuth(ap *ApiProvider, xoxcToken, xoxdToken string, logger *
 	if !ok || client == nil {
 		return
 	}
-	browserAuth, err := auth.NewValueAuth(xoxcToken, xoxdToken)
+	browserAuth, err := slackcreds.New(xoxcToken, xoxdToken)
 	if err == nil {
 		var (
 			httpClient      *http.Client
