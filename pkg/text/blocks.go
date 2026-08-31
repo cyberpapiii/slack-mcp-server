@@ -100,14 +100,13 @@ func richTextElementToText(elem slack.RichTextElement) string {
 	case *slack.RichTextList:
 		return richTextListToText(e)
 	case *slack.RichTextQuote:
-		section := slack.RichTextSection(*e)
-		t := richTextSectionToText(section.Elements)
+		t := richTextSectionToText(e.Elements)
 		if t != "" {
 			return "> " + strings.ReplaceAll(t, "\n", "\n> ")
 		}
 		return ""
 	case *slack.RichTextPreformatted:
-		t := richTextSectionToText(e.RichTextSection.Elements)
+		t := richTextSectionToText(e.Elements)
 		if t != "" {
 			return "```\n" + t + "\n```"
 		}

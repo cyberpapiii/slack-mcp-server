@@ -245,9 +245,10 @@ func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool,
 
 func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error) {
 	if c.isOAuth {
+		// v0.29 of slack-go replaced the Count/Page pair with cursor
+		// pagination; an empty cursor is still the first page.
 		params := slack.StarsParameters{
-			Count: limit,
-			Page:  1,
+			Limit: limit,
 		}
 		items, _, err := c.standardSlackClient().ListStarsContext(ctx, params)
 		if err != nil {
