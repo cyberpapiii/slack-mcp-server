@@ -1,6 +1,6 @@
 module github.com/korotovsky/slack-mcp-server
 
-go 1.25.7
+go 1.27.0
 
 require (
 	github.com/gocarina/gocsv v0.0.0-20260824135904-1713ebc4797a
