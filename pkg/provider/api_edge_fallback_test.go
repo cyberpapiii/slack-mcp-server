@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
-	"github.com/rusq/slackdump/v3/auth"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,7 +133,7 @@ func TestStandardSlackClientUsesOAuthClientWhenBrowserIsAttached(t *testing.T) {
 
 func TestAttachBrowserRejectsProviderIdentityMismatch(t *testing.T) {
 	c := &MCPSlackClient{authResponse: &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"}, logger: zap.NewNop()}
-	browserAuth, err := auth.NewValueAuth("xoxc-browser", "xoxd-cookie")
+	browserAuth, err := slackcreds.New("xoxc-browser", "xoxd-cookie")
 	require.NoError(t, err)
 
 	err = c.attachBrowserSession(browserAuth, &slack.AuthTestResponse{TeamID: "T1", UserID: "U2"}, nil)

@@ -18,9 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/korotovsky/slack-mcp-server/pkg/transport"
-	"github.com/rusq/slackauth"
-	"github.com/rusq/slackdump/v3/auth"
 	"github.com/rusq/tagops"
 	"github.com/slack-go/slack"
 )
@@ -47,13 +46,11 @@ func OptionHTTPClient(client httpClient) func(*Client) {
 
 // NewWithInfo is the same as New, but doesn't call the AuthTest on
 // initialisation.  Caller must ensure that the token is valid.
-func NewWithInfo(info *slack.AuthTestResponse, prov auth.Provider, opt ...Option) (*Client, error) {
-	hcl, err := prov.HTTPClient()
-	if err != nil {
-		return nil, err
-	}
+func NewWithInfo(info *slack.AuthTestResponse, prov slackcreds.Credentials, opt ...Option) (*Client, error) {
 	c := &Client{
-		cl:           hcl,
+		// Every caller passes OptionHTTPClient below, which is what carries the
+		// proxy and TLS settings; this is only a non-nil floor.
+		cl:           http.DefaultClient,
 		token:        prov.SlackToken(),
 		teamID:       info.TeamID,
 		webclientAPI: info.URL + "api/",
@@ -189,7 +186,7 @@ func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, 
 
 	lg := slog.Default()
 	req.Header.Set("Accept-Language", "en-NZ,en-AU;q=0.9,en;q=0.8")
-	req.Header.Set("User-Agent", slackauth.DefaultUserAgent)
+	req.Header.Set("User-Agent", slackcreds.UserAgent)
 
 	rgn := trace.StartRegion(ctx, "http.Do")
 	resp, err := cl.Do(req)

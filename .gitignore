@@ -9,6 +9,7 @@
 /extension.dxt/server/slack-mcp-server-*
 /extension.dxt/server/index.js
 /build/slack-mcp-server-*
+/build/slack-mcp-auth
 /build/slack-mcp-server.dxt
 /build/slack-mcp-server
 /slack-mcp-server

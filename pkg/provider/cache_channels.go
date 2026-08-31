@@ -126,7 +126,10 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 
 	usersMap := ap.ProvideUsersMap().Users
 	// Tier2 matches conversations.list; faster budgets caused 429 truncations.
-	lim := limiter.Tier2.Limiter()
+	lim := ap.conversationsLimiter
+	if lim == nil {
+		lim = limiter.Tier2.Limiter()
+	}
 
 	for {
 		// CallWithRetry already paces; do not wait again in this loop.

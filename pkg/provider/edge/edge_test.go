@@ -11,22 +11,15 @@ import (
 	"testing"
 	"time"
 
-	rslack "github.com/rusq/slack"
 	"github.com/slack-go/slack"
 )
 
-// fakeAuthProvider satisfies auth.Provider without any real credentials.
-// Note that Test returns the rusq/slack AuthTestResponse, while NewWithInfo
-// takes the slack-go one, two different packages, hence the import alias.
-type fakeAuthProvider struct{ cl *http.Client }
+// fakeAuthProvider satisfies slackcreds.Credentials without any real
+// credentials. The HTTP client always comes from OptionHTTPClient.
+type fakeAuthProvider struct{}
 
-func (f fakeAuthProvider) SlackToken() string      { return "xoxc-test" }
-func (f fakeAuthProvider) Cookies() []*http.Cookie { return nil }
-func (f fakeAuthProvider) Validate() error         { return nil }
-func (f fakeAuthProvider) Test(context.Context) (*rslack.AuthTestResponse, error) {
-	return nil, nil
-}
-func (f fakeAuthProvider) HTTPClient() (*http.Client, error) { return f.cl, nil }
+func (fakeAuthProvider) SlackToken() string      { return "xoxc-test" }
+func (fakeAuthProvider) Cookies() []*http.Cookie { return nil }
 
 // doFunc adapts a plain function to the httpClient interface.
 type doFunc func(*http.Request) (*http.Response, error)
@@ -48,7 +41,7 @@ func newTestClient(t *testing.T, fn doFunc) *Client {
 	t.Helper()
 	cl, err := NewWithInfo(
 		&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"},
-		fakeAuthProvider{cl: &http.Client{}},
+		fakeAuthProvider{},
 		OptionHTTPClient(fn),
 	)
 	if err != nil {
@@ -228,7 +221,8 @@ func newFixtureClient(t *testing.T, fake roundTripperFunc) *Client {
 	t.Helper()
 	cl, err := NewWithInfo(
 		&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"},
-		fakeAuthProvider{cl: &http.Client{Transport: fake}},
+		fakeAuthProvider{},
+		OptionHTTPClient(&http.Client{Transport: fake}),
 	)
 	if err != nil {
 		t.Fatalf("NewWithInfo: %v", err)

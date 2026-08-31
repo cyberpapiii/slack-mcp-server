@@ -10,8 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/rusq/slackdump/v3/auth"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 const usersNotReadyMsg = "users cache is not ready yet, sync process is still running... please wait"
@@ -50,6 +51,11 @@ type ApiProvider struct {
 
 	// Test-overridable; production always uses defaultBackgroundRefreshTimeout.
 	backgroundRefreshTimeout time.Duration
+
+	// Test-overridable pacing for conversations.list. Production leaves this
+	// nil and shares the process-wide limiter.Tier2 budget; tests inject an
+	// unlimited limiter so the suite does not sleep on a real 3s token refill.
+	conversationsLimiter *rate.Limiter
 
 	usersSnapshot  atomic.Pointer[UsersCache] // immutable snapshot; atomic load, no copy
 	usersCachePath string
@@ -112,7 +118,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 	// Supported Web API calls always prefer OAuth. Browser credentials are
 	// attached only to browser-private Activity and Later surfaces.
 	if xoxpToken != "" {
-		authProvider, err := auth.NewValueAuth(xoxpToken, "")
+		authProvider, err := slackcreds.New(xoxpToken, "")
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXP token: %w", err)
 		}
@@ -133,7 +139,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 	}
 
 	if xoxbToken != "" {
-		authProvider, err := auth.NewValueAuth(xoxbToken, "")
+		authProvider, err := slackcreds.New(xoxbToken, "")
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXB token: %w", err)
 		}
@@ -151,7 +157,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 	}
 
 	if xoxcToken != "" && xoxdToken != "" {
-		authProvider, err := auth.NewValueAuth(xoxcToken, xoxdToken)
+		authProvider, err := slackcreds.New(xoxcToken, xoxdToken)
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXC/XOXD tokens: %w", err)
 		}
@@ -165,7 +171,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 	return nil, errors.New("authentication required: Either SLACK_MCP_XOXP_TOKEN, SLACK_MCP_XOXB_TOKEN, or both SLACK_MCP_XOXC_TOKEN and SLACK_MCP_XOXD_TOKEN must be provided")
 }
 
-func newProvider(transport string, authProvider auth.Provider, logger *zap.Logger) (*ApiProvider, error) {
+func newProvider(transport string, authProvider slackcreds.Credentials, logger *zap.Logger) (*ApiProvider, error) {
 	client, err := newMCPSlackClient(authProvider, logger)
 	if err != nil {
 		return nil, err
