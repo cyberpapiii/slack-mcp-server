@@ -111,6 +111,7 @@ If users or channels cache warm-up fails after the 3 fast attempts, the server r
 
 - Unit tests: every `_test.go` without a build tag runs under `make test`. It does not pass `-v`: a passing run is ~15 lines, and a failing package still prints its full output. Run `go test -v ./...` when you want test names
 - Tests must not draw on the process-wide `limiter.Tier` buckets. `newTestApiProvider` injects an unlimited `conversationsLimiter`; a test that paces through the real Tier2 budget blocks for a 3s token refill per call
+- Block-kit rendering: `pkg/text/blocks_test.go` pins the rich-text quote and preformatted output. slack-go has changed those types' shape once already (they used to alias and embed `RichTextSection`), and the rendering is what every message tool returns
 - Live Slack tests: `//go:build integration` files (`pkg/handler/integration_test.go`, `pkg/test/util`), run via `make test-integration`; `make lint` vets them so they cannot rot
 - Error handling: zap structured logging; avoid `logger.Fatal` on background cache paths
 - Tool params are not logged at Info by default; set `SLACK_MCP_LOG_PARAMS=debug` to log full params at Info (may include message text). The same gate covers handler-level debug logs, not just the HTTP middleware.
