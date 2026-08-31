@@ -123,6 +123,11 @@ lint: ## Vet, check formatting and check go.mod tidiness (read-only)
 	@fmt_out=$$(gofmt -l pkg cmd); if [ -n "$$fmt_out" ]; then echo "gofmt needed:"; echo "$$fmt_out"; exit 1; fi
 	$(GO) mod tidy -diff
 
+# Plug keeps its server table here; deploy-local reads it back to prove the
+# slack entry is still enabled, because a timed-out `plug server enable` used
+# to leave it disabled with no visible error.
+PLUG_CONFIG ?= $(HOME)/Library/Application Support/plug/config.toml
+
 .PHONY: deploy-local
 deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plug reload alone leaves the old process running)
 	go build $(COMMON_BUILD_ARGS) -o ./bin/slack-mcp-server ./cmd/slack-mcp-server
@@ -138,8 +143,13 @@ deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plu
 	@echo "Built ./bin/slack-mcp-auth"
 	@strings ./bin/slack-mcp-server 2>/dev/null | grep -m1 'github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=' || true
 	@if command -v plug >/dev/null 2>&1; then \
-		plug server disable slack && sleep 2 && plug server enable slack \
-			&& echo "Plug slack server restarted with new binary"; \
+		plug server disable slack || echo "WARNING: plug server disable slack failed"; \
+		sleep 2; \
+		for attempt in 1 2 3; do \
+			if plug server enable slack; then break; fi; \
+			echo "plug server enable slack failed (attempt $$attempt); the daemon is probably still reloading, retrying in 5s"; \
+			sleep 5; \
+		done; \
 	else \
 		echo "plug not in PATH: restart Plug manually"; \
 	fi
@@ -149,6 +159,12 @@ deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plu
 	else \
 		echo "WARNING: no slack-mcp-server process found, check plug status"; \
 	fi
+	@STATE=$$(awk '/^\[servers\.slack\]/{f=1;next} /^\[/{f=0} f && /^enabled/{print $$3}' "$(PLUG_CONFIG)" 2>/dev/null); \
+	if [ "$$STATE" = "false" ]; then \
+		echo "ERROR: plug still has the slack server disabled. Run: plug server enable slack"; \
+		exit 1; \
+	fi; \
+	echo "Plug slack server is enabled"
 
 .PHONY: format
 format: ## Format the code
