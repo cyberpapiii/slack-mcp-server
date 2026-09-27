@@ -336,7 +336,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		decodedCursor, err = base64.StdEncoding.DecodeString(cursor)
 		if err != nil {
 			ch.logger.Error("Invalid cursor decoding", zap.String("cursor", cursor), zap.Error(err))
-			return nil, fmt.Errorf("invalid cursor: %v", err)
+			return nil, fmt.Errorf("invalid cursor: %w", err)
 		}
 		parts := strings.Split(string(decodedCursor), ":")
 		if len(parts) != 2 {
@@ -346,7 +346,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		page, err = strconv.Atoi(parts[1])
 		if err != nil || page < 1 {
 			ch.logger.Error("Invalid cursor page", zap.String("cursor", cursor), zap.Error(err))
-			return nil, fmt.Errorf("invalid cursor page: %v", err)
+			return nil, fmt.Errorf("invalid cursor page: %w", err)
 		}
 	} else {
 		page = 1

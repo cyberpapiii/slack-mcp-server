@@ -30,7 +30,7 @@ type SavedItemRow struct {
 func renderSavedItems(items []SavedItemRow, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
 	csvBytes, err := gocsv.MarshalBytes(&items)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal saved items: %v", err)
+		return nil, fmt.Errorf("failed to marshal saved items: %w", err)
 	}
 	ids := make([]string, len(items))
 	for i, item := range items {
@@ -93,7 +93,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 		resp, err := h.apiProvider.Slack().SavedList(ctx, filter, pageSize, cursor)
 		if err != nil {
 			h.logger.Error("SavedList failed", zap.Error(err))
-			return nil, fmt.Errorf("failed to list saved items: %v", err)
+			return nil, fmt.Errorf("failed to list saved items: %w", err)
 		}
 		nextCursor = resp.ResponseMetadata.NextCursor
 
@@ -243,7 +243,7 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 			zap.String("mark", mark),
 			zap.Int64("date_due", dateDue),
 			zap.Error(err))
-		return nil, fmt.Errorf("failed to update saved item: %v", err)
+		return nil, fmt.Errorf("failed to update saved item: %w", err)
 	}
 
 	action := "updated"
@@ -268,7 +268,7 @@ func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request m
 	err := h.apiProvider.Slack().SavedClearCompleted(ctx)
 	if err != nil {
 		h.logger.Error("SavedClearCompleted failed", zap.Error(err))
-		return nil, fmt.Errorf("failed to clear completed saved items: %v", err)
+		return nil, fmt.Errorf("failed to clear completed saved items: %w", err)
 	}
 
 	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, SlackResultMeta("", false, ""), "Successfully cleared all completed saved items"), nil

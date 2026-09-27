@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -264,11 +265,17 @@ func TestAddEnabledTool_RegistersOnlyListedTools(t *testing.T) {
 
 // setupMCPClientServer creates an MCP server with the given options and tool handler,
 // wires up a client via stdio pipes, and returns the connected client.
-func setupMCPClientServer(t *testing.T, opts []server.ServerOption, toolHandler server.ToolHandlerFunc) *client.Client {
+// setupMCPClientServer registers toolHandler as "test_tool", or under
+// toolName when the test needs a real catalog name.
+func setupMCPClientServer(t *testing.T, opts []server.ServerOption, toolHandler server.ToolHandlerFunc, toolName ...string) *client.Client {
 	t.Helper()
 
+	name := "test_tool"
+	if len(toolName) > 0 {
+		name = toolName[0]
+	}
 	mcpSrv := server.NewMCPServer("test", "1.0.0", opts...)
-	mcpSrv.AddTool(mcp.NewTool("test_tool",
+	mcpSrv.AddTool(mcp.NewTool(name,
 		mcp.WithDescription("A test tool"),
 	), toolHandler)
 
@@ -327,6 +334,47 @@ func TestErrorRecoveryMiddleware(t *testing.T) {
 		errorPayload, ok := structured["error"].(map[string]any)
 		require.True(t, ok)
 		assert.Equal(t, "tool_error", errorPayload["code"])
+	})
+
+	rateLimitedPayload := func(t *testing.T, tool string, handlerErr error) map[string]any {
+		t.Helper()
+		c := setupMCPClientServer(t,
+			[]server.ServerOption{server.WithToolHandlerMiddleware(buildErrorRecoveryMiddleware(logger))},
+			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return nil, handlerErr
+			},
+			tool,
+		)
+		var callReq mcp.CallToolRequest
+		callReq.Params.Name = tool
+		result, err := c.CallTool(context.Background(), callReq)
+		require.NoError(t, err)
+		require.True(t, result.IsError)
+		structured, ok := result.StructuredContent.(map[string]any)
+		require.True(t, ok)
+		payload, ok := structured["error"].(map[string]any)
+		require.True(t, ok)
+		return payload
+	}
+
+	// A 429 on a read tool used to reach the agent as tool_error with
+	// retryable=false, so agents gave up instead of waiting it out.
+	t.Run("rate limit on a read tool is retryable with its delay", func(t *testing.T) {
+		payload := rateLimitedPayload(t, "conversations_search_messages",
+			fmt.Errorf("search: %w", &slack.RateLimitedError{RetryAfter: 30 * time.Second}))
+		assert.Equal(t, "rate_limited", payload["code"])
+		assert.Equal(t, true, payload["retryable"])
+		assert.EqualValues(t, 30, payload["retry_after_seconds"])
+	})
+
+	// A mutating handler that returns a raw 429 may have applied an earlier
+	// step, so the code and delay are reported but retry is not promised.
+	t.Run("rate limit on a write tool is not promised retryable", func(t *testing.T) {
+		payload := rateLimitedPayload(t, "conversations_add_message",
+			&slack.RateLimitedError{RetryAfter: 5 * time.Second})
+		assert.Equal(t, "rate_limited", payload["code"])
+		assert.Equal(t, false, payload["retryable"])
+		assert.EqualValues(t, 5, payload["retry_after_seconds"])
 	})
 
 	t.Run("production stack turns a panic into an isError tool result", func(t *testing.T) {

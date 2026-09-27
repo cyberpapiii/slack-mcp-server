@@ -884,7 +884,7 @@ func buildDateFilters(before, after, on, during string) (map[string]string, erro
 		}
 		_, normalized, err := parseFlexibleDate(on)
 		if err != nil {
-			return nil, fmt.Errorf("invalid 'on' date: %v", err)
+			return nil, fmt.Errorf("invalid 'on' date: %w", err)
 		}
 		out["on"] = normalized
 		return out, nil
@@ -895,7 +895,7 @@ func buildDateFilters(before, after, on, during string) (map[string]string, erro
 		}
 		_, normalized, err := parseFlexibleDate(during)
 		if err != nil {
-			return nil, fmt.Errorf("invalid 'during' date: %v", err)
+			return nil, fmt.Errorf("invalid 'during' date: %w", err)
 		}
 		out["during"] = normalized
 		return out, nil
@@ -903,14 +903,14 @@ func buildDateFilters(before, after, on, during string) (map[string]string, erro
 	if after != "" {
 		_, normalized, err := parseFlexibleDate(after)
 		if err != nil {
-			return nil, fmt.Errorf("invalid 'after' date: %v", err)
+			return nil, fmt.Errorf("invalid 'after' date: %w", err)
 		}
 		out["after"] = normalized
 	}
 	if before != "" {
 		_, normalized, err := parseFlexibleDate(before)
 		if err != nil {
-			return nil, fmt.Errorf("invalid 'before' date: %v", err)
+			return nil, fmt.Errorf("invalid 'before' date: %w", err)
 		}
 		out["before"] = normalized
 	}

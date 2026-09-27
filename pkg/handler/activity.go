@@ -41,7 +41,7 @@ func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, c
 func renderActivityItems(items []ActivityItem, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
 	csvBytes, err := gocsv.MarshalBytes(&items)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal activity items: %v", err)
+		return nil, fmt.Errorf("failed to marshal activity items: %w", err)
 	}
 	ids := make([]string, len(items))
 	for i, item := range items {
@@ -71,7 +71,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	feedResp, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
 	if err != nil {
 		h.logger.Error("ActivityFeed failed", zap.Error(err))
-		return nil, fmt.Errorf("failed to get activity feed: %v", err)
+		return nil, fmt.Errorf("failed to get activity feed: %w", err)
 	}
 
 	var items []ActivityItem
@@ -228,7 +228,7 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 			zap.String("feed_ts", feedTs),
 			zap.String("type", itemType),
 			zap.Error(err))
-		return nil, fmt.Errorf("failed to mark activity as read: %v", err)
+		return nil, fmt.Errorf("failed to mark activity as read: %w", err)
 	}
 
 	fallback := fmt.Sprintf("Successfully marked activity item as read (key=%s)", key)

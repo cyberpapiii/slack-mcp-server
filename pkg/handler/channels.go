@@ -80,7 +80,7 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 			zap.String("url", ar.URL),
 			zap.Error(err),
 		)
-		return nil, fmt.Errorf("failed to parse workspace from URL: %v", err)
+		return nil, fmt.Errorf("failed to parse workspace from URL: %w", err)
 	}
 
 	channels := ch.apiProvider.ProvideChannelsMaps().Channels
@@ -253,7 +253,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 		channels, nextCursor, err := ch.apiProvider.WebAPI().GetConversationsForUserContext(ctx, params)
 		if err != nil {
 			ch.logger.Error("Failed to fetch user conversations", zap.Error(err))
-			return nil, fmt.Errorf("failed to fetch your channels: %v", err)
+			return nil, fmt.Errorf("failed to fetch your channels: %w", err)
 		}
 
 		for _, c := range channels {
@@ -370,7 +370,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	starredIDs, err := ch.apiProvider.Slack().GetStarredChannelIDs(ctx, limit)
 	if err != nil {
 		ch.logger.Error("Failed to get starred channel IDs", zap.Error(err))
-		return nil, fmt.Errorf("failed to get starred channels: %v", err)
+		return nil, fmt.Errorf("failed to get starred channels: %w", err)
 	}
 
 	ch.logger.Debug("Got starred channel IDs", zap.Int("count", len(starredIDs)))

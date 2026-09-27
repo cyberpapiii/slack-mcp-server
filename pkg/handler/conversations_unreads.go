@@ -412,7 +412,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		history, err := ch.apiProvider.WebAPI().GetConversationHistoryContext(ctx, &historyParams)
 		if err != nil {
 			ch.logger.Error("Failed to get latest message", zap.Error(err))
-			return nil, fmt.Errorf("failed to get latest message: %v", err)
+			return nil, fmt.Errorf("failed to get latest message: %w", err)
 		}
 		if len(history.Messages) > 0 {
 			ts = history.Messages[0].Timestamp
@@ -424,7 +424,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 	err = ch.apiProvider.Slack().MarkConversationContext(ctx, channel, ts)
 	if err != nil {
 		ch.logger.Error("Failed to mark conversation", zap.Error(err))
-		return nil, fmt.Errorf("failed to mark conversation as read: %v", err)
+		return nil, fmt.Errorf("failed to mark conversation as read: %w", err)
 	}
 
 	ch.logger.Info("Marked conversation as read",
@@ -451,7 +451,7 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 	notInChannel, err := ch.apiProvider.Slack().LeaveConversationContext(ctx, channel)
 	if err != nil {
 		ch.logger.Error("Failed to leave conversation", zap.Error(err))
-		return nil, fmt.Errorf("failed to leave conversation: %v", err)
+		return nil, fmt.Errorf("failed to leave conversation: %w", err)
 	}
 
 	if notInChannel {
@@ -479,7 +479,7 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 	_, _, _, err = ch.apiProvider.WebAPI().JoinConversationContext(ctx, channel)
 	if err != nil {
 		ch.logger.Error("Failed to join conversation", zap.Error(err))
-		return nil, fmt.Errorf("failed to join conversation: %v", err)
+		return nil, fmt.Errorf("failed to join conversation: %w", err)
 	}
 
 	ch.logger.Info("Joined conversation", zap.String("channel", channel))
