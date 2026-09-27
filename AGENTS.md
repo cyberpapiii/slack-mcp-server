@@ -16,6 +16,8 @@ go build -o bin/slack-mcp-server ./cmd/slack-mcp-server  # manual equivalent
 go build -o build/slack-mcp-auth ./cmd/slack-mcp-auth      # OAuth helper: manifest / login / status / logout (docs/01)
 ```
 
+`scripts/perf.sh [since] [until]` is the read-only field harness. It reads Plug's daily logs and prints per-tool latency percentiles (n, p50, p75, p95, max), cold-start times, and failed calls for the slack server. Pass a deploy date as `since` or `until` to compare before and after.
+
 `make lint && make test` is the whole verification gate. Neither mutates the
 working tree; `make build` no longer runs `tidy`/`format` either, so it is safe
 mid-review. Run `make prepare` explicitly when you want the tree reformatted.
