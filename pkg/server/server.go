@@ -437,9 +437,20 @@ func (s *MCPServer) ServeStdio() error {
 		zap.String("build_time", version.BuildTime),
 		zap.String("commit_hash", version.CommitHash),
 	)
-	err := server.ServeStdio(s.server)
+	return stdioExitErr(s.logger, server.ServeStdio(s.server))
+}
+
+// stdioExitErr maps a signalled shutdown to a clean exit. mcp-go cancels its
+// context on SIGTERM/SIGINT, so Listen returns context.Canceled every time
+// Plug stops the server; reporting that as an error made main exit 1 through
+// logger.Fatal and skip the provider's deferred Close.
+func stdioExitErr(logger *zap.Logger, err error) error {
+	if errors.Is(err, context.Canceled) {
+		logger.Info("STDIO server stopped by signal")
+		return nil
+	}
 	if err != nil {
-		s.logger.Error("STDIO server error", zap.Error(err))
+		logger.Error("STDIO server error", zap.Error(err))
 	}
 	return err
 }
