@@ -125,20 +125,44 @@ lint: ## Vet, check formatting and check go.mod tidiness (read-only)
 
 # Plug keeps its server table here; deploy-local reads it back to prove the
 # slack entry is still enabled, because a timed-out `plug server enable` used
-# to leave it disabled with no visible error.
+# to leave it disabled with no visible error. It also reads the two Keychain
+# account names (never the tokens) from [servers.slack.env].
 PLUG_CONFIG ?= $(HOME)/Library/Application Support/plug/config.toml
+DEPLOY_STAGE ?= ./build/deploy-stage
 
+# A rebuilt binary has a new cdhash, so macOS asks before it can read the
+# Keychain items. deploy-local builds and signs into DEPLOY_STAGE, runs that
+# binary with --check-keychain, and waits there for Always Allow with no
+# deadline. Only then does it swap the same file into bin/ (rm then cp: an
+# in-place cp over a signed binary gets it SIGKILLed on exec) and restart
+# Plug, so the live server never blocks on the prompt.
 .PHONY: deploy-local
-deploy-local: ## Build bin/slack-mcp-server and restart Plug's slack server (plug reload alone leaves the old process running)
-	go build $(COMMON_BUILD_ARGS) -o ./bin/slack-mcp-server ./cmd/slack-mcp-server
-	go build -o ./bin/slack-mcp-auth ./cmd/slack-mcp-auth
+deploy-local: ## Build, collect the Keychain approval, then swap bin/slack-mcp-server and restart Plug's slack server
+	@mkdir -p $(DEPLOY_STAGE)
+	go build $(COMMON_BUILD_ARGS) -o $(DEPLOY_STAGE)/slack-mcp-server ./cmd/slack-mcp-server
+	go build -o $(DEPLOY_STAGE)/slack-mcp-auth ./cmd/slack-mcp-auth
 	@if security find-identity -p codesigning -v | grep -Fq '"$(LOCAL_SIGNING_IDENTITY)"'; then \
-		codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" --identifier "$(LOCAL_SIGNING_IDENTIFIER)" ./bin/slack-mcp-server; \
-		codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" --identifier "$(LOCAL_SIGNING_IDENTIFIER)" ./bin/slack-mcp-auth; \
+		codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" --identifier "$(LOCAL_SIGNING_IDENTIFIER)" $(DEPLOY_STAGE)/slack-mcp-server; \
+		codesign --force --sign "$(LOCAL_SIGNING_IDENTITY)" --identifier "$(LOCAL_SIGNING_IDENTIFIER)" $(DEPLOY_STAGE)/slack-mcp-auth; \
 		echo "Signed local binaries with $(LOCAL_SIGNING_IDENTITY)"; \
 	else \
 		echo "WARNING: $(LOCAL_SIGNING_IDENTITY) unavailable; Keychain may prompt after rebuild"; \
 	fi
+	@account() { awk -v key="$$1" '/^\[servers\.slack\.env\]/{f=1;next} /^\[/{f=0} f && $$1==key {v=$$0; sub(/^[^=]*=[ \t]*/,"",v); gsub(/"/,"",v); print v}' "$(PLUG_CONFIG)" 2>/dev/null; }; \
+	OAUTH_ACCOUNT=$$(account SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT); \
+	BROWSER_ACCOUNT=$$(account SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT); \
+	if [ -n "$$OAUTH_ACCOUNT$$BROWSER_ACCOUNT" ]; then \
+		echo "Checking Keychain access for the new build. If macOS asks, click Always Allow; this waits as long as it takes."; \
+		env -i HOME="$$HOME" PATH="$$PATH" \
+			SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT="$$OAUTH_ACCOUNT" \
+			SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT="$$BROWSER_ACCOUNT" \
+			$(DEPLOY_STAGE)/slack-mcp-server --check-keychain || { \
+			echo "ERROR: the new build cannot read the Keychain; bin/ and Plug are unchanged"; exit 1; }; \
+	fi
+	@mkdir -p ./bin
+	rm -f ./bin/slack-mcp-server ./bin/slack-mcp-auth
+	cp $(DEPLOY_STAGE)/slack-mcp-server ./bin/slack-mcp-server
+	cp $(DEPLOY_STAGE)/slack-mcp-auth ./bin/slack-mcp-auth
 	@echo "Built ./bin/slack-mcp-server"
 	@echo "Built ./bin/slack-mcp-auth"
 	@strings ./bin/slack-mcp-server 2>/dev/null | grep -m1 'github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=' || true

@@ -6,8 +6,10 @@ import (
 )
 
 // fanOutWorkers bounds the Slack reads one tool call runs at once when it
-// fetches a thread or channel per unread item. Plug serializes tool calls, so
-// this is the whole server's concurrency for those reads.
+// fetches a thread or channel per unread item. Plug runs up to max_concurrent
+// tool calls at once (4 in the local config), so the server can have several
+// of these fan-outs in flight; the process-wide Tier limiters still cap the
+// request rate to Slack.
 const fanOutWorkers = 4
 
 // fetchInOrder runs fetch for indexes 0..n-1 on at most workers goroutines

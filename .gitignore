@@ -26,3 +26,4 @@ bin/
 
 # tools/list snapshots from scripts/toolslist-snapshot.sh
 .audit/*.json
+/build/deploy-stage/
