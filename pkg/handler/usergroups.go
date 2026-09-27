@@ -43,6 +43,10 @@ const (
 type UsergroupsHandler struct {
 	api    UsergroupsAPI
 	logger *zap.Logger
+	// cachedUserID returns the user the startup auth.test named, or "".
+	// Managed OAuth rotation keeps it valid: a rotated token must belong to
+	// the same user before it is used.
+	cachedUserID func() string
 }
 
 type UsergroupsAPI interface {
@@ -74,8 +78,9 @@ func newUserGroupFromSlack(g slack.UserGroup) UserGroup {
 
 func NewUsergroupsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *UsergroupsHandler {
 	return &UsergroupsHandler{
-		api:    apiProvider.WebAPI(),
-		logger: logger,
+		api:          apiProvider.WebAPI(),
+		logger:       logger,
+		cachedUserID: func() string { return apiProvider.Identity().UserID },
 	}
 }
 
@@ -258,6 +263,11 @@ func (h *UsergroupsHandler) UsergroupsLeaveHandler(ctx context.Context, request 
 }
 
 func (h *UsergroupsHandler) currentUserID() (string, error) {
+	if h.cachedUserID != nil {
+		if id := h.cachedUserID(); id != "" {
+			return id, nil
+		}
+	}
 	authResp, err := h.api.AuthTest()
 	if err != nil {
 		h.logger.Error("AuthTest failed", zap.Error(err))
