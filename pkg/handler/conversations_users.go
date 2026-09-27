@@ -22,7 +22,7 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 	}
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Warn("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
@@ -71,13 +71,13 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 	logToolCall(ch.logger, "UsersSearchHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
 	params, err := ch.parseParamsToolUsersSearch(request)
 	if err != nil {
-		ch.logger.Error("Failed to parse users-search params", zap.Error(err))
+		ch.logger.Debug("Failed to parse users-search params", zap.Error(err))
 		return nil, err
 	}
 
@@ -88,7 +88,7 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 
 	users, err := ch.apiProvider.SearchUsers(ctx, params.query, params.limit)
 	if err != nil {
-		ch.logger.Error("UsersSearch failed", zap.Error(err))
+		ch.logger.Debug("UsersSearch failed", zap.Error(err))
 		return nil, fmt.Errorf("users search failed: %w", err)
 	}
 

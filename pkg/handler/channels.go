@@ -64,7 +64,7 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 	}
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Warn("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
@@ -116,7 +116,7 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	logToolCall(ch.logger, "ChannelsHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
@@ -176,7 +176,7 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	sortChannels(channels, sortType)
 	chans, nextcur, err := paginateChannels(channels, cursor, limit)
 	if err != nil {
-		ch.logger.Error("Failed to paginate channels", zap.Error(err))
+		ch.logger.Debug("Failed to paginate channels", zap.Error(err))
 		return nil, err
 	}
 
@@ -252,7 +252,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 		}
 		channels, nextCursor, err := ch.apiProvider.WebAPI().GetConversationsForUserContext(ctx, params)
 		if err != nil {
-			ch.logger.Error("Failed to fetch user conversations", zap.Error(err))
+			ch.logger.Debug("Failed to fetch user conversations", zap.Error(err))
 			return nil, fmt.Errorf("failed to fetch your channels: %w", err)
 		}
 
@@ -353,7 +353,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	logToolCall(ch.logger, "ChannelsStarredHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
@@ -369,7 +369,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	starredIDs, err := ch.apiProvider.Slack().GetStarredChannelIDs(ctx, limit)
 	if err != nil {
-		ch.logger.Error("Failed to get starred channel IDs", zap.Error(err))
+		ch.logger.Debug("Failed to get starred channel IDs", zap.Error(err))
 		return nil, fmt.Errorf("failed to get starred channels: %w", err)
 	}
 

@@ -38,7 +38,7 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 
 	params, err := ch.parseParamsToolUnreads(request)
 	if err != nil {
-		ch.logger.Error("Failed to parse unreads params", zap.Error(err))
+		ch.logger.Debug("Failed to parse unreads params", zap.Error(err))
 		return nil, err
 	}
 
@@ -78,7 +78,7 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 		if errors.Is(err, provider.ErrBrowserSessionUnavailable) {
 			return nil, browserSessionRequired("conversations_unreads", ch.apiProvider.BrowserDegradedReason())
 		}
-		ch.logger.Error("ClientCounts failed", zap.Error(err))
+		ch.logger.Debug("ClientCounts failed", zap.Error(err))
 		return nil, fmt.Errorf("get Slack unread state: %w", err)
 	}
 
@@ -421,7 +421,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 
 	params, err := ch.parseParamsToolMark(request)
 	if err != nil {
-		ch.logger.Error("Failed to parse mark params", zap.Error(err))
+		ch.logger.Debug("Failed to parse mark params", zap.Error(err))
 		return nil, err
 	}
 
@@ -436,7 +436,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		}
 		history, err := ch.apiProvider.WebAPI().GetConversationHistoryContext(ctx, &historyParams)
 		if err != nil {
-			ch.logger.Error("Failed to get latest message", zap.Error(err))
+			ch.logger.Debug("Failed to get latest message", zap.Error(err))
 			return nil, fmt.Errorf("failed to get latest message: %w", err)
 		}
 		if len(history.Messages) > 0 {
@@ -448,7 +448,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 
 	err = ch.apiProvider.Slack().MarkConversationContext(ctx, channel, ts)
 	if err != nil {
-		ch.logger.Error("Failed to mark conversation", zap.Error(err))
+		ch.logger.Debug("Failed to mark conversation", zap.Error(err))
 		return nil, fmt.Errorf("failed to mark conversation as read: %w", err)
 	}
 
@@ -475,7 +475,7 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 
 	notInChannel, err := ch.apiProvider.Slack().LeaveConversationContext(ctx, channel)
 	if err != nil {
-		ch.logger.Error("Failed to leave conversation", zap.Error(err))
+		ch.logger.Debug("Failed to leave conversation", zap.Error(err))
 		return nil, fmt.Errorf("failed to leave conversation: %w", err)
 	}
 
@@ -503,7 +503,7 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 
 	_, _, _, err = ch.apiProvider.WebAPI().JoinConversationContext(ctx, channel)
 	if err != nil {
-		ch.logger.Error("Failed to join conversation", zap.Error(err))
+		ch.logger.Debug("Failed to join conversation", zap.Error(err))
 		return nil, fmt.Errorf("failed to join conversation: %w", err)
 	}
 
@@ -584,7 +584,7 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 			if id, ok := usersMap.UsersInv[username]; ok {
 				userIDs = append(userIDs, id)
 			} else {
-				ch.logger.Error("User not found", zap.String("username", username))
+				ch.logger.Debug("User not found", zap.String("username", username))
 				return nil, fmt.Errorf("user %q not found. Please provide a valid @username or User ID (e.g. U12345678)", user)
 			}
 		} else {
@@ -605,13 +605,13 @@ func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, re
 	logToolCall(ch.logger, "ConversationsOpenHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
 	userIDs, err := ch.parseParamsToolOpenConversation(ctx, request)
 	if err != nil {
-		ch.logger.Error("Failed to parse open-conversation params", zap.Error(err))
+		ch.logger.Debug("Failed to parse open-conversation params", zap.Error(err))
 		return nil, err
 	}
 
@@ -622,7 +622,7 @@ func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, re
 
 	channel, _, _, err := ch.apiProvider.WebAPI().OpenConversationContext(ctx, params)
 	if err != nil {
-		ch.logger.Error("Slack OpenConversationContext failed", zap.Error(err))
+		ch.logger.Debug("Slack OpenConversationContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -667,7 +667,7 @@ func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest)
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		ch.logger.Error("channel_id missing in mark params")
+		ch.logger.Debug("channel_id missing in mark params")
 		return nil, errors.New("channel_id is required")
 	}
 
@@ -675,7 +675,7 @@ func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest)
 		channelsMaps := ch.apiProvider.ProvideChannelsMaps()
 		chn, ok := channelsMaps.ChannelsInv[channel]
 		if !ok {
-			ch.logger.Error("Channel not found", zap.String("channel", channel))
+			ch.logger.Debug("Channel not found", zap.String("channel", channel))
 			return nil, fmt.Errorf("channel %q not found", channel)
 		}
 		channel = channelsMaps.Channels[chn].ID

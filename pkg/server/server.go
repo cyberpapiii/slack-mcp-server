@@ -480,11 +480,12 @@ func buildErrorRecoveryMiddleware(logger *zap.Logger) server.ToolHandlerMiddlewa
 			if err != nil {
 				err = typeRateLimit(req.Params.Name, err)
 				// A *handler.ToolError is an expected, typed outcome (bad
-				// arguments, permission, rate limit); everything else is
-				// a defect worth a warning.
+				// arguments, permission, rate limit), and a cancelled call
+				// is the client's choice; everything else is a defect worth
+				// a warning. "Request finished" carries the code either way.
 				var typed *handler.ToolError
 				level := logger.Warn
-				if errors.As(err, &typed) {
+				if errors.As(err, &typed) || errors.Is(err, context.Canceled) {
 					level = logger.Debug
 				}
 				level("Tool call returned error, converting to isError tool result",
@@ -533,11 +534,15 @@ func buildLoggerMiddleware(logger *zap.Logger) server.ToolHandlerMiddleware {
 			startTime := time.Now()
 			res, err := next(ctx, req)
 
-			logger.Info("Request finished",
+			fields := []zap.Field{
 				zap.String("tool", req.Params.Name),
 				zap.Duration("duration", time.Since(startTime)),
 				zap.Bool("is_error", err != nil || (res != nil && res.IsError)),
-			)
+			}
+			if code := handler.ErrorCode(res); code != "" {
+				fields = append(fields, zap.String("error_code", code))
+			}
+			logger.Info("Request finished", fields...)
 			return res, err
 		}
 	}

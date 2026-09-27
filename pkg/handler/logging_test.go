@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -116,4 +117,17 @@ func TestUnitLogToolCallReadsEnvPerCall(t *testing.T) {
 
 	t.Setenv("SLACK_MCP_LOG_PARAMS", "")
 	assert.False(t, logParamsEnabled())
+}
+
+// A bad argument is the caller's mistake, returned to the caller as a tool
+// error and logged once by the server middleware. The handler itself must not
+// log it at Warn or Error.
+func TestUnitBadArgumentsDoNotLogAtWarnOrAbove(t *testing.T) {
+	core, logs := observer.New(zapcore.WarnLevel)
+	ch := &ConversationsHandler{logger: zap.New(core)}
+	_, err := ch.ConversationsHistoryHandler(context.Background(), mcp.CallToolRequest{})
+	require.Error(t, err)
+	for _, e := range logs.All() {
+		t.Errorf("unexpected %s log: %s", e.Level, e.Message)
+	}
 }

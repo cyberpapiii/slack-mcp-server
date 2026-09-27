@@ -149,6 +149,18 @@ func NewTypedErrorResult(err error) *mcp.CallToolResult {
 	return result
 }
 
+// ErrorCode returns the code an error result from NewTypedErrorResult
+// carries, or "" for any other result.
+func ErrorCode(result *mcp.CallToolResult) string {
+	if result == nil || !result.IsError {
+		return ""
+	}
+	if typed, ok := result.StructuredContent.(ToolResult[struct{}]); ok && typed.Error != nil {
+		return typed.Error.Code
+	}
+	return ""
+}
+
 func cancelledToolResult() *mcp.CallToolResult {
 	return NewTypedErrorResult(&ToolError{Code: "cancelled", Message: "Slack read was cancelled"})
 }

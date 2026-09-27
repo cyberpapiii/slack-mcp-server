@@ -35,7 +35,7 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 	}
 	channel, err := ch.resolveChannelID(ctx, rawChannel)
 	if err != nil {
-		ch.logger.Error("Channel not found", zap.String("channel", rawChannel), zap.Error(err))
+		ch.logger.Debug("Channel not found", zap.String("channel", rawChannel), zap.Error(err))
 		return nil, err
 	}
 
@@ -56,7 +56,7 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 
 	params, err := ch.parseParamsToolConversations(ctx, request)
 	if err != nil {
-		ch.logger.Error("Failed to parse history params", zap.Error(err))
+		ch.logger.Debug("Failed to parse history params", zap.Error(err))
 		return nil, err
 	}
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
@@ -81,7 +81,7 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 	}
 	history, err := ch.apiProvider.WebAPI().GetConversationHistoryContext(ctx, &historyParams)
 	if err != nil {
-		ch.logger.Error("GetConversationHistoryContext failed", zap.Error(err))
+		ch.logger.Debug("GetConversationHistoryContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -102,7 +102,7 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 
 	params, err := ch.parseParamsToolConversations(ctx, request)
 	if err != nil {
-		ch.logger.Error("Failed to parse replies params", zap.Error(err))
+		ch.logger.Debug("Failed to parse replies params", zap.Error(err))
 		return nil, err
 	}
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
@@ -111,7 +111,7 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	}
 	threadTs := request.GetString("thread_ts", "")
 	if threadTs == "" {
-		ch.logger.Error("thread_ts not provided for replies", zap.String("thread_ts", threadTs))
+		ch.logger.Debug("thread_ts not provided for replies", zap.String("thread_ts", threadTs))
 		return nil, errors.New("thread_ts must be a string")
 	}
 
@@ -126,7 +126,7 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	}
 	replies, hasMore, nextCursor, err := ch.apiProvider.WebAPI().GetConversationRepliesContext(ctx, &repliesParams)
 	if err != nil {
-		ch.logger.Error("GetConversationRepliesContext failed", zap.Error(err))
+		ch.logger.Debug("GetConversationRepliesContext failed", zap.Error(err))
 		return nil, err
 	}
 	ch.logger.Debug("Fetched conversation replies", zap.Int("count", len(replies)))
@@ -143,7 +143,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 
 	params, err := ch.parseParamsToolSearch(ctx, request)
 	if err != nil {
-		ch.logger.Error("Failed to parse search params", zap.Error(err))
+		ch.logger.Debug("Failed to parse search params", zap.Error(err))
 		return nil, err
 	}
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
@@ -166,7 +166,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 		return msgs, err
 	})
 	if err != nil {
-		ch.logger.Error("Slack SearchContext failed", zap.Error(err))
+		ch.logger.Debug("Slack SearchContext failed", zap.Error(err))
 		return nil, err
 	}
 	ch.logger.Debug("Search completed", zap.Int("matches", len(messagesRes.Matches)))
@@ -182,7 +182,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context, request mcp.CallToolRequest) (*conversationParams, error) {
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		ch.logger.Error("channel_id missing in conversations params")
+		ch.logger.Debug("channel_id missing in conversations params")
 		return nil, errors.New("channel_id must be a string")
 	}
 
@@ -207,13 +207,13 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 	} else if isDurationLimit {
 		paramLimit, paramOldest, paramLatest, err = limitByExpression(limit, defaultConversationsExpressionLimit)
 		if err != nil {
-			ch.logger.Error("Invalid duration limit", zap.String("limit", limit), zap.Error(err))
+			ch.logger.Debug("Invalid duration limit", zap.String("limit", limit), zap.Error(err))
 			return nil, err
 		}
 	} else if cursor == "" {
 		paramLimit, err = limitByNumeric(limit, defaultConversationsNumericLimit)
 		if err != nil {
-			ch.logger.Error("Invalid numeric limit", zap.String("limit", limit), zap.Error(err))
+			ch.logger.Debug("Invalid numeric limit", zap.String("limit", limit), zap.Error(err))
 			return nil, err
 		}
 	}
@@ -265,7 +265,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	if chName := req.GetString("filter_in_channel", ""); chName != "" {
 		f, err := ch.paramFormatChannel(chName)
 		if err != nil {
-			ch.logger.Error("Invalid channel filter", zap.String("filter", chName), zap.Error(err))
+			ch.logger.Debug("Invalid channel filter", zap.String("filter", chName), zap.Error(err))
 			return nil, err
 		}
 		addFilter(filters, "in", f)
@@ -283,7 +283,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 			f, err = ch.paramFormatUser(ctx, im)
 		}
 		if err != nil {
-			ch.logger.Error("Invalid IM/MPIM filter", zap.String("filter", im), zap.Error(err))
+			ch.logger.Debug("Invalid IM/MPIM filter", zap.String("filter", im), zap.Error(err))
 			return nil, err
 		}
 		addFilter(filters, "in", f)
@@ -291,7 +291,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	if with := req.GetString("filter_users_with", ""); with != "" {
 		f, err := ch.paramFormatUser(ctx, with)
 		if err != nil {
-			ch.logger.Error("Invalid with-user filter", zap.String("filter", with), zap.Error(err))
+			ch.logger.Debug("Invalid with-user filter", zap.String("filter", with), zap.Error(err))
 			return nil, err
 		}
 		addFilter(filters, "with", f)
@@ -299,7 +299,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	if from := req.GetString("filter_users_from", ""); from != "" {
 		f, err := ch.paramFormatUser(ctx, from)
 		if err != nil {
-			ch.logger.Error("Invalid from-user filter", zap.String("filter", from), zap.Error(err))
+			ch.logger.Debug("Invalid from-user filter", zap.String("filter", from), zap.Error(err))
 			return nil, err
 		}
 		addFilter(filters, "from", f)
@@ -312,7 +312,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		req.GetString("filter_date_during", ""),
 	)
 	if err != nil {
-		ch.logger.Error("Invalid date filters", zap.Error(err))
+		ch.logger.Debug("Invalid date filters", zap.Error(err))
 		return nil, err
 	}
 	for key, val := range dateMap {
@@ -335,17 +335,17 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	if cursor != "" {
 		decodedCursor, err = base64.StdEncoding.DecodeString(cursor)
 		if err != nil {
-			ch.logger.Error("Invalid cursor decoding", zap.String("cursor", cursor), zap.Error(err))
+			ch.logger.Debug("Invalid cursor decoding", zap.String("cursor", cursor), zap.Error(err))
 			return nil, fmt.Errorf("invalid cursor: %w", err)
 		}
 		parts := strings.Split(string(decodedCursor), ":")
 		if len(parts) != 2 {
-			ch.logger.Error("Invalid cursor format", zap.String("cursor", cursor))
+			ch.logger.Debug("Invalid cursor format", zap.String("cursor", cursor))
 			return nil, fmt.Errorf("invalid cursor: %v", cursor)
 		}
 		page, err = strconv.Atoi(parts[1])
 		if err != nil || page < 1 {
-			ch.logger.Error("Invalid cursor page", zap.String("cursor", cursor), zap.Error(err))
+			ch.logger.Debug("Invalid cursor page", zap.String("cursor", cursor), zap.Error(err))
 			return nil, fmt.Errorf("invalid cursor page: %w", err)
 		}
 	} else {

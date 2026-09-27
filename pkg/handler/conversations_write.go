@@ -22,13 +22,13 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	logToolCall(ch.logger, "ConversationsAddMessageHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
 	params, err := ch.parseParamsToolAddMessage(ctx, request)
 	if err != nil {
-		ch.logger.Error("Failed to parse add-message params", zap.Error(err))
+		ch.logger.Debug("Failed to parse add-message params", zap.Error(err))
 		return nil, err
 	}
 
@@ -77,7 +77,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	)
 	respChannel, respTimestamp, err := ch.apiProvider.WebAPI().PostMessageContext(ctx, params.channel, options...)
 	if err != nil {
-		ch.logger.Error("Slack PostMessageContext failed", zap.Error(err))
+		ch.logger.Debug("Slack PostMessageContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -85,7 +85,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	if envutil.IsTruthy(toolConfig) {
 		err := ch.apiProvider.Slack().MarkConversationContext(ctx, params.channel, respTimestamp)
 		if err != nil {
-			ch.logger.Error("Slack MarkConversationContext failed", zap.Error(err))
+			ch.logger.Debug("Slack MarkConversationContext failed", zap.Error(err))
 			return nil, err
 		}
 	}
@@ -102,13 +102,13 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 	logToolCall(ch.logger, "ConversationsDraftMessageHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
 	params, err := ch.parseParamsToolDraftMessage(ctx, request)
 	if err != nil {
-		ch.logger.Error("Failed to parse draft-message params", zap.Error(err))
+		ch.logger.Debug("Failed to parse draft-message params", zap.Error(err))
 		return nil, err
 	}
 
@@ -156,13 +156,13 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 	logToolCall(ch.logger, "ReactionsAddHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
 	params, err := ch.parseParamsToolReaction(ctx, request)
 	if err != nil {
-		ch.logger.Error("Failed to parse add-reaction params", zap.Error(err))
+		ch.logger.Debug("Failed to parse add-reaction params", zap.Error(err))
 		return nil, err
 	}
 
@@ -179,7 +179,7 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 
 	err = ch.apiProvider.WebAPI().AddReactionContext(ctx, params.emoji, itemRef)
 	if err != nil {
-		ch.logger.Error("Slack AddReactionContext failed", zap.Error(err))
+		ch.logger.Debug("Slack AddReactionContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -191,13 +191,13 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 	logToolCall(ch.logger, "ReactionsRemoveHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
 	params, err := ch.parseParamsToolReaction(ctx, request)
 	if err != nil {
-		ch.logger.Error("Failed to parse remove-reaction params", zap.Error(err))
+		ch.logger.Debug("Failed to parse remove-reaction params", zap.Error(err))
 		return nil, err
 	}
 
@@ -214,7 +214,7 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 
 	err = ch.apiProvider.WebAPI().RemoveReactionContext(ctx, params.emoji, itemRef)
 	if err != nil {
-		ch.logger.Error("Slack RemoveReactionContext failed", zap.Error(err))
+		ch.logger.Debug("Slack RemoveReactionContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -229,7 +229,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 	logToolCall(ch.logger, "ReactionsGetHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
@@ -239,7 +239,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 	}
 	channel, err := ch.resolveChannelID(ctx, rawChannel)
 	if err != nil {
-		ch.logger.Error("Channel not found", zap.String("channel", rawChannel), zap.Error(err))
+		ch.logger.Debug("Channel not found", zap.String("channel", rawChannel), zap.Error(err))
 		return nil, err
 	}
 
@@ -292,7 +292,7 @@ func (ch *ConversationsHandler) fetchMessageByTimestamp(ctx context.Context, cha
 		Inclusive: true,
 	})
 	if err != nil {
-		ch.logger.Error("Failed to fetch message for reactions", zap.Error(err))
+		ch.logger.Debug("Failed to fetch message for reactions", zap.Error(err))
 		return nil, fmt.Errorf("failed to fetch message: %w", err)
 	}
 
@@ -315,30 +315,30 @@ func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context,
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		ch.logger.Error("channel_id missing in draft-message params")
+		ch.logger.Debug("channel_id missing in draft-message params")
 		return nil, errors.New("channel_id must be a string")
 	}
 	channel, err := ch.resolveChannelID(ctx, channel)
 	if err != nil {
-		ch.logger.Error("Channel not found", zap.String("channel", channel), zap.Error(err))
+		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err
 	}
 
 	threadTs := request.GetString("thread_ts", "")
 	if threadTs != "" && !strings.Contains(threadTs, ".") {
-		ch.logger.Error("Invalid thread_ts format", zap.String("thread_ts", threadTs))
+		ch.logger.Debug("Invalid thread_ts format", zap.String("thread_ts", threadTs))
 		return nil, errors.New("thread_ts must be a valid timestamp in format 1234567890.123456")
 	}
 
 	msgText := request.GetString("text", "")
 	if msgText == "" {
-		ch.logger.Error("Message text missing")
+		ch.logger.Debug("Message text missing")
 		return nil, errors.New("text is required and must not be empty")
 	}
 
 	contentType := request.GetString("content_type", "text/markdown")
 	if contentType != "text/plain" && contentType != "text/markdown" {
-		ch.logger.Error("Invalid content_type", zap.String("content_type", contentType))
+		ch.logger.Debug("Invalid content_type", zap.String("content_type", contentType))
 		return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
 	}
 
@@ -359,12 +359,12 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		ch.logger.Error("channel_id missing in add-message params")
+		ch.logger.Debug("channel_id missing in add-message params")
 		return nil, errors.New("channel_id must be a string")
 	}
 	channel, err := ch.resolveChannelID(ctx, channel)
 	if err != nil {
-		ch.logger.Error("Channel not found", zap.String("channel", channel), zap.Error(err))
+		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err
 	}
 	if !isChannelAllowedForConfig(channel, toolConfig) {
@@ -374,7 +374,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 
 	threadTs := request.GetString("thread_ts", "")
 	if threadTs != "" && !strings.Contains(threadTs, ".") {
-		ch.logger.Error("Invalid thread_ts format", zap.String("thread_ts", threadTs))
+		ch.logger.Debug("Invalid thread_ts format", zap.String("thread_ts", threadTs))
 		return nil, errors.New("thread_ts must be a valid timestamp in format 1234567890.123456")
 	}
 
@@ -386,7 +386,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 
 	contentType := request.GetString("content_type", "text/markdown")
 	if contentType != "text/plain" && contentType != "text/markdown" {
-		ch.logger.Error("Invalid content_type", zap.String("content_type", contentType))
+		ch.logger.Debug("Invalid content_type", zap.String("content_type", contentType))
 		return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
 	}
 
@@ -407,14 +407,14 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 			var err error
 			blocksJSON, err = json.Marshal(v)
 			if err != nil {
-				ch.logger.Error("Failed to marshal blocks argument", zap.Error(err))
+				ch.logger.Debug("Failed to marshal blocks argument", zap.Error(err))
 				return nil, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
 			}
 		}
 		if blocksJSON != nil {
 			var slackBlocks slack.Blocks
 			if err := json.Unmarshal(blocksJSON, &slackBlocks); err != nil {
-				ch.logger.Error("Failed to parse blocks JSON", zap.Error(err))
+				ch.logger.Debug("Failed to parse blocks JSON", zap.Error(err))
 				return nil, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
 			}
 			blocks = slackBlocks.BlockSet
@@ -422,7 +422,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	}
 
 	if msgText == "" && blocks == nil {
-		ch.logger.Error("Message text and blocks both missing")
+		ch.logger.Debug("Message text and blocks both missing")
 		return nil, errors.New("either text or blocks must be provided")
 	}
 
@@ -444,7 +444,7 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 	}
 	channel, err := ch.resolveChannelID(ctx, channel)
 	if err != nil {
-		ch.logger.Error("Channel not found", zap.String("channel", channel), zap.Error(err))
+		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err
 	}
 	if !isChannelAllowedForConfig(channel, toolConfig) {

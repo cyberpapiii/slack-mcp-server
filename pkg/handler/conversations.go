@@ -238,7 +238,7 @@ func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel st
 	wasRateLimited := errors.Is(refreshErr, provider.ErrRefreshRateLimited)
 
 	if refreshErr != nil && !wasRateLimited {
-		ch.logger.Error("Failed to refresh channels cache",
+		ch.logger.Warn("Failed to refresh channels cache",
 			zap.String("channel", channel),
 			zap.Error(refreshErr))
 		return "", &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", channel), Cause: refreshErr}
@@ -254,7 +254,7 @@ func (ch *ConversationsHandler) resolveChannelID(ctx context.Context, channel st
 	channelsMaps = ch.apiProvider.ProvideChannelsMaps()
 	chn, ok = channelsMaps.ChannelsInv[channel]
 	if !ok {
-		ch.logger.Error("Channel not found even after cache refresh",
+		ch.logger.Debug("Channel not found even after cache refresh",
 			zap.String("channel", channel))
 		return "", channelNotFound(channel)
 	}
@@ -296,7 +296,7 @@ func (ch *ConversationsHandler) convertMessagesFromHistory(ctx context.Context, 
 
 		timestamp, err := text.TimestampToIsoRFC3339(msg.Timestamp)
 		if err != nil {
-			ch.logger.Error("Failed to convert timestamp to RFC3339", zap.Error(err))
+			ch.logger.Warn("Failed to convert timestamp to RFC3339", zap.Error(err))
 			continue
 		}
 
@@ -380,7 +380,7 @@ func (ch *ConversationsHandler) convertMessagesFromSearch(ctx context.Context, s
 
 		timestamp, err := text.TimestampToIsoRFC3339(msg.Timestamp)
 		if err != nil {
-			ch.logger.Error("Failed to convert timestamp to RFC3339", zap.Error(err))
+			ch.logger.Warn("Failed to convert timestamp to RFC3339", zap.Error(err))
 			continue
 		}
 

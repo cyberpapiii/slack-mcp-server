@@ -115,7 +115,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 				stopErr = err
 				break
 			}
-			h.logger.Error("SavedList failed", zap.Error(err))
+			h.logger.Debug("SavedList failed", zap.Error(err))
 			return nil, fmt.Errorf("failed to list saved items: %w", err)
 		}
 		nextCursor = resp.ResponseMetadata.NextCursor
@@ -279,7 +279,7 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 
 	err = h.apiProvider.Slack().SavedUpdate(ctx, "message", itemID, ts, mark, dateDue)
 	if err != nil {
-		h.logger.Error("SavedUpdate failed",
+		h.logger.Debug("SavedUpdate failed",
 			zap.String("item_id", itemID),
 			zap.String("ts", ts),
 			zap.String("mark", mark),
@@ -309,7 +309,7 @@ func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request m
 
 	err := h.apiProvider.Slack().SavedClearCompleted(ctx)
 	if err != nil {
-		h.logger.Error("SavedClearCompleted failed", zap.Error(err))
+		h.logger.Debug("SavedClearCompleted failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to clear completed saved items: %w", err)
 	}
 

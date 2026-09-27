@@ -21,19 +21,19 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 	logToolCall(ch.logger, "FilesGetHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
 	params, err := ch.parseParamsToolFilesGet(request)
 	if err != nil {
-		ch.logger.Error("Failed to parse attachment_get_data params", zap.Error(err))
+		ch.logger.Debug("Failed to parse attachment_get_data params", zap.Error(err))
 		return nil, err
 	}
 
 	fileInfo, _, _, err := ch.apiProvider.WebAPI().GetFileInfoContext(ctx, params.fileID, 0, 0)
 	if err != nil {
-		ch.logger.Error("Slack GetFileInfoContext failed", zap.Error(err))
+		ch.logger.Debug("Slack GetFileInfoContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -52,7 +52,7 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 
 	err = ch.apiProvider.WebAPI().GetFileContext(ctx, downloadURL, &buf)
 	if err != nil {
-		ch.logger.Error("Slack GetFileContext failed", zap.Error(err))
+		ch.logger.Debug("Slack GetFileContext failed", zap.Error(err))
 		return nil, err
 	}
 	if buf.Len() > maxFileSizeBytes {
@@ -152,13 +152,13 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 	logToolCall(ch.logger, "FilesListHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
 	params, err := ch.parseParamsToolFilesList(request)
 	if err != nil {
-		ch.logger.Error("Failed to parse files_list params", zap.Error(err))
+		ch.logger.Debug("Failed to parse files_list params", zap.Error(err))
 		return nil, err
 	}
 
@@ -170,7 +170,7 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 		Page:    params.page,
 	})
 	if err != nil {
-		ch.logger.Error("Slack GetFilesContext failed", zap.Error(err))
+		ch.logger.Debug("Slack GetFilesContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -389,7 +389,7 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 	logToolCall(ch.logger, "FilesDownloadHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Error("API provider not ready", zap.Error(err))
+		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
@@ -405,7 +405,7 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 
 	fileInfo, _, _, err := ch.apiProvider.WebAPI().GetFileInfoContext(ctx, fileID, 0, 0)
 	if err != nil {
-		ch.logger.Error("Slack GetFileInfoContext failed", zap.Error(err))
+		ch.logger.Debug("Slack GetFileInfoContext failed", zap.Error(err))
 		return nil, err
 	}
 	if fileInfo.Size > maxDownloadBytes {
@@ -436,7 +436,7 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 
 	var buf bytes.Buffer
 	if err := ch.apiProvider.WebAPI().GetFileContext(ctx, downloadURL, &buf); err != nil {
-		ch.logger.Error("Slack GetFileContext failed", zap.Error(err))
+		ch.logger.Debug("Slack GetFileContext failed", zap.Error(err))
 		return nil, err
 	}
 	if buf.Len() > maxDownloadBytes {

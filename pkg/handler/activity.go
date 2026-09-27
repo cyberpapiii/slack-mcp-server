@@ -70,7 +70,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 
 	feedResp, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
 	if err != nil {
-		h.logger.Error("ActivityFeed failed", zap.Error(err))
+		h.logger.Debug("ActivityFeed failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to get activity feed: %w", err)
 	}
 
@@ -225,7 +225,7 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 
 	err := h.apiProvider.Slack().ActivityMarkRead(ctx, itemType, feedTs, key)
 	if err != nil {
-		h.logger.Error("ActivityMarkRead failed",
+		h.logger.Debug("ActivityMarkRead failed",
 			zap.String("key", key),
 			zap.String("feed_ts", feedTs),
 			zap.String("type", itemType),

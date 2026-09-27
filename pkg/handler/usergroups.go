@@ -105,7 +105,7 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 
 	groups, err := h.api.GetUserGroupsContext(ctx, options...)
 	if err != nil {
-		h.logger.Error("GetUserGroupsContext failed", zap.Error(err))
+		h.logger.Debug("GetUserGroupsContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -150,7 +150,7 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 
 	created, err := h.api.CreateUserGroupContext(ctx, userGroup)
 	if err != nil {
-		h.logger.Error("CreateUserGroupContext failed", zap.Error(err))
+		h.logger.Debug("CreateUserGroupContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -195,7 +195,7 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 
 	updated, err := h.api.UpdateUserGroupContext(ctx, usergroupID, options...)
 	if err != nil {
-		h.logger.Error("UpdateUserGroupContext failed", zap.Error(err))
+		h.logger.Debug("UpdateUserGroupContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -220,7 +220,7 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 
 	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, usersStr)
 	if err != nil {
-		h.logger.Error("UpdateUserGroupMembersContext failed", zap.Error(err))
+		h.logger.Debug("UpdateUserGroupMembersContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -270,7 +270,7 @@ func (h *UsergroupsHandler) currentUserID() (string, error) {
 	}
 	authResp, err := h.api.AuthTest()
 	if err != nil {
-		h.logger.Error("AuthTest failed", zap.Error(err))
+		h.logger.Debug("AuthTest failed", zap.Error(err))
 		return "", err
 	}
 	if authResp.UserID == "" {
@@ -287,7 +287,7 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 
 	members, err := h.api.GetUserGroupMembersContext(ctx, usergroupID)
 	if err != nil {
-		h.logger.Error("GetUserGroupMembersContext failed", zap.Error(err))
+		h.logger.Debug("GetUserGroupMembersContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -321,7 +321,7 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 
 	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, strings.Join(newMembers, ","))
 	if err != nil {
-		h.logger.Error("UpdateUserGroupMembersContext failed", zap.Error(err))
+		h.logger.Debug("UpdateUserGroupMembersContext failed", zap.Error(err))
 		return nil, err
 	}
 
@@ -349,7 +349,7 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 
 	groups, err := h.api.GetUserGroupsContext(ctx, options...)
 	if err != nil {
-		h.logger.Error("GetUserGroupsContext failed", zap.Error(err))
+		h.logger.Debug("GetUserGroupsContext failed", zap.Error(err))
 		return nil, err
 	}
 
