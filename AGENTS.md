@@ -100,6 +100,8 @@ Cache warmup runs in the background for every transport; the server serves immed
 
 Warm-up tries up to 3 times (30s apart), then keeps retrying in the background on a slow interval (5m) indefinitely. Startup logs a warning when browser session auth is degraded. A degraded browser session attached to OAuth is retried every 5 minutes (`runBrowserReprobe`, `pkg/provider/browser_session.go`): the credential is reloaded from the Keychain (or the env xoxc/xoxd) and checked with auth.test, and the session comes back without a restart once it works for the same workspace user. A browser Keychain item that fails to load at startup now registers the browser tools in the degraded state, so they name the failure and recover with the re-probe. `RegisterCacheDependentTools` is idempotent (`sync.Once`) and emits `tools/list_changed` when tools appear.
 
+Once warm, `StartCacheRevalidation` (`pkg/provider/cache_revalidate.go`) checks the users and channels cache files hourly and refetches one whose mtime is past `SLACK_MCP_CACHE_TTL` (24h default), users first because DM names map from them. Before this, a process refetched them only at startup.
+
 If users or channels cache warm-up fails after the 3 fast attempts, the server registers cache-dependent tools automatically once a slow retry succeeds. Restarting Plug's slack server is only needed to force an immediate retry.
 
 ## Upstream merge checklist

@@ -69,6 +69,8 @@ type ApiProvider struct {
 	lastForcedChannelsRefresh time.Time
 	channelsMu                sync.RWMutex // lastForcedChannelsRefresh
 	channelsFlight            refreshFlight
+
+	revalidateOnce sync.Once // StartCacheRevalidation
 }
 
 type ProviderIdentity struct {

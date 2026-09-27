@@ -38,6 +38,7 @@ func startCacheWarmup(p *provider.ApiProvider, s *server.MCPServer, logger *zap.
 			ready, err := p.IsReady()
 			if ready {
 				s.RegisterCacheDependentTools()
+				p.StartCacheRevalidation()
 				if attempt > 1 {
 					logger.Info("Cache warm-up succeeded after retry",
 						zap.String("context", "console"),

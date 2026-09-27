@@ -109,7 +109,7 @@ Fetches a CSV directory of all users in the workspace.
 | `SLACK_MCP_COMPACT_OUTPUT` | `true` | Server-wide default for the `detail` parameter: `true` = `standard`, `false` = `full`. |
 | `SLACK_MCP_DOWNLOAD_DIR` | unset | Absolute directory `files_download` may write into. Unset disables that tool; the server writes nowhere else. |
 | `SLACK_MCP_USERS_CACHE` / `SLACK_MCP_CHANNELS_CACHE` | OS cache dir, team-prefixed `users_cache.json` / `channels_cache_v2.json` | Cache file paths. |
-| `SLACK_MCP_CACHE_TTL` | `24h` | Cache time-to-live (`24h`, `30m`, or seconds). `0` never expires. Stale data is served while a background refresh runs. |
+| `SLACK_MCP_CACHE_TTL` | `24h` | Cache time-to-live (`24h`, `30m`, or seconds). `0` never expires. Stale data is served while a background refresh runs, and a running server checks hourly and refetches a cache past its TTL. |
 | `SLACK_MCP_MIN_REFRESH_INTERVAL` | `30s` | Minimum gap between forced cache refreshes. `0` disables the limit. |
 | `SLACK_MCP_HOST` / `SLACK_MCP_PORT` | `127.0.0.1` / `13080` | Listen address for `sse` and `http`. |
 | `SLACK_MCP_API_KEY` | | Bearer token for `sse` and `http`. These transports refuse to start without it unless `SLACK_MCP_ALLOW_UNAUTHENTICATED=true` (exactly `true`). `SLACK_MCP_SSE_API_KEY` is the deprecated name. |
