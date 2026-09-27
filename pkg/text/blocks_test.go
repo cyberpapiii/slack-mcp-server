@@ -147,3 +147,51 @@ func TestUnitMergeBlocksWithTextKeepsSectionBesideCoveredRichText(t *testing.T) 
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+// An agent-posted message carried its bullet summary in the text field and
+// the same opening and closing lines again in mrkdwn section blocks. Only
+// rich_text blocks were checked against the text, so those lines rendered
+// twice (search and history both showed it live).
+func TestUnitMergeBlocksWithTextDoesNotRepeatSectionsOfTheText(t *testing.T) {
+	blocks := unmarshalBlocks(t, `[
+	  {"type": "section", "text": {"type": "mrkdwn", "text": "Codex here — feedback landed:"}},
+	  {"type": "section", "text": {"type": "mrkdwn", "text": "• Site: stronger color\n• Domains: /mx check"}},
+	  {"type": "section", "text": {"type": "mrkdwn", "text": "I closed issue #55. No deploy."}}
+	]`)
+	text := "Codex here — feedback landed: • Site: stronger color\n• Domains: /mx check\nI closed issue #55. No deploy."
+
+	if got := MergeBlocksWithText(text, blocks); got != text {
+		t.Fatalf("got %q, want the text alone", got)
+	}
+}
+
+// Runs of spaces and non-breaking spaces differ between the text field and
+// the blocks (search even collapses them differently from history), so the
+// comparison ignores them.
+func TestUnitMergeBlocksWithTextIgnoresSpacingDifferences(t *testing.T) {
+	blocks := unmarshalBlocks(t, `[
+	  {"type": "rich_text", "elements": [
+	    {"type": "rich_text_section", "elements": [{"type": "text", "text": "Codex here — feedback  landed:"}]},
+	    {"type": "rich_text_list", "style": "bullet", "elements": [
+	      {"type": "rich_text_section", "elements": [{"type": "text", "text": "Site: stronger color"}]}
+	    ]}
+	  ]}
+	]`)
+	text := "Codex here — feedback landed:  • Site: stronger color"
+
+	if got := MergeBlocksWithText(text, blocks); got != text {
+		t.Fatalf("got %q, want the text alone", got)
+	}
+}
+
+func TestUnitMergeBlocksWithTextKeepsSectionWithNewLines(t *testing.T) {
+	blocks := unmarshalBlocks(t, `[
+	  {"type": "section", "text": {"type": "mrkdwn", "text": "Codex here — feedback landed:\n*Next:* ship Friday"}}
+	]`)
+	text := "Codex here — feedback landed:"
+
+	want := text + "\nCodex here — feedback landed:\n*Next:* ship Friday"
+	if got := MergeBlocksWithText(text, blocks); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

@@ -2,7 +2,9 @@ package text
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/slack-go/slack"
 )
@@ -207,12 +209,19 @@ func MergeBlocksWithText(msgText string, blocks slack.Blocks) string {
 // rich_text element's literal text can be looked up in it.
 var mrkdwnEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
-// dropCoveredRichText removes the rich_text blocks whose every typed line
-// already appears in msgText, leaving other blocks untouched.
+// dropCoveredRichText removes the blocks whose content the text field
+// already holds, leaving other blocks untouched. A rich_text block is covered
+// when every typed line appears in msgText. Any block is covered when every
+// line it renders does: agent-posted messages often repeat the text field in
+// mrkdwn section blocks.
 func dropCoveredRichText(msgText string, blocks slack.Blocks) slack.Blocks {
+	norm := normalizeSpace(msgText)
 	kept := make([]slack.Block, 0, len(blocks.BlockSet))
 	for _, block := range blocks.BlockSet {
-		if rt, ok := block.(*slack.RichTextBlock); ok && richTextCoveredBy(msgText, rt) {
+		if rt, ok := block.(*slack.RichTextBlock); ok && richTextCoveredBy(norm, rt) {
+			continue
+		}
+		if renderedCoveredBy(norm, block) {
 			continue
 		}
 		kept = append(kept, block)
@@ -220,16 +229,62 @@ func dropCoveredRichText(msgText string, blocks slack.Blocks) slack.Blocks {
 	return slack.Blocks{BlockSet: kept}
 }
 
-func richTextCoveredBy(msgText string, b *slack.RichTextBlock) bool {
+func richTextCoveredBy(normText string, b *slack.RichTextBlock) bool {
 	for _, typed := range richTextLiterals(b.Elements) {
 		for _, line := range strings.Split(typed, "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" && !strings.Contains(msgText, mrkdwnEscaper.Replace(line)) {
+			if !lineCoveredBy(normText, line) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// renderedCoveredBy reports whether every line block renders, less its list
+// or quote marker, appears in normText. A block that renders nothing is not
+// covered; BlocksToText skips it anyway.
+func renderedCoveredBy(normText string, block slack.Block) bool {
+	rendered := blockToText(block)
+	if rendered == "" {
+		return false
+	}
+	for _, line := range strings.Split(rendered, "\n") {
+		if !lineCoveredBy(normText, renderedLineMarker.ReplaceAllString(line, "")) {
+			return false
+		}
+	}
+	return true
+}
+
+// renderedLineMarker matches the prefixes BlocksToText adds to list items
+// and quotes, which the text field writes differently ("•", "&gt;").
+var renderedLineMarker = regexp.MustCompile(`^\s*(?:[-•] |\d+\. |> ?)`)
+
+func lineCoveredBy(normText, line string) bool {
+	line = normalizeSpace(line)
+	return line == "" || strings.Contains(normText, line) || strings.Contains(normText, mrkdwnEscaper.Replace(line))
+}
+
+// normalizeSpace trims s and folds each run of spaces, tabs and non-breaking
+// spaces into one space, keeping newlines. The text field and the blocks of
+// one message disagree on spacing, and search collapses it differently from
+// history.
+func normalizeSpace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inRun := false
+	for _, r := range strings.TrimSpace(s) {
+		if r != '\n' && (unicode.IsSpace(r) || r == '\u00a0' || r == '\u202f') {
+			if !inRun {
+				b.WriteByte(' ')
+			}
+			inRun = true
+			continue
+		}
+		inRun = false
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // richTextLiterals collects the text elements' typed strings. Mentions,
