@@ -32,4 +32,8 @@ var (
 	// Sharing Tier2's burst of 3 made 30% of field searches wait ~2.5s, and a
 	// 429 past the burst is still retried on Slack's Retry-After.
 	SearchMessages = newTier(3*time.Second, 10)
+
+	// ConversationsReplies paces activity_unreads' per-thread fetches at
+	// Slack's Tier 3 rate, apart from saved_list's pagination on Tier3.
+	ConversationsReplies = newTier(1200*time.Millisecond, 8)
 )

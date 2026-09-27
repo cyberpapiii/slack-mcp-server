@@ -140,28 +140,31 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		}{ai.ChannelID, ai.ThreadTs, ai.MinUnreadTs})
 	}
 
-	rl := limiter.Tier3.Limiter()
+	rl := limiter.ConversationsReplies.Limiter()
+	api := h.apiProvider.WebAPI()
+	replies, errs := fetchInOrder(ctx, len(threads), fanOutWorkers, func(ctx context.Context, i int) ([]slack.Message, error) {
+		t := threads[i]
+		return limiter.CallWithRetry(ctx, rl, 1, provider.SlackRetryAfter, func() ([]slack.Message, error) {
+			msgs, _, _, err := api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
+				ChannelID: t.ChannelID,
+				Timestamp: t.ThreadTs,
+				Oldest:    t.MinUnreadTs,
+				Limit:     maxMsgsPerThread,
+				Inclusive: true,
+			})
+			return msgs, err
+		})
+	}, nil)
+
 	var allMessages []Message
 	failedThreads := 0
 	stoppedEarly := false
-
-	for _, t := range threads {
-		if err := rl.Wait(ctx); err != nil {
-			h.logger.Warn("Rate limiter wait failed, stopping fetch", zap.Error(err))
-			stoppedEarly = true
-			break
-		}
-
-		oldest := t.MinUnreadTs
-		repliesParams := slack.GetConversationRepliesParameters{
-			ChannelID: t.ChannelID,
-			Timestamp: t.ThreadTs,
-			Oldest:    oldest,
-			Limit:     maxMsgsPerThread,
-			Inclusive: true,
-		}
-		replies, _, _, err := h.apiProvider.WebAPI().GetConversationRepliesContext(ctx, &repliesParams)
-		if err != nil {
+	for i, t := range threads {
+		if err := errs[i]; err != nil {
+			if ctx.Err() != nil {
+				stoppedEarly = true
+				continue
+			}
 			h.logger.Warn("Failed to get thread replies",
 				zap.String("channel", t.ChannelID),
 				zap.String("thread_ts", t.ThreadTs),
@@ -169,8 +172,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			failedThreads++
 			continue
 		}
-
-		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, t.ChannelID, false, mode)
+		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies[i], t.ChannelID, false, mode)
 		allMessages = append(allMessages, msgs...)
 	}
 

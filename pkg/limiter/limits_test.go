@@ -19,3 +19,13 @@ func TestUnitSearchMessagesHasItsOwnBurstyBucket(t *testing.T) {
 	assert.GreaterOrEqual(t, search.Burst(), 10)
 	assert.Equal(t, rate.Every(3*time.Second), search.Limit(), "sustained rate stays at Slack's Tier 2 (20/min)")
 }
+
+// activity_unreads fetches its threads four at a time. On the shared Tier3
+// bucket, saved_list pagination spent the same burst of 4 that the fan-out
+// needs, so its own bucket keeps the parallel reads from queueing behind it.
+func TestUnitConversationsRepliesHasItsOwnBucket(t *testing.T) {
+	replies := ConversationsReplies.Limiter()
+	assert.NotSame(t, Tier3.Limiter(), replies, "thread fetches must not share saved_list's bucket")
+	assert.GreaterOrEqual(t, replies.Burst(), 8, "burst covers two rounds of the 4-worker fan-out")
+	assert.Equal(t, rate.Every(1200*time.Millisecond), replies.Limit(), "sustained rate stays at Slack's Tier 3 (50/min)")
+}
