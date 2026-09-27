@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -581,11 +582,33 @@ func TestUnitSlackTS(t *testing.T) {
 type fakeHistoryFetcher struct {
 	byChannel map[string]*slack.GetConversationHistoryResponse
 	errs      map[string]error
-	calls     []slack.GetConversationHistoryParameters
+	// rateLimitOnce answers a channel's first call with a 429.
+	rateLimitOnce map[string]bool
+	// delay holds every call open this long, to observe concurrency.
+	delay time.Duration
+
+	mu       sync.Mutex
+	calls    []slack.GetConversationHistoryParameters
+	inFlight int
+	peak     int
 }
 
 func (f *fakeHistoryFetcher) GetConversationHistoryContext(_ context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
+	f.mu.Lock()
 	f.calls = append(f.calls, *params)
+	f.inFlight++
+	f.peak = max(f.peak, f.inFlight)
+	limited := f.rateLimitOnce[params.ChannelID]
+	delete(f.rateLimitOnce, params.ChannelID)
+	f.mu.Unlock()
+	time.Sleep(f.delay)
+	f.mu.Lock()
+	f.inFlight--
+	f.mu.Unlock()
+
+	if limited {
+		return nil, &slack.RateLimitedError{RetryAfter: time.Millisecond}
+	}
 	if err, ok := f.errs[params.ChannelID]; ok {
 		return nil, err
 	}
@@ -710,6 +733,48 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 		assert.Empty(t, fake.calls)
 		assert.Equal(t, 0, channels[0].UnreadCount)
 	})
+}
+
+// A serial loop paid one history round trip per unread channel back to back;
+// conversations_unreads p50 was 776ms. The reads now overlap, bounded by
+// fanOutWorkers.
+func TestUnitBackfillUnreadCountsFetchesConcurrently(t *testing.T) {
+	ch := newUnreadsTestHandler()
+	fake := &fakeHistoryFetcher{delay: 30 * time.Millisecond, byChannel: map[string]*slack.GetConversationHistoryResponse{}}
+	var channels []UnreadChannel
+	for i := range 8 {
+		id := fmt.Sprintf("C%d", i)
+		fake.byChannel[id] = historyWith(i + 1)
+		channels = append(channels, UnreadChannel{ChannelID: id, LastRead: "1700000000.000000"})
+	}
+	p := defaultUnreadsParams()
+	p.includeMessages = false
+
+	require.True(t, ch.backfillUnreadCounts(context.Background(), mcp.CallToolRequest{}, fake, p, channels))
+
+	assert.Equal(t, fanOutWorkers, fake.peak, "reads overlap up to the worker bound")
+	for i, c := range channels {
+		assert.Equal(t, fmt.Sprintf("C%d", i), c.ChannelID, "channel order is unchanged")
+		assert.Equal(t, i+1, c.UnreadCount, "each count comes from its own channel's history")
+	}
+}
+
+// Overlapping reads make a 429 likelier. One retry on Slack's Retry-After
+// keeps it from turning into a conservative 1 for that channel.
+func TestUnitBackfillUnreadCountsRetriesARateLimitedChannel(t *testing.T) {
+	ch := newUnreadsTestHandler()
+	fake := &fakeHistoryFetcher{
+		byChannel:     map[string]*slack.GetConversationHistoryResponse{"C_BUSY": historyWith(3)},
+		rateLimitOnce: map[string]bool{"C_BUSY": true},
+	}
+	channels := []UnreadChannel{{ChannelID: "C_BUSY", LastRead: "1700000000.000000"}}
+	p := defaultUnreadsParams()
+	p.includeMessages = false
+
+	require.True(t, ch.backfillUnreadCounts(context.Background(), mcp.CallToolRequest{}, fake, p, channels))
+
+	assert.Len(t, fake.calls, 2)
+	assert.Equal(t, 3, channels[0].UnreadCount)
 }
 
 // Empty last_read never hits conversations.history / year-1 Oldest.
