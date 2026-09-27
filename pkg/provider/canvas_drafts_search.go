@@ -204,10 +204,10 @@ type BrowserDraftsProvider struct{ client *edge.Client }
 
 func (ap *ApiProvider) Drafts() DraftsAPI {
 	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client.edgeClient == nil || !client.browserFeaturesAvailable() {
+	if !ok || client.edgeClient.Load() == nil || !client.browserFeaturesAvailable() {
 		return UnsupportedDraftsProvider{}
 	}
-	return &BrowserDraftsProvider{client: client.edgeClient}
+	return &BrowserDraftsProvider{client: client.edgeClient.Load()}
 }
 
 func (p *BrowserDraftsProvider) ListDrafts(ctx context.Context, cursor string, limit int) (DraftPage, error) {

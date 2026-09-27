@@ -100,7 +100,10 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		}
 		xoxpToken = managedRecord.AccessToken
 	}
-	if account := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT")); account != "" {
+	browserAccount := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"))
+	envXoxc, envXoxd := xoxcToken, xoxdToken
+	var browserLoadErr error
+	if account := browserAccount; account != "" {
 		oauthFallbackToken := xoxpToken
 		if oauthFallbackToken == "" {
 			oauthFallbackToken = xoxbToken
@@ -115,7 +118,8 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		}
 		xoxcToken, xoxdToken = browserCredentials.xoxc, browserCredentials.xoxd
 		if browserCredentials.degraded != nil {
-			logger.Warn("Browser credential unavailable; continuing with OAuth-only Slack tools", zap.Error(browserCredentials.degraded))
+			browserLoadErr = browserCredentials.degraded
+			logger.Warn("Browser credential unavailable; continuing with OAuth-only Slack tools until it loads", zap.Error(browserLoadErr))
 		}
 	}
 
@@ -133,8 +137,13 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		if managedManager != nil {
 			ap.startManagedOAuth(managedManager, managedRecord)
 		}
-		if !ap.IsBotToken() && xoxcToken != "" && xoxdToken != "" {
-			attachBrowserToOAuth(ap, xoxcToken, xoxdToken, logger)
+		if !ap.IsBotToken() {
+			if xoxcToken != "" && xoxdToken != "" {
+				attachBrowserToOAuth(ap, xoxcToken, xoxdToken, logger)
+			} else if browserLoadErr != nil {
+				markBrowserUnavailable(ap, fmt.Errorf("load browser credential: %w", browserLoadErr))
+			}
+			ap.startBrowserReprobe(browserAccount, envXoxc, envXoxd)
 		}
 		if xoxbToken != "" {
 			logger.Warn("Both SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXB_TOKEN are set; using user OAuth token")

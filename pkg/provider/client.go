@@ -38,7 +38,8 @@ type SlackAPI interface {
 
 type MCPSlackClient struct {
 	slackClient *slack.Client
-	edgeClient  *edge.Client
+	// edgeClient is swapped when a degraded browser session recovers.
+	edgeClient atomic.Pointer[edge.Client]
 	// httpClient carries the primary credentials' cookies and connection pool;
 	// every direct Web API call reuses it instead of dialing a fresh pool.
 	httpClient *http.Client
@@ -53,7 +54,8 @@ type MCPSlackClient struct {
 
 	browserState         atomic.Int32
 	browserReason        atomic.Value
-	browserNotifyOnce    sync.Once
+	browserNotified      atomic.Bool
+	browserProbe         browserProbeFunc
 	browserConfigured    bool
 	oauthClientMu        sync.RWMutex
 	oauthManager         *OAuthTokenManager
@@ -138,7 +140,6 @@ func newMCPSlackClient(authProvider slackcreds.Credentials, logger *zap.Logger) 
 
 	client := &MCPSlackClient{
 		slackClient:  slackClient,
-		edgeClient:   edgeClient,
 		httpClient:   httpClient,
 		authResponse: authResp,
 		authProvider: authProvider,
@@ -149,6 +150,7 @@ func newMCPSlackClient(authProvider slackcreds.Credentials, logger *zap.Logger) 
 		// Demo advertises the full tool surface, OAuth-gated and browser-gated alike.
 		browserConfigured: demo,
 	}
+	client.edgeClient.Store(edgeClient)
 	client.oauthAccessToken.Store(token)
 	client.initBrowserState()
 	return client, nil

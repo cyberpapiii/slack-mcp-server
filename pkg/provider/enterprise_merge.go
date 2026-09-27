@@ -9,7 +9,7 @@ import (
 func (c *MCPSlackClient) LeaveConversationContext(ctx context.Context, channelID string) (bool, error) {
 	if c.isEnterprise && !c.isOAuth {
 		// Edge webclient path bypasses enterprise_is_restricted on session tokens.
-		notInChannel, err := c.edgeClient.LeaveConversation(ctx, channelID)
+		notInChannel, err := c.edgeClient.Load().LeaveConversation(ctx, channelID)
 		if err == nil {
 			return notInChannel, nil
 		}
@@ -26,7 +26,7 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 			return std.GetConversationsContext(ctx, params)
 		}
 
-		edgeChannels, _, edgeErr := c.edgeClient.GetConversationsContext(ctx, nil)
+		edgeChannels, _, edgeErr := c.edgeClient.Load().GetConversationsContext(ctx, nil)
 		if edgeErr != nil {
 			return std.GetConversationsContext(ctx, params)
 		}

@@ -98,7 +98,7 @@ Slack credentials live in `pkg/slackcreds`, not in `github.com/rusq/slackdump/v3
 
 Cache warmup runs in the background for every transport; the server serves immediately. Cache-dependent tools register after warmup via `RegisterCacheDependentTools()`. Every other tool registers at startup; `addEnabledTool` refuses a `CacheReady` tool and `addCacheDependentTool` refuses anything else, so a tool cannot be registered in both phases.
 
-Warm-up tries up to 3 times (30s apart), then keeps retrying in the background on a slow interval (5m) indefinitely. Startup logs a warning when browser session auth is degraded. `RegisterCacheDependentTools` is idempotent (`sync.Once`) and emits `tools/list_changed` when tools appear.
+Warm-up tries up to 3 times (30s apart), then keeps retrying in the background on a slow interval (5m) indefinitely. Startup logs a warning when browser session auth is degraded. A degraded browser session attached to OAuth is retried every 5 minutes (`runBrowserReprobe`, `pkg/provider/browser_session.go`): the credential is reloaded from the Keychain (or the env xoxc/xoxd) and checked with auth.test, and the session comes back without a restart once it works for the same workspace user. A browser Keychain item that fails to load at startup now registers the browser tools in the degraded state, so they name the failure and recover with the re-probe. `RegisterCacheDependentTools` is idempotent (`sync.Once`) and emits `tools/list_changed` when tools appear.
 
 If users or channels cache warm-up fails after the 3 fast attempts, the server registers cache-dependent tools automatically once a slow retry succeeds. Restarting Plug's slack server is only needed to force an immediate retry.
 

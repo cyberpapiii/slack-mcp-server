@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
@@ -120,9 +121,9 @@ func (c *MCPSlackClient) degradeBrowserSession(reason error) {
 	c.browserReason.Store(reasonText)
 	c.browserState.Store(int32(browserStateDegraded))
 	c.logger.Warn("Browser-session Slack auth degraded", zap.String("reason", reasonText), zap.Bool("standard_oauth", c.isOAuth))
-	c.browserNotifyOnce.Do(func() {
+	if c.browserNotified.CompareAndSwap(false, true) {
 		browserDegradationNotifier(reasonText, c.logger)
-	})
+	}
 }
 
 func (c *MCPSlackClient) ensureBrowserFeature(feature string) error {
@@ -158,11 +159,97 @@ func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, brow
 	if err != nil {
 		return fmt.Errorf("create browser provider: %w", err)
 	}
-	c.edgeClient = browserEdge
 	c.browserConfigured = true
-	c.browserState.Store(int32(browserStateActive))
-	c.browserReason.Store("")
+	c.useBrowserEdge(browserEdge)
 	return nil
+}
+
+// useBrowserEdge makes browserEdge the live browser client and marks the
+// session active. The client is stored before the state, so a caller that
+// sees the session active also sees the new client.
+func (c *MCPSlackClient) useBrowserEdge(browserEdge *edge.Client) {
+	c.edgeClient.Store(browserEdge)
+	c.browserReason.Store("")
+	c.browserNotified.Store(false)
+	c.browserState.Store(int32(browserStateActive))
+}
+
+// browserReprobeInterval is how often a degraded browser session is retried.
+// Recovery needs the credential to work again (a refreshed Keychain item, or
+// Slack clearing a transient failure), so a slow cadence is enough.
+const browserReprobeInterval = 5 * time.Minute
+
+// browserProbeFunc loads the browser credential again and checks it with
+// auth.test.
+type browserProbeFunc func(ctx context.Context) (slackcreds.Value, *slack.AuthTestResponse, *http.Client, error)
+
+// reprobeBrowser retries a degraded browser session once and reattaches it
+// when the credential works again for the same workspace user.
+func (c *MCPSlackClient) reprobeBrowser(ctx context.Context) error {
+	if c.browserProbe == nil || browserRuntimeState(c.browserState.Load()) != browserStateDegraded {
+		return nil
+	}
+	browserAuth, identity, httpClient, err := c.browserProbe(ctx)
+	if err != nil {
+		return err
+	}
+	if identity == nil || c.authResponse == nil || identity.TeamID != c.authResponse.TeamID || identity.UserID != c.authResponse.UserID {
+		return errors.New("browser provider identity does not match the OAuth user")
+	}
+	browserEdge, err := edge.NewWithInfo(identity, browserAuth, edge.OptionHTTPClient(httpClient))
+	if err != nil {
+		return fmt.Errorf("create browser provider: %w", err)
+	}
+	c.useBrowserEdge(browserEdge)
+	c.logger.Info("Browser-session Slack auth recovered")
+	return nil
+}
+
+// runBrowserReprobe retries a degraded browser session every interval until
+// ctx ends. A healthy session costs one state check per tick.
+func (c *MCPSlackClient) runBrowserReprobe(ctx context.Context, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := c.reprobeBrowser(probeCtx)
+		cancel()
+		if err != nil {
+			c.logger.Debug("Browser-session Slack auth still unavailable", zap.Error(err))
+		}
+	}
+}
+
+// startBrowserReprobe lets a browser session attached to OAuth recover from
+// degradation without a restart. It reloads the credential from the Keychain
+// when account is set, else reuses the xoxc/xoxd values from the environment.
+func (ap *ApiProvider) startBrowserReprobe(account, xoxc, xoxd string) {
+	client, ok := ap.client.(*MCPSlackClient)
+	if !ok || client == nil || !client.isOAuth || !client.browserConfigured {
+		return
+	}
+	client.browserProbe = func(ctx context.Context) (slackcreds.Value, *slack.AuthTestResponse, *http.Client, error) {
+		token, cookie := xoxc, xoxd
+		if account != "" {
+			record, err := loadBrowserCredential(ctx, account)
+			if err != nil {
+				return slackcreds.Value{}, nil, nil, err
+			}
+			token, cookie = record.XOXC, record.XOXD
+		}
+		browserAuth, err := slackcreds.New(token, cookie)
+		if err != nil {
+			return slackcreds.Value{}, nil, nil, err
+		}
+		httpClient, identity, err := authTest(browserAuth, client.logger)
+		return browserAuth, identity, httpClient, err
+	}
+	go client.runBrowserReprobe(ap.lifetime(), browserReprobeInterval)
 }
 
 var loadBrowserCredential = func(ctx context.Context, account string) (BrowserTokenRecord, error) {
@@ -218,29 +305,43 @@ func attachBrowserToOAuth(ap *ApiProvider, xoxcToken, xoxdToken string, logger *
 	}
 }
 
+// markBrowserUnavailable records a browser credential that is configured but
+// could not be loaded at startup. The browser tools still register and say
+// why they fail, and the re-probe attaches the session once it loads.
+func markBrowserUnavailable(ap *ApiProvider, reason error) {
+	client, ok := ap.client.(*MCPSlackClient)
+	if !ok || client == nil {
+		return
+	}
+	client.browserConfigured = true
+	client.degradeBrowserSession(reason)
+}
+
 func (c *MCPSlackClient) ClientUserBoot(ctx context.Context) (*edge.ClientUserBootResponse, error) {
-	return browserCall(c, "client.userBoot", func() (*edge.ClientUserBootResponse, error) { return c.edgeClient.ClientUserBoot(ctx) })
+	return browserCall(c, "client.userBoot", func() (*edge.ClientUserBootResponse, error) { return c.edgeClient.Load().ClientUserBoot(ctx) })
 }
 
 func (c *MCPSlackClient) UsersSearch(ctx context.Context, query string, count int) ([]slack.User, error) {
-	return browserCall(c, "users/search", func() ([]slack.User, error) { return c.edgeClient.UsersSearch(ctx, query, count) })
+	return browserCall(c, "users/search", func() ([]slack.User, error) { return c.edgeClient.Load().UsersSearch(ctx, query, count) })
 }
 
 func (c *MCPSlackClient) ClientCounts(ctx context.Context) (edge.ClientCountsResponse, error) {
-	return browserCall(c, "client.counts", func() (edge.ClientCountsResponse, error) { return c.edgeClient.ClientCounts(ctx) })
+	return browserCall(c, "client.counts", func() (edge.ClientCountsResponse, error) { return c.edgeClient.Load().ClientCounts(ctx) })
 }
 
 func (c *MCPSlackClient) ActivityFeed(ctx context.Context, limit int) (edge.ActivityFeedResponse, error) {
-	return browserCall(c, "activity.feed", func() (edge.ActivityFeedResponse, error) { return c.edgeClient.ActivityFeed(ctx, limit) })
+	return browserCall(c, "activity.feed", func() (edge.ActivityFeedResponse, error) { return c.edgeClient.Load().ActivityFeed(ctx, limit) })
 }
 
 func (c *MCPSlackClient) ActivityMarkRead(ctx context.Context, itemType, feedTs, key string) error {
-	_, err := browserCall(c, "activity.markRead", func() (struct{}, error) { return struct{}{}, c.edgeClient.ActivityMarkRead(ctx, itemType, feedTs, key) })
+	_, err := browserCall(c, "activity.markRead", func() (struct{}, error) {
+		return struct{}{}, c.edgeClient.Load().ActivityMarkRead(ctx, itemType, feedTs, key)
+	})
 	return err
 }
 
 func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool, error) {
-	return browserCall(c, "users.prefs.get", func() (map[string]bool, error) { return c.edgeClient.GetMutedChannels(ctx) })
+	return browserCall(c, "users.prefs.get", func() (map[string]bool, error) { return c.edgeClient.Load().GetMutedChannels(ctx) })
 }
 
 func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error) {
@@ -280,18 +381,20 @@ func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([
 }
 
 func (c *MCPSlackClient) SavedList(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error) {
-	return browserCall(c, "saved.list", func() (edge.SavedListResponse, error) { return c.edgeClient.SavedList(ctx, filter, limit, cursor) })
+	return browserCall(c, "saved.list", func() (edge.SavedListResponse, error) {
+		return c.edgeClient.Load().SavedList(ctx, filter, limit, cursor)
+	})
 }
 
 func (c *MCPSlackClient) SavedUpdate(ctx context.Context, itemType, itemID, ts, mark string, dateDue int64) error {
 	_, err := browserCall(c, "saved.update", func() (struct{}, error) {
-		return struct{}{}, c.edgeClient.SavedUpdate(ctx, itemType, itemID, ts, mark, dateDue)
+		return struct{}{}, c.edgeClient.Load().SavedUpdate(ctx, itemType, itemID, ts, mark, dateDue)
 	})
 	return err
 }
 
 func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
-	_, err := browserCall(c, "saved.clearCompleted", func() (struct{}, error) { return struct{}{}, c.edgeClient.SavedClearCompleted(ctx) })
+	_, err := browserCall(c, "saved.clearCompleted", func() (struct{}, error) { return struct{}{}, c.edgeClient.Load().SavedClearCompleted(ctx) })
 	return err
 }
 
