@@ -179,7 +179,17 @@ func richTextListToText(list *slack.RichTextList) string {
 
 // MergeBlocksWithText appends block-derived text to the message text
 // when blocks contain content not already present in the text field.
+//
+// A human-typed message sends its content twice, as mrkdwn text and as a
+// rich_text block. The block renders differently enough (entities decoded,
+// links as "label (url)") that a verbatim containment check misses, so
+// rich_text blocks whose typed text the text field already holds are dropped
+// first. The text is kept over the block because it also carries channel and
+// usergroup names that rich_text elements do not.
 func MergeBlocksWithText(msgText string, blocks slack.Blocks) string {
+	if msgText != "" {
+		blocks = dropCoveredRichText(msgText, blocks)
+	}
 	blockText := BlocksToText(blocks)
 	if blockText == "" {
 		return msgText
@@ -191,4 +201,60 @@ func MergeBlocksWithText(msgText string, blocks slack.Blocks) string {
 		return msgText
 	}
 	return msgText + "\n" + blockText
+}
+
+// mrkdwnEscaper applies the escaping Slack gives the text field, so a
+// rich_text element's literal text can be looked up in it.
+var mrkdwnEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+// dropCoveredRichText removes the rich_text blocks whose every typed line
+// already appears in msgText, leaving other blocks untouched.
+func dropCoveredRichText(msgText string, blocks slack.Blocks) slack.Blocks {
+	kept := make([]slack.Block, 0, len(blocks.BlockSet))
+	for _, block := range blocks.BlockSet {
+		if rt, ok := block.(*slack.RichTextBlock); ok && richTextCoveredBy(msgText, rt) {
+			continue
+		}
+		kept = append(kept, block)
+	}
+	return slack.Blocks{BlockSet: kept}
+}
+
+func richTextCoveredBy(msgText string, b *slack.RichTextBlock) bool {
+	for _, typed := range richTextLiterals(b.Elements) {
+		for _, line := range strings.Split(typed, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.Contains(msgText, mrkdwnEscaper.Replace(line)) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// richTextLiterals collects the text elements' typed strings. Mentions,
+// links and emoji are left out: the text field carries each of them in its
+// own mrkdwn form, which already names what the element would render.
+func richTextLiterals(elements []slack.RichTextElement) []string {
+	var out []string
+	sectionLiterals := func(elems []slack.RichTextSectionElement) {
+		for _, e := range elems {
+			if t, ok := e.(*slack.RichTextSectionTextElement); ok {
+				out = append(out, t.Text)
+			}
+		}
+	}
+	for _, elem := range elements {
+		switch e := elem.(type) {
+		case *slack.RichTextSection:
+			sectionLiterals(e.Elements)
+		case *slack.RichTextQuote:
+			sectionLiterals(e.Elements)
+		case *slack.RichTextPreformatted:
+			sectionLiterals(e.Elements)
+		case *slack.RichTextList:
+			out = append(out, richTextLiterals(e.Elements)...)
+		}
+	}
+	return out
 }

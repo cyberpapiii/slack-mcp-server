@@ -68,3 +68,82 @@ func TestUnitBlocksToTextEmptyBlockSet(t *testing.T) {
 		t.Errorf("BlocksToText = %q, want empty", got)
 	}
 }
+
+// A human-typed message carries the same content twice: mrkdwn in text and
+// the structured rich_text block. The block renders a little differently
+// (&amp; decoded, <!channel> as @channel, links as "label (url)"), so the old
+// verbatim-containment check missed and every formatted message came out
+// twice. The text wins: it is what the author typed, and it keeps channel
+// names that a rich_text channel element does not carry.
+func TestUnitMergeBlocksWithTextDoesNotRepeatRichTextOfTheText(t *testing.T) {
+	msgText := "hello <!channel>! ideas below\n\n• :bank: Chime\n    ◦ canceled the lunch &amp; storm!\n• Brief <https://x.test/doc|HERE>, see <#C123|ideation>"
+	blocks := unmarshalBlocks(t, `[{
+	  "type": "rich_text",
+	  "elements": [
+	    {"type": "rich_text_section", "elements": [
+	      {"type": "text", "text": "hello "},
+	      {"type": "broadcast", "range": "channel"},
+	      {"type": "text", "text": "! ideas below\n\n"}
+	    ]},
+	    {"type": "rich_text_list", "style": "bullet", "indent": 0, "elements": [
+	      {"type": "rich_text_section", "elements": [
+	        {"type": "emoji", "name": "bank"},
+	        {"type": "text", "text": " Chime"}
+	      ]}
+	    ]},
+	    {"type": "rich_text_list", "style": "bullet", "indent": 1, "elements": [
+	      {"type": "rich_text_section", "elements": [
+	        {"type": "text", "text": "canceled the lunch & storm!"}
+	      ]}
+	    ]},
+	    {"type": "rich_text_list", "style": "bullet", "indent": 0, "elements": [
+	      {"type": "rich_text_section", "elements": [
+	        {"type": "text", "text": "Brief "},
+	        {"type": "link", "url": "https://x.test/doc", "text": "HERE"},
+	        {"type": "text", "text": ", see "},
+	        {"type": "channel", "channel_id": "C123"}
+	      ]}
+	    ]}
+	  ]
+	}]`)
+
+	if got := MergeBlocksWithText(msgText, blocks); got != msgText {
+		t.Fatalf("formatted message rendered twice:\n%s", got)
+	}
+}
+
+// A bot can post rich_text under a short fallback text. The block holds the
+// content, so it is still appended.
+func TestUnitMergeBlocksWithTextKeepsRichTextBeyondFallback(t *testing.T) {
+	blocks := unmarshalBlocks(t, `[{
+	  "type": "rich_text",
+	  "elements": [
+	    {"type": "rich_text_section", "elements": [
+	      {"type": "text", "text": "Deploy 42 finished: 3 services updated"}
+	    ]}
+	  ]
+	}]`)
+
+	got := MergeBlocksWithText("New notification", blocks)
+	want := "New notification\nDeploy 42 finished: 3 services updated"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// Section blocks are not a copy of the text field, so they keep merging
+// alongside a rich_text block the text already covers.
+func TestUnitMergeBlocksWithTextKeepsSectionBesideCoveredRichText(t *testing.T) {
+	blocks := unmarshalBlocks(t, `[
+	  {"type": "rich_text", "elements": [
+	    {"type": "rich_text_section", "elements": [{"type": "text", "text": "Build & test"}]}
+	  ]},
+	  {"type": "section", "text": {"type": "mrkdwn", "text": "*Status:* green"}}
+	]`)
+
+	got := MergeBlocksWithText("Build &amp; test", blocks)
+	want := "Build &amp; test\n*Status:* green"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
