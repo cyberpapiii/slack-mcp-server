@@ -8,10 +8,12 @@ import (
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 // SavedItemRow is one saved ("Later") message. Channel and MsgID are the
@@ -43,10 +45,21 @@ type SavedHandler struct {
 	apiProvider *provider.ApiProvider
 	logger      *zap.Logger
 	convHandler *ConversationsHandler
+
+	// pace, listPage and itemMessages are the Slack side of listSaved,
+	// swapped out in tests.
+	pace         *rate.Limiter
+	listPage     func(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error)
+	itemMessages func(ctx context.Context, item edge.SavedItem, maxMsgsPerItem int, mode text.OutputMode) ([]Message, error)
 }
 
 func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, convHandler *ConversationsHandler) *SavedHandler {
-	return &SavedHandler{apiProvider: apiProvider, logger: logger, convHandler: convHandler}
+	h := &SavedHandler{apiProvider: apiProvider, logger: logger, convHandler: convHandler, pace: limiter.Tier3.Limiter()}
+	h.listPage = func(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error) {
+		return apiProvider.Slack().SavedList(ctx, filter, limit, cursor)
+	}
+	h.itemMessages = h.savedItemMessages
+	return h
 }
 
 func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -68,30 +81,40 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 		return nil, err
 	}
 
-	rl := limiter.Tier3.Limiter()
+	return h.listSaved(ctx, filter, limit, request.GetString("cursor", ""), includeMessages, maxMsgsPerItem, mode)
+}
 
+// listSaved walks saved.list pages and, with includeMessages, fetches each
+// saved message. When the call's context ends partway, the rows already
+// listed are returned marked partial instead of being discarded.
+func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, cursor string, includeMessages bool, maxMsgsPerItem int, mode text.OutputMode) (*mcp.CallToolResult, error) {
 	var allItems []SavedItemRow
 	var allMessages []Message
-	cursor := request.GetString("cursor", "")
 	nextCursor := ""
 	fetched := 0
 	pageSize := limit
 	if pageSize > 50 {
 		pageSize = 50
 	}
+	// stopErr is set once the walk has to stop early. The rest of the page in
+	// hand is still listed, without messages, so nextCursor stays a valid
+	// resume point.
 	var stopErr error
 
-	for fetched < limit {
+	for fetched < limit && stopErr == nil {
 		if cursor != "" {
-			if err := rl.Wait(ctx); err != nil {
-				h.logger.Warn("Rate limiter wait failed, stopping pagination", zap.Error(err))
+			if err := h.pace.Wait(ctx); err != nil {
 				stopErr = err
 				break
 			}
 		}
 
-		resp, err := h.apiProvider.Slack().SavedList(ctx, filter, pageSize, cursor)
+		resp, err := h.listPage(ctx, filter, pageSize, cursor)
 		if err != nil {
+			if len(allItems) > 0 && ctx.Err() != nil {
+				stopErr = err
+				break
+			}
 			h.logger.Error("SavedList failed", zap.Error(err))
 			return nil, fmt.Errorf("failed to list saved items: %w", err)
 		}
@@ -101,100 +124,51 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 			if fetched >= limit {
 				break
 			}
-
-			row := SavedItemRow{
+			allItems = append(allItems, SavedItemRow{
 				ChannelID:   item.ItemID,
 				Ts:          item.Ts,
 				DateCreated: formatUnixTs(item.DateCreated),
 				DateDue:     formatUnixTs(item.DateDue),
 				State:       item.State,
-			}
-			allItems = append(allItems, row)
+			})
 			fetched++
 
-			if includeMessages {
-				if err := rl.Wait(ctx); err != nil {
-					stopErr = err
-					break
-				}
-				histParams := &slack.GetConversationHistoryParameters{
-					ChannelID: item.ItemID,
-					Latest:    item.Ts,
-					Oldest:    item.Ts,
-					Inclusive: true,
-					Limit:     1,
-				}
-				histResp, err := h.apiProvider.WebAPI().GetConversationHistoryContext(ctx, histParams)
-				if err != nil {
-					h.logger.Warn("Failed to fetch saved message via history, trying replies",
-						zap.String("channel", item.ItemID),
-						zap.String("ts", item.Ts),
-						zap.Error(err))
-					allMessages = append(allMessages, Message{
-						MsgID:   item.Ts,
-						Channel: item.ItemID,
-						Text:    "[message content unavailable: channel access denied]",
-						Time:    formatUnixTs(item.DateCreated),
-					})
-					continue
-				}
-				if len(histResp.Messages) > 0 {
-					msg := histResp.Messages[0]
-					if msg.ThreadTimestamp != "" && msg.ThreadTimestamp != msg.Timestamp {
-						repliesParams := &slack.GetConversationRepliesParameters{
-							ChannelID: item.ItemID,
-							Timestamp: msg.ThreadTimestamp,
-							Latest:    item.Ts,
-							Oldest:    item.Ts,
-							Inclusive: true,
-							Limit:     maxMsgsPerItem,
-						}
-						replies, _, _, err := h.apiProvider.WebAPI().GetConversationRepliesContext(ctx, repliesParams)
-						if err == nil && len(replies) > 0 {
-							msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false, mode)
-							allMessages = append(allMessages, msgs...)
-							continue
-						}
-					}
-					msgs := h.convHandler.convertMessagesFromHistory(ctx, histResp.Messages, item.ItemID, false, mode)
-					allMessages = append(allMessages, msgs...)
-				} else {
-					repliesParams := &slack.GetConversationRepliesParameters{
-						ChannelID: item.ItemID,
-						Timestamp: item.Ts,
-						Latest:    item.Ts,
-						Oldest:    item.Ts,
-						Inclusive: true,
-						Limit:     maxMsgsPerItem,
-					}
-					replies, _, _, err := h.apiProvider.WebAPI().GetConversationRepliesContext(ctx, repliesParams)
-					if err == nil && len(replies) > 0 {
-						msgs := h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false, mode)
-						allMessages = append(allMessages, msgs...)
-					} else {
-						allMessages = append(allMessages, Message{
-							MsgID:   item.Ts,
-							Channel: item.ItemID,
-							Text:    "[saved item: message not found in channel history]",
-							Time:    formatUnixTs(item.DateCreated),
-						})
-					}
-				}
+			if !includeMessages || stopErr != nil {
+				continue
 			}
+			if err := h.pace.Wait(ctx); err != nil {
+				stopErr = err
+				continue
+			}
+			msgs, err := h.itemMessages(ctx, item, maxMsgsPerItem, mode)
+			if err != nil {
+				stopErr = err
+				continue
+			}
+			allMessages = append(allMessages, msgs...)
 		}
 
-		if stopErr != nil || resp.ResponseMetadata.NextCursor == "" || fetched >= limit {
+		if resp.ResponseMetadata.NextCursor == "" {
 			break
 		}
 		cursor = resp.ResponseMetadata.NextCursor
 	}
 
-	if stopErr != nil {
+	if stopErr != nil && len(allItems) == 0 {
 		return cancelledToolResult(), nil
 	}
+	partialReason := ""
+	if stopErr != nil {
+		h.logger.Warn("saved_list stopped early; returning the items listed so far", zap.Int("items", len(allItems)), zap.Error(stopErr))
+		partialReason = "saved_list stopped before the walk finished"
+		if includeMessages {
+			partialReason += "; some rows have no message"
+		}
+	}
+	meta := SlackResultMeta(nextCursor, stopErr != nil, partialReason)
 
 	if includeMessages && len(allMessages) > 0 {
-		opts := h.convHandler.render(mode, SlackResultMeta(nextCursor, false, ""))
+		opts := h.convHandler.render(mode, meta)
 		trailer, err := csvSection("saved_items", &allItems)
 		if err != nil {
 			return nil, err
@@ -203,7 +177,75 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 		return marshalMessagesToCSV(allMessages, opts)
 	}
 
-	return renderSavedItems(allItems, h.convHandler.channelDisplayName, SlackResultMeta(nextCursor, false, ""))
+	return renderSavedItems(allItems, h.convHandler.channelDisplayName, meta)
+}
+
+// savedItemMessages fetches one saved message, or the thread reply it points
+// at. A Slack failure becomes a placeholder row; an error is returned only
+// when ctx is done, so the caller can stop instead of filling the output with
+// placeholders.
+func (h *SavedHandler) savedItemMessages(ctx context.Context, item edge.SavedItem, maxMsgsPerItem int, mode text.OutputMode) ([]Message, error) {
+	histResp, err := h.apiProvider.WebAPI().GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
+		ChannelID: item.ItemID,
+		Latest:    item.Ts,
+		Oldest:    item.Ts,
+		Inclusive: true,
+		Limit:     1,
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		h.logger.Warn("Failed to fetch saved message via history",
+			zap.String("channel", item.ItemID),
+			zap.String("ts", item.Ts),
+			zap.Error(err))
+		return []Message{{
+			MsgID:   item.Ts,
+			Channel: item.ItemID,
+			Text:    "[message content unavailable: channel access denied]",
+			Time:    formatUnixTs(item.DateCreated),
+		}}, nil
+	}
+
+	if len(histResp.Messages) > 0 {
+		msg := histResp.Messages[0]
+		if msg.ThreadTimestamp != "" && msg.ThreadTimestamp != msg.Timestamp {
+			replies, _, _, err := h.apiProvider.WebAPI().GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
+				ChannelID: item.ItemID,
+				Timestamp: msg.ThreadTimestamp,
+				Latest:    item.Ts,
+				Oldest:    item.Ts,
+				Inclusive: true,
+				Limit:     maxMsgsPerItem,
+			})
+			if err == nil && len(replies) > 0 {
+				return h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false, mode), nil
+			}
+		}
+		return h.convHandler.convertMessagesFromHistory(ctx, histResp.Messages, item.ItemID, false, mode), nil
+	}
+
+	replies, _, _, err := h.apiProvider.WebAPI().GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
+		ChannelID: item.ItemID,
+		Timestamp: item.Ts,
+		Latest:    item.Ts,
+		Oldest:    item.Ts,
+		Inclusive: true,
+		Limit:     maxMsgsPerItem,
+	})
+	if err == nil && len(replies) > 0 {
+		return h.convHandler.convertMessagesFromHistory(ctx, replies, item.ItemID, false, mode), nil
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return []Message{{
+		MsgID:   item.Ts,
+		Channel: item.ItemID,
+		Text:    "[saved item: message not found in channel history]",
+		Time:    formatUnixTs(item.DateCreated),
+	}}, nil
 }
 
 // parseSavedUpdateParams: schema uses date_due:0 to clear; key presence (not truthiness) gates the required-field check.

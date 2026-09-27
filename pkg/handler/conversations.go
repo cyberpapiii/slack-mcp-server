@@ -522,7 +522,11 @@ func (ch *ConversationsHandler) render(mode text.OutputMode, meta ResultMeta) re
 // channelDisplayName returns the cached "#name" or "@user" label for a
 // conversation ID, or "" when the cache does not know it.
 func (ch *ConversationsHandler) channelDisplayName(channelID string) string {
-	if cached, ok := ch.apiProvider.ProvideChannelsMaps().Channels[channelID]; ok {
+	channels := ch.apiProvider.ProvideChannelsMaps()
+	if channels == nil {
+		return ""
+	}
+	if cached, ok := channels.Channels[channelID]; ok {
 		return cached.Name
 	}
 	return ""

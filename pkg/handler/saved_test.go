@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 const savedItemsHeader = "Channel,MsgID,DateCreated,DateDue,State"
@@ -206,4 +208,96 @@ func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
 	_, err = h.SavedClearCompletedHandler(ctx, req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
+}
+
+// newStubSavedHandler serves one saved.list page per call from pages and
+// runs onPage after each; itemMessages returns one message per item and runs
+// onItem first.
+func newStubSavedHandler(pages []edge.SavedListResponse, onPage func(n int), onItem func(edge.SavedItem)) *SavedHandler {
+	calls := 0
+	return &SavedHandler{
+		apiProvider: &provider.ApiProvider{},
+		logger:      zap.NewNop(),
+		convHandler: &ConversationsHandler{apiProvider: &provider.ApiProvider{}, logger: zap.NewNop()},
+		pace:        rate.NewLimiter(rate.Inf, 0),
+		listPage: func(context.Context, string, int, string) (edge.SavedListResponse, error) {
+			page := pages[calls]
+			calls++
+			if onPage != nil {
+				onPage(calls)
+			}
+			return page, nil
+		},
+		itemMessages: func(_ context.Context, item edge.SavedItem, _ int, _ text.OutputMode) ([]Message, error) {
+			if onItem != nil {
+				onItem(item)
+			}
+			return []Message{{MsgID: item.Ts, Channel: item.ItemID, Text: "saved " + item.Ts}}, nil
+		},
+	}
+}
+
+func savedPage(nextCursor string, ts ...string) edge.SavedListResponse {
+	var page edge.SavedListResponse
+	for _, t := range ts {
+		page.SavedItems = append(page.SavedItems, edge.SavedItem{ItemID: "C1", Ts: t, State: "in_progress"})
+	}
+	page.ResponseMetadata.NextCursor = nextCursor
+	return page
+}
+
+func TestUnitSavedListKeepsRowsWhenStoppedBetweenPages(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0", "2.0")}, func(int) { cancel() }, nil)
+
+	res, err := h.listSaved(ctx, "saved", 50, "", false, 5, text.ModeStandard)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "the first page was listed; a stop before page two must not discard it")
+	out := ResultText(res)
+	assert.Contains(t, out, "#partial: ")
+	assert.Contains(t, out, "#next_cursor: c2", "resume from the page that was not fetched")
+	assert.Contains(t, out, "C1,1.0,")
+	assert.Contains(t, out, "C1,2.0,")
+}
+
+func TestUnitSavedListListsTheRestOfThePageWhenStoppedMidPage(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0", "2.0", "3.0")}, nil, func(edge.SavedItem) { cancel() })
+
+	res, err := h.listSaved(ctx, "saved", 50, "", true, 5, text.ModeStandard)
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	out := ResultText(res)
+	assert.Contains(t, out, "#partial: ")
+	assert.Contains(t, out, "#next_cursor: c2", "every row of the page is listed, so the cursor still resumes cleanly")
+	assert.Contains(t, out, "saved 1.0", "the message fetched before the stop is kept")
+	assert.NotContains(t, out, "saved 2.0", "no message fetch after the stop")
+	for _, ts := range []string{"1.0", "2.0", "3.0"} {
+		assert.Contains(t, out, "C1,"+ts+",", "row %s is listed in #saved_items", ts)
+	}
+}
+
+func TestUnitSavedListStoppedBeforeAnyRowIsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h := newStubSavedHandler(nil, nil, nil)
+
+	res, err := h.listSaved(ctx, "saved", 50, "c1", false, 5, text.ModeStandard)
+	require.NoError(t, err)
+	assert.True(t, res.IsError)
+	assert.Contains(t, ResultText(res), "cancelled")
+}
+
+func TestUnitSavedListCompleteWalkIsNotPartial(t *testing.T) {
+	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0"), savedPage("", "2.0")}, nil, nil)
+
+	res, err := h.listSaved(context.Background(), "saved", 50, "", true, 5, text.ModeStandard)
+	require.NoError(t, err)
+	out := ResultText(res)
+	assert.NotContains(t, out, "#partial:")
+	assert.NotContains(t, out, "#next_cursor:")
+	assert.Contains(t, out, "saved 1.0")
+	assert.Contains(t, out, "saved 2.0")
 }
