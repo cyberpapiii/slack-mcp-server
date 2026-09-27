@@ -231,10 +231,15 @@ func newProvider(transport string, authProvider slackcreds.Credentials, logger *
 	return ap, nil
 }
 
-// Close stops background refresh goroutines. Safe to call more than once.
+// Close stops background refresh goroutines and waits, briefly, for a
+// managed OAuth refresh in flight to save its rotated token. Safe to call
+// more than once.
 func (ap *ApiProvider) Close() {
 	if ap.cancel != nil {
 		ap.cancel()
+	}
+	if client, ok := ap.client.(*MCPSlackClient); ok && client != nil {
+		client.waitForOAuthRefresh()
 	}
 }
 

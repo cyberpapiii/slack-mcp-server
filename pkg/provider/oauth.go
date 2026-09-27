@@ -165,6 +165,10 @@ func (m *OAuthTokenManager) WithValidator(validate func(context.Context, OAuthTo
 	return m
 }
 
+// oauthRotateTimeout bounds one refresh call plus the save of the token it
+// returns. It is independent of the caller's context; see Current.
+const oauthRotateTimeout = 30 * time.Second
+
 func NewOAuthTokenManager(store CredentialStore, refresher OAuthRefresher, lock func(context.Context, func() error) error) *OAuthTokenManager {
 	if lock == nil {
 		lock = func(_ context.Context, fn func() error) error { return fn() }
@@ -225,7 +229,13 @@ func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, erro
 		if m.refresher == nil || record.RefreshToken == "" {
 			return ErrOAuthRefreshUnavailable
 		}
-		rotated, err := m.refresher.Refresh(ctx, record.RefreshToken)
+		// Slack may consume the old refresh token as soon as it is sent, so
+		// the call and the save of its replacement run to completion even if
+		// ctx ends: a shutdown or the caller's deadline must not leave the
+		// only valid refresh token in memory.
+		rotateCtx, cancelRotate := context.WithTimeout(context.WithoutCancel(ctx), oauthRotateTimeout)
+		defer cancelRotate()
+		rotated, err := m.refresher.Refresh(rotateCtx, record.RefreshToken)
 		if err != nil {
 			return fmt.Errorf("refresh OAuth credential: %w", err)
 		}
@@ -246,7 +256,7 @@ func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, erro
 		m.pending = &pending
 		// Slack refresh tokens rotate on use. Persist the replacement before
 		// checks that may fail so the consumed token is never left durable.
-		if err := m.store.SaveIfGeneration(ctx, record.Generation-1, record); err != nil {
+		if err := m.store.SaveIfGeneration(rotateCtx, record.Generation-1, record); err != nil {
 			return fmt.Errorf("persist rotated OAuth credential: %w", err)
 		}
 		m.pending = nil

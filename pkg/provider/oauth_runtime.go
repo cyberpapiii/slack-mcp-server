@@ -110,13 +110,52 @@ func (c *MCPSlackClient) runManagedOAuthRefresh(ctx context.Context) {
 			return
 		case <-timer.C:
 		}
-		refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		err := c.refreshManagedOAuthOnce(refreshCtx)
-		cancel()
+		err := c.refreshManagedOAuthTick(ctx)
 		if err != nil {
 			c.logger.Warn("Managed OAuth refresh failed", zap.Error(err))
 		}
 		timer.Reset(managedOAuthRefreshInterval(err))
+	}
+}
+
+// oauthShutdownGrace bounds how long Close waits for a refresh in flight.
+// A refresh normally takes well under a second.
+const oauthShutdownGrace = 10 * time.Second
+
+// refreshManagedOAuthTick runs one refresh while holding oauthRefreshMu, so
+// Close can wait for it to finish.
+func (c *MCPSlackClient) refreshManagedOAuthTick(ctx context.Context) error {
+	c.oauthRefreshMu.Lock()
+	defer c.oauthRefreshMu.Unlock()
+	if ctx.Err() != nil {
+		return nil
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return c.refreshManagedOAuthOnce(refreshCtx)
+}
+
+// waitForOAuthRefresh blocks until a refresh in flight finishes, or the grace
+// period ends. Exiting between Slack's answer and the Keychain write would
+// lose the rotated refresh token and force a new login.
+func (c *MCPSlackClient) waitForOAuthRefresh() {
+	grace := c.oauthShutdownGrace
+	if grace <= 0 {
+		grace = oauthShutdownGrace
+	}
+	done := make(chan struct{})
+	go func() {
+		c.oauthRefreshMu.Lock()
+		c.oauthRefreshMu.Unlock()
+		close(done)
+	}()
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		c.logger.Warn("Shutting down with an OAuth refresh still running; if the next start fails to authenticate, run slack-mcp-auth status",
+			zap.Duration("waited", grace))
 	}
 }
 

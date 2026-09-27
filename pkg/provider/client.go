@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
@@ -63,6 +64,9 @@ type MCPSlackClient struct {
 	oauthAccessToken     atomic.Value
 	oauthRuntimeState    atomic.Value
 	managedClientFactory func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error)
+	// oauthRefreshMu is held for one managed OAuth refresh; Close waits on it.
+	oauthRefreshMu     sync.Mutex
+	oauthShutdownGrace time.Duration // test override for oauthShutdownGrace
 }
 
 // IsDemoCredentials reports whether the process runs with the documented
