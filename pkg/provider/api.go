@@ -91,7 +91,9 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 	if os.Getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT") != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		var managedErr error
+		stop := warnWhileWaiting(logger, keychainPromptAfter, "oauth")
 		managedManager, managedRecord, managedErr = loadManagedOAuth(ctx)
+		stop()
 		cancel()
 		if managedErr != nil {
 			return nil, fmt.Errorf("load managed OAuth credential: %w", managedErr)
@@ -104,7 +106,9 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 			oauthFallbackToken = xoxbToken
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stop := warnWhileWaiting(logger, keychainPromptAfter, "browser")
 		browserCredentials, loadErr := resolveBrowserStartupCredentials(ctx, account, oauthFallbackToken, xoxcToken, xoxdToken)
+		stop()
 		cancel()
 		if loadErr != nil {
 			return nil, fmt.Errorf("load browser credential and no OAuth fallback is configured: %w", loadErr)

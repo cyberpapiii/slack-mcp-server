@@ -24,6 +24,8 @@ mid-review. Run `make prepare` explicitly when you want the tree reformatted.
 
 After changing Go code, run `make deploy-local` (or rebuild `bin/slack-mcp-server` and restart Plug's `slack` server) so Cursor picks up the new binary.
 
+Run the deploy while someone is at the Mac. The Keychain items' partition list pins the exact build (`cdhash:`) last allowed, and the local signing certificate has no Team ID, so every rebuild makes macOS show an access prompt for the OAuth (and browser) credential. Startup blocks on that prompt; click **Always Allow** within Plug's 60s initialize timeout or Plug marks `slack` failed. With `SLACK_MCP_LOG_FILE` set, a stalled read logs `Still waiting on macOS Keychain` after 3s (`warnWhileWaiting`, `pkg/provider/keychain_wait.go`).
+
 ## Runtime layout
 
 | Layer | Location |
