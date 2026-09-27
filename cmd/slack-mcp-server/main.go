@@ -247,6 +247,14 @@ func newLogger(transport string) (*zap.Logger, error) {
 	if transport == "stdio" {
 		outputPath = "stderr"
 	}
+	errorPath := "stderr"
+	logFile, err := logFilePath()
+	if err != nil {
+		return nil, err
+	}
+	if logFile != "" {
+		outputPath, errorPath = logFile, logFile
+	}
 
 	var config zap.Config
 
@@ -256,7 +264,7 @@ func newLogger(transport string) (*zap.Logger, error) {
 			Development:      false,
 			Encoding:         "json",
 			OutputPaths:      []string{outputPath},
-			ErrorOutputPaths: []string{"stderr"},
+			ErrorOutputPaths: []string{errorPath},
 			EncoderConfig: zapcore.EncoderConfig{
 				TimeKey:       "timestamp",
 				LevelKey:      "level",
@@ -274,7 +282,7 @@ func newLogger(transport string) (*zap.Logger, error) {
 			Development:      true,
 			Encoding:         "console",
 			OutputPaths:      []string{outputPath},
-			ErrorOutputPaths: []string{"stderr"},
+			ErrorOutputPaths: []string{errorPath},
 			EncoderConfig: zapcore.EncoderConfig{
 				TimeKey:          "timestamp",
 				LevelKey:         "level",

@@ -118,6 +118,7 @@ Fetches a CSV directory of all users in the workspace.
 | `SLACK_MCP_SERVER_CA` / `SLACK_MCP_SERVER_CA_INSECURE` | | Extra CA PEM path; `true` trusts every certificate (debugging only). `SLACK_MCP_SERVER_CA_TOOLKIT` is removed and fatals if set. |
 | `SLACK_MCP_GOVSLACK` | | `true`/`1`/`yes` routes every API, edge, and OAuth call to `slack-gov.com`. |
 | `SLACK_MCP_LOG_LEVEL` / `SLACK_MCP_LOG_FORMAT` / `SLACK_MCP_LOG_COLOR` | `info` / auto / auto | Zap level; `json` or console (auto: JSON when not a TTY or in a container); colour on or off. |
+| `SLACK_MCP_LOG_FILE` | unset | Absolute path; logs (including errors) go there instead of stderr/stdout. Created owner-only; moved to `<path>.1` at startup once over 10 MB. Plug discards a stdio server's stderr, so this is the only way to see its logs there. |
 | `SLACK_MCP_LOG_PARAMS` | unset | `debug` logs full tool parameters at Info (may include message text). |
 
 ### Limitations matrix and cache
