@@ -2,13 +2,11 @@ package provider
 
 import (
 	"context"
-	"math/rand"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
@@ -83,13 +81,6 @@ func demoAuthResponse() *slack.AuthTestResponse {
 	}
 }
 
-// Random 0-3s sleep so concurrent instances do not stampede Slack.
-func startupJitter(logger *zap.Logger) {
-	jitter := time.Duration(rand.Intn(3000)) * time.Millisecond
-	logger.Info("Startup jitter", zap.Duration("delay", jitter))
-	time.Sleep(jitter)
-}
-
 // authTest builds the HTTP client for authProvider's credentials and proves
 // them against auth.test. Demo credentials skip the network entirely.
 func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
@@ -118,9 +109,6 @@ func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Cl
 }
 
 func newMCPSlackClient(authProvider slackcreds.Credentials, logger *zap.Logger) (*MCPSlackClient, error) {
-	if !IsDemoCredentials() {
-		startupJitter(logger)
-	}
 	httpClient, authResp, err := authTest(authProvider, logger)
 	if err != nil {
 		return nil, err
