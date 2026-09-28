@@ -157,7 +157,8 @@ deploy-local: ## Build, collect the Keychain approval, then swap bin/slack-mcp-s
 			SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT="$$OAUTH_ACCOUNT" \
 			SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT="$$BROWSER_ACCOUNT" \
 			$(DEPLOY_STAGE)/slack-mcp-server --check-keychain || { \
-			echo "ERROR: the new build cannot read the Keychain; bin/ and Plug are unchanged"; exit 1; }; \
+			echo "ERROR: the new build cannot read the Keychain; bin/ and Plug are unchanged."; \
+			echo "A denied or closed prompt can also report the item as missing: run make deploy-local again and click Always Allow."; exit 1; }; \
 	fi
 	@mkdir -p ./bin
 	rm -f ./bin/slack-mcp-server ./bin/slack-mcp-auth
