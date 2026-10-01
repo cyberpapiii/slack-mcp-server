@@ -733,7 +733,7 @@ func limitByNumeric(limit string, defaultLimit int) (int, error) {
 	}
 	n, err := strconv.Atoi(limit)
 	if err != nil {
-		return 0, fmt.Errorf("invalid numeric limit: %q", limit)
+		return 0, fmt.Errorf("invalid limit %q: use a number of messages (e.g. 50) or a time range such as 6h, 1d, 1w, or 1m", limit)
 	}
 	return n, nil
 }
@@ -749,7 +749,7 @@ func limitByExpression(limit, defaultLimit string) (slackLimit int, oldest, late
 	numStr := limit[:len(limit)-1]
 	n, err := strconv.Atoi(numStr)
 	if err != nil || n <= 0 {
-		return 0, "", "", fmt.Errorf("invalid duration limit %q: must be a positive integer followed by 'd', 'w', or 'm'", limit)
+		return 0, "", "", fmt.Errorf("invalid duration limit %q: must be a positive integer followed by 'h', 'd', 'w', or 'm'", limit)
 	}
 	now := time.Now()
 	loc := now.Location()
@@ -757,6 +757,9 @@ func limitByExpression(limit, defaultLimit string) (slackLimit int, oldest, late
 
 	var oldestTime time.Time
 	switch suffix {
+	case 'h':
+		// Hours are a rolling window. The day-based ranges snap to local midnight.
+		oldestTime = now.Add(-time.Duration(n) * time.Hour)
 	case 'd':
 		oldestTime = startOfToday.AddDate(0, 0, -n+1)
 	case 'w':
@@ -764,7 +767,7 @@ func limitByExpression(limit, defaultLimit string) (slackLimit int, oldest, late
 	case 'm':
 		oldestTime = startOfToday.AddDate(0, -n, 0)
 	default:
-		return 0, "", "", fmt.Errorf("invalid duration limit %q: must end in 'd', 'w', or 'm'", limit)
+		return 0, "", "", fmt.Errorf("invalid duration limit %q: must end in 'h', 'd', 'w', or 'm'", limit)
 	}
 	latest = fmt.Sprintf("%d.000000", now.Unix())
 	oldest = fmt.Sprintf("%d.000000", oldestTime.Unix())

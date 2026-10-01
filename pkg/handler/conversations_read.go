@@ -196,7 +196,7 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 		paramLatest string
 		err         error
 	)
-	isDurationLimit := strings.HasSuffix(limit, "d") || strings.HasSuffix(limit, "w") || strings.HasSuffix(limit, "m")
+	isDurationLimit := strings.HasSuffix(limit, "h") || strings.HasSuffix(limit, "d") || strings.HasSuffix(limit, "w") || strings.HasSuffix(limit, "m")
 	if isDurationLimit && cursor != "" {
 		// Schema default limit is "1d" but also forbids limit+cursor. Honour
 		// cursor, drop window (same as numeric branch) so pagination works.

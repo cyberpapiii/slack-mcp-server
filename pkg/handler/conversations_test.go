@@ -370,6 +370,7 @@ func TestUnitLimitByExpression_Valid(t *testing.T) {
 		maxSecs int64 // exclusive
 	}{
 		{"1 day", "", 0, 86400}, // default case with no input test
+		{"6 hours", "6h", 6 * 3600, 6*3600 + 1},
 		{"1 day", "1d", 0, 86400},
 		{"2 days", "2d", 86400, 172800},
 		{"1 week", "1w", 6 * 86400, 7 * 86400},
@@ -417,6 +418,7 @@ func TestUnitLimitByExpression_Invalid(t *testing.T) {
 		"0d",  // zero
 		"-1d", // negative
 		"1x",  // bad suffix
+		"0h",  // zero hours
 		"1",   // missing suffix
 		"01",  // no suffix + zero value
 	}
