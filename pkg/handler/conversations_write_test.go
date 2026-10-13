@@ -28,6 +28,8 @@ func TestUnitWriteToolsDenyChannelOutsideAllowlist(t *testing.T) {
 		{"add_message", "SLACK_MCP_ADD_MESSAGE_TOOL", h.ConversationsAddMessageHandler, map[string]any{"channel_id": "C123", "text": "hi"}, "conversations_add_message is not allowed"},
 		{"reactions_add", "SLACK_MCP_REACTION_TOOL", h.ReactionsAddHandler, map[string]any{"channel_id": "C123", "timestamp": "1.2", "emoji": "+1"}, "reactions tools are not allowed"},
 		{"reactions_remove", "SLACK_MCP_REACTION_TOOL", h.ReactionsRemoveHandler, map[string]any{"channel_id": "C123", "timestamp": "1.2", "emoji": "+1"}, "reactions tools are not allowed"},
+		{"pins_add", "SLACK_MCP_ADD_MESSAGE_TOOL", h.PinsAddHandler, map[string]any{"channel_id": "C123", "timestamp": "1.2"}, "pins tools are not allowed"},
+		{"pins_remove", "SLACK_MCP_ADD_MESSAGE_TOOL", h.PinsRemoveHandler, map[string]any{"channel_id": "C123", "timestamp": "1.2"}, "pins tools are not allowed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

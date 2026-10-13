@@ -102,6 +102,14 @@ func (c *WebClient) RemoveReactionContext(ctx context.Context, name string, item
 	return c.resolve().RemoveReactionContext(ctx, name, item)
 }
 
+func (c *WebClient) AddPinContext(ctx context.Context, channel string, item slack.ItemRef) error {
+	return c.resolve().AddPinContext(ctx, channel, item)
+}
+
+func (c *WebClient) RemovePinContext(ctx context.Context, channel string, item slack.ItemRef) error {
+	return c.resolve().RemovePinContext(ctx, channel, item)
+}
+
 func (c *WebClient) SearchContext(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, *slack.SearchFiles, error) {
 	return c.resolve().SearchContext(ctx, query, params)
 }

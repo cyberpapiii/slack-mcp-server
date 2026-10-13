@@ -71,7 +71,7 @@ Three write families additionally take a channel allow/block list, checked in th
 
 | Env var | Scopes | Value |
 |---------|--------|-------|
-| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message`, `messages_schedule`, `messages_update`, `messages_delete` | empty or `true`/`1`/`yes` = every channel; `C1,C2` = only those; `!C1,!C2` = all except those |
+| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message`, `messages_schedule`, `messages_update`, `messages_delete`, `pins_add`, `pins_remove` | empty or `true`/`1`/`yes` = every channel; `C1,C2` = only those; `!C1,!C2` = all except those |
 | `SLACK_MCP_REACTION_TOOL` | `reactions_add`, `reactions_remove` | same shape |
 | `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | `channels_rename`, `channels_set_topic`, `channels_set_purpose`, `channels_archive` | same shape |
 

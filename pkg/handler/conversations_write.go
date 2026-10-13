@@ -222,6 +222,66 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 	return NewStructuredResult(ActionData{Action: "remove_reaction", Status: "removed", ChannelID: params.channel, MessageID: params.timestamp}, SlackResultMeta("", false, ""), fallback), nil
 }
 
+// PinsAddHandler pins a message to its channel
+func (ch *ConversationsHandler) PinsAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(ch.logger, "PinsAddHandler called", request)
+
+	if ready, err := ch.apiProvider.IsReady(); !ready {
+		ch.logger.Debug("API provider not ready", zap.Error(err))
+		return nil, err
+	}
+
+	channel, timestamp, err := ch.parseParamsToolPin(ctx, request)
+	if err != nil {
+		ch.logger.Debug("Failed to parse add-pin params", zap.Error(err))
+		return nil, err
+	}
+
+	ch.logger.Debug("Pinning Slack message",
+		zap.String("channel", channel),
+		zap.String("timestamp", timestamp),
+	)
+
+	// pins.add takes the channel as its own argument; the ItemRef carries only
+	// what identifies the item within it.
+	if err := ch.apiProvider.WebAPI().AddPinContext(ctx, channel, slack.ItemRef{Timestamp: timestamp}); err != nil {
+		ch.logger.Debug("Slack AddPinContext failed", zap.Error(err))
+		return nil, err
+	}
+
+	fallback := fmt.Sprintf("Successfully pinned message %s in channel %s", timestamp, channel)
+	return NewStructuredResult(ActionData{Action: "pin_message", Status: "pinned", ChannelID: channel, MessageID: timestamp}, SlackResultMeta("", false, ""), fallback), nil
+}
+
+// PinsRemoveHandler unpins a message from its channel
+func (ch *ConversationsHandler) PinsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(ch.logger, "PinsRemoveHandler called", request)
+
+	if ready, err := ch.apiProvider.IsReady(); !ready {
+		ch.logger.Debug("API provider not ready", zap.Error(err))
+		return nil, err
+	}
+
+	channel, timestamp, err := ch.parseParamsToolPin(ctx, request)
+	if err != nil {
+		ch.logger.Debug("Failed to parse remove-pin params", zap.Error(err))
+		return nil, err
+	}
+
+	ch.logger.Debug("Unpinning Slack message",
+		zap.String("channel", channel),
+		zap.String("timestamp", timestamp),
+	)
+
+	if err := ch.apiProvider.WebAPI().RemovePinContext(ctx, channel, slack.ItemRef{Timestamp: timestamp}); err != nil {
+		ch.logger.Debug("Slack RemovePinContext failed", zap.Error(err))
+		return nil, err
+	}
+
+	fallback := fmt.Sprintf("Successfully unpinned message %s in channel %s", timestamp, channel)
+	return NewStructuredResult(ActionData{Action: "unpin_message", Status: "unpinned", ChannelID: channel, MessageID: timestamp}, SlackResultMeta("", false, ""), fallback), nil
+}
+
 // ReactionsGetHandler returns detailed reaction data (including user IDs) for a specific message.
 // Uses conversations.replies which works for top-level messages, thread parents, and thread replies
 // alike. Requires only channels:history scope, no additional reactions:read permission needed.
@@ -435,21 +495,31 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	}, nil
 }
 
-func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, request mcp.CallToolRequest) (*addReactionParams, error) {
-	toolConfig := os.Getenv("SLACK_MCP_REACTION_TOOL")
-
+// resolveGatedChannel resolves channel_id and enforces the channel allow/block
+// list held in envVar. family names the tool family in the denial message, so
+// the message and the variable actually read cannot drift apart.
+func (ch *ConversationsHandler) resolveGatedChannel(ctx context.Context, request mcp.CallToolRequest, envVar, family string) (string, error) {
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		return nil, errors.New("channel_id is required")
+		return "", errors.New("channel_id is required")
 	}
 	channel, err := ch.resolveChannelID(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
-		return nil, err
+		return "", err
 	}
-	if !isChannelAllowedForConfig(channel, toolConfig) {
-		ch.logger.Warn("Reactions tool not allowed for channel", zap.String("channel", channel), zap.String("policy", toolConfig))
-		return nil, &ToolError{Code: "permission_denied", Message: fmt.Sprintf("reactions tools are not allowed for channel %q by SLACK_MCP_REACTION_TOOL", channel)}
+	policy := os.Getenv(envVar)
+	if !isChannelAllowedForConfig(channel, policy) {
+		ch.logger.Warn("Tool family not allowed for channel", zap.String("family", family), zap.String("channel", channel), zap.String("policy", policy))
+		return "", &ToolError{Code: "permission_denied", Message: fmt.Sprintf("%s tools are not allowed for channel %q by %s", family, channel, envVar)}
+	}
+	return channel, nil
+}
+
+func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, request mcp.CallToolRequest) (*addReactionParams, error) {
+	channel, err := ch.resolveGatedChannel(ctx, request, "SLACK_MCP_REACTION_TOOL", "reactions")
+	if err != nil {
+		return nil, err
 	}
 
 	timestamp := request.GetString("timestamp", "")
@@ -467,4 +537,21 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 		timestamp: timestamp,
 		emoji:     emoji,
 	}, nil
+}
+
+// parseParamsToolPin resolves the channel and message of a pin call. Pins are
+// part of the message lifecycle, so they answer to the same channel allowlist
+// as posting, SLACK_MCP_ADD_MESSAGE_TOOL.
+func (ch *ConversationsHandler) parseParamsToolPin(ctx context.Context, request mcp.CallToolRequest) (channel, timestamp string, err error) {
+	channel, err = ch.resolveGatedChannel(ctx, request, "SLACK_MCP_ADD_MESSAGE_TOOL", "pins")
+	if err != nil {
+		return "", "", err
+	}
+
+	timestamp = request.GetString("timestamp", "")
+	if timestamp == "" {
+		return "", "", errors.New("timestamp is required")
+	}
+
+	return channel, timestamp, nil
 }

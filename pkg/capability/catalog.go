@@ -50,6 +50,10 @@ var Tools = []Tool{
 	{Name: "reactions_remove", Title: "Remove Reaction", Destructive: true, Scopes: []string{"reactions:write"}},
 	{Name: "reactions_get", Title: "Get Message Reactions", ReadOnly: true, Scopes: []string{"reactions:read"}},
 
+	// Pins.
+	{Name: "pins_add", Title: "Pin Message", Scopes: []string{"pins:write"}},
+	{Name: "pins_remove", Title: "Unpin Message", Destructive: true, Scopes: []string{"pins:write"}},
+
 	// Files and users.
 	{Name: "attachment_get_data", Title: "Get Attachment Data", ReadOnly: true, Scopes: []string{"files:read"}},
 	{Name: "files_list", Title: "List Files", ReadOnly: true, Scopes: []string{"files:read"}},
