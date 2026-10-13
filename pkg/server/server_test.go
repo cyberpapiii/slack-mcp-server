@@ -31,6 +31,8 @@ func TestValidToolNames(t *testing.T) {
 			ToolReactionsAdd:                true,
 			ToolReactionsRemove:             true,
 			ToolReactionsGet:                true,
+			ToolPinsAdd:                     true,
+			ToolPinsRemove:                  true,
 			ToolConversationsGetMessage:     true,
 			ToolAttachmentGetData:           true,
 			ToolConversationsSearchMessages: true,
@@ -110,6 +112,8 @@ func TestCapabilityPresets(t *testing.T) {
 	assert.Contains(t, daily, ToolUsergroupsMine)
 	assert.NotContains(t, daily, ToolConversationsAddMessage)
 	assert.NotContains(t, daily, ToolUsergroupsJoin)
+	assert.NotContains(t, daily, ToolPinsAdd, "pins are a write tool, off unless named")
+	assert.NotContains(t, daily, ToolPinsRemove, "pins are a write tool, off unless named")
 
 	legacy, err := ResolveToolPreset("legacy-full")
 	require.NoError(t, err)

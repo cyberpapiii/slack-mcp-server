@@ -176,6 +176,30 @@ func registerCoreTools(s *server.MCPServer, provider *provider.ApiProvider, logg
 		),
 	), conversationsHandler.ReactionsRemoveHandler)
 
+	addEnabledTool(s, enabledTools, newTool(ToolPinsAdd,
+		mcp.WithDescription("Pin a message to its channel or DM. Pins are per-conversation and visible to everyone in it."),
+		mcp.WithString("channel_id",
+			mcp.Required(),
+			mcp.Description(descChannelID),
+		),
+		mcp.WithString("timestamp",
+			mcp.Required(),
+			mcp.Description("Timestamp of the message to pin, in format 1234567890.123456."),
+		),
+	), conversationsHandler.PinsAddHandler)
+
+	addEnabledTool(s, enabledTools, newTool(ToolPinsRemove,
+		mcp.WithDescription("Unpin a message from its channel or DM."),
+		mcp.WithString("channel_id",
+			mcp.Required(),
+			mcp.Description(descChannelID),
+		),
+		mcp.WithString("timestamp",
+			mcp.Required(),
+			mcp.Description("Timestamp of the message to unpin, in format 1234567890.123456."),
+		),
+	), conversationsHandler.PinsRemoveHandler)
+
 	addEnabledTool(s, enabledTools, newTool(ToolAttachmentGetData,
 		mcp.WithDescription("Download an attachment's content by file ID. Images come back as viewable image content, so use this to read a screenshot rather than guessing at it from the message text. Text files come back as readable text; other types come back as base64. Maximum file size is 5MB."),
 		mcp.WithString("file_id",

@@ -101,7 +101,7 @@ Fetches a CSV directory of all users in the workspace.
 | `SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT` | | macOS Keychain item holding xoxc/xoxd; an alternative to the two env vars. |
 | `SLACK_MCP_ENABLED_TOOLS` | unset | Comma-separated allowlist. When set it alone decides which tools register. |
 | `SLACK_MCP_TOOL_PRESET` | `daily-power` | `daily-power` or `legacy-full`; used when `SLACK_MCP_ENABLED_TOOLS` is unset. |
-| `SLACK_MCP_ADD_MESSAGE_TOOL` | unset = every channel | Channel allow/block list for `conversations_add_message`, `messages_schedule`, `messages_update`, `messages_delete`: `C1,C2` = only those; `!C1,!C2` = all except those. It does not enable or disable tools. |
+| `SLACK_MCP_ADD_MESSAGE_TOOL` | unset = every channel | Channel allow/block list for `conversations_add_message`, `messages_schedule`, `messages_update`, `messages_delete`, `pins_add`, `pins_remove`: `C1,C2` = only those; `!C1,!C2` = all except those. It does not enable or disable tools. |
 | `SLACK_MCP_REACTION_TOOL` | unset = every channel | Same shape, for `reactions_add` / `reactions_remove`. |
 | `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | unset = every channel | Same shape, for `channels_rename`, `channels_set_topic`, `channels_set_purpose`, `channels_archive`. |
 | `SLACK_MCP_ADD_MESSAGE_MARK` | unset | `true` marks a conversation read after posting to it. |

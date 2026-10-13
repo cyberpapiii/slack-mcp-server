@@ -41,6 +41,8 @@ const (
 	ToolReactionsAdd                = "reactions_add"
 	ToolReactionsRemove             = "reactions_remove"
 	ToolReactionsGet                = "reactions_get"
+	ToolPinsAdd                     = "pins_add"
+	ToolPinsRemove                  = "pins_remove"
 	ToolConversationsGetMessage     = "conversations_get_message"
 	ToolAttachmentGetData           = "attachment_get_data"
 	ToolConversationsSearchMessages = "conversations_search_messages"
