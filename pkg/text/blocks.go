@@ -37,11 +37,37 @@ func blockToText(block slack.Block) string {
 		return richTextBlockToText(b)
 	case *slack.ContextBlock:
 		return contextBlockToText(b)
+	case *slack.LayoutBlock:
+		return layoutBlockToText(b)
 	case *slack.DividerBlock:
 		return ""
 	default:
 		return ""
 	}
+}
+
+// layoutBlockToText reads the blocks a layout arranges into rows, top to bottom
+// and left to right. Fallback is what the sender offers clients that cannot
+// show a layout, so it is only read when the rows yield no text.
+func layoutBlockToText(b *slack.LayoutBlock) string {
+	var parts []string
+	for _, row := range b.Rows {
+		if row == nil {
+			continue
+		}
+		for _, item := range row.Items {
+			if item == nil || item.Block == nil {
+				continue
+			}
+			if t := blockToText(item.Block); t != "" {
+				parts = append(parts, t)
+			}
+		}
+	}
+	if len(parts) == 0 && b.Fallback != nil {
+		return BlocksToText(*b.Fallback)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func sectionBlockToText(b *slack.SectionBlock) string {
