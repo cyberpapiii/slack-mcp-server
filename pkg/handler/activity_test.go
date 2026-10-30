@@ -122,3 +122,11 @@ func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
 }
+
+func TestUnitActivityLimitStaysWithinWhatSlackAccepts(t *testing.T) {
+	for given, want := range map[int]int{10: 10, 50: 50, 51: 50, 100: 50, 0: 30} {
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = map[string]any{"limit": given}
+		assert.Equal(t, want, pageLimit(req, 30, activityFeedMaxLimit), "limit %d", given)
+	}
+}

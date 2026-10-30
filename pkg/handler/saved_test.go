@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -15,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const savedItemsHeader = "Channel,MsgID,DateCreated,DateDue,State"
+const savedItemsHeader = "Channel,MsgID,DateCreated,DateDue,State,Type,TodoState,ItemID,Text"
 
 func savedFixtureItems() []SavedItemRow {
 	return []SavedItemRow{
@@ -50,8 +51,8 @@ func TestUnitRenderSavedItems(t *testing.T) {
 		assert.Equal(t, "#channels: C0AJMCRNH0U=#wg-feast-ui, D0AGSQXLJHG=@john", lines[0])
 		assert.Equal(t, "#next_cursor: next-page", lines[1])
 		assert.Equal(t, savedItemsHeader, lines[2])
-		assert.Equal(t, "C0AJMCRNH0U,1772680334.954409,2026-03-03 12:00,,in_progress", lines[3])
-		assert.Equal(t, "D0AGSQXLJHG,1771941381.234049,2026-02-25 08:30,2026-03-01 15:00,in_progress", lines[4])
+		assert.Equal(t, "C0AJMCRNH0U,1772680334.954409,2026-03-03 12:00,,in_progress,,,,", lines[3])
+		assert.Equal(t, "D0AGSQXLJHG,1771941381.234049,2026-02-25 08:30,2026-03-01 15:00,in_progress,,,,", lines[4])
 	})
 
 	t.Run("last page has no cursor line", func(t *testing.T) {
@@ -120,52 +121,75 @@ func TestUnitFormatUnixTs(t *testing.T) {
 
 // Schema documents date_due: 0 to clear a due date; explicit zero must differ from absent key.
 func TestUnitParseSavedUpdateParams(t *testing.T) {
+	message := map[string]any{"channel_id": "C1", "timestamp": "1.0"}
+	with := func(base map[string]any, extra map[string]any) map[string]any {
+		merged := map[string]any{}
+		for k, v := range base {
+			merged[k] = v
+		}
+		for k, v := range extra {
+			merged[k] = v
+		}
+		return merged
+	}
 	tests := []struct {
-		name        string
-		args        map[string]any
-		wantErr     string
-		wantMark    string
-		wantDateDue int64
+		name    string
+		args    map[string]any
+		wantErr string
+		want    edge.SavedUpdateParams
 	}{
 		{
-			name:        "explicit date_due 0 with no mark clears the due date",
-			args:        map[string]any{"channel_id": "C1", "timestamp": "1.0", "date_due": 0},
-			wantMark:    "",
-			wantDateDue: 0,
+			name: "explicit date_due 0 clears the due date",
+			args: with(message, map[string]any{"date_due": 0}),
+			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", DateDue: "0"},
 		},
 		{
-			name:        "explicit date_due 0 as json float clears the due date",
-			args:        map[string]any{"channel_id": "C1", "timestamp": "1.0", "date_due": float64(0)},
-			wantMark:    "",
-			wantDateDue: 0,
+			name: "explicit date_due 0 as json float clears the due date",
+			args: with(message, map[string]any{"date_due": float64(0)}),
+			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", DateDue: "0"},
 		},
 		{
-			name:    "neither mark nor date_due is rejected",
-			args:    map[string]any{"channel_id": "C1", "timestamp": "1.0"},
-			wantErr: "at least one of mark or date_due must be provided",
+			name: "mark alone is accepted",
+			args: with(message, map[string]any{"mark": "completed"}),
+			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", Mark: "completed"},
 		},
 		{
-			name:        "mark alone is accepted",
-			args:        map[string]any{"channel_id": "C1", "timestamp": "1.0", "mark": "completed"},
-			wantMark:    "completed",
-			wantDateDue: 0,
+			name: "date_due alone is accepted",
+			args: with(message, map[string]any{"date_due": 1772521200}),
+			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", DateDue: "1772521200"},
 		},
 		{
-			name:        "date_due alone is accepted",
-			args:        map[string]any{"channel_id": "C1", "timestamp": "1.0", "date_due": 1772521200},
-			wantMark:    "",
-			wantDateDue: 1772521200,
+			name: "todo_state alone moves the item",
+			args: with(message, map[string]any{"todo_state": "saved"}),
+			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", TodoState: "saved"},
 		},
 		{
-			name:    "missing channel_id is rejected",
-			args:    map[string]any{"timestamp": "1.0", "mark": "completed"},
-			wantErr: "channel_id and timestamp are required parameters",
+			name: "reopening goes back to To-dos",
+			args: with(message, map[string]any{"mark": "uncompleted"}),
+			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", Mark: "uncompleted", TodoState: "to_do"},
 		},
 		{
-			name:    "missing ts is rejected",
-			args:    map[string]any{"channel_id": "C1", "mark": "completed"},
-			wantErr: "channel_id and timestamp are required parameters",
+			name: "reopening keeps an explicit list",
+			args: with(message, map[string]any{"mark": "uncompleted", "todo_state": "saved"}),
+			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", Mark: "uncompleted", TodoState: "saved"},
 		},
+		{
+			name: "a custom to-do is addressed by item_id",
+			args: map[string]any{"item_id": "Sa0CD69VBVKR", "mark": "completed"},
+			want: edge.SavedUpdateParams{ItemType: "reminder", ItemID: "Sa0CD69VBVKR", Mark: "completed"},
+		},
+		{
+			name: "a file is addressed by item_id",
+			args: map[string]any{"item_id": "F123", "todo_state": "to_do"},
+			want: edge.SavedUpdateParams{ItemType: "file", ItemID: "F123", TodoState: "to_do"},
+		},
+		{name: "no change is rejected", args: message, wantErr: "at least one of mark, todo_state or date_due"},
+		{name: "unknown mark is rejected", args: with(message, map[string]any{"mark": "done"}), wantErr: "mark must be"},
+		{name: "unknown todo_state is rejected", args: with(message, map[string]any{"todo_state": "later"}), wantErr: "todo_state must be"},
+		{name: "missing channel_id is rejected", args: map[string]any{"timestamp": "1.0", "mark": "completed"}, wantErr: "channel_id and timestamp are required"},
+		{name: "missing ts is rejected", args: map[string]any{"channel_id": "C1", "mark": "completed"}, wantErr: "channel_id and timestamp are required"},
+		{name: "both target forms are rejected", args: with(message, map[string]any{"item_id": "Sa1", "mark": "completed"}), wantErr: "not both"},
+		{name: "unknown item_id is rejected", args: map[string]any{"item_id": "C1", "mark": "completed"}, wantErr: "not a custom to-do"},
 	}
 
 	for _, tt := range tests {
@@ -173,19 +197,71 @@ func TestUnitParseSavedUpdateParams(t *testing.T) {
 			req := mcp.CallToolRequest{}
 			req.Params.Arguments = tt.args
 
-			itemID, ts, mark, dateDue, err := parseSavedUpdateParams(req)
+			got, err := parseSavedUpdateParams(req)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, "C1", itemID)
-			assert.Equal(t, "1.0", ts)
-			assert.Equal(t, tt.wantMark, mark)
-			assert.Equal(t, tt.wantDateDue, dateDue)
+			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestUnitParseSavedAddParams(t *testing.T) {
+	parse := func(args map[string]any) (edge.SavedAddParams, error) {
+		req := mcp.CallToolRequest{}
+		req.Params.Arguments = args
+		return parseSavedAddParams(req)
+	}
+
+	custom, err := parse(map[string]any{"text": "Call Sam", "date_due": 1772521200})
+	require.NoError(t, err)
+	assert.Equal(t, "reminder", custom.ItemType)
+	assert.Equal(t, "to_do", custom.TodoState, "a new item goes to To-dos by default")
+	assert.Equal(t, "1772521200", custom.DateDue)
+	assert.Equal(t, "Call Sam", savedItemText(json.RawMessage(custom.Description)), "the body must round-trip as rich text")
+
+	message, err := parse(map[string]any{"channel_id": "C1", "timestamp": "1.0", "todo_state": "saved"})
+	require.NoError(t, err)
+	assert.Equal(t, edge.SavedAddParams{ItemType: "message", ItemID: "C1", Ts: "1.0", TodoState: "saved"}, message)
+
+	file, err := parse(map[string]any{"file_id": "F1"})
+	require.NoError(t, err)
+	assert.Equal(t, edge.SavedAddParams{ItemType: "file", ItemID: "F1", TodoState: "to_do"}, file)
+
+	for _, args := range []map[string]any{
+		{},
+		{"text": "   "},
+		{"channel_id": "C1"},
+		{"timestamp": "1.0"},
+		{"text": "x", "file_id": "F1"},
+		{"text": "x", "channel_id": "C1", "timestamp": "1.0"},
+		{"channel_id": "C1", "timestamp": "1.0", "file_id": "F1"},
+	} {
+		_, err := parse(args)
+		assert.ErrorContains(t, err, "exactly one of", "%v", args)
+	}
+	_, err = parse(map[string]any{"text": "x", "todo_state": "later"})
+	assert.ErrorContains(t, err, "todo_state must be")
+}
+
+func TestUnitListSavedShowsCustomToDosWithoutFetchingMessages(t *testing.T) {
+	var fetched []string
+	page := edge.SavedListResponse{SavedItems: []edge.SavedItem{
+		{ItemID: "Sa1", ItemType: "reminder", State: "in_progress", TodoState: "to_do", Description: json.RawMessage(`[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Call Sam"}]}]}]`)},
+		{ItemID: "F1", ItemType: "file", State: "in_progress", TodoState: "to_do"},
+	}}
+	h := newStubSavedHandler([]edge.SavedListResponse{page}, nil, func(item edge.SavedItem) { fetched = append(fetched, item.ItemID) })
+
+	res, err := h.listSaved(context.Background(), "todo", 50, "", true, 5, text.ModeStandard)
+	require.NoError(t, err)
+	assert.Empty(t, fetched, "only a message has history to fetch")
+
+	body := csvResultBody(t, res)
+	assert.Contains(t, body, ",,,,in_progress,reminder,to_do,Sa1,Call Sam")
+	assert.Contains(t, body, ",,,,in_progress,file,to_do,F1,")
 }
 
 func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {

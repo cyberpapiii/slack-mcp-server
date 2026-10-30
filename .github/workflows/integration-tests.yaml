@@ -31,11 +31,11 @@ jobs:
 
       - name: Checkout
         if: steps.credentials.outputs.available == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         if: steps.credentials.outputs.available == 'true'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
 

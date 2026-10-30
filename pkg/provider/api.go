@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -38,6 +39,10 @@ var ErrBrowserSessionUnavailable = errors.New("browser-session Slack auth is una
 var ErrUserOAuthRequired = errors.New("this personal Slack action requires user OAuth")
 
 type ApiProvider struct {
+	// oauthLoadErr is why managed OAuth failed at startup when the server
+	// continued on the browser session instead. OAuth-only tools are absent.
+	oauthLoadErr error
+
 	transport string
 	client    SlackAPI
 	logger    *zap.Logger
@@ -88,8 +93,10 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 	xoxbToken := os.Getenv("SLACK_MCP_XOXB_TOKEN")
 	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
 	xoxdToken := os.Getenv("SLACK_MCP_XOXD_TOKEN")
+	browserAccount := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"))
 	var managedManager *OAuthTokenManager
 	var managedRecord OAuthTokenRecord
+	var oauthLoadErr error
 	if os.Getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT") != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		var managedErr error
@@ -97,12 +104,17 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		managedManager, managedRecord, managedErr = loadManagedOAuth(ctx)
 		stop()
 		cancel()
-		if managedErr != nil {
+		switch {
+		case managedErr == nil:
+			xoxpToken = managedRecord.AccessToken
+		case !browserSessionCanServe(xoxbToken, xoxcToken, xoxdToken, browserAccount):
 			return nil, fmt.Errorf("load managed OAuth credential: %w", managedErr)
+		default:
+			managedManager = nil
+			oauthLoadErr = managedErr
+			logger.Error("Managed OAuth credential unavailable; running on the browser session without OAuth-only tools. Run slack-mcp-auth login --replace, then restart.", zap.Error(managedErr))
 		}
-		xoxpToken = managedRecord.AccessToken
 	}
-	browserAccount := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"))
 	envXoxc, envXoxd := xoxcToken, xoxdToken
 	var browserLoadErr error
 	if account := browserAccount; account != "" {
@@ -134,7 +146,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		}
 		ap, err := newProvider(transport, authProvider, logger)
 		if err != nil {
-			return nil, fmt.Errorf("authentication failed: check your Slack tokens: %w", err)
+			return nil, authFailure("check your Slack tokens", err)
 		}
 		if managedManager != nil {
 			ap.startManagedOAuth(managedManager, managedRecord)
@@ -166,7 +178,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 
 		ap, err := newProvider(transport, authProvider, logger)
 		if err != nil {
-			return nil, fmt.Errorf("authentication failed: check your Slack tokens: %w", err)
+			return nil, authFailure("check your Slack tokens", err)
 		}
 		return ap, nil
 	}
@@ -178,12 +190,33 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		}
 		ap, err := newProvider(transport, authProvider, logger)
 		if err != nil {
-			return nil, fmt.Errorf("authentication failed: browser-session tokens are invalid and no OAuth fallback is configured: %w", err)
+			if oauthLoadErr != nil {
+				err = errors.Join(err, oauthLoadErr)
+			}
+			return nil, authFailure("browser-session tokens are invalid and no OAuth fallback is available", err)
 		}
+		ap.oauthLoadErr = oauthLoadErr
 		return ap, nil
 	}
 
 	return nil, errors.New("authentication required: Either SLACK_MCP_XOXP_TOKEN, SLACK_MCP_XOXB_TOKEN, or both SLACK_MCP_XOXC_TOKEN and SLACK_MCP_XOXD_TOKEN must be provided")
+}
+
+// browserSessionCanServe reports whether the server has a working path without
+// managed OAuth. A bot token takes priority over a browser session in New, and
+// serving as the bot instead of the user would be a silent identity change.
+func browserSessionCanServe(xoxb, xoxc, xoxd, browserAccount string) bool {
+	return xoxb == "" && ((xoxc != "" && xoxd != "") || browserAccount != "")
+}
+
+// authFailure keeps a network failure from reading as rejected credentials.
+// Slack never saw the token when the request did not complete.
+func authFailure(rejected string, err error) error {
+	var requestErr *url.Error
+	if errors.As(err, &requestErr) {
+		return fmt.Errorf("could not reach Slack to authenticate; the tokens were not rejected: %w", err)
+	}
+	return fmt.Errorf("authentication failed: %s: %w", rejected, err)
 }
 
 func newProvider(transport string, authProvider slackcreds.Credentials, logger *zap.Logger) (*ApiProvider, error) {

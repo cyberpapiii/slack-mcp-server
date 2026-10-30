@@ -167,26 +167,29 @@ deploy-local: ## Build, collect the Keychain approval, then swap bin/slack-mcp-s
 	@echo "Built ./bin/slack-mcp-server"
 	@echo "Built ./bin/slack-mcp-auth"
 	@strings ./bin/slack-mcp-server 2>/dev/null | grep -m1 'github.com/korotovsky/slack-mcp-server/pkg/version.CommitHash=' || true
-	@if command -v plug >/dev/null 2>&1; then \
-		plug server disable slack || echo "WARNING: plug server disable slack failed"; \
-		sleep 2; \
-		for attempt in 1 2 3; do \
-			if plug server enable slack; then break; fi; \
-			echo "plug server enable slack failed (attempt $$attempt); the daemon is probably still reloading, retrying in 5s"; \
-			sleep 5; \
-		done; \
-	else \
+	@# plug server off is refused while http.slack_events needs the slack upstream,
+	@# and Plug reconnects a stopped stdio server within about a minute.
+	@if ! command -v plug >/dev/null 2>&1; then \
 		echo "plug not in PATH: restart Plug manually"; \
-	fi
-	@sleep 3; NEW_PID=$$(pgrep -f 'bin/slack-mcp-server --transport' | head -1); \
-	if [ -n "$$NEW_PID" ]; then \
-		echo "slack-mcp-server running as PID $$NEW_PID (started $$(ps -o lstart= -p $$NEW_PID))"; \
-	else \
-		echo "WARNING: no slack-mcp-server process found, check plug status"; \
-	fi
+		exit 0; \
+	fi; \
+	OLD_PID=$$(pgrep -f 'bin/slack-mcp-server --transport' | head -1); \
+	[ -z "$$OLD_PID" ] || kill "$$OLD_PID"; \
+	NEW_PID=""; \
+	for attempt in $$(seq 1 120); do \
+		sleep 1; \
+		NEW_PID=$$(pgrep -f 'bin/slack-mcp-server --transport' | head -1); \
+		if [ -n "$$NEW_PID" ] && [ "$$NEW_PID" != "$$OLD_PID" ]; then break; fi; \
+		NEW_PID=""; \
+	done; \
+	if [ -z "$$NEW_PID" ]; then \
+		echo "ERROR: Plug did not restart slack-mcp-server within 120s, check plug status"; \
+		exit 1; \
+	fi; \
+	echo "slack-mcp-server running as PID $$NEW_PID (started $$(ps -o lstart= -p $$NEW_PID))"
 	@STATE=$$(awk '/^\[servers\.slack\]/{f=1;next} /^\[/{f=0} f && /^enabled/{print $$3}' "$(PLUG_CONFIG)" 2>/dev/null); \
 	if [ "$$STATE" = "false" ]; then \
-		echo "ERROR: plug still has the slack server disabled. Run: plug server enable slack"; \
+		echo "ERROR: plug still has the slack server disabled. Run: plug server on slack"; \
 		exit 1; \
 	fi; \
 	echo "Plug slack server is enabled"

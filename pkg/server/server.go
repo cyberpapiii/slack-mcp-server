@@ -63,7 +63,9 @@ const (
 	ToolActivityUnreads             = "activity_unreads"
 	ToolActivityMarkRead            = "activity_mark_read"
 	ToolSavedList                   = "saved_list"
+	ToolSavedAdd                    = "saved_add"
 	ToolSavedUpdate                 = "saved_update"
+	ToolSavedDelete                 = "saved_delete"
 	ToolSavedClearCompleted         = "saved_clear_completed"
 	ToolFilesList                   = "files_list"
 	ToolSlackAuthStatus             = "slack_auth_status"
@@ -351,7 +353,7 @@ func (s *MCPServer) registerCacheDependentTools() {
 				mcp.DefaultNumber(10),
 			),
 			mcp.WithNumber("limit",
-				mcp.Description("Max Activity items to return. Default is 30."),
+				mcp.Description("Max Activity items to return, 1 to 50; larger values return 50. Default is 30."),
 				mcp.DefaultNumber(30),
 			),
 			mcp.WithString("detail",

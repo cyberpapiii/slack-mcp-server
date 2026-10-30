@@ -31,7 +31,9 @@ type SlackAPI interface {
 	ActivityMarkRead(ctx context.Context, itemType, feedTs, key string) error
 	GetMutedChannels(ctx context.Context) (map[string]bool, error)
 	SavedList(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error)
-	SavedUpdate(ctx context.Context, itemType, itemID, ts, mark string, dateDue int64) error
+	SavedUpdate(ctx context.Context, params edge.SavedUpdateParams) error
+	SavedAdd(ctx context.Context, params edge.SavedAddParams) (edge.SavedItem, error)
+	SavedDelete(ctx context.Context, itemType, itemID, ts string) error
 	SavedClearCompleted(ctx context.Context) error
 
 	GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error)

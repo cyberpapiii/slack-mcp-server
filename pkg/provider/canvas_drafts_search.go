@@ -62,12 +62,14 @@ type CanvasReadRequest struct {
 	CanvasID     string   `json:"canvas_id"`
 	SectionTypes []string `json:"section_types,omitempty"`
 	ContainsText string   `json:"contains_text,omitempty"`
+	// ContentFormat is markdown (the default), html, or none for metadata only.
+	ContentFormat string `json:"content_format,omitempty"`
 }
 
-// CanvasDocument is deliberately metadata-only. Slack's public API can create,
-// edit, inspect file metadata, and look up section IDs, but cannot read complete
-// canvas content. Preview is only files.info preview data and is never labelled
-// as a full export.
+// CanvasDocument carries the whole canvas in Content when canvases.getContent
+// answered. That method rejects browser-session tokens, so a read without user
+// OAuth falls back to Preview, which is only files.info preview data and is
+// never labelled as a full export.
 type CanvasDocument struct {
 	CanvasID             string   `json:"canvas_id"`
 	Title                string   `json:"title,omitempty"`
@@ -75,9 +77,11 @@ type CanvasDocument struct {
 	Mimetype             string   `json:"mimetype,omitempty"`
 	Permalink            string   `json:"permalink,omitempty"`
 	Preview              string   `json:"preview,omitempty"`
+	Content              string   `json:"content,omitempty"`
+	ContentFormat        string   `json:"content_format,omitempty"`
 	SectionIDs           []string `json:"section_ids,omitempty"`
 	FullContentAvailable bool     `json:"full_content_available"`
-	Limitation           string   `json:"limitation"`
+	Limitation           string   `json:"limitation,omitempty"`
 }
 
 type CanvasAPI interface {
@@ -93,6 +97,7 @@ type canvasSlackAPI interface {
 	EditCanvasContext(context.Context, slack.EditCanvasParams) error
 	LookupCanvasSectionsContext(context.Context, slack.LookupCanvasSectionsParams) ([]slack.CanvasSection, error)
 	GetFileInfoContext(context.Context, string, int, int) (*slack.File, []slack.Comment, *slack.Paging, error)
+	GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error)
 }
 
 type CanvasProvider struct{ client canvasSlackAPI }
@@ -130,8 +135,19 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 	document := CanvasDocument{
 		CanvasID: request.CanvasID, Title: file.Title, Filetype: file.Filetype,
 		Mimetype: file.Mimetype, Permalink: file.Permalink, Preview: preview,
-		FullContentAvailable: false,
-		Limitation:           "Slack Web API does not expose full canvas-content reads; preview and matching section IDs only",
+	}
+	switch format := request.ContentFormat; format {
+	case "none":
+	case "", "markdown", "html":
+		if format == "" {
+			format = "markdown"
+		}
+		content, contentErr := p.client.GetCanvasContentContext(ctx, request.CanvasID, format)
+		if contentErr != nil {
+			document.Limitation = "full canvas content unavailable (" + contentErr.Error() + "); preview and matching section IDs only"
+			break
+		}
+		document.Content, document.ContentFormat, document.FullContentAvailable = content, format, true
 	}
 	if len(request.SectionTypes) != 0 || request.ContainsText != "" {
 		sections, lookupErr := p.client.LookupCanvasSectionsContext(ctx, slack.LookupCanvasSectionsParams{
@@ -171,6 +187,42 @@ func (c *MCPSlackClient) EditCanvasContext(ctx context.Context, params slack.Edi
 
 func (c *MCPSlackClient) GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error) {
 	return c.standardSlackClient().GetFileInfoContext(ctx, fileID, count, page)
+}
+
+// GetCanvasContentContext calls canvases.getContent, which slack-go does not wrap
+// yet. Slack answers not_allowed_token_type to a browser-session token.
+func (c *MCPSlackClient) GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error) {
+	token, _ := c.oauthAccessToken.Load().(string)
+	if token == "" {
+		return "", ErrUserOAuthRequired
+	}
+	form := url.Values{"token": {token}, "canvas_id": {canvasID}, "content_type": {format}}
+	endpoint := strings.TrimRight(c.authResponse.URL, "/") + "/api/canvases.getContent"
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if rateLimited := transportpkg.RateLimited(response); rateLimited != nil {
+		return "", rateLimited
+	}
+	var payload struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&payload); err != nil {
+		return "", fmt.Errorf("decode canvases.getContent response: %w", err)
+	}
+	if !payload.OK {
+		return "", slack.SlackErrorResponse{Err: payload.Error}
+	}
+	return payload.Content, nil
 }
 
 func (c *MCPSlackClient) LookupCanvasSectionsContext(ctx context.Context, params slack.LookupCanvasSectionsParams) ([]slack.CanvasSection, error) {

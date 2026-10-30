@@ -12,6 +12,11 @@ import (
 
 func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 	status := OAuthStatusFromEnvironment()
+	if ap.oauthLoadErr != nil {
+		status.State = "unavailable"
+		status.Reason = "stored OAuth login failed to load (" + ap.oauthLoadErr.Error() + "); run slack-mcp-auth login --replace, then restart"
+		return status
+	}
 	client, ok := ap.client.(*MCPSlackClient)
 	if ok && client != nil {
 		if state, loaded := client.oauthRuntimeState.Load().(string); loaded && state != "" {

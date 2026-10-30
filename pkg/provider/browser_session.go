@@ -386,9 +386,22 @@ func (c *MCPSlackClient) SavedList(ctx context.Context, filter string, limit int
 	})
 }
 
-func (c *MCPSlackClient) SavedUpdate(ctx context.Context, itemType, itemID, ts, mark string, dateDue int64) error {
+func (c *MCPSlackClient) SavedUpdate(ctx context.Context, params edge.SavedUpdateParams) error {
 	_, err := browserCall(c, "saved.update", func() (struct{}, error) {
-		return struct{}{}, c.edgeClient.Load().SavedUpdate(ctx, itemType, itemID, ts, mark, dateDue)
+		return struct{}{}, c.edgeClient.Load().SavedUpdate(ctx, params)
+	})
+	return err
+}
+
+func (c *MCPSlackClient) SavedAdd(ctx context.Context, params edge.SavedAddParams) (edge.SavedItem, error) {
+	return browserCall(c, "saved.add", func() (edge.SavedItem, error) {
+		return c.edgeClient.Load().SavedAdd(ctx, params)
+	})
+}
+
+func (c *MCPSlackClient) SavedDelete(ctx context.Context, itemType, itemID, ts string) error {
+	_, err := browserCall(c, "saved.delete", func() (struct{}, error) {
+		return struct{}{}, c.edgeClient.Load().SavedDelete(ctx, itemType, itemID, ts)
 	})
 	return err
 }

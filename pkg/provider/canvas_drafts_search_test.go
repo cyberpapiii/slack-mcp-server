@@ -3,6 +3,10 @@ package provider
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +16,10 @@ import (
 )
 
 type fakeCanvasSlack struct {
+	content        string
+	contentErr     error
+	contentFormat  string
+	contentCalls   int
 	createdTitle   string
 	createdContent slack.DocumentContent
 	edit           slack.EditCanvasParams
@@ -32,6 +40,11 @@ func (f *fakeCanvasSlack) LookupCanvasSectionsContext(_ context.Context, params 
 	f.lookup = params
 	return []slack.CanvasSection{{ID: "S1"}}, f.err
 }
+func (f *fakeCanvasSlack) GetCanvasContentContext(_ context.Context, _, format string) (string, error) {
+	f.contentFormat = format
+	f.contentCalls++
+	return f.content, f.contentErr
+}
 func (f *fakeCanvasSlack) GetFileInfoContext(context.Context, string, int, int) (*slack.File, []slack.Comment, *slack.Paging, error) {
 	return f.file, nil, nil, f.err
 }
@@ -45,12 +58,34 @@ func TestCanvasProviderUsesPublicCanvasAPIsTruthfully(t *testing.T) {
 	assert.Equal(t, "F123", id)
 	assert.Equal(t, "markdown", fake.createdContent.Type)
 
+	fake.content = "# Plan\nAll of it"
 	document, err := service.ReadCanvas(context.Background(), CanvasReadRequest{CanvasID: "F123", ContainsText: "decision"})
 	require.NoError(t, err)
-	assert.False(t, document.FullContentAvailable)
+	assert.True(t, document.FullContentAvailable)
+	assert.Equal(t, "# Plan\nAll of it", document.Content)
+	assert.Equal(t, "markdown", document.ContentFormat)
 	assert.Equal(t, "preview", document.Preview)
 	assert.Equal(t, []string{"S1"}, document.SectionIDs)
-	assert.Contains(t, document.Limitation, "does not expose full canvas-content reads")
+	assert.Empty(t, document.Limitation)
+
+	fake.contentErr = ErrUserOAuthRequired
+	document, err = service.ReadCanvas(context.Background(), CanvasReadRequest{CanvasID: "F123"})
+	require.NoError(t, err)
+	assert.False(t, document.FullContentAvailable)
+	assert.Empty(t, document.Content)
+	assert.Equal(t, "preview", document.Preview)
+	assert.Contains(t, document.Limitation, "requires user OAuth")
+	fake.contentErr = nil
+
+	fake.contentCalls = 0
+	document, err = service.ReadCanvas(context.Background(), CanvasReadRequest{CanvasID: "F123", ContentFormat: "none"})
+	require.NoError(t, err)
+	assert.Zero(t, fake.contentCalls)
+	assert.Empty(t, document.Limitation)
+
+	_, err = service.ReadCanvas(context.Background(), CanvasReadRequest{CanvasID: "F123", ContentFormat: "html"})
+	require.NoError(t, err)
+	assert.Equal(t, "html", fake.contentFormat)
 
 	err = service.UpdateCanvas(context.Background(), CanvasUpdateRequest{CanvasID: "F123", Changes: []CanvasChange{{Operation: "replace", SectionID: "S1", Markdown: "new"}}})
 	require.NoError(t, err)
@@ -112,4 +147,32 @@ func TestCapabilityErrorMarksOnlyAmbiguousMutation(t *testing.T) {
 	var limitedError *CapabilityAPIError
 	require.True(t, errors.As(limited, &limitedError))
 	assert.True(t, limitedError.Retryable())
+}
+
+func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {
+	var form url.Values
+	body := `{"ok":true,"content":"# Plan"}`
+	client := &MCPSlackClient{
+		authResponse: &slack.AuthTestResponse{URL: "https://example.slack.com/"},
+		httpClient: &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+			assert.Equal(t, "https://example.slack.com/api/canvases.getContent", request.URL.String())
+			require.NoError(t, request.ParseForm())
+			form = request.PostForm
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		})},
+	}
+
+	_, err := client.GetCanvasContentContext(context.Background(), "F1", "markdown")
+	require.ErrorIs(t, err, ErrUserOAuthRequired, "a browser-session client has no OAuth token to send")
+
+	client.oauthAccessToken.Store("xoxp-test")
+	content, err := client.GetCanvasContentContext(context.Background(), "F1", "html")
+	require.NoError(t, err)
+	assert.Equal(t, "# Plan", content)
+	assert.Equal(t, "F1", form.Get("canvas_id"))
+	assert.Equal(t, "html", form.Get("content_type"))
+
+	body = `{"ok":false,"error":"canvas_not_found"}`
+	_, err = client.GetCanvasContentContext(context.Background(), "F1", "markdown")
+	assert.ErrorContains(t, err, "canvas_not_found")
 }

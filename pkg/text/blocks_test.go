@@ -195,3 +195,40 @@ func TestUnitMergeBlocksWithTextKeepsSectionWithNewLines(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestUnitBlocksToTextReadsLayoutBlocks(t *testing.T) {
+	section := func(text string) string {
+		return `{"type":"section","text":{"type":"mrkdwn","text":"` + text + `"}}`
+	}
+	for _, tc := range []struct {
+		name string
+		json string
+		want string
+	}{
+		{
+			name: "rows in reading order",
+			json: `[{"type":"layout","label":"Stats","rows":[{"items":[{"block":` + section("left") + `},{"block":` + section("right") + `}]},{"items":[{"block":` + section("below") + `}]}]}]`,
+			want: "left\nright\nbelow",
+		},
+		{
+			name: "fallback only when the rows are empty",
+			json: `[{"type":"layout","label":"Stats","rows":[{"items":[{"block":{"type":"divider"}}]}],"fallback":[` + section("older clients") + `]}]`,
+			want: "older clients",
+		},
+		{
+			name: "fallback ignored when the rows have text",
+			json: `[{"type":"layout","label":"Stats","rows":[{"items":[{"block":` + section("real") + `}]}],"fallback":[` + section("older clients") + `]}]`,
+			want: "real",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var blocks slack.Blocks
+			if err := json.Unmarshal([]byte(tc.json), &blocks); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if got := BlocksToText(blocks); got != tc.want {
+				t.Fatalf("BlocksToText() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

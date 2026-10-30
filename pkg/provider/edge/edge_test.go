@@ -584,3 +584,58 @@ func TestUnitActivityFeed(t *testing.T) {
 		t.Error("items[1] should have no message")
 	}
 }
+
+func TestUnitSavedWriteForms(t *testing.T) {
+	var gotURL string
+	var gotForm url.Values
+	body := `{"ok":true,"item":{"item_id":"Sa1","item_type":"reminder","todo_state":"to_do"}}`
+	cl := newFixtureClient(t, func(r *http.Request) (*http.Response, error) {
+		gotURL = r.URL.String()
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		gotForm, err = url.ParseQuery(string(raw))
+		if err != nil {
+			return nil, err
+		}
+		return jsonResponse(http.StatusOK, body), nil
+	})
+
+	if err := cl.SavedUpdate(context.Background(), SavedUpdateParams{ItemType: SavedItemMessage, ItemID: "C1", Ts: "1.0", DateDue: "0"}); err != nil {
+		t.Fatalf("SavedUpdate: %v", err)
+	}
+	if !strings.HasSuffix(gotURL, "/api/saved.update") {
+		t.Errorf("request URL = %q", gotURL)
+	}
+	if got := gotForm.Get("date_due"); got != "0" {
+		t.Errorf("date_due = %q, want 0: clearing a reminder must reach Slack", got)
+	}
+	if gotForm.Has("todo_state") || gotForm.Has("mark") {
+		t.Errorf("unset fields were sent: %v", gotForm)
+	}
+
+	item, err := cl.SavedAdd(context.Background(), SavedAddParams{ItemType: SavedItemReminder, Description: "[]", TodoState: "to_do"})
+	if err != nil {
+		t.Fatalf("SavedAdd: %v", err)
+	}
+	if !strings.HasSuffix(gotURL, "/api/saved.add") {
+		t.Errorf("request URL = %q", gotURL)
+	}
+	if item.ItemID != "Sa1" || item.TodoState != "to_do" {
+		t.Errorf("item = %+v", item)
+	}
+	if gotForm.Get("description") != "[]" || gotForm.Get("todo_state") != "to_do" || gotForm.Has("item_id") {
+		t.Errorf("saved.add form = %v", gotForm)
+	}
+
+	if err := cl.SavedDelete(context.Background(), SavedItemReminder, "Sa1", ""); err != nil {
+		t.Fatalf("SavedDelete: %v", err)
+	}
+	if !strings.HasSuffix(gotURL, "/api/saved.delete") {
+		t.Errorf("request URL = %q", gotURL)
+	}
+	if gotForm.Get("item_type") != "reminder" || gotForm.Get("item_id") != "Sa1" || gotForm.Has("ts") {
+		t.Errorf("saved.delete form = %v", gotForm)
+	}
+}

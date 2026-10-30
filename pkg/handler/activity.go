@@ -26,6 +26,10 @@ type ActivityItem struct {
 	Key         string `csv:"Key" json:"key"`
 }
 
+// activityFeedMaxLimit is the largest page activity.feed accepts. Above it Slack
+// answers invalid_arguments instead of a shorter page.
+const activityFeedMaxLimit = 50
+
 type ActivityHandler struct {
 	apiProvider *provider.ApiProvider
 	logger      *zap.Logger
@@ -61,7 +65,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	if maxMsgsPerThread <= 0 {
 		maxMsgsPerThread = 10
 	}
-	limit := pageLimit(request, 30, 0)
+	limit := pageLimit(request, 30, activityFeedMaxLimit)
 
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
 	if err != nil {
