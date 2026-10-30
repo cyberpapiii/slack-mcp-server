@@ -62,6 +62,10 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 		Summary:                  buildAuthSummary(usersReady, channelsReady, browserOK, degradedReason),
 	}
 
+	if payload.OAuthCredential.Reason != "" && payload.OAuthCredential.State == "unavailable" {
+		payload.Summary += " OAuth is unavailable: " + payload.OAuthCredential.Reason + "."
+	}
+
 	return NewStructuredResult(payload, SystemResultMeta(), fallbackJSON(payload)), nil
 }
 
