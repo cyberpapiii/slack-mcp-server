@@ -11,7 +11,7 @@ make test          # unit tests with -race (CI gate); live tests are behind the 
 make test-integration  # needs Slack/ngrok secrets
 make build         # outputs ./build/slack-mcp-server (read-only: no tidy/format)
 make prepare       # go mod tidy + go fmt, the only targets that rewrite files
-make deploy-local  # build bin/slack-mcp-server + bin/slack-mcp-auth, codesign, plug server disable/enable slack
+make deploy-local  # build bin/slack-mcp-server + bin/slack-mcp-auth, codesign, stop the server so Plug restarts it
 go build -o bin/slack-mcp-server ./cmd/slack-mcp-server  # manual equivalent
 go build -o build/slack-mcp-auth ./cmd/slack-mcp-auth      # OAuth helper: manifest / login / status / logout (docs/01)
 ```
@@ -24,6 +24,8 @@ mid-review. Run `make prepare` explicitly when you want the tree reformatted.
 
 After changing Go code, run `make deploy-local` (or rebuild `bin/slack-mcp-server` and restart Plug's `slack` server) so Cursor picks up the new binary.
 
+The target restarts the server by stopping its process and waiting up to 120s for a new PID, because `plug server off` is refused while `[http.slack_events]` depends on the `slack` upstream. Plug reconnects a stopped stdio server by itself (47s measured), so expect tools to be unavailable for up to a minute.
+
 Run the deploy while someone is at the Mac (or screen-sharing into it). The Keychain items' partition list pins the exact build (`cdhash:`) last allowed, and the local signing certificate has no Team ID, so every rebuild makes macOS show an access prompt for the OAuth (and browser) credential. `make deploy-local` collects that approval before it touches anything live: it builds and signs into `build/deploy-stage/`, runs that binary with `--check-keychain` (reads the items named by `SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT` / `SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT`, taken from Plug's `[servers.slack.env]`, and exits), and waits there with no deadline for **Always Allow**. Only after the check passes does it `rm` + `cp` the same file into `bin/` and restart Plug, so the live server starts already trusted. If the check fails, `bin/` and Plug are left unchanged. Removing the prompt entirely needs a signing identity with a Team ID; widening the Keychain ACL instead would let other programs read the token. With `SLACK_MCP_LOG_FILE` set, a stalled read in the live server logs `Still waiting on macOS Keychain` after 3s (`warnWhileWaiting`, `pkg/provider/keychain_wait.go`).
 
 ## Runtime layout
@@ -35,6 +37,8 @@ Run the deploy while someone is at the Mac (or screen-sharing into it). The Keyc
 | MCP multiplexer | Plug: `~/Library/Application Support/plug/config.toml` → `[servers.slack]` |
 | Cursor entry | `~/.cursor/mcp.json` → `plug connect` |
 
+Managed OAuth lives in the Keychain item `SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT` names, with the rotating refresh token. Lists and DND tools and full canvas reads need it. If the login cannot load (`invalid_refresh_token`, a denied Keychain prompt), the server starts on the browser session instead of exiting, logs at Error, and `slack_auth_status` reports `oauth_credential.state: unavailable` with the fix: `slack-mcp-auth login --client-id <id> --team <T> --user <U> --replace --preset legacy-full`, then restart. Do not remove the variable to get the server back up; that hides 9 tools and reports nothing wrong. It stays fatal when there is no browser session to fall back on.
+
 Auth tokens (`SLACK_MCP_XOXC_TOKEN`, `SLACK_MCP_XOXD_TOKEN`, etc.) live in the environment Plug resolves. Never commit them.
 
 The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is set (deprecated fallback: `SLACK_MCP_SSE_API_KEY`), or `SLACK_MCP_ALLOW_UNAUTHENTICATED` is set to exactly `true`. `1`/`yes` are rejected. `stdio` (the Plug path) is unaffected. See `pkg/server/auth/sse_auth.go`.
@@ -43,7 +47,7 @@ The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is se
 
 ## Tool surface
 
-Canonical tool names: `capability.Names()` (`pkg/capability/catalog.go`), the one table every registered tool is built from (title, MCP hints, preset membership, registration phase, OAuth scopes). There are **69** tools. The README "Tools" section lists them by family; `scripts/toolslist-snapshot.sh [preset] [out.json]` dumps the live `tools/list` for a preset. This fork is self-contained and does not use Slack's official MCP.
+Canonical tool names: `capability.Names()` (`pkg/capability/catalog.go`), the one table every registered tool is built from (title, MCP hints, preset membership, registration phase, OAuth scopes). There are **71** tools. The README "Tools" section lists them by family; `scripts/toolslist-snapshot.sh [preset] [out.json]` dumps the live `tools/list` for a preset. This fork is self-contained and does not use Slack's official MCP.
 
 Browser-session tools (`capability.BrowserNames()`, registered only when xoxc/xoxd is configured): `activity_mark_read`, `activity_unreads`, `conversations_unreads`, `drafts_*`, `saved_*`. Cache-dependent tools (`CacheReady`, registered after warm-up): `channels_list`, `channels_me`, `channels_starred`, `conversations_unreads`, `activity_unreads`, `activity_mark_read`.
 
@@ -52,6 +56,10 @@ Browser-session tools (`capability.BrowserNames()`, registered only when xoxc/xo
 `AttachmentIDs` renders each file as `FileID (name, kind, size)` via `attachmentRef` (`pkg/handler/conversations_files.go`). The kind mirrors what `attachment_get_data` returns: `image` and `text` are readable, anything else comes back as base64. `files_upload` with a `channel_id` posts a message, so it honors `SLACK_MCP_ADD_MESSAGE_TOOL` like the other message lifecycle tools.
 
 `ApiProvider.WebAPI()` returns a `*provider.WebClient` (`pkg/provider/web_client.go`), not a `*slack.Client`. Managed OAuth rotation replaces the underlying client rather than mutating it, so anything holding the raw client holds the access token that client was built with. `WebClient` resolves the current client on every method call, which makes it safe to store for the life of the process. It used to return the raw client, and four long-lived consumers captured it at startup: the message/file, scheduled and channel-mutation providers, plus the usergroups handler. Those tools returned `token_expired` after the captured token expired, while every per-request read tool kept working. `TestUnit*FollowsClientRotation` (`pkg/provider/web_client_test.go`) swaps the client underneath a constructed consumer and asserts the next call reaches the replacement; the four cases fail against the pre-fix code. Adding a method to `WebClient` is how a new Slack call joins this surface. Do not reintroduce an accessor that hands out the raw `*slack.Client`.
+
+`canvases_read` returns the whole canvas through `canvases.getContent` (`GetCanvasContentContext`, `pkg/provider/canvas_drafts_search.go`), Markdown by default, `content_format` `html` or `none` otherwise. slack-go does not wrap that method. Slack answers `not_allowed_token_type` to a browser-session token, so the read needs user OAuth; without it the tool still answers, with the files.info preview and a `limitation` saying why.
+
+Slack replaced Later with To-dos in October 2026 and built it on the same private `saved.*` API: `saved.list` takes `filter=todo`, and an item's `todo_state` (`to_do`, `saved`, `completed`) says which list it is on. `saved_list` shows it; `saved_add`, `saved_update` and `saved_delete` write it. A custom to-do is item type `reminder`, with an `Sa...` ID and a rich-text `description`, and has no message to fetch. Three behaviors were found by probing live, not from documentation: moving an item to Saved clears its due date, `mark=uncompleted` without a `todo_state` files the item under Saved (the handler sends `to_do`), and **`saved.markCompleted` with no arguments completes every open to-do**, so do not call it bare. `date_due=0` clears a reminder, so the form carries it as a string; an `omitempty` integer would silently drop it.
 
 `files_download` saves a file to disk instead of returning its bytes. It is off unless `SLACK_MCP_DOWNLOAD_DIR` names an absolute directory; without it the handler returns a `permission_denied` error naming the variable. The caller passes only `file_id`. The server derives the destination as `<root>/<FileID>-<sanitized name>` (`downloadPath`, `pkg/handler/conversations_files.go`), so there is no caller-supplied path to traverse out of and a repeat call is idempotent: a file already on disk at its full size returns `outcome: "already_present"` without re-fetching. Downloads are capped at 100MB, far above `attachment_get_data`'s 5MB, because these bytes never enter the caller's context.
 
@@ -143,4 +151,4 @@ If users or channels cache warm-up fails after the 3 fast attempts, the server r
 - `SLACK_MCP_ENABLED_TOOLS` in Plug is an allowlist; the server registers only what it names (or the preset's list)
 - Upstream v1.3.0 is fully merged (0 behind `origin/master`); ongoing work lands as commits ahead on `master`
 - Local fork intentionally keeps non-blocking stdio startup and browser-auth degradation, while upstream blocks stdio until cache warm
-- Restart Plug's `slack` server after rebuilding `bin/slack-mcp-server` so Cursor picks up the new binary (`make deploy-local` does disable/sleep/enable; `plug reload` alone can leave the old process)
+- Restart the `slack` server after rebuilding `bin/slack-mcp-server` so Cursor picks up the new binary (`make deploy-local` stops the process and waits for Plug to start a new one; `plug reload` alone can leave the old process)

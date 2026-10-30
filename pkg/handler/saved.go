@@ -2,7 +2,11 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gocarina/gocsv"
@@ -16,15 +20,52 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// SavedItemRow is one saved ("Later") message. Channel and MsgID are the
-// saved_update item_id and ts arguments; Slack's item_id is the channel ID,
-// so it is not carried twice.
+// SavedItemRow is one item on the To-dos or Saved list. For a message, Channel
+// and MsgID identify it, since Slack's item_id is the channel ID. Custom to-dos
+// and files have neither and carry ItemID instead.
 type SavedItemRow struct {
 	ChannelID   string `csv:"Channel" json:"channel_id"`
 	Ts          string `csv:"MsgID" json:"ts"`
 	DateCreated string `csv:"DateCreated" json:"date_created"`
 	DateDue     string `csv:"DateDue" json:"date_due,omitempty"`
 	State       string `csv:"State" json:"state"`
+	Type        string `csv:"Type" json:"type"`
+	TodoState   string `csv:"TodoState" json:"todo_state"`
+	ItemID      string `csv:"ItemID" json:"item_id,omitempty"`
+	Text        string `csv:"Text" json:"text,omitempty"`
+}
+
+func newSavedItemRow(item edge.SavedItem) SavedItemRow {
+	row := SavedItemRow{
+		Ts:          item.Ts,
+		DateCreated: formatUnixTs(item.DateCreated),
+		DateDue:     formatUnixTs(item.DateDue),
+		State:       item.State,
+		Type:        item.ItemType,
+		TodoState:   item.TodoState,
+		Text:        savedItemText(item.Description),
+	}
+	if savedItemIsMessage(item) {
+		row.ChannelID = item.ItemID
+	} else {
+		row.ItemID = item.ItemID
+	}
+	return row
+}
+
+func savedItemIsMessage(item edge.SavedItem) bool {
+	return item.ItemType == edge.SavedItemMessage || item.ItemType == ""
+}
+
+func savedItemText(description json.RawMessage) string {
+	if len(description) == 0 {
+		return ""
+	}
+	var blocks slack.Blocks
+	if err := json.Unmarshal(description, &blocks); err != nil {
+		return ""
+	}
+	return text.BlocksToText(blocks)
 }
 
 // renderSavedItems is the include_messages=false output: rows keyed by the
@@ -124,16 +165,10 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 			if fetched >= limit {
 				break
 			}
-			allItems = append(allItems, SavedItemRow{
-				ChannelID:   item.ItemID,
-				Ts:          item.Ts,
-				DateCreated: formatUnixTs(item.DateCreated),
-				DateDue:     formatUnixTs(item.DateDue),
-				State:       item.State,
-			})
+			allItems = append(allItems, newSavedItemRow(item))
 			fetched++
 
-			if !includeMessages || stopErr != nil {
+			if !includeMessages || stopErr != nil || !savedItemIsMessage(item) {
 				continue
 			}
 			if err := h.pace.Wait(ctx); err != nil {
@@ -249,21 +284,74 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item edge.SavedIte
 }
 
 // parseSavedUpdateParams: schema uses date_due:0 to clear; key presence (not truthiness) gates the required-field check.
-func parseSavedUpdateParams(request mcp.CallToolRequest) (itemID, ts, mark string, dateDue int64, err error) {
-	itemID = request.GetString("channel_id", "")
-	ts = request.GetString("timestamp", "")
-	mark = request.GetString("mark", "")
-	dateDue = int64(request.GetInt("date_due", 0))
+// savedTarget names one existing item. A message is addressed by channel and
+// timestamp; a custom to-do (Sa...) or a file (F...) by its item ID.
+type savedTarget struct {
+	itemType string
+	itemID   string
+	ts       string
+}
 
-	_, dateDueProvided := request.GetArguments()["date_due"]
+func parseSavedTarget(request mcp.CallToolRequest) (savedTarget, error) {
+	channelID := request.GetString("channel_id", "")
+	ts := request.GetString("timestamp", "")
+	itemID := request.GetString("item_id", "")
+	switch {
+	case itemID != "" && (channelID != "" || ts != ""):
+		return savedTarget{}, errors.New("pass either channel_id and timestamp, or item_id, not both")
+	case itemID != "" && strings.HasPrefix(itemID, "Sa"):
+		return savedTarget{edge.SavedItemReminder, itemID, ""}, nil
+	case itemID != "" && strings.HasPrefix(itemID, "F"):
+		return savedTarget{edge.SavedItemFile, itemID, ""}, nil
+	case itemID != "":
+		return savedTarget{}, fmt.Errorf("item_id %q is not a custom to-do (Sa...) or a file (F...)", itemID)
+	case channelID == "" || ts == "":
+		return savedTarget{}, errors.New("channel_id and timestamp are required for a message; use item_id for a custom to-do or a file")
+	}
+	return savedTarget{edge.SavedItemMessage, channelID, ts}, nil
+}
 
-	if itemID == "" || ts == "" {
-		return "", "", "", 0, fmt.Errorf("channel_id and timestamp are required parameters")
+// savedDateDue returns the date_due argument as Slack's form value, or "" when it
+// was not passed. 0 clears a due date, so absent and zero must stay distinct.
+func savedDateDue(request mcp.CallToolRequest) string {
+	if _, provided := request.GetArguments()["date_due"]; !provided {
+		return ""
 	}
-	if mark == "" && !dateDueProvided {
-		return "", "", "", 0, fmt.Errorf("at least one of mark or date_due must be provided")
+	return strconv.Itoa(request.GetInt("date_due", 0))
+}
+
+func validSavedTodoState(state string) bool {
+	return state == "" || state == "to_do" || state == "saved"
+}
+
+func parseSavedUpdateParams(request mcp.CallToolRequest) (edge.SavedUpdateParams, error) {
+	target, err := parseSavedTarget(request)
+	if err != nil {
+		return edge.SavedUpdateParams{}, err
 	}
-	return itemID, ts, mark, dateDue, nil
+	params := edge.SavedUpdateParams{
+		ItemType:  target.itemType,
+		ItemID:    target.itemID,
+		Ts:        target.ts,
+		Mark:      request.GetString("mark", ""),
+		TodoState: request.GetString("todo_state", ""),
+		DateDue:   savedDateDue(request),
+	}
+	if params.Mark != "" && params.Mark != "completed" && params.Mark != "uncompleted" {
+		return edge.SavedUpdateParams{}, fmt.Errorf("mark must be completed or uncompleted, got %q", params.Mark)
+	}
+	if !validSavedTodoState(params.TodoState) {
+		return edge.SavedUpdateParams{}, fmt.Errorf("todo_state must be to_do or saved, got %q", params.TodoState)
+	}
+	if params.Mark == "" && params.TodoState == "" && params.DateDue == "" {
+		return edge.SavedUpdateParams{}, errors.New("at least one of mark, todo_state or date_due must be provided")
+	}
+	// Without a state, Slack files a reopened item under Saved. It was completed
+	// from To-dos, so that is where it goes back to.
+	if params.Mark == "uncompleted" && params.TodoState == "" {
+		params.TodoState = "to_do"
+	}
+	return params, nil
 }
 
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -272,33 +360,103 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 		return nil, browserSessionRequired("saved_update", h.apiProvider.BrowserDegradedReason())
 	}
 
-	itemID, ts, mark, dateDue, err := parseSavedUpdateParams(request)
+	params, err := parseSavedUpdateParams(request)
 	if err != nil {
 		return nil, err
 	}
 
-	err = h.apiProvider.Slack().SavedUpdate(ctx, "message", itemID, ts, mark, dateDue)
-	if err != nil {
-		h.logger.Debug("SavedUpdate failed",
-			zap.String("item_id", itemID),
-			zap.String("ts", ts),
-			zap.String("mark", mark),
-			zap.Int64("date_due", dateDue),
-			zap.Error(err))
+	if err := h.apiProvider.Slack().SavedUpdate(ctx, params); err != nil {
+		h.logger.Debug("SavedUpdate failed", zap.String("item_id", params.ItemID), zap.String("ts", params.Ts), zap.Error(err))
 		return nil, fmt.Errorf("failed to update saved item: %w", err)
 	}
 
-	action := "updated"
-	if mark == "completed" {
-		action = "marked as completed"
+	fallback := fmt.Sprintf("Successfully updated saved item (item_id=%s, ts=%s)", params.ItemID, params.Ts)
+	return NewStructuredResult(savedActionData("update_saved_item", "updated", params.ItemType, params.ItemID, params.Ts), SlackResultMeta("", false, ""), fallback), nil
+}
+
+// parseSavedAddParams builds saved.add arguments from exactly one of text, a
+// message (channel_id and timestamp) or file_id. A new item goes to To-dos unless
+// todo_state says otherwise.
+func parseSavedAddParams(request mcp.CallToolRequest) (edge.SavedAddParams, error) {
+	body := strings.TrimSpace(request.GetString("text", ""))
+	channelID := request.GetString("channel_id", "")
+	ts := request.GetString("timestamp", "")
+	fileID := request.GetString("file_id", "")
+
+	params := edge.SavedAddParams{TodoState: request.GetString("todo_state", "to_do"), DateDue: savedDateDue(request)}
+	if !validSavedTodoState(params.TodoState) {
+		return edge.SavedAddParams{}, fmt.Errorf("todo_state must be to_do or saved, got %q", params.TodoState)
 	}
-	if dateDue > 0 {
-		dueTime := time.Unix(dateDue, 0).UTC().Format("2006-01-02 15:04")
-		action += fmt.Sprintf(", due date set to %s", dueTime)
+	switch {
+	case body != "" && channelID == "" && ts == "" && fileID == "":
+		description, err := json.Marshal([]map[string]any{{
+			"type": "rich_text",
+			"elements": []map[string]any{{
+				"type":     "rich_text_section",
+				"elements": []map[string]any{{"type": "text", "text": body}},
+			}},
+		}})
+		if err != nil {
+			return edge.SavedAddParams{}, err
+		}
+		params.ItemType, params.Description = edge.SavedItemReminder, string(description)
+	case body == "" && channelID != "" && ts != "" && fileID == "":
+		params.ItemType, params.ItemID, params.Ts = edge.SavedItemMessage, channelID, ts
+	case body == "" && channelID == "" && ts == "" && fileID != "":
+		params.ItemType, params.ItemID = edge.SavedItemFile, fileID
+	default:
+		return edge.SavedAddParams{}, errors.New("pass exactly one of: text, channel_id with timestamp, or file_id")
+	}
+	return params, nil
+}
+
+func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "SavedAddHandler called", request)
+	if !h.apiProvider.BrowserFeaturesAvailable() {
+		return nil, browserSessionRequired("saved_add", h.apiProvider.BrowserDegradedReason())
 	}
 
-	fallback := fmt.Sprintf("Successfully %s saved item (item_id=%s, ts=%s)", action, itemID, ts)
-	return NewStructuredResult(ActionData{Action: "update_saved_item", Status: "updated", ChannelID: itemID, MessageID: ts, ItemID: itemID}, SlackResultMeta("", false, ""), fallback), nil
+	params, err := parseSavedAddParams(request)
+	if err != nil {
+		return nil, err
+	}
+
+	item, err := h.apiProvider.Slack().SavedAdd(ctx, params)
+	if err != nil {
+		h.logger.Debug("SavedAdd failed", zap.String("item_type", params.ItemType), zap.Error(err))
+		return nil, fmt.Errorf("failed to add saved item: %w", err)
+	}
+
+	fallback := fmt.Sprintf("Successfully added saved item (item_id=%s, ts=%s)", item.ItemID, item.Ts)
+	return NewStructuredResult(savedActionData("add_saved_item", "added", params.ItemType, item.ItemID, params.Ts), SlackResultMeta("", false, ""), fallback), nil
+}
+
+func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "SavedDeleteHandler called", request)
+	if !h.apiProvider.BrowserFeaturesAvailable() {
+		return nil, browserSessionRequired("saved_delete", h.apiProvider.BrowserDegradedReason())
+	}
+
+	target, err := parseSavedTarget(request)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.apiProvider.Slack().SavedDelete(ctx, target.itemType, target.itemID, target.ts); err != nil {
+		h.logger.Debug("SavedDelete failed", zap.String("item_id", target.itemID), zap.String("ts", target.ts), zap.Error(err))
+		return nil, fmt.Errorf("failed to delete saved item: %w", err)
+	}
+
+	fallback := fmt.Sprintf("Successfully removed saved item (item_id=%s, ts=%s)", target.itemID, target.ts)
+	return NewStructuredResult(savedActionData("delete_saved_item", "deleted", target.itemType, target.itemID, target.ts), SlackResultMeta("", false, ""), fallback), nil
+}
+
+func savedActionData(action, status, itemType, itemID, ts string) ActionData {
+	data := ActionData{Action: action, Status: status, MessageID: ts, ItemID: itemID}
+	if itemType == edge.SavedItemMessage {
+		data.ChannelID = itemID
+	}
+	return data
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

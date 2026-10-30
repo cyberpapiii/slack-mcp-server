@@ -27,6 +27,8 @@ tags:
   - staleness-check
 ---
 
+> **Update 2026-10-30:** `plug server off` is now refused while `[http.slack_events]` needs the `slack` upstream, so the disable and enable pair below stopped restarting anything. `make deploy-local` stops the process and waits for Plug to start a new PID. The lesson stands: verify the running PID, not the command's exit code.
+
 # Silent stale-binary deploys: Plug 'reload' and a disable/enable race kept the old MCP server running
 
 ## Problem

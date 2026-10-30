@@ -56,7 +56,9 @@ func TestBrowserNames(t *testing.T) {
 		"drafts_get",
 		"drafts_list",
 		"drafts_update",
+		"saved_add",
 		"saved_clear_completed",
+		"saved_delete",
 		"saved_list",
 		"saved_update",
 	}, BrowserNames())

@@ -68,9 +68,11 @@ var Tools = []Tool{
 	// Activity and saved items (browser session).
 	{Name: "activity_unreads", Title: "Get Activity Unreads", DailyPower: true, Browser: true, CacheReady: true, ReadOnly: true},
 	{Name: "activity_mark_read", Title: "Mark Activity Read", Browser: true, CacheReady: true, Idempotent: true},
-	{Name: "saved_list", Title: "List Saved Items", DailyPower: true, Browser: true, ReadOnly: true},
-	{Name: "saved_update", Title: "Update Saved Item", Browser: true, Idempotent: true},
-	{Name: "saved_clear_completed", Title: "Clear Completed Saved Items", Browser: true, Destructive: true, Idempotent: true},
+	{Name: "saved_list", Title: "List To-dos and Saved Items", DailyPower: true, Browser: true, ReadOnly: true},
+	{Name: "saved_add", Title: "Add To-do or Saved Item", Browser: true},
+	{Name: "saved_update", Title: "Update To-do or Saved Item", Browser: true, Idempotent: true},
+	{Name: "saved_delete", Title: "Remove To-do or Saved Item", Browser: true, Destructive: true, Idempotent: true},
+	{Name: "saved_clear_completed", Title: "Clear Completed To-dos", Browser: true, Destructive: true, Idempotent: true},
 
 	// Diagnostics.
 	{Name: "slack_auth_status", Title: "Auth & Cache Status", DailyPower: true, ReadOnly: true},

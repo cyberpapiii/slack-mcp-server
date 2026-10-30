@@ -20,14 +20,14 @@ Which tools register is decided by one list: `SLACK_MCP_ENABLED_TOOLS` (or `--en
 | Preset | Tools | What it is |
 |--------|-------|------------|
 | `daily-power` (default) | 17 | Read-only: unreads, Activity, Saved, drafts, canvases, lists, DND, emoji, user groups, profiles, semantic search, `slack_auth_status`. |
-| `legacy-full` | 69 | Everything, including every write tool. |
+| `legacy-full` | 71 | Everything, including every write tool. |
 
-The 69 tools by family:
+The 71 tools by family:
 
 | Family | Tools |
 |--------|-------|
 | Messages | `conversations_history`, `conversations_replies`, `conversations_get_message`, `conversations_search_messages`, `conversations_add_message`, `conversations_draft_message`, `messages_schedule`, `messages_update`, `messages_delete`, `scheduled_messages_list`, `scheduled_message_cancel` |
-| Unreads and Activity (browser session) | `conversations_unreads`, `activity_unreads`, `activity_mark_read`, `saved_list`, `saved_update`, `saved_clear_completed` |
+| Unreads and Activity (browser session) | `conversations_unreads`, `activity_unreads`, `activity_mark_read`, `saved_list`, `saved_add`, `saved_update`, `saved_delete`, `saved_clear_completed` |
 | Drafts (browser session) | `drafts_list`, `drafts_get`, `drafts_create`, `drafts_update`, `drafts_delete` |
 | Conversations | `conversations_open`, `conversations_mark`, `conversations_join`, `conversations_leave` |
 | Channels | `channels_list`, `channels_me`, `channels_starred`, `channels_members`, `channels_create`, `channels_invite`, `channels_rename`, `channels_set_topic`, `channels_set_purpose`, `channels_archive` |
@@ -39,7 +39,7 @@ The 69 tools by family:
 
 Parameter schemas, titles and hints come from the server itself; `scripts/toolslist-snapshot.sh [preset] [out.json]` builds the binary and dumps `tools/list` for a preset. The table that every tool is built from is `pkg/capability/catalog.go`.
 
-Two Slack limitations are permanent: `canvases_read` returns metadata and preview text because the public API does not return full canvas content, and `search_semantic` works only when Slack has enabled the Real-time Search API for the app.
+One Slack limitation is permanent: `search_semantic` works only when Slack has enabled the Real-time Search API for the app.
 
 ### Output format
 

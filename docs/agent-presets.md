@@ -91,7 +91,7 @@ same Slack team and user, and cancellation leaves Slack unchanged.
 
 ## Preset: legacy full
 
-Power-user preset with all 69 tools implemented by this custom server. It does
+Power-user preset with all 71 tools implemented by this custom server. It does
 not use Slack's official MCP.
 
 ```toml
