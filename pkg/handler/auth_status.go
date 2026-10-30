@@ -76,10 +76,11 @@ func capabilityAvailability(standardOAuth, botToken, browserOK bool, degradedRea
 		"host_curation":             "unverified",
 		"persisted_draft_lifecycle": "browser_session_required",
 		"semantic_search":           "available_if_slack_data_access_enabled",
-		"canvas_full_content_read":  "not_exposed_by_slack_web_api",
+		"canvas_full_content_read":  "user_oauth_required",
 	}
 	if standardOAuth {
 		availability["standard_oauth"] = "available"
+		availability["canvas_full_content_read"] = "available"
 	}
 	if !standardOAuth || botToken {
 		availability["dnd"] = "user_oauth_required"

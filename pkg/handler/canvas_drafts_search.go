@@ -60,11 +60,16 @@ func (h *CanvasHandler) Read(ctx context.Context, request mcp.CallToolRequest) (
 	if input.CanvasID == "" {
 		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "canvas_id is required"}), nil
 	}
+	switch input.ContentFormat {
+	case "", "markdown", "html", "none":
+	default:
+		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "content_format must be markdown, html, or none"}), nil
+	}
 	document, err := h.api.ReadCanvas(ctx, input)
 	if err != nil {
 		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
 	}
-	return NewStructuredResult(document, SlackResultMeta("", true, document.Limitation), fallbackJSON(document)), nil
+	return NewStructuredResult(document, SlackResultMeta("", document.Limitation != "", document.Limitation), fallbackJSON(document)), nil
 }
 
 var canvasOperations = map[string]struct{}{

@@ -92,7 +92,7 @@ var Tools = []Tool{
 
 	// Canvases and semantic search.
 	{Name: "canvases_create", Title: "Create Canvas", Scopes: []string{"canvases:write"}},
-	{Name: "canvases_read", Title: "Read Canvas Sections", DailyPower: true, ReadOnly: true, Scopes: []string{"canvases:read"}},
+	{Name: "canvases_read", Title: "Read Canvas", DailyPower: true, ReadOnly: true, Scopes: []string{"canvases:read"}},
 	{Name: "canvases_update", Title: "Update Canvas", Destructive: true, Scopes: []string{"canvases:write"}},
 	{Name: "search_semantic", Title: "Search Slack Semantically", DailyPower: true, ReadOnly: true, Scopes: []string{"search:read.files", "search:read.public", "search:read.private", "search:read.im", "search:read.mpim", "search:read.users"}},
 
