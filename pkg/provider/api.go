@@ -254,16 +254,17 @@ func (ap *ApiProvider) startUserOAuth(managed *oauthcred.Manager, record oauthcr
 }
 
 func newProvider(authProvider slackcreds.Credentials, creds CredentialConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
+	mode := credentialModeFor(authProvider.SlackToken(), browserConfigured)
+	if creds.Demo() {
+		mode = ModeDemo
+	}
 	ap := &ApiProvider{creds: creds, logger: logger}
-	if err := ap.client.connect(authProvider, creds.Demo(), browserConfigured, logger); err != nil {
+	if err := ap.client.connect(authProvider, mode, logger); err != nil {
 		return nil, err
 	}
 	ap.api = &ap.client
 
 	teamID := ap.client.authResponse.TeamID
-	if creds.Demo() {
-		teamID = "demo"
-	}
 	cacheDir, err := cachedir.Dir()
 	if err != nil {
 		logger.Warn("User cache directory unavailable; caching in the working directory", zap.Error(err))

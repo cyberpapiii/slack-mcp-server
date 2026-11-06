@@ -84,16 +84,12 @@ func demoAuthResponse() *slack.AuthTestResponse {
 }
 
 // authTest builds the HTTP client for authProvider's credentials and proves
-// them against auth.test. Demo credentials skip the network entirely.
-func authTest(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
+// them against auth.test.
+func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
 	httpClient, err := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 	if err != nil {
 		return nil, nil, err
 	}
-	if demo {
-		return httpClient, demoAuthResponse(), nil
-	}
-
 	slackClient := slack.New(authProvider.SlackToken(),
 		slack.OptionHTTPClient(httpClient),
 		slack.OptionAPIURL(slackhttp.SlackAPIBase()),
@@ -110,9 +106,18 @@ func authTest(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger
 	return httpClient, authResp, nil
 }
 
-// connect authenticates authProvider and sets c up around it.
-func (c *MCPSlackClient) connect(authProvider slackcreds.Credentials, demo, browserConfigured bool, logger *zap.Logger) error {
-	httpClient, authResp, err := authTest(authProvider, demo, logger)
+// connect authenticates authProvider and sets c up around it. Demo mode never
+// reaches Slack: it answers auth.test itself.
+func (c *MCPSlackClient) connect(authProvider slackcreds.Credentials, mode CredentialMode, logger *zap.Logger) error {
+	var httpClient *http.Client
+	var authResp *slack.AuthTestResponse
+	var err error
+	if mode == ModeDemo {
+		httpClient, err = transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
+		authResp = demoAuthResponse()
+	} else {
+		httpClient, authResp, err = authTest(authProvider, logger)
+	}
 	if err != nil {
 		return err
 	}
@@ -121,7 +126,7 @@ func (c *MCPSlackClient) connect(authProvider slackcreds.Credentials, demo, brow
 	c.authResponse = *authResp
 	c.authProvider = authProvider
 	c.logger = logger
-	c.mode = credentialModeFor(token, demo, browserConfigured)
+	c.mode = mode
 	c.isEnterprise = authResp.EnterpriseID != ""
 	c.slackClient = slack.New(token,
 		slack.OptionHTTPClient(httpClient),

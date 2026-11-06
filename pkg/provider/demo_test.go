@@ -24,8 +24,6 @@ func TestDemoCredentialsBuildFullClient(t *testing.T) {
 			for k, v := range env {
 				t.Setenv(k, v)
 			}
-			require.True(t, IsDemoCredentials())
-
 			ap, err := New(zap.NewNop())
 			require.NoError(t, err)
 			defer ap.Close()

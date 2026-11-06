@@ -42,6 +42,7 @@ func (c CredentialConfig) Demo() bool {
 }
 
 // IsDemoCredentials reports whether the environment holds the demo tokens.
+// After New, Mode() == ModeDemo says the same without reading the environment.
 func IsDemoCredentials() bool {
 	return CredentialConfigFromEnv().Demo()
 }

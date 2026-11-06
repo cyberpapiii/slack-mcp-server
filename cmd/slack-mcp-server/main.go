@@ -91,7 +91,7 @@ func main() {
 		logger.Info("Cache loading disabled via --no-cache flag",
 			zap.String("context", "console"),
 		)
-	} else if provider.IsDemoCredentials() {
+	} else if p.Mode() == provider.ModeDemo {
 		// Register before Serve so early tools/list sees cache-dependent tools.
 		p.SkipCache()
 		s.RegisterCacheDependentTools()
