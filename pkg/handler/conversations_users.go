@@ -13,13 +13,11 @@ import (
 func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	ch.logger.Debug("UsersResource called")
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Warn("API provider not ready", zap.Error(err))
+	users, err := ch.apiProvider.Directory().Users()
+	if err != nil {
+		ch.logger.Warn("Users cache not ready", zap.Error(err))
 		return nil, err
 	}
-
-	usersMaps := ch.apiProvider.ProvideUsersMap()
-	users := usersMaps.Users
 	usersList := make([]User, 0, len(users))
 	for _, user := range users {
 		usersList = append(usersList, User{

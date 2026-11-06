@@ -11,7 +11,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
 
@@ -47,27 +46,30 @@ const allCategories = "all"
 // as channel_types: "all" or one category.
 var categoryFilters = append([]string{allCategories}, provider.Categories...)
 
-func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-	ch.logger.Debug("ChannelsResource called")
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Warn("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
-	channels := ch.apiProvider.ProvideChannelsMaps().Channels
-	ch.logger.Debug("Retrieved channels from provider", zap.Int("count", len(channels)))
-
-	channelList := make([]Channel, 0, len(channels))
-	for _, channel := range channels {
-		channelList = append(channelList, Channel{
+// channelRows is the CSV shape of cached or fetched channels.
+func channelRows(channels []provider.Channel) []Channel {
+	rows := make([]Channel, len(channels))
+	for i, channel := range channels {
+		rows[i] = Channel{
 			ID:          channel.ID,
 			Name:        channel.Name,
 			Topic:       channel.Topic,
 			Purpose:     channel.Purpose,
 			MemberCount: channel.MemberCount,
-		})
+		}
 	}
+	return rows
+}
+
+func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+	ch.logger.Debug("ChannelsResource called")
+
+	channels, err := ch.apiProvider.Directory().Channels()
+	if err != nil {
+		ch.logger.Warn("Channels cache not ready", zap.Error(err))
+		return nil, err
+	}
+	channelList := channelRows(channels)
 
 	csvBytes, err := gocsv.MarshalBytes(&channelList)
 	if err != nil {
@@ -104,9 +106,10 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	limit := pageLimit(request, 100, 999)
 	query := request.GetString("query", "")
 
-	allChannels := ch.apiProvider.ProvideChannelsMaps().Channels
-	ch.logger.Debug("Total channels available", zap.Int("count", len(allChannels)))
-
+	allChannels, err := ch.apiProvider.Directory().Channels()
+	if err != nil {
+		return nil, err
+	}
 	channels := filterChannelsByTypes(allChannels, channelTypes)
 	ch.logger.Debug("Channels after filtering by type", zap.Int("count", len(channels)))
 
@@ -127,39 +130,13 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		zap.Bool("has_next_page", nextcur != ""),
 	)
 
-	channelList := make([]Channel, len(chans))
-	for i, channel := range chans {
-		channelList[i] = Channel{
-			ID:          channel.ID,
-			Name:        channel.Name,
-			Topic:       channel.Topic,
-			Purpose:     channel.Purpose,
-			MemberCount: channel.MemberCount,
-		}
-	}
-
+	channelList := channelRows(chans)
 	result, err := csvResult("", SlackResultMeta(nextcur, false, ""), &channelList)
 	if err != nil {
 		ch.logger.Error("Failed to marshal channels to CSV", zap.Error(err))
 		return nil, err
 	}
 	return result, nil
-}
-
-// slackMaxChannelsPageSize is users.conversations max page size.
-const slackMaxChannelsPageSize = 200
-
-// nextPageSize asks only for rows still needed, capped at Slack's page max so
-// the returned cursor stays aligned with the last row we hand back.
-func nextPageSize(limit, have int) int {
-	remaining := limit - have
-	if remaining > slackMaxChannelsPageSize {
-		return slackMaxChannelsPageSize
-	}
-	if remaining < 1 {
-		return 1
-	}
-	return remaining
 }
 
 func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -171,66 +148,16 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 	cursor := request.GetString("cursor", "")
 	limit := pageLimit(request, 100, 999)
 
-	usersMap := ch.apiProvider.ProvideUsersMap().Users
-	var allChannels []provider.Channel
-	var slackNextCursor string
-	apiCursor := cursor
-
-	for {
-		params := &slack.GetConversationsForUserParameters{
-			Types:           channelTypes,
-			Limit:           nextPageSize(limit, len(allChannels)),
-			Cursor:          apiCursor,
-			ExcludeArchived: true,
-		}
-		channels, nextCursor, err := ch.apiProvider.WebAPI().GetConversationsForUserContext(ctx, params)
-		if err != nil {
-			ch.logger.Debug("Failed to fetch user conversations", zap.Error(err))
-			return nil, fmt.Errorf("failed to fetch your channels: %w", err)
-		}
-
-		for _, c := range channels {
-			allChannels = append(allChannels, provider.MapChannelFromSlack(c, usersMap))
-		}
-
-		if len(allChannels) >= limit {
-			slackNextCursor = nextCursor
-			break
-		}
-
-		// Empty page + non-empty cursor would spin forever.
-		if len(channels) == 0 {
-			slackNextCursor = nextCursor
-			break
-		}
-
-		if nextCursor == "" {
-			break
-		}
-		apiCursor = nextCursor
+	channels, nextCursor, err := ch.apiProvider.ChannelsForUser(ctx, channelTypes, cursor, limit)
+	if err != nil {
+		ch.logger.Debug("Failed to fetch user conversations", zap.Error(err))
+		return nil, fmt.Errorf("failed to fetch your channels: %w", err)
 	}
-
-	ch.logger.Debug("Fetched member channels", zap.Int("count", len(allChannels)))
-
-	end := limit
-	if end > len(allChannels) {
-		end = len(allChannels)
-	}
-	var channelList []Channel
-	for _, channel := range allChannels[:end] {
-		channelList = append(channelList, Channel{
-			ID:          channel.ID,
-			Name:        channel.Name,
-			Topic:       channel.Topic,
-			Purpose:     channel.Purpose,
-			MemberCount: channel.MemberCount,
-		})
-	}
-
-	return csvResult("", SlackResultMeta(slackNextCursor, false, ""), &channelList)
+	channelList := channelRows(channels)
+	return csvResult("", SlackResultMeta(nextCursor, false, ""), &channelList)
 }
 
-func filterChannelsByTypes(channels map[string]provider.Channel, types []string) []provider.Channel {
+func filterChannelsByTypes(channels []provider.Channel, types []string) []provider.Channel {
 	result := make([]provider.Channel, 0, len(channels))
 	for _, ch := range channels {
 		if slices.Contains(types, ch.SlackType()) {
@@ -352,14 +279,7 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 		}
 	}
 
-	endIndex := startIndex + limit
-	if endIndex > len(channels) {
-		endIndex = len(channels)
-	}
-	// Non-positive limit would panic the slice; callers clamp, but do not rely on that alone.
-	if endIndex < startIndex {
-		endIndex = startIndex
-	}
+	endIndex := min(startIndex+limit, len(channels))
 
 	paged := channels[startIndex:endIndex]
 	var nextCursor string
