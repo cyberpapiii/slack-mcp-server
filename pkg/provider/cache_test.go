@@ -11,104 +11,33 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-func TestGetCacheTTL(t *testing.T) {
+func TestUnitCacheDurationsFromEnv(t *testing.T) {
+	ttl := func(c cacheConfig) time.Duration { return c.ttl }
+	minRefresh := func(c cacheConfig) time.Duration { return c.minRefreshInterval }
 	tests := []struct {
 		name     string
-		envValue string
+		key      string
+		value    string
+		field    func(cacheConfig) time.Duration
 		expected time.Duration
 	}{
-		{
-			name:     "default when env not set",
-			envValue: "",
-			expected: defaultCacheTTL,
-		},
-		{
-			name:     "valid duration passes through",
-			envValue: "2h",
-			expected: 2 * time.Hour,
-		},
-		{
-			name:     "numeric seconds fallback path",
-			envValue: "3600",
-			expected: 3600 * time.Second,
-		},
-		{
-			name:     "zero disables TTL",
-			envValue: "0",
-			expected: 0,
-		},
-		{
-			name:     "invalid input falls back to default",
-			envValue: "invalid",
-			expected: defaultCacheTTL,
-		},
-		{
-			name:     "negative duration rejected - falls back to default",
-			envValue: "-1h",
-			expected: defaultCacheTTL,
-		},
-		{
-			name:     "negative seconds rejected - falls back to default",
-			envValue: "-3600",
-			expected: defaultCacheTTL,
-		},
+		{"TTL default when unset", "SLACK_MCP_CACHE_TTL", "", ttl, defaultCacheTTL},
+		{"TTL duration", "SLACK_MCP_CACHE_TTL", "2h", ttl, 2 * time.Hour},
+		{"TTL integer seconds", "SLACK_MCP_CACHE_TTL", "3600", ttl, 3600 * time.Second},
+		{"TTL zero disables expiry", "SLACK_MCP_CACHE_TTL", "0", ttl, 0},
+		{"TTL invalid falls back", "SLACK_MCP_CACHE_TTL", "invalid", ttl, defaultCacheTTL},
+		{"TTL negative duration falls back", "SLACK_MCP_CACHE_TTL", "-1h", ttl, defaultCacheTTL},
+		{"TTL negative seconds falls back", "SLACK_MCP_CACHE_TTL", "-3600", ttl, defaultCacheTTL},
+		{"min refresh default when unset", "SLACK_MCP_MIN_REFRESH_INTERVAL", "", minRefresh, defaultMinRefreshInterval},
+		{"min refresh duration", "SLACK_MCP_MIN_REFRESH_INTERVAL", "1m", minRefresh, time.Minute},
+		{"min refresh zero disables the limit", "SLACK_MCP_MIN_REFRESH_INTERVAL", "0", minRefresh, 0},
+		{"min refresh negative falls back", "SLACK_MCP_MIN_REFRESH_INTERVAL", "-30s", minRefresh, defaultMinRefreshInterval},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("SLACK_MCP_CACHE_TTL", tt.envValue)
-			assert.Equal(t, tt.expected, cacheConfigFromEnv(zap.NewNop()).ttl)
-		})
-	}
-}
-
-func TestGetMinRefreshInterval(t *testing.T) {
-	tests := []struct {
-		name     string
-		envValue string
-		expected time.Duration
-	}{
-		{
-			name:     "default when env not set",
-			envValue: "",
-			expected: defaultMinRefreshInterval,
-		},
-		{
-			name:     "valid duration",
-			envValue: "1m",
-			expected: 1 * time.Minute,
-		},
-		{
-			name:     "numeric seconds",
-			envValue: "60",
-			expected: 60 * time.Second,
-		},
-		{
-			name:     "zero disables rate limiting",
-			envValue: "0",
-			expected: 0,
-		},
-		{
-			name:     "invalid input falls back to default",
-			envValue: "invalid",
-			expected: defaultMinRefreshInterval,
-		},
-		{
-			name:     "negative duration rejected",
-			envValue: "-30s",
-			expected: defaultMinRefreshInterval,
-		},
-		{
-			name:     "negative seconds rejected",
-			envValue: "-60",
-			expected: defaultMinRefreshInterval,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("SLACK_MCP_MIN_REFRESH_INTERVAL", tt.envValue)
-			assert.Equal(t, tt.expected, cacheConfigFromEnv(zap.NewNop()).minRefreshInterval)
+			t.Setenv(tt.key, tt.value)
+			assert.Equal(t, tt.expected, tt.field(cacheConfigFromEnv(zap.NewNop())))
 		})
 	}
 }

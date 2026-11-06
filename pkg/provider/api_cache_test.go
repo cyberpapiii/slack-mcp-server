@@ -1,83 +1,69 @@
 package provider
 
 import (
-	"encoding/json"
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
-// TestNullCacheUnmarshal verifies that json.Unmarshal of "null" into a
-// Channel/User slice produces an empty slice (not an error), and that our
-// len() == 0 check correctly detects this condition.
-//
-// This is a regression test for the null cache poisoning bug: when
-// GetChannels returned nil, json.MarshalIndent(nil) wrote "null" to the
-// cache file. On next startup, Unmarshal succeeded with an empty slice,
-// which was incorrectly treated as valid cached data.
-func TestNullCacheUnmarshal(t *testing.T) {
-	t.Run("null JSON produces empty channel slice without error", func(t *testing.T) {
-		var channels []Channel
-		err := json.Unmarshal([]byte("null"), &channels)
-		require.NoError(t, err, "json.Unmarshal of 'null' should not error")
-		assert.Nil(t, channels, "result should be nil")
-		assert.Len(t, channels, 0, "len should be 0 (caught by our guard)")
+// Regression for null cache poisoning: when GetChannels returned nil,
+// json.Marshal(nil) wrote "null" to the cache file, and the next startup
+// unmarshalled it into an empty slice and served that as valid cached data.
+func TestUnitLoadCacheFileTreatsEmptyOrUnreadableFilesAsAMiss(t *testing.T) {
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"null":    "null",
+		"empty":   "[]",
+		"corrupt": `[{"id":`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(dir, name+".json")
+			require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+			items, _, ok := loadCacheFile[Channel](path, time.Hour, zap.NewNop())
+			assert.False(t, ok, "the caller must refetch")
+			assert.Empty(t, items)
+		})
+	}
+
+	t.Run("missing", func(t *testing.T) {
+		_, _, ok := loadCacheFile[Channel](filepath.Join(dir, "missing.json"), time.Hour, zap.NewNop())
+		assert.False(t, ok)
 	})
 
-	t.Run("null JSON produces empty user slice without error", func(t *testing.T) {
-		var users []slack.User
-		err := json.Unmarshal([]byte("null"), &users)
-		require.NoError(t, err, "json.Unmarshal of 'null' should not error")
-		assert.Nil(t, users, "result should be nil")
-		assert.Len(t, users, 0, "len should be 0 (caught by our guard)")
-	})
-
-	t.Run("empty array JSON produces empty slice without error", func(t *testing.T) {
-		var channels []Channel
-		err := json.Unmarshal([]byte("[]"), &channels)
-		require.NoError(t, err)
-		assert.Len(t, channels, 0, "empty array should also be caught by len guard")
-	})
-
-	t.Run("nil channels marshals to null", func(t *testing.T) {
-		var channels []Channel
-		data, err := json.MarshalIndent(channels, "", "  ")
-		require.NoError(t, err)
-		assert.Equal(t, "null", string(data),
-			"MarshalIndent(nil slice) should produce 'null' — this is why we guard against writing empty cache")
-	})
-
-	t.Run("empty slice marshals to empty array", func(t *testing.T) {
-		channels := []Channel{}
-		data, err := json.MarshalIndent(channels, "", "  ")
-		require.NoError(t, err)
-		assert.Equal(t, "[]", string(data),
-			"MarshalIndent(empty slice) should produce '[]'")
+	t.Run("populated", func(t *testing.T) {
+		path := filepath.Join(dir, "good.json")
+		require.NoError(t, os.WriteFile(path, []byte(`[{"id":"C1"}]`), 0o600))
+		items, expired, ok := loadCacheFile[Channel](path, time.Hour, zap.NewNop())
+		require.True(t, ok)
+		assert.False(t, expired)
+		require.Len(t, items, 1)
+		assert.Equal(t, "C1", items[0].ID)
 	})
 }
 
-// TestEmptyCacheWriteGuard verifies that we correctly detect when channels
-// should NOT be written to cache (empty/nil slice), preventing the null
-// cache poisoning bug.
-func TestEmptyCacheWriteGuard(t *testing.T) {
-	shouldWriteCache := func(channels []Channel) bool {
-		return len(channels) > 0
-	}
+// The other half of the poisoning fix: a fetch that returns no channels must
+// not overwrite a good cache file.
+func TestUnitZeroChannelFetchDoesNotOverwriteTheCacheFile(t *testing.T) {
+	client := &fakeChannelsClient{pages: []channelsPage{{channels: []slack.Channel{}}}}
+	ap := newTestApiProvider(client, emptyUsersCache())
+	ap.channelsCachePath = filepath.Join(t.TempDir(), "channels.json")
+	good := []byte(`[{"id":"C1","name":"#general"}]`)
+	require.NoError(t, os.WriteFile(ap.channelsCachePath, good, 0o600))
 
-	t.Run("nil slice should not be written", func(t *testing.T) {
-		var channels []Channel
-		assert.False(t, shouldWriteCache(channels))
-	})
+	err := ap.fetchAndStoreChannels(context.Background())
+	require.Error(t, err, "with no cache in service, zero channels is a failure")
 
-	t.Run("empty slice should not be written", func(t *testing.T) {
-		channels := []Channel{}
-		assert.False(t, shouldWriteCache(channels))
-	})
+	ap.channelsReady.Store(true)
+	require.NoError(t, ap.fetchAndStoreChannels(context.Background()), "the existing cache stays in service")
 
-	t.Run("populated slice should be written", func(t *testing.T) {
-		channels := []Channel{{ID: "C1"}}
-		assert.True(t, shouldWriteCache(channels))
-	})
+	data, err := os.ReadFile(ap.channelsCachePath)
+	require.NoError(t, err)
+	assert.Equal(t, good, data)
 }
