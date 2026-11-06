@@ -121,6 +121,18 @@ func TestInt2Time(t *testing.T) {
 	}
 }
 
+// A never-read conversation carries a zero last_read; it must render as "" so
+// callers can tell "no bound" from a real timestamp.
+func TestSlackStringZero(t *testing.T) {
+	var zero Time
+	if got := zero.SlackString(); got != "" {
+		t.Errorf("zero SlackString() = %q, want empty", got)
+	}
+	if got := Time(time.UnixMicro(1710632873037269)).SlackString(); got != "1710632873.037269" {
+		t.Errorf("SlackString() = %q", got)
+	}
+}
+
 func BenchmarkTs2Int(b *testing.B) {
 	var n int64
 	for i := 0; i < b.N; i++ {

@@ -8,13 +8,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge/fasttime"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -251,7 +249,7 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 		case unreadChannels[i].UnreadCount > 0:
 			continue // already counted (mentions)
 		case unreadChannels[i].LastRead == "":
-			// No last-read bound (slackTS maps zero fasttime.Time to ""). Skip
+			// No last-read bound (a zero fasttime.Time renders as ""). Skip
 			// unbounded history query; report 1 since HasUnreads was true.
 			unreadChannels[i].UnreadCount = 1
 			backfilled++
@@ -271,17 +269,6 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 			zap.Int("backfilled", backfilled))
 	}
 	return true
-}
-
-// slackTS renders an edge-API timestamp, mapping the zero value to "" rather
-// than to fasttime's literal rendering of year 1 ("-62135596800.000000").
-// A zero LastRead means "never read"; callers treat "" as "no bound available"
-// and must not pass it to conversations.history as Oldest.
-func slackTS(t fasttime.Time) string {
-	if time.Time(t).IsZero() {
-		return ""
-	}
-	return t.SlackString()
 }
 
 // collectUnreadChannels turns a client.counts snapshot into the sorted, limited
@@ -326,7 +313,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: channelName,
 			ChannelType: channelType,
 			UnreadCount: snap.MentionCount,
-			LastRead:    slackTS(snap.LastRead),
+			LastRead:    snap.LastRead.SlackString(),
 		})
 	}
 
@@ -362,7 +349,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: channelName,
 			ChannelType: "group_dm",
 			UnreadCount: snap.MentionCount,
-			LastRead:    slackTS(snap.LastRead),
+			LastRead:    snap.LastRead.SlackString(),
 		})
 	}
 
@@ -399,7 +386,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: channelName,
 			ChannelType: "dm",
 			UnreadCount: snap.MentionCount,
-			LastRead:    slackTS(snap.LastRead),
+			LastRead:    snap.LastRead.SlackString(),
 		})
 	}
 
