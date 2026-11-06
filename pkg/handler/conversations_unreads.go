@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -185,7 +184,7 @@ type historyFetcher interface {
 }
 
 // fetchUnreadHistories reads each channel's messages newer than its LastRead,
-// fanOutWorkers at a time, retrying once on a 429. Channels skip selects get a
+// fanOutWorkers at a time; the client paces and retries. Channels skip selects get a
 // nil history and a nil error. Results are in channel order.
 func fetchUnreadHistories(ctx context.Context, api historyFetcher, channels []UnreadChannel, limit int, skip func(UnreadChannel) bool, done func(finished int)) ([]*slack.GetConversationHistoryResponse, []error) {
 	return fetchInOrder(ctx, len(channels), fanOutWorkers, func(ctx context.Context, i int) (*slack.GetConversationHistoryResponse, error) {
@@ -193,13 +192,11 @@ func fetchUnreadHistories(ctx context.Context, api historyFetcher, channels []Un
 		if skip(c) {
 			return nil, nil
 		}
-		return limiter.CallWithRetry(ctx, nil, 1, func() (*slack.GetConversationHistoryResponse, error) {
-			return api.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
-				ChannelID: c.ChannelID,
-				Oldest:    c.LastRead,
-				Limit:     limit,
-				Inclusive: false,
-			})
+		return api.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
+			ChannelID: c.ChannelID,
+			Oldest:    c.LastRead,
+			Limit:     limit,
+			Inclusive: false,
 		})
 	}, done)
 }

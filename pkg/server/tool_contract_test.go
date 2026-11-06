@@ -21,10 +21,9 @@ func newDemoServer(t *testing.T, enabled []string) *MCPServer {
 	}
 	t.Setenv("SLACK_MCP_XOXC_TOKEN", "demo")
 	t.Setenv("SLACK_MCP_XOXD_TOKEN", "demo")
-	require.True(t, provider.IsDemoCredentials())
-
 	api, err := provider.New(zap.NewNop())
 	require.NoError(t, err)
+	require.Equal(t, provider.ModeDemo, api.Mode())
 	t.Cleanup(api.Close)
 	srv := NewMCPServer(api, "stdio", zap.NewNop(), enabled, handler.Settings{})
 	api.SkipCache()

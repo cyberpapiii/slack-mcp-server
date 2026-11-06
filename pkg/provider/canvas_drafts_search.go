@@ -10,7 +10,6 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/slack-go/slack"
 )
 
@@ -202,10 +201,8 @@ func (c *WebClient) LookupCanvasSectionsContext(ctx context.Context, params slac
 	return c.resolve().LookupCanvasSectionsContext(ctx, params)
 }
 
-// Draft is a Slack draft. Blocks is the draft's content as Slack stores it,
-// set on drafts read back from Slack. Text is what CreateDraft and
-// UpdateDraft send; on a draft read back it is Blocks rendered as text, which
-// moves to the handler once it renders Blocks itself.
+// Draft is a Slack draft. Blocks is the content as Slack stores it, set on
+// drafts read back from Slack; Text is what CreateDraft and UpdateDraft send.
 type Draft struct {
 	ID        string       `json:"id"`
 	ChannelID string       `json:"channel_id"`
@@ -316,7 +313,7 @@ func (p *BrowserDraftsProvider) DeleteDraft(ctx context.Context, id, expectedUpd
 }
 
 func providerDraft(draft edge.Draft) Draft {
-	result := Draft{ID: draft.ID, UpdatedTS: draft.LastUpdatedTS, Blocks: draft.Blocks, Text: text.BlocksToText(draft.Blocks)}
+	result := Draft{ID: draft.ID, UpdatedTS: draft.LastUpdatedTS, Blocks: draft.Blocks}
 	if len(draft.Destinations) != 0 {
 		result.ChannelID = draft.Destinations[0].ChannelID
 		result.ThreadTS = draft.Destinations[0].ThreadTS
@@ -351,17 +348,6 @@ type SemanticSearchItem struct {
 type SemanticSearchPage struct {
 	Items      []SemanticSearchItem `json:"items"`
 	NextCursor string               `json:"next_cursor,omitempty"`
-}
-
-type SemanticSearchAPI interface {
-	SearchSemantic(context.Context, SemanticSearchRequest) (SemanticSearchPage, error)
-}
-
-var _ SemanticSearchAPI = (*WebClient)(nil)
-
-// SemanticSearch is the Web API client; handlers take it as SemanticSearchAPI.
-func (ap *ApiProvider) SemanticSearch() SemanticSearchAPI {
-	return ap.WebAPI()
 }
 
 // SearchSemantic calls assistant.search.context, which slack-go does not wrap.

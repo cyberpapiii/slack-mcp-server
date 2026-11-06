@@ -47,12 +47,6 @@ func (c CredentialConfig) Demo() bool {
 	return c.XOXP == "demo" || (c.XOXC == "demo" && c.XOXD == "demo")
 }
 
-// IsDemoCredentials reports whether the environment holds the demo tokens.
-// After New, Mode() == ModeDemo says the same without reading the environment.
-func IsDemoCredentials() bool {
-	return CredentialConfigFromEnv().Demo()
-}
-
 func (c CredentialConfig) browserCredentialSource() string {
 	if c.BrowserKeychainAccount != "" {
 		return "macos_keychain"

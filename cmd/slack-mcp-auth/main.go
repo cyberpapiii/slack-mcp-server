@@ -28,11 +28,9 @@ import (
 // the server's environment names it too.
 const accountUsage = "macOS Keychain account; defaults to $" + oauthcred.EnvKeychainAccount + ", else " + defaultAccount + ", which only this tool falls back to: the server uses the account $" + oauthcred.EnvKeychainAccount + " names"
 
-// defaultPreset is the server's default tool preset, whose scopes a login
-// asks for unless --preset names another.
-const defaultPreset = "daily-power"
-
-const presetUsage = "scope preset: " + defaultPreset + " or legacy-full"
+// A login asks for the scopes of the server's default preset unless --preset
+// names another.
+const presetUsage = "scope preset: " + capability.PresetDailyPower + " or " + capability.PresetLegacyFull
 
 const (
 	defaultAccount     = "slack-mcp-local"
@@ -198,7 +196,7 @@ func parseLoginOptions(args []string) (loginOptions, error) {
 	options.redirectURI = defaultRedirectURI
 	flags.StringVar(&options.teamID, "team", os.Getenv("SLACK_MCP_OAUTH_TEAM_ID"), "expected Slack team ID")
 	flags.StringVar(&options.userID, "user", os.Getenv("SLACK_MCP_OAUTH_USER_ID"), "expected Slack user ID")
-	flags.StringVar(&options.preset, "preset", defaultPreset, presetUsage)
+	flags.StringVar(&options.preset, "preset", capability.DefaultPreset, presetUsage)
 	flags.BoolVar(&options.replace, "replace", false, "replace existing credential after exact identity validation")
 	flags.BoolVar(&options.noOpen, "no-open", false, "print authorization URL without opening browser")
 	if err := flags.Parse(args); err != nil {
@@ -370,7 +368,7 @@ func runLogout(args []string) error {
 
 func runManifest(args []string) error {
 	flags := flag.NewFlagSet("manifest", flag.ContinueOnError)
-	preset := flags.String("preset", defaultPreset, presetUsage)
+	preset := flags.String("preset", capability.DefaultPreset, presetUsage)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

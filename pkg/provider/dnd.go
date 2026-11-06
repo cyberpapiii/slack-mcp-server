@@ -6,11 +6,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// DND is the Web API client; the handler takes it as handler.DNDAPI.
-func (ap *ApiProvider) DND() *WebClient {
-	return ap.WebAPI()
-}
-
 func (c *WebClient) GetDNDInfoContext(ctx context.Context, user *string) (*slack.DNDStatus, error) {
 	return c.resolve().GetDNDInfoContext(ctx, user)
 }

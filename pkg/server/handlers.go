@@ -30,12 +30,12 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, availability h
 		handler.NewScheduledHandler(api.Scheduled(), approvals, api.Identity).Tools(),
 		handler.NewChannelMutationHandler(api.ChannelMutations(), approvals, api.Identity, settings).Tools(),
 		handler.NewListsHandler(api.Lists(), approvals, api.Identity).Tools(),
-		handler.NewDNDHandler(api.DND(), api.Identity).Tools(),
+		handler.NewDNDHandler(api.WebAPI(), api.Identity).Tools(),
 		handler.NewMessageFilesHandler(api.MessageFiles(), approvals, api.Identity, settings).Tools(),
 		handler.NewPeopleChannelsHandler(api.PeopleChannels(), api, api.Identity).Tools(),
 		handler.NewCanvasHandler(api.Canvases()).Tools(),
 		handler.NewDraftsHandler(api.Drafts(), api, approvals, api.Identity).Tools(),
-		handler.NewSemanticSearchHandler(api.SemanticSearch(), api).Tools(),
+		handler.NewSemanticSearchHandler(api.WebAPI(), api).Tools(),
 	} {
 		set.tools = append(set.tools, tools...)
 	}

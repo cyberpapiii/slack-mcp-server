@@ -298,15 +298,23 @@ func OAuthScopesForTools(tools []string) []string {
 	return scopes
 }
 
+// The tool presets. DefaultPreset applies when neither an enabled-tools list
+// nor a preset is configured.
+const (
+	PresetDailyPower = "daily-power"
+	PresetLegacyFull = "legacy-full"
+	DefaultPreset    = PresetDailyPower
+)
+
 // Preset returns the tool names a named preset enables.
 func Preset(name string) ([]string, error) {
 	switch name {
-	case "daily-power":
+	case PresetDailyPower:
 		return DailyPowerNames(), nil
-	case "legacy-full":
+	case PresetLegacyFull:
 		return Names(), nil
 	default:
-		return nil, fmt.Errorf("unknown tool preset %q (valid: daily-power, legacy-full)", name)
+		return nil, fmt.Errorf("unknown tool preset %q (valid: %s, %s)", name, PresetDailyPower, PresetLegacyFull)
 	}
 }
 

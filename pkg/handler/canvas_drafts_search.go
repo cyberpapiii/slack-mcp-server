@@ -9,6 +9,7 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -105,7 +106,41 @@ type DraftsHandler struct {
 }
 
 func NewDraftsHandler(api provider.DraftsAPI, labels Labels, approvals *approval.Store, identity func() provider.ProviderIdentity) *DraftsHandler {
-	return &DraftsHandler{api: api, labels: labels, approvals: approvalGate{store: approvals, identity: identity}}
+	return &DraftsHandler{api: renderedDrafts{api}, labels: labels, approvals: approvalGate{store: approvals, identity: identity}}
+}
+
+// renderedDrafts fills each draft Slack returns with its blocks rendered as
+// text, so every drafts tool shows the same text.
+type renderedDrafts struct{ provider.DraftsAPI }
+
+func renderDraft(draft provider.Draft) provider.Draft {
+	if len(draft.Blocks.BlockSet) > 0 {
+		draft.Text = text.BlocksToText(draft.Blocks)
+	}
+	return draft
+}
+
+func (r renderedDrafts) ListDrafts(ctx context.Context, cursor string, limit int) (provider.DraftPage, error) {
+	page, err := r.DraftsAPI.ListDrafts(ctx, cursor, limit)
+	for i := range page.Drafts {
+		page.Drafts[i] = renderDraft(page.Drafts[i])
+	}
+	return page, err
+}
+
+func (r renderedDrafts) GetDraft(ctx context.Context, id string) (provider.Draft, error) {
+	draft, err := r.DraftsAPI.GetDraft(ctx, id)
+	return renderDraft(draft), err
+}
+
+func (r renderedDrafts) CreateDraft(ctx context.Context, draft provider.Draft) (provider.Draft, error) {
+	created, err := r.DraftsAPI.CreateDraft(ctx, draft)
+	return renderDraft(created), err
+}
+
+func (r renderedDrafts) UpdateDraft(ctx context.Context, draft provider.Draft) (provider.Draft, error) {
+	updated, err := r.DraftsAPI.UpdateDraft(ctx, draft)
+	return renderDraft(updated), err
 }
 
 type DraftMutationData struct {
@@ -228,11 +263,16 @@ func decodeDraft(request mcp.CallToolRequest, requireID bool) (provider.Draft, e
 }
 
 type SemanticSearchHandler struct {
-	api    provider.SemanticSearchAPI
+	api    SemanticSearchAPI
 	labels Labels
 }
 
-func NewSemanticSearchHandler(api provider.SemanticSearchAPI, labels Labels) *SemanticSearchHandler {
+// SemanticSearchAPI is the Slack call search_semantic makes.
+type SemanticSearchAPI interface {
+	SearchSemantic(context.Context, provider.SemanticSearchRequest) (provider.SemanticSearchPage, error)
+}
+
+func NewSemanticSearchHandler(api SemanticSearchAPI, labels Labels) *SemanticSearchHandler {
 	return &SemanticSearchHandler{api: api, labels: labels}
 }
 
