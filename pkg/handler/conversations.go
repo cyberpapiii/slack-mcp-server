@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	defaultConversationsNumericLimit    = 50
-	defaultConversationsExpressionLimit = "1d"
-	maxFileSizeBytes                    = 5 * 1024 * 1024 // 5MB limit
+	defaultConversationsNumericLimit = 50
+	maxFileSizeBytes                 = 5 * 1024 * 1024 // 5MB limit
 
 	// Search `limit` bounds. Default and max are both 100, matching the tool
 	// schema's DefaultNumber(100) and its "between 1 and 100" description.
@@ -253,10 +252,7 @@ func limitByNumeric(limit string, defaultLimit int) (int, error) {
 	return n, nil
 }
 
-func limitByExpression(limit, defaultLimit string) (slackLimit int, oldest, latest string, err error) {
-	if limit == "" {
-		limit = defaultLimit
-	}
+func limitByExpression(limit string) (slackLimit int, oldest, latest string, err error) {
 	if len(limit) < 2 {
 		return 0, "", "", invalidArguments(fmt.Sprintf("invalid duration limit %q: too short", limit))
 	}

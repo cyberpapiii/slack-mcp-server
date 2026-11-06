@@ -369,7 +369,6 @@ func TestUnitLimitByExpression_Valid(t *testing.T) {
 		minSecs int64 // inclusive
 		maxSecs int64 // exclusive
 	}{
-		{"1 day", "", 0, 86400}, // default case with no input test
 		{"6 hours", "6h", 6 * 3600, 6*3600 + 1},
 		{"1 day", "1d", 0, 86400},
 		{"2 days", "2d", 86400, 172800},
@@ -381,7 +380,7 @@ func TestUnitLimitByExpression_Valid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			slackLimit, oldestStr, latestStr, err := limitByExpression(tt.input, defaultConversationsExpressionLimit)
+			slackLimit, oldestStr, latestStr, err := limitByExpression(tt.input)
 			if err != nil {
 				t.Fatalf("expected no error for %q, got %v", tt.input, err)
 			}
@@ -425,7 +424,7 @@ func TestUnitLimitByExpression_Invalid(t *testing.T) {
 
 	for _, input := range invalid {
 		t.Run(input, func(t *testing.T) {
-			_, _, _, err := limitByExpression(input, defaultConversationsExpressionLimit)
+			_, _, _, err := limitByExpression(input)
 			if err == nil {
 				t.Errorf("expected error for %q, got nil", input)
 			}

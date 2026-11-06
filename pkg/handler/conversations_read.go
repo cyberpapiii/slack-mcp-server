@@ -191,14 +191,13 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 	)
 	isDurationLimit := strings.HasSuffix(limit, "h") || strings.HasSuffix(limit, "d") || strings.HasSuffix(limit, "w") || strings.HasSuffix(limit, "m")
 	if isDurationLimit && cursor != "" {
-		// Schema default limit is "1d" but also forbids limit+cursor. Honour
-		// cursor, drop window (same as numeric branch) so pagination works.
+		// A cursor carries its own position; a time window would fight it.
 		ch.logger.Debug("Ignoring duration limit because a cursor was provided",
 			zap.String("limit", limit),
 			zap.String("cursor", cursor),
 		)
 	} else if isDurationLimit {
-		paramLimit, paramOldest, paramLatest, err = limitByExpression(limit, defaultConversationsExpressionLimit)
+		paramLimit, paramOldest, paramLatest, err = limitByExpression(limit)
 		if err != nil {
 			ch.logger.Debug("Invalid duration limit", zap.String("limit", limit), zap.Error(err))
 			return nil, err
