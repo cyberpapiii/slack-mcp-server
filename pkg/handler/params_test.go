@@ -39,7 +39,7 @@ func TestUnitSignpostFileParam(t *testing.T) {
 		signposts bool
 	}{
 		{"plain text message passes", map[string]any{"channel_id": "C1", "text": "hi"}, false},
-		{"legacy payload alias passes", map[string]any{"channel_id": "C1", "payload": "hi"}, false},
+		{"payload is not file-shaped", map[string]any{"channel_id": "C1", "payload": "hi"}, false},
 		{"blocks pass", map[string]any{"channel_id": "C1", "blocks": "[]"}, false},
 		{"unknown non-file param is left alone", map[string]any{"channel_id": "C1", "reply_broadcast": true}, false},
 		{"file_path", map[string]any{"channel_id": "C1", "file_path": "/tmp/a.png"}, true},
