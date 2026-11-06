@@ -2,11 +2,13 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/slack-go/slack"
@@ -68,13 +70,19 @@ func TestCanvasProviderUsesPublicCanvasAPIsTruthfully(t *testing.T) {
 	assert.Equal(t, []string{"S1"}, document.SectionIDs)
 	assert.Empty(t, document.Limitation)
 
-	fake.contentErr = ErrUserOAuthRequired
+	fake.contentErr = slack.SlackErrorResponse{Err: "not_allowed_token_type"}
 	document, err = service.ReadCanvas(context.Background(), CanvasReadRequest{CanvasID: "F123"})
 	require.NoError(t, err)
 	assert.False(t, document.FullContentAvailable)
 	assert.Empty(t, document.Content)
 	assert.Equal(t, "preview", document.Preview)
-	assert.Contains(t, document.Limitation, "requires user OAuth")
+	assert.Contains(t, document.Limitation, "not_allowed_token_type")
+
+	for _, failure := range []error{&slack.RateLimitedError{RetryAfter: time.Second}, errors.New("connection reset"), slack.SlackErrorResponse{Err: "canvas_not_found"}} {
+		fake.contentErr = failure
+		_, err = service.ReadCanvas(context.Background(), CanvasReadRequest{CanvasID: "F123"})
+		require.ErrorContains(t, err, failure.Error(), "only a token refusal falls back to the preview")
+	}
 	fake.contentErr = nil
 
 	fake.contentCalls = 0

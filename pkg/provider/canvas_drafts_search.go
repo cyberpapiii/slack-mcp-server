@@ -111,11 +111,16 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 			format = "markdown"
 		}
 		content, contentErr := p.client.GetCanvasContentContext(ctx, request.CanvasID, format)
-		if contentErr != nil {
+		switch {
+		case contentErr == nil:
+			document.Content, document.ContentFormat, document.FullContentAvailable = content, format, true
+		case canvasContentRefused(contentErr):
 			document.Limitation = "full canvas content unavailable (" + contentErr.Error() + "); preview and matching section IDs only"
-			break
+		default:
+			return CanvasDocument{}, wrapSlack("canvas content read", contentErr)
 		}
-		document.Content, document.ContentFormat, document.FullContentAvailable = content, format, true
+	default:
+		return CanvasDocument{}, fmt.Errorf("unknown canvas content format %q", format)
 	}
 	if len(request.SectionTypes) != 0 || request.ContainsText != "" {
 		sections, lookupErr := p.client.LookupCanvasSectionsContext(ctx, slack.LookupCanvasSectionsParams{
@@ -131,6 +136,22 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 		}
 	}
 	return document, nil
+}
+
+// canvasContentRefused reports whether canvases.getContent refused the token
+// itself: a browser-session token, or a user token without the scope. The
+// preview still answers then; any other failure is the read failing.
+func canvasContentRefused(err error) bool {
+	var slackErr slack.SlackErrorResponse
+	if !errors.As(err, &slackErr) {
+		return false
+	}
+	switch slackErr.Err {
+	case "not_allowed_token_type", "missing_scope":
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *CanvasProvider) UpdateCanvas(ctx context.Context, request CanvasUpdateRequest) error {
