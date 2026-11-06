@@ -102,3 +102,33 @@ func TestValidateNamesEveryUnknownTool(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid_tool, channel_list")
 	assert.NotContains(t, err.Error(), "invalid tool name(s): channels_list")
 }
+
+type creds struct{ user, oauth, browser bool }
+
+func (c creds) UserToken() bool      { return c.user }
+func (c creds) UserOAuth() bool      { return c.oauth }
+func (c creds) BrowserSession() bool { return c.browser }
+
+func TestRequirementTable(t *testing.T) {
+	bot := creds{}
+	assert.True(t, AnyToken.Met(bot))
+	for _, r := range []Requirement{UserToken, UserOAuth, BrowserSession} {
+		assert.False(t, r.Met(bot), "%s", r)
+		assert.Equal(t, r.String()+"_required", r.Missing())
+	}
+	assert.True(t, UserOAuth.Met(creds{oauth: true}))
+	assert.Empty(t, AnyToken.Missing())
+	assert.True(t, BrowserSession.Degrades())
+	assert.False(t, UserOAuth.Degrades())
+}
+
+func TestCacheReadyNames(t *testing.T) {
+	assert.Equal(t, []string{
+		"activity_mark_read",
+		"activity_unreads",
+		"channels_list",
+		"channels_me",
+		"channels_starred",
+		"conversations_unreads",
+	}, CacheReadyNames())
+}

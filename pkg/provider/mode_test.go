@@ -15,7 +15,7 @@ func TestUnitCredentialModeForPrimaryToken(t *testing.T) {
 	assert.Equal(t, ModeBrowser, credentialModeFor("xoxc-1", true))
 }
 
-func TestUnitCredentialModeSatisfies(t *testing.T) {
+func TestUnitCredentialModeMeetsRequirements(t *testing.T) {
 	for mode, want := range map[CredentialMode][]capability.Requirement{
 		ModeBot:              {capability.AnyToken},
 		ModeUserOAuth:        {capability.AnyToken, capability.UserToken, capability.UserOAuth},
@@ -25,7 +25,7 @@ func TestUnitCredentialModeSatisfies(t *testing.T) {
 	} {
 		var got []capability.Requirement
 		for _, requirement := range []capability.Requirement{capability.AnyToken, capability.UserToken, capability.UserOAuth, capability.BrowserSession} {
-			if mode.satisfies(requirement) {
+			if requirement.Met(mode) {
 				got = append(got, requirement)
 			}
 		}

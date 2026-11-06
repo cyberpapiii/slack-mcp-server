@@ -107,6 +107,46 @@ const (
 	BrowserSession             // a configured Slack browser session (xoxc/xoxd)
 )
 
+// Credentials is what the running server holds, as a Requirement reads it.
+type Credentials interface {
+	UserToken() bool      // any token that is not a bot token
+	UserOAuth() bool      // a user OAuth token
+	BrowserSession() bool // a configured browser session, healthy or not
+}
+
+type requirement struct {
+	name string
+	// missing is the availability state and error code when the running
+	// credentials cannot meet the requirement.
+	missing string
+	// degrades says a requirement met at startup can still fail at run time:
+	// a browser session can die, and its tools answer missing until it
+	// recovers.
+	degrades bool
+	met      func(Credentials) bool
+}
+
+var requirements = [...]requirement{
+	AnyToken:       {name: "any_token", met: func(Credentials) bool { return true }},
+	UserToken:      {name: "user_token", missing: "user_token_required", met: Credentials.UserToken},
+	UserOAuth:      {name: "user_oauth", missing: "user_oauth_required", met: Credentials.UserOAuth},
+	BrowserSession: {name: "browser_session", missing: "browser_session_required", degrades: true, met: Credentials.BrowserSession},
+}
+
+func (r Requirement) String() string { return requirements[r].name }
+
+// Met reports whether creds meet the requirement. A configured browser
+// session meets BrowserSession even while degraded.
+func (r Requirement) Met(creds Credentials) bool { return requirements[r].met(creds) }
+
+// Missing is the availability state and error code of a tool whose
+// requirement the credentials do not meet; "" for AnyToken.
+func (r Requirement) Missing() string { return requirements[r].missing }
+
+// Degrades reports whether a met requirement can fail at run time, so its
+// tools need a run-time gate.
+func (r Requirement) Degrades() bool { return requirements[r].degrades }
+
 type Tool struct {
 	Name       string
 	Title      string // MCP title annotation
@@ -234,6 +274,12 @@ func DailyPowerNames() []string {
 // BrowserNames lists the tools that need a Slack browser session, sorted.
 func BrowserNames() []string {
 	return names(func(t Tool) bool { return t.Requires == BrowserSession })
+}
+
+// CacheReadyNames lists the tools registered after the users and channels
+// caches warm, sorted.
+func CacheReadyNames() []string {
+	return names(func(t Tool) bool { return t.CacheReady })
 }
 
 func names(include func(Tool) bool) []string {

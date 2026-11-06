@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/cachedir"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/keychain"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
@@ -378,9 +377,10 @@ func (ap *ApiProvider) WorkspaceURL() string {
 	return ap.client.authResponse.URL
 }
 
-// Satisfies reports whether the running credentials meet a tool's requirement.
-// A configured browser session satisfies BrowserSession even while degraded:
-// its tools stay registered and say why they fail until the session recovers.
-func (ap *ApiProvider) Satisfies(requirement capability.Requirement) bool {
-	return ap.Mode().satisfies(requirement)
-}
+// UserToken, UserOAuth and BrowserSession are the running credentials as a
+// tool's capability.Requirement reads them. A configured browser session
+// counts even while degraded: its tools stay registered and say why they fail
+// until the session recovers.
+func (ap *ApiProvider) UserToken() bool      { return ap.Mode().UserToken() }
+func (ap *ApiProvider) UserOAuth() bool      { return ap.Mode().UserOAuth() }
+func (ap *ApiProvider) BrowserSession() bool { return ap.Mode().BrowserSession() }
