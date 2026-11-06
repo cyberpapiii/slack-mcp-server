@@ -24,7 +24,6 @@ const (
 )
 
 var (
-	userIDPattern    = regexp.MustCompile(`^[UW][A-Z0-9]+$`)
 	emojiNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_+\-]+$`)
 )
 
@@ -295,7 +294,7 @@ func normalizeEmoji(value string) (string, error) {
 }
 
 func validateUserID(userID string) error {
-	if !userIDPattern.MatchString(userID) {
+	if provider.ClassifyID(userID) != provider.IDUser {
 		return invalidArguments("user_id must be a Slack user ID starting with U or W")
 	}
 	return nil

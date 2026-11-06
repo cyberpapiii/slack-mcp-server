@@ -293,7 +293,7 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 		}
 		newMembers = append(members, currentUserID)
 		resultMessage = "Successfully joined the user group."
-	case membershipLeave:
+	default: // membershipLeave
 		if !isMember {
 			data := UsergroupMeActionResult{Message: "You are not a member of this user group.", GroupID: usergroupID}
 			return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
@@ -301,8 +301,6 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 		newMembers = append([]string(nil), members[:memberIndex]...)
 		newMembers = append(newMembers, members[memberIndex+1:]...)
 		resultMessage = "Successfully left the user group."
-	default:
-		return nil, errors.New("invalid user group membership action")
 	}
 
 	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, strings.Join(newMembers, ","))

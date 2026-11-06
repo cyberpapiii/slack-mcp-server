@@ -32,7 +32,7 @@ func TestUnitClassifyID(t *testing.T) {
 		"Sa0123ABC": IDReminder,
 		"Uwe":       IDUnknown,
 		"c0123abc":  IDUnknown,
-		"U1":        IDUnknown,
+		"U1":        IDUser,
 		"#general":  IDUnknown,
 		"":          IDUnknown,
 		"Sa":        IDUnknown,

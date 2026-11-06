@@ -38,7 +38,7 @@ func ClassifyID(id string) IDKind {
 		}
 		return IDUnknown
 	}
-	if len(id) < 3 || !isIDBody(id[1:]) {
+	if len(id) < 2 || !isIDBody(id[1:]) {
 		return IDUnknown
 	}
 	switch id[0] {
