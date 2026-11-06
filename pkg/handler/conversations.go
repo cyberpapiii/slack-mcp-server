@@ -104,10 +104,6 @@ type addReactionParams struct {
 	emoji     string
 }
 
-type filesGetParams struct {
-	fileID string
-}
-
 type filesListParams struct {
 	channel string
 	user    string
