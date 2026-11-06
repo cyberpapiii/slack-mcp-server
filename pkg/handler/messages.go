@@ -15,21 +15,22 @@ import (
 	"go.uber.org/zap"
 )
 
+// Message is one message row, and the detail=full CSV shape.
 type Message struct {
-	MsgID         string `json:"message_id"`
-	UserID        string `json:"user_id"`
-	UserName      string `json:"user_name"`
-	RealName      string `json:"real_name"`
-	Channel       string `json:"channel"`
-	ThreadTs      string `json:"thread_ts,omitempty"`
-	Text          string `json:"text"`
-	Time          string `json:"time"`
-	Permalink     string `json:"permalink,omitempty"`
-	Reactions     string `json:"reactions,omitempty"`
-	BotName       string `json:"bot_name,omitempty"`
-	FileCount     int    `json:"file_count,omitempty"`
-	AttachmentIDs string `json:"attachment_ids,omitempty"`
-	HasMedia      bool   `json:"has_media,omitempty"`
+	MsgID         string `csv:"MsgID" json:"message_id"`
+	UserID        string `csv:"UserID" json:"user_id"`
+	UserName      string `csv:"UserName" json:"user_name"`
+	RealName      string `csv:"RealName" json:"real_name"`
+	Channel       string `csv:"Channel" json:"channel"`
+	ThreadTs      string `csv:"ThreadTs" json:"thread_ts,omitempty"`
+	Text          string `csv:"Text" json:"text"`
+	Time          string `csv:"Time" json:"time"`
+	Permalink     string `csv:"Permalink" json:"permalink,omitempty"`
+	Reactions     string `csv:"Reactions" json:"reactions,omitempty"`
+	BotName       string `csv:"BotName" json:"bot_name,omitempty"`
+	FileCount     int    `csv:"FileCount" json:"file_count,omitempty"`
+	AttachmentIDs string `csv:"AttachmentIDs" json:"attachment_ids,omitempty"`
+	HasMedia      bool   `csv:"HasMedia" json:"has_media,omitempty"`
 }
 
 // CompactMessage is the default agent-oriented CSV shape: readable columns plus the
