@@ -7,6 +7,7 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -85,11 +86,24 @@ func (s Settings) outputMode(request mcp.CallToolRequest) (text.OutputMode, erro
 	return text.ModeStandard, invalidArguments(fmt.Sprintf("invalid detail value %q: must be \"standard\" or \"full\"", detail))
 }
 
+// requireChannel checks a write against the tool's channel allow/block list.
+// With a list configured the target must be a conversation ID: Slack also
+// accepts channel names and user IDs, which the list could not match.
 func (s Settings) requireChannel(tool, channel string) error {
+	spec, _ := capability.Lookup(tool)
+	if spec.ChannelAllowlist == "" {
+		return nil
+	}
+	if s.allowlists[spec.ChannelAllowlist].channels != nil {
+		switch provider.ClassifyID(channel) {
+		case provider.IDChannel, provider.IDGroup, provider.IDDirectMessage:
+		default:
+			return invalidArguments(fmt.Sprintf("%s restricts %s to listed channels, so pass a channel ID (C…, G… or D…), not %q", spec.ChannelAllowlist, tool, channel))
+		}
+	}
 	if s.channelAllowed(tool, channel) {
 		return nil
 	}
-	spec, _ := capability.Lookup(tool)
 	return permissionDenied(fmt.Sprintf("%s is not allowed for channel %q by %s", tool, channel, spec.ChannelAllowlist))
 }
 

@@ -64,7 +64,8 @@ func (w *stallWatch) stop() {
 	w.cancel()
 }
 
-// progressBody restarts the stall timer on every read. The response body's
+// progressBody restarts the stall timer when a read starts and when it
+// returns bytes. The response body's
 // Close ends the call.
 type progressBody struct {
 	io.ReadCloser
@@ -76,6 +77,9 @@ type progressBody struct {
 func (b *progressBody) Read(p []byte) (int, error) {
 	b.watch.timer.Reset(b.stall)
 	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.watch.timer.Reset(b.stall)
+	}
 	if err != nil && err != io.EOF && b.watch.stalled.Load() {
 		return n, stallError{}
 	}

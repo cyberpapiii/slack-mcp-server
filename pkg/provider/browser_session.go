@@ -262,7 +262,7 @@ func (ap *ApiProvider) startBrowserReprobe(client *MCPSlackClient, account, xoxc
 		if err != nil {
 			return slackcreds.Value{}, nil, nil, err
 		}
-		httpClient, identity, err := authTest(browserAuth, client.logger)
+		httpClient, identity, err := authTest(ctx, browserAuth, client.logger)
 		return browserAuth, identity, httpClient, err
 	}
 	go client.runBrowserReprobe(ap.ctx, BrowserReprobeInterval)
@@ -306,7 +306,7 @@ func (c *MCPSlackClient) attachBrowser(xoxcToken, xoxdToken string) {
 			httpClient      *http.Client
 			browserIdentity *slack.AuthTestResponse
 		)
-		httpClient, browserIdentity, err = authTest(browserAuth, c.logger)
+		httpClient, browserIdentity, err = authTest(context.Background(), browserAuth, c.logger)
 		if err == nil {
 			err = c.attachBrowserSession(browserAuth, browserIdentity, httpClient)
 		}

@@ -86,3 +86,21 @@ func TestEachAllowlistGovernsOnlyItsTools(t *testing.T) {
 	assert.NoError(t, settings.requireChannel(capability.ReactionsAdd, "C9"))
 	assert.NoError(t, settings.requireChannel(capability.ConversationsHistory, "C9"))
 }
+
+// Slack accepts channel names and user IDs where a channel ID goes, and a
+// block list keyed by IDs cannot match them.
+func TestAListedToolRequiresAConversationID(t *testing.T) {
+	settings, err := settingsWith(map[string]string{capability.AddMessageAllowlist: "!C1"})
+	require.NoError(t, err)
+	for _, ref := range []string{"general", "U789", "C1x-bad!"} {
+		var typed *ToolError
+		require.ErrorAs(t, settings.requireChannel(capability.ConversationsAddMessage, ref), &typed, ref)
+		assert.Equal(t, "invalid_arguments", typed.Code, ref)
+	}
+	assert.NoError(t, settings.requireChannel(capability.ConversationsAddMessage, "D456"))
+	assert.Error(t, settings.requireChannel(capability.ConversationsAddMessage, "C1"))
+
+	open, err := settingsWith(nil)
+	require.NoError(t, err)
+	assert.NoError(t, open.requireChannel(capability.ConversationsAddMessage, "general"), "no list, no restriction")
+}

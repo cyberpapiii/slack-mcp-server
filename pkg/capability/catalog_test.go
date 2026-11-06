@@ -133,38 +133,38 @@ func TestCacheReadyNames(t *testing.T) {
 	}, CacheReadyNames())
 }
 
-func TestResolve(t *testing.T) {
+func TestResolveToolList(t *testing.T) {
 	t.Run("explicit list overrides preset", func(t *testing.T) {
-		tools, err := Resolve("channels_list, users_search", PresetDailyPower)
+		tools, err := resolve("channels_list, users_search", PresetDailyPower)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"channels_list", "users_search"}, tools)
 	})
 
 	t.Run("daily power is default", func(t *testing.T) {
-		tools, err := Resolve("", "")
+		tools, err := resolve("", "")
 		require.NoError(t, err)
 		assert.Equal(t, DailyPowerNames(), tools)
 	})
 
 	t.Run("legacy preset", func(t *testing.T) {
-		tools, err := Resolve("", PresetLegacyFull)
+		tools, err := resolve("", PresetLegacyFull)
 		require.NoError(t, err)
 		assert.Equal(t, Names(), tools)
 	})
 
 	t.Run("whitespace-only explicit list is an error", func(t *testing.T) {
-		_, err := Resolve("  , , ", PresetDailyPower)
+		_, err := resolve("  , , ", PresetDailyPower)
 		assert.ErrorContains(t, err, "no tool names")
 	})
 
 	t.Run("blank explicit list still uses the default preset", func(t *testing.T) {
-		tools, err := Resolve("   ", "")
+		tools, err := resolve("   ", "")
 		require.NoError(t, err)
 		assert.Equal(t, DailyPowerNames(), tools)
 	})
 
 	t.Run("unknown names are refused", func(t *testing.T) {
-		_, err := Resolve("channels_list,no_such_tool", "")
+		_, err := resolve("channels_list,no_such_tool", "")
 		assert.ErrorContains(t, err, "no_such_tool")
 	})
 }

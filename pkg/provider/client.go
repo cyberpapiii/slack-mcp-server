@@ -84,7 +84,7 @@ func demoAuthResponse() *slack.AuthTestResponse {
 	}
 }
 
-func authTest(authProvider slackcreds.Value, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
+func authTest(ctx context.Context, authProvider slackcreds.Value, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
 	httpClient, err := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 	if err != nil {
 		return nil, nil, err
@@ -93,7 +93,7 @@ func authTest(authProvider slackcreds.Value, logger *zap.Logger) (*http.Client, 
 		slack.OptionHTTPClient(httpClient),
 		slack.OptionAPIURL(slackhttp.SlackAPIBase()),
 	)
-	authResp, err := slackClient.AuthTest()
+	authResp, err := slackClient.AuthTestContext(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -115,7 +115,7 @@ func (c *MCPSlackClient) connect(authProvider slackcreds.Value, mode CredentialM
 		httpClient, err = transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 		authResp = demoAuthResponse()
 	} else {
-		httpClient, authResp, err = authTest(authProvider, logger)
+		httpClient, authResp, err = authTest(context.Background(), authProvider, logger)
 	}
 	if err != nil {
 		return err

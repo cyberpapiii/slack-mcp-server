@@ -31,8 +31,8 @@ const (
 )
 
 type ApiProvider struct {
-	// oauthLoadErr is why managed OAuth failed at startup when the server
-	// continued on the browser session instead. OAuth-only tools are absent.
+	// oauthLoadErr is why the managed OAuth login failed to load when the
+	// server started anyway, on a static token or the browser session.
 	oauthLoadErr error
 	// oauthScopes are the scopes the managed OAuth login was granted, as
 	// loaded at startup; nil without managed OAuth.
@@ -174,7 +174,6 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
-		ap.oauthLoadErr = oauthLoadErr
 		return ap, nil
 	}
 

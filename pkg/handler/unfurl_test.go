@@ -120,3 +120,24 @@ func TestUnitUnfurlOptionsCheckBlockLinks(t *testing.T) {
 	assert.Len(t, settings.unfurlOptions("", blocks, zap.NewNop()), 2, "a non-allowlisted block link disables unfurling")
 	assert.Len(t, settings.unfurlOptions("see https://example.com/a", nil, zap.NewNop()), 1, "an allowlisted text link enables it")
 }
+
+// Links an earlier version of the check let through: a path-less link in
+// blocks, an allowed link hiding a later one in the same block JSON, and
+// Slack's <url|label> markup.
+func TestUnitUnfurlOptionsRefuseHiddenLinks(t *testing.T) {
+	settings := Settings{unfurling: parseUnfurling("good.com")}
+	section := func(text string) []slack.Block {
+		return []slack.Block{slack.NewSectionBlock(slack.NewTextBlockObject(slack.MarkdownType, text, false, false), nil, nil)}
+	}
+	actions := []slack.Block{slack.NewActionBlock("a", slack.NewButtonBlockElement("b", "v", slack.NewTextBlockObject(slack.PlainTextType, "go", false, false)).WithURL("https://evil.com"))}
+
+	for name, blocks := range map[string][]slack.Block{
+		"path-less button url": actions,
+		"allowed then denied":  append(section("https://good.com/a"), section("https://evil.com/b")...),
+		"slack link markup":    section("<https://evil.com|click>"),
+	} {
+		assert.Len(t, settings.unfurlOptions("", blocks, zap.NewNop()), 2, name)
+	}
+	assert.Len(t, settings.unfurlOptions("<https://evil.com|click>", nil, zap.NewNop()), 2, "markup in text")
+	assert.Len(t, settings.unfurlOptions("<https://good.com/x|ok>", nil, zap.NewNop()), 1, "allowed markup in text")
+}

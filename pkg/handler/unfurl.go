@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	unfurlURLRegex    = regexp.MustCompile(`https?://[^\s]+`)
+	unfurlURLRegex    = regexp.MustCompile(`https?://[^\s"<>|)\]\\]+`)
 	unfurlDomainRegex = regexp.MustCompile(`\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}\b`)
 )
 
@@ -44,23 +44,51 @@ func parseUnfurling(value string) unfurlPolicy {
 	return policy
 }
 
-// unfurls reports whether a posted message may unfurl its links: with a
-// domain allowlist, only when every URL and bare domain in the text is on it.
 // unfurlOptions turns links on or off for a message under the unfurling
-// policy. Block content is checked along with the text, since links in blocks
-// unfurl too.
+// policy. Every string in the blocks is checked along with the text, since
+// links in blocks unfurl too.
 func (s Settings) unfurlOptions(text string, blocks []slack.Block, logger *zap.Logger) []slack.MsgOption {
 	if len(blocks) > 0 {
-		if encoded, err := json.Marshal(blocks); err == nil {
-			text += " " + string(encoded)
+		encoded, err := json.Marshal(blocks)
+		var decoded any
+		if err != nil || json.Unmarshal(encoded, &decoded) != nil {
+			return disabledUnfurls()
 		}
+		text = strings.Join(append([]string{text}, jsonStrings(decoded)...), " ")
 	}
 	if s.unfurls(text, logger) {
 		return []slack.MsgOption{slack.MsgOptionEnableLinkUnfurl()}
 	}
+	return disabledUnfurls()
+}
+
+func disabledUnfurls() []slack.MsgOption {
 	return []slack.MsgOption{slack.MsgOptionDisableLinkUnfurl(), slack.MsgOptionDisableMediaUnfurl()}
 }
 
+func jsonStrings(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		var out []string
+		for _, item := range v {
+			out = append(out, jsonStrings(item)...)
+		}
+		return out
+	case map[string]any:
+		var out []string
+		for _, item := range v {
+			out = append(out, jsonStrings(item)...)
+		}
+		return out
+	}
+	return nil
+}
+
+// unfurls reports whether a posted message may unfurl its links: with a
+// domain allowlist, only when every URL and bare domain in the text is on it.
+// A URL that does not parse to a host is refused.
 func (s Settings) unfurls(text string, logger *zap.Logger) bool {
 	if s.unfurling.all {
 		return true
@@ -79,14 +107,10 @@ func (s Settings) unfurls(text string, logger *zap.Logger) bool {
 
 	for _, rawURL := range unfurlURLRegex.FindAllString(text, -1) {
 		u, err := url.Parse(rawURL)
-		if err != nil || u.Host == "" {
-			continue
+		if err != nil || u.Hostname() == "" {
+			return refuse(rawURL)
 		}
-		host := strings.ToLower(u.Host)
-		if idx := strings.Index(host, ":"); idx != -1 {
-			host = host[:idx]
-		}
-		host = strings.TrimPrefix(host, "www.")
+		host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
 		if _, ok := allowed[host]; !ok {
 			return refuse(host)
 		}

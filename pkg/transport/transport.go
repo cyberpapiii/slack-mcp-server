@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -50,7 +51,7 @@ func (t *userAgentTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 	resp, err := t.roundTripper.RoundTrip(clonedReq)
 	if err != nil {
-		t.logger.Error("Request failed", zap.Error(err))
+		t.logger.Debug("Request failed", zap.Error(err))
 	}
 	return resp, err
 }
@@ -81,7 +82,18 @@ func newUTLSTransport(tlsConfig *utls.Config, clientHelloID utls.ClientHelloID, 
 	}
 }
 
+// RoundTrip makes one call on its own connection. The connection is closed
+// when the request context ends, since the HTTP/1.1 path reads and writes a
+// raw connection that would otherwise ignore cancellation.
 func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.roundTrip(req)
+	if err != nil && req.Body != nil {
+		_ = req.Body.Close()
+	}
+	return resp, err
+}
+
+func (t *uTLSTransport) roundTrip(req *http.Request) (*http.Response, error) {
 	targetAddr := req.URL.Host
 	if req.URL.Port() == "" {
 		if req.URL.Scheme == "https" {
@@ -91,16 +103,30 @@ func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	conn, err := t.dialer.DialContext(req.Context(), "tcp", targetAddr)
+	ctx := req.Context()
+	conn, err := t.dialer.DialContext(ctx, "tcp", targetAddr)
 	if err != nil {
 		return nil, fmt.Errorf("dial error: %w", err)
 	}
+	raw := conn
+	stopWatch := context.AfterFunc(ctx, func() { raw.Close() })
+	fail := func(err error) (*http.Response, error) {
+		stopWatch()
+		raw.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("%w (%w)", ctxErr, err)
+		}
+		return nil, err
+	}
+	closeConn := func() error {
+		stopWatch()
+		return raw.Close()
+	}
 
 	if req.URL.Scheme == "https" {
-		tlsConn, err := t.establishTLS(conn, req.URL.Hostname())
+		tlsConn, err := t.establishTLS(ctx, conn, req.URL.Hostname())
 		if err != nil {
-			conn.Close()
-			return nil, fmt.Errorf("TLS error: %w", err)
+			return fail(fmt.Errorf("TLS error: %w", err))
 		}
 		conn = tlsConn
 
@@ -109,42 +135,40 @@ func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 			t.logger.Debug("Negotiated protocol", zap.String("protocol", alpn))
 
-			switch alpn {
-			case "h2":
+			if alpn == "h2" {
 				clientConn, err := t.http2Transport.NewClientConn(conn)
 				if err != nil {
-					conn.Close()
-					return nil, fmt.Errorf("HTTP/2 client connection error: %w", err)
+					return fail(fmt.Errorf("HTTP/2 client connection error: %w", err))
 				}
 				t.logger.Debug("Using HTTP/2 transport for request", zap.String("request", req.URL.String()))
 				resp, err := clientConn.RoundTrip(req)
 				if err != nil {
 					clientConn.Close()
-					return nil, err
+					return fail(err)
 				}
-				resp.Body = &closeAfterBody{ReadCloser: resp.Body, close: clientConn.Close}
+				resp.Body = &closeAfterBody{ReadCloser: resp.Body, close: func() error {
+					err := clientConn.Close()
+					_ = closeConn()
+					return err
+				}}
 				return resp, nil
-			default:
-				t.logger.Debug("Using HTTP/1.1 transport for request", zap.String("request", req.URL.String()))
 			}
+			t.logger.Debug("Using HTTP/1.1 transport for request", zap.String("request", req.URL.String()))
 		}
 	}
 
-	err = req.Write(conn)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("request write error: %w", err)
+	if err := req.Write(conn); err != nil {
+		return fail(fmt.Errorf("request write error: %w", err))
 	}
 
 	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 	if err != nil {
-		conn.Close()
-		return nil, err
+		return fail(err)
 	}
 
 	// Always close the one-shot dial when the body is drained; keep-alive
 	// reuse is not implemented for CUSTOM_TLS HTTP/1.1.
-	resp.Body = &closeAfterBody{ReadCloser: resp.Body, close: conn.Close}
+	resp.Body = &closeAfterBody{ReadCloser: resp.Body, close: closeConn}
 	return resp, nil
 }
 
@@ -161,7 +185,7 @@ func (c *closeAfterBody) Close() error {
 	return err
 }
 
-func (t *uTLSTransport) establishTLS(conn net.Conn, serverName string) (net.Conn, error) {
+func (t *uTLSTransport) establishTLS(ctx context.Context, conn net.Conn, serverName string) (net.Conn, error) {
 	config := t.tlsConfig.Clone()
 	config.ServerName = serverName
 
@@ -170,9 +194,9 @@ func (t *uTLSTransport) establishTLS(conn net.Conn, serverName string) (net.Conn
 
 	tlsConn := utls.UClient(conn, config, t.clientHelloID)
 
-	err := tlsConn.Handshake()
+	err := tlsConn.HandshakeContext(ctx)
 	if err != nil {
-		t.logger.Error("uTLS handshake failed", zap.Error(err))
+		t.logger.Debug("uTLS handshake failed", zap.Error(err))
 		return nil, err
 	}
 

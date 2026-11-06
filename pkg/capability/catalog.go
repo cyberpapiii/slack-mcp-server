@@ -352,9 +352,6 @@ func PresetNames() []string {
 	return []string{PresetDailyPower, PresetLegacyFull}
 }
 
-// Resolve is the enabled-tools list the server serves and slack-mcp-auth
-// requests scopes for: explicit, a comma-separated list of tool names, when it
-// names any, else preset, else DefaultPreset. Every name must be a tool.
 // The environment variables that select the served tools.
 const (
 	EnvEnabledTools = "SLACK_MCP_ENABLED_TOOLS"
@@ -372,10 +369,13 @@ func Select(flagTools, flagPreset string, getenv func(string) string) ([]string,
 	if preset == "" {
 		preset = getenv(EnvToolPreset)
 	}
-	return Resolve(tools, preset)
+	return resolve(tools, preset)
 }
 
-func Resolve(explicit, preset string) ([]string, error) {
+// resolve is the enabled-tools list: explicit, a comma-separated list of tool
+// names, when it names any, else preset, else DefaultPreset. Every name must
+// be a tool.
+func resolve(explicit, preset string) ([]string, error) {
 	if strings.TrimSpace(explicit) == "" {
 		if preset == "" {
 			preset = DefaultPreset
