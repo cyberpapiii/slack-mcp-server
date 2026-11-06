@@ -15,6 +15,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func (f *refreshFlight) inFlight() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.call != nil
+}
+
 func TestUnitRefreshFlightWaitersShareLeaderError(t *testing.T) {
 	var flight refreshFlight
 	boom := errors.New("boom")

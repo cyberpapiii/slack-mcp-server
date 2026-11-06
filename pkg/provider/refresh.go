@@ -37,12 +37,6 @@ func (f *refreshFlight) finish(call *refreshCall, err error) {
 	f.mu.Unlock()
 }
 
-func (f *refreshFlight) inFlight() bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.call != nil
-}
-
 // do runs fetch as the leader, or waits for the in-flight leader and returns
 // its error. A failed leader fails its waiters too; the callers' own retry
 // policy decides whether to try again, so one Slack outage costs one fetch.
