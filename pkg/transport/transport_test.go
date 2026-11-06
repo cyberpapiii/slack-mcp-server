@@ -3,10 +3,10 @@ package transport
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,14 +61,26 @@ func TestDetectBrowserFromUserAgent(t *testing.T) {
 	}
 }
 
+type errCloser struct {
+	io.Reader
+	closed bool
+	err    error
+}
+
+func (e *errCloser) Close() error { e.closed = true; return e.err }
+
 func TestCloseAfterBodyClosesBothAndKeepsFirstError(t *testing.T) {
-	closed := false
-	body := &closeAfterBody{
-		ReadCloser: io.NopCloser(strings.NewReader("")),
-		close:      func() error { closed = true; return nil },
-	}
-	require.NoError(t, body.Close())
-	assert.True(t, closed)
+	bodyErr, connErr := errors.New("body"), errors.New("conn")
+	body := &errCloser{Reader: strings.NewReader(""), err: bodyErr}
+	connClosed := false
+	wrapped := &closeAfterBody{ReadCloser: body, close: func() error { connClosed = true; return connErr }}
+
+	assert.ErrorIs(t, wrapped.Close(), bodyErr)
+	assert.True(t, body.closed)
+	assert.True(t, connClosed, "the connection closes even when the body close fails")
+
+	body.err = nil
+	assert.ErrorIs(t, wrapped.Close(), connErr, "a connection close error surfaces when the body closed cleanly")
 }
 
 func TestUTLSTransportHTTP1AgainstTLSServer(t *testing.T) {
@@ -117,81 +129,111 @@ func clearTransportEnv(t *testing.T) {
 	}
 }
 
-func unwrapUA(t *testing.T, c *http.Client) *userAgentTransport {
+type seenRequest struct {
+	proto, userAgent, cookie, host string
+}
+
+// recordingHandler answers every request and keeps what it saw.
+func recordingHandler(seen *seenRequest) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		*seen = seenRequest{proto: r.Proto, userAgent: r.UserAgent(), host: r.URL.Host}
+		if c, err := r.Cookie("d"); err == nil {
+			seen.cookie = c.Value
+		}
+	}
+}
+
+func get(t *testing.T, c *http.Client, url string) error {
 	t.Helper()
-	ua, ok := c.Transport.(*userAgentTransport)
-	require.True(t, ok, "outermost transport must be userAgentTransport, got %T", c.Transport)
-	return ua
+	resp, err := c.Get(url)
+	if err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.Body.Close()
 }
 
 func TestProvideHTTPClientStandardTransportDefaults(t *testing.T) {
 	clearTransportEnv(t)
+	var seen seenRequest
+	plain := httptest.NewServer(recordingHandler(&seen))
+	defer plain.Close()
+	selfSigned := httptest.NewTLSServer(recordingHandler(&seen))
+	defer selfSigned.Close()
+
 	c, err := ProvideHTTPClient([]*http.Cookie{{Name: "d", Value: "v"}}, zap.NewNop())
 	require.NoError(t, err)
-	ua := unwrapUA(t, c)
-	assert.Equal(t, defaultUA, ua.userAgent)
-	assert.Len(t, ua.cookies, 1)
-	inner, ok := ua.roundTripper.(*http.Transport)
-	require.True(t, ok, "standard path wraps *http.Transport, got %T", ua.roundTripper)
-	assert.False(t, inner.TLSClientConfig.InsecureSkipVerify)
-	assert.True(t, inner.ForceAttemptHTTP2)
+
+	require.NoError(t, get(t, c, plain.URL))
+	assert.Equal(t, defaultUA, seen.userAgent)
+	assert.Equal(t, "v", seen.cookie)
+
+	var unknownAuthority x509.UnknownAuthorityError
+	assert.ErrorAs(t, get(t, c, selfSigned.URL), &unknownAuthority, "certificates are verified by default")
 }
 
 func TestProvideHTTPClientHonorsUserAgentInsecureAndCustomTLS(t *testing.T) {
 	clearTransportEnv(t)
-	t.Setenv("SLACK_MCP_USER_AGENT", "Mozilla/5.0 Gecko/20100101 Firefox/121.0")
+	firefox := "Mozilla/5.0 Gecko/20100101 Firefox/121.0"
+	t.Setenv("SLACK_MCP_USER_AGENT", firefox)
 	t.Setenv("SLACK_MCP_SERVER_CA_INSECURE", "true")
 	t.Setenv("SLACK_MCP_CUSTOM_TLS", "1")
+	var seen seenRequest
+	selfSigned := httptest.NewTLSServer(recordingHandler(&seen))
+	defer selfSigned.Close()
+
 	c, err := ProvideHTTPClient(nil, zap.NewNop())
 	require.NoError(t, err)
-	ua := unwrapUA(t, c)
-	assert.Equal(t, "Mozilla/5.0 Gecko/20100101 Firefox/121.0", ua.userAgent)
-	inner, ok := ua.roundTripper.(*uTLSTransport)
-	require.True(t, ok, "custom TLS path wraps *uTLSTransport, got %T", ua.roundTripper)
-	assert.Equal(t, utls.HelloFirefox_Auto, inner.clientHelloID)
-	assert.True(t, inner.tlsConfig.InsecureSkipVerify)
+
+	require.NoError(t, get(t, c, selfSigned.URL), "insecure mode skips verification on the custom TLS path")
+	assert.Equal(t, firefox, seen.userAgent)
 }
 
-func TestProvideHTTPClientProxyAndServerCA(t *testing.T) {
+func TestProvideHTTPClientUsesTheProxy(t *testing.T) {
 	clearTransportEnv(t)
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	var seen seenRequest
+	proxy := httptest.NewServer(recordingHandler(&seen))
+	defer proxy.Close()
+	t.Setenv("SLACK_MCP_PROXY", proxy.URL)
+
+	c, err := ProvideHTTPClient(nil, zap.NewNop())
+	require.NoError(t, err)
+
+	require.NoError(t, get(t, c, "http://slack.invalid/api/auth.test"))
+	assert.Equal(t, "slack.invalid", seen.host, "the proxy receives the request for the target host")
+}
+
+func TestProvideHTTPClientTrustsTheServerCA(t *testing.T) {
+	clearTransportEnv(t)
+	var seen seenRequest
+	srv := httptest.NewUnstartedServer(recordingHandler(&seen))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
 	defer srv.Close()
-	pem := filepath.Join(t.TempDir(), "ca.pem")
-	require.NoError(t, os.WriteFile(pem, pemEncode(srv.Certificate().Raw), 0o600))
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600))
+	t.Setenv("SLACK_MCP_SERVER_CA", ca)
 
-	t.Setenv("SLACK_MCP_PROXY", "http://proxy.local:3128")
-	t.Setenv("SLACK_MCP_SERVER_CA", pem)
 	c, err := ProvideHTTPClient(nil, zap.NewNop())
 	require.NoError(t, err)
-	inner, ok := unwrapUA(t, c).roundTripper.(*http.Transport)
-	require.True(t, ok)
-	u, err := inner.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "slack.com"}})
-	require.NoError(t, err)
-	assert.Equal(t, "proxy.local:3128", u.Host)
 
-	pool := inner.TLSClientConfig.RootCAs
-	require.NotNil(t, pool)
-	_, err = srv.Certificate().Verify(verifyOpts(pool))
-	assert.NoError(t, err, "server CA from SLACK_MCP_SERVER_CA must be trusted")
+	require.NoError(t, get(t, c, srv.URL), "server CA from SLACK_MCP_SERVER_CA must be trusted")
+	assert.Equal(t, "HTTP/2.0", seen.proto)
 }
 
-func TestProvideHTTPClientUnparsableCAWarnsAndContinues(t *testing.T) {
+func TestProvideHTTPClientUnparsableCAFallsBackToSystemCerts(t *testing.T) {
 	clearTransportEnv(t)
-	pem := filepath.Join(t.TempDir(), "junk.pem")
-	require.NoError(t, os.WriteFile(pem, []byte("not a pem"), 0o600))
-	t.Setenv("SLACK_MCP_SERVER_CA", pem)
+	junk := filepath.Join(t.TempDir(), "junk.pem")
+	require.NoError(t, os.WriteFile(junk, []byte("not a pem"), 0o600))
+	t.Setenv("SLACK_MCP_SERVER_CA", junk)
+	selfSigned := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer selfSigned.Close()
+
 	c, err := ProvideHTTPClient(nil, zap.NewNop())
 	require.NoError(t, err)
-	require.NotNil(t, c)
-	assert.NotNil(t, unwrapUA(t, c).roundTripper.(*http.Transport).TLSClientConfig)
-}
 
-func pemEncode(der []byte) []byte {
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-}
-
-func verifyOpts(pool *x509.CertPool) x509.VerifyOptions {
-	return x509.VerifyOptions{Roots: pool, DNSName: "example.com"}
+	var unknownAuthority x509.UnknownAuthorityError
+	assert.ErrorAs(t, get(t, c, selfSigned.URL), &unknownAuthority)
 }
 
 func TestProvideHTTPClientRejectsConflictingAndBrokenEnv(t *testing.T) {
