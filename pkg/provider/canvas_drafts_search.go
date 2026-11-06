@@ -10,6 +10,7 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
+	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/slack-go/slack"
 )
 
@@ -286,73 +287,12 @@ func (p *BrowserDraftsProvider) DeleteDraft(ctx context.Context, id, expectedUpd
 }
 
 func providerDraft(draft edge.Draft) Draft {
-	result := Draft{ID: draft.ID, UpdatedTS: draft.LastUpdatedTS, Text: draftBlocksText(draft.Blocks)}
+	result := Draft{ID: draft.ID, UpdatedTS: draft.LastUpdatedTS, Text: text.BlocksToText(draft.Blocks)}
 	if len(draft.Destinations) != 0 {
 		result.ChannelID = draft.Destinations[0].ChannelID
 		result.ThreadTS = draft.Destinations[0].ThreadTS
 	}
 	return result
-}
-
-func draftBlocksText(blocks []map[string]any) string {
-	parts := make([]string, 0, len(blocks))
-	for _, block := range blocks {
-		if text := draftNodeText(block); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-func draftNodeText(value any) string {
-	switch typed := value.(type) {
-	case map[string]any:
-		if text, ok := typed["text"].(string); ok && text != "" {
-			return text
-		}
-		elements, ok := typed["elements"]
-		if !ok {
-			return ""
-		}
-		separator := ""
-		kind, _ := typed["type"].(string)
-		if kind == "rich_text" || kind == "rich_text_list" || kind == "rich_text_quote" || kind == "rich_text_preformatted" {
-			separator = "\n"
-		}
-		return joinDraftNodes(elements, separator)
-	case []any:
-		return joinDraftNodes(typed, "")
-	case []map[string]any:
-		values := make([]any, len(typed))
-		for i := range typed {
-			values[i] = typed[i]
-		}
-		return joinDraftNodes(values, "")
-	default:
-		return ""
-	}
-}
-
-func joinDraftNodes(value any, separator string) string {
-	var values []any
-	switch typed := value.(type) {
-	case []any:
-		values = typed
-	case []map[string]any:
-		values = make([]any, len(typed))
-		for i := range typed {
-			values[i] = typed[i]
-		}
-	default:
-		return draftNodeText(value)
-	}
-	parts := make([]string, 0, len(values))
-	for _, item := range values {
-		if text := draftNodeText(item); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, separator)
 }
 
 func (UnsupportedDraftsProvider) ListDrafts(context.Context, string, int) (DraftPage, error) {
