@@ -96,13 +96,16 @@ pkg/capability/catalog.go    → the tool table (names, hints, presets, phases, 
 pkg/server/                  → tool registration (server.go, core_tools.go, daily_power_tools.go, custom_power_tools.go), middleware
 pkg/handler/                 → per-tool handlers; csv_result.go holds the CSV contract
 pkg/provider/                → Slack auth, SWR cache, API client, browser session
-pkg/slackcreds/              → the credential type (token + session cookies + browser user agent)
+pkg/slackcreds/              → the credential type (token + session cookies)
+pkg/slackhttp/               → the one hand-built Slack POST: 429/status/body cap/ok:false decode
 pkg/text/                    → message/block-kit formatting
 ```
 
 Uncached message authors (Slack Connect guests, members added since the last sync) are resolved in one batched `users.info` call per page: `userResolver.prefetch` (`pkg/handler/conversations.go`) collects the ids the page will render and hands them to `ApiProvider.PatchUsers`, which chunks at 50 ids per call. `resolve` still falls back to a single-user `PatchUser` for anything the batch did not return, so a failed or short batch costs no more than the per-user path did. Both patch paths splice the sorted-by-id user search index rather than folding and re-sorting every cached user; `patchSearchIndex` falls back to a full rebuild when a hand-built `UsersCache` carries no matching index. `BenchmarkPatchUser` and `TestUnitPatchedSearchIndexMatchesFullRebuild` (`pkg/provider/cache_users_patch_test.go`) guard the cost and the equivalence.
 
-Slack credentials live in `pkg/slackcreds`, not in `github.com/rusq/slackdump/v3/auth`. Only three things were ever used from that package (`ValueAuth`, `NewValueAuth`, the `Provider` interface) plus one user-agent string from `github.com/rusq/slackauth`, and both packages link a headless-browser stack (go-rod, playwright, bubbletea, charmbracelet) that this server never runs. `slackcreds.New` reproduces the upstream cookie shape exactly (`d` and `d-s`, `.slack.com`, path `/`, Secure, 10-year expiry, percent-escaped when the value is not RFC 3986 unreserved) and `slackcreds.UserAgent` reproduces the upstream per-GOOS string; `pkg/slackcreds/creds_test.go` pins both. `edge.NewWithInfo` now takes `slackcreds.Credentials` and no longer asks the provider for an HTTP client, because every caller passes `OptionHTTPClient` with the client from `transport.ProvideHTTPClient`, which is what carries the proxy and TLS settings.
+Slack credentials live in `pkg/slackcreds`, not in `github.com/rusq/slackdump/v3/auth`. Only three things were ever used from that package (`ValueAuth`, `NewValueAuth`, the `Provider` interface) plus one user-agent string from `github.com/rusq/slackauth`, and both packages link a headless-browser stack (go-rod, playwright, bubbletea, charmbracelet) that this server never runs. `slackcreds.New` reproduces the upstream cookie shape exactly (`d` and `d-s`, `.slack.com`, path `/`, Secure, 10-year expiry, percent-escaped when the value is not RFC 3986 unreserved); `pkg/slackcreds/creds_test.go` pins it. The user agent Slack sees is `transport`'s (`SLACK_MCP_USER_AGENT` or its default), set on every request. `edge.NewWithInfo` takes only the token and no longer asks the provider for an HTTP client, because every caller passes `OptionHTTPClient` with the client from `transport.ProvideHTTPClient`, which is what carries the proxy and TLS settings.
+
+Hand-built Slack calls (edge, `canvases.getContent`, `assistant.search.context`, `users.profile.set`, Lists) post through `pkg/slackhttp`: one 429 mapping to `*slack.RateLimitedError`, one non-2xx `slack.StatusCodeError`, one body cap, and one `ok:false` decode into `slack.SlackErrorResponse`. It never retries; `limiter.CallWithRetry` is the one retry loop (edge calls retry once through it, unpaced).
 
 Cache warmup runs in the background for every transport; the server serves immediately. Cache-dependent tools register after warmup via `RegisterCacheDependentTools()`. Every other tool registers at startup; `addEnabledTool` refuses a `CacheReady` tool and `addCacheDependentTool` refuses anything else, so a tool cannot be registered in both phases.
 
@@ -124,7 +127,7 @@ If users or channels cache warm-up fails after the 3 fast attempts, the server r
 ## Conventions
 
 - Unit tests: every `_test.go` without a build tag runs under `make test`. It does not pass `-v`: a passing run is ~15 lines, and a failing package still prints its full output. Run `go test -v ./...` when you want test names
-- Tests must not draw on the process-wide `limiter.Tier` buckets. `newTestApiProvider` injects an unlimited `conversationsLimiter`; a test that paces through the real Tier2 budget blocks for a 3s token refill per call
+- Tests must not draw on the process-wide `limiter` buckets (`limiter.Tier2` and friends). `newTestApiProvider` injects an unlimited `conversationsLimiter`; a test that paces through the real Tier2 budget blocks for a 3s token refill per call
 - Block-kit rendering: `pkg/text/blocks_test.go` pins the rich-text quote and preformatted output. slack-go has changed those types' shape once already (they used to alias and embed `RichTextSection`), and the rendering is what every message tool returns
 - Live Slack tests: `//go:build integration` files (`pkg/handler/integration_test.go`, `pkg/test/util`), run via `make test-integration`; `make lint` vets them so they cannot rot
 - Error handling: zap structured logging; avoid `logger.Fatal` on background cache paths
