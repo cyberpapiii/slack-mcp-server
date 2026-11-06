@@ -310,5 +310,3 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		sort:  sort,
 	}, nil
 }
-
-// Slack user IDs may begin with U or W: https://docs.slack.dev/changelog/2016/08/11/user-id-format-changes

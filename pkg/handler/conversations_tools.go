@@ -160,7 +160,7 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 		{Name: capability.ConversationsSearchMessages, Run: ch.ConversationsSearchHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Search messages across channels and DMs. All filters are optional. If no filter is set, search_query is required."),
 			mcp.WithString("search_query",
-				mcp.Description("Search query, e.g. 'marketing report'. A full Slack message URL such as 'https://slack.com/archives/C1234567890/p1234567890123456' returns that single message and ignores all other parameters."),
+				mcp.Description("Search query, e.g. 'marketing report'."),
 			),
 			mcp.WithString("filter_in_channel",
 				mcp.Description("Limit search to one public or private channel by ID or name, e.g. 'C1234567890', 'G1234567890', or '#general'. Omit to search all channels."),
