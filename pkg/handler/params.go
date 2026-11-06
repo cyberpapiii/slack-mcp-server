@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -76,6 +77,49 @@ func presentString(request mcp.CallToolRequest, name string) (string, error) {
 		return "", invalidArguments(name + " must be a string")
 	}
 	return text, nil
+}
+
+// parseChoices reads raw, the comma-separated argument name, whose values
+// must come from allowed. An empty argument gives def.
+func parseChoices(name, raw string, allowed, def []string) ([]string, error) {
+	var values []string
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if !slices.Contains(allowed, value) {
+			return nil, unsupportedChoice(name, value, allowed)
+		}
+		if !slices.Contains(values, value) {
+			values = append(values, value)
+		}
+	}
+	if len(values) == 0 {
+		return def, nil
+	}
+	return values, nil
+}
+
+// parseChoice is parseChoices for an argument that takes one value.
+func parseChoice(name, raw string, allowed []string, def string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return def, nil
+	}
+	if !slices.Contains(allowed, value) {
+		return "", unsupportedChoice(name, value, allowed)
+	}
+	return value, nil
+}
+
+func unsupportedChoice(name, value string, allowed []string) error {
+	return invalidArguments(fmt.Sprintf("unsupported %s %q: must be one of %s", name, value, strings.Join(allowed, ", ")))
+}
+
+// quotedList renders values as 'a', 'b', 'c' for a schema description.
+func quotedList(values []string) string {
+	return "'" + strings.Join(values, "', '") + "'"
 }
 
 // positiveInt reads a count argument, substituting def when it is missing or

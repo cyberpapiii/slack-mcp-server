@@ -273,7 +273,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			if cached, err := dir.ChannelByRef(snap.ID); err == nil {
 				category = cached.Category()
 			}
-			if params.channelTypes != unreadsAllTypes && category != params.channelTypes {
+			if params.channelTypes != allCategories && category != params.channelTypes {
 				continue
 			}
 			unreadChannels = append(unreadChannels, UnreadChannel{
@@ -400,16 +400,9 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 }
 
 const (
-	// unreadsAllTypes is the channel_types value that filters nothing.
-	unreadsAllTypes = "all"
-
 	defaultUnreadsMaxChannels        = 50
 	defaultUnreadsMessagesPerChannel = 10
 )
-
-// validUnreadsChannelTypes is "all" followed by every category in priority
-// order.
-var validUnreadsChannelTypes = append([]string{unreadsAllTypes}, provider.Categories...)
 
 // sortChannelsByPriority: type rank, then UnreadCount desc, ChannelID asc.
 func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel) {
@@ -497,13 +490,9 @@ func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolReque
 	maxChannels := positiveInt(request, "max_channels", defaultUnreadsMaxChannels)
 	maxMessagesPerChannel := positiveInt(request, "max_messages_per_channel", defaultUnreadsMessagesPerChannel)
 
-	channelTypes := strings.TrimSpace(request.GetString("channel_types", unreadsAllTypes))
-	if channelTypes == "" {
-		channelTypes = unreadsAllTypes
-	}
-	if !slices.Contains(validUnreadsChannelTypes, channelTypes) {
-		return nil, invalidArguments(fmt.Sprintf("unsupported channel_types %q: must be one of %s",
-			channelTypes, strings.Join(validUnreadsChannelTypes, ", ")))
+	channelTypes, err := parseChoice("channel_types", request.GetString("channel_types", ""), categoryFilters, allCategories)
+	if err != nil {
+		return nil, err
 	}
 
 	return &unreadsParams{

@@ -25,22 +25,27 @@ type Channel struct {
 
 type ChannelsHandler struct {
 	apiProvider *provider.ApiProvider
-	validTypes  map[string]bool
 	logger      *zap.Logger
 }
 
 func NewChannelsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *ChannelsHandler {
-	validTypes := make(map[string]bool, len(provider.AllChanTypes))
-	for _, v := range provider.AllChanTypes {
-		validTypes[v] = true
-	}
-
-	return &ChannelsHandler{
-		apiProvider: apiProvider,
-		validTypes:  validTypes,
-		logger:      logger,
-	}
+	return &ChannelsHandler{apiProvider: apiProvider, logger: logger}
 }
+
+// The values channels_list and channels_me accept, and their defaults.
+var (
+	defaultChannelTypes = []string{provider.PubChanType, provider.PrivateChanType}
+	queryTargets        = []string{"name", "topic", "purpose"}
+	channelSorts        = []string{"popularity"}
+)
+
+// allCategories is the channel_types value of conversations_unreads and
+// channels_starred that filters nothing.
+const allCategories = "all"
+
+// categoryFilters is what conversations_unreads and channels_starred accept
+// as channel_types: "all" or one category.
+var categoryFilters = append([]string{allCategories}, provider.Categories...)
 
 func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	ch.logger.Debug("ChannelsResource called")
@@ -81,32 +86,23 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 
 func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	sortType := request.GetString("sort", "popularity")
-	types := request.GetString("channel_types", "public_channel,private_channel")
+	sortType, err := parseChoice("sort", request.GetString("sort", ""), channelSorts, channelSorts[0])
+	if err != nil {
+		return nil, err
+	}
+	// channel_types and query_targets are comma-separated strings, not arrays:
+	// MCP Inspector v0.14.0 mishandles array introspection.
+	channelTypes, err := parseChoices("channel_types", request.GetString("channel_types", ""), provider.AllChanTypes, defaultChannelTypes)
+	if err != nil {
+		return nil, err
+	}
+	targets, err := parseChoices("query_targets", strings.ToLower(request.GetString("query_targets", "")), queryTargets, queryTargets[:1])
+	if err != nil {
+		return nil, err
+	}
 	cursor := request.GetString("cursor", "")
 	limit := pageLimit(request, 100, 999)
 	query := request.GetString("query", "")
-	queryTargets := request.GetString("query_targets", "name")
-
-	// MCP Inspector v0.14.0 has issues with Slice type
-	// introspection, so some type simplification makes sense here
-	channelTypes := []string{}
-	for _, t := range strings.Split(types, ",") {
-		t = strings.TrimSpace(t)
-		if ch.validTypes[t] {
-			channelTypes = append(channelTypes, t)
-		} else if t != "" {
-			ch.logger.Warn("Invalid channel type ignored", zap.String("type", t))
-		}
-	}
-
-	if len(channelTypes) == 0 {
-		ch.logger.Debug("No valid channel types provided, using defaults")
-		channelTypes = append(channelTypes, provider.PubChanType)
-		channelTypes = append(channelTypes, provider.PrivateChanType)
-	}
-
-	ch.logger.Debug("Validated channel types", zap.Strings("types", channelTypes))
 
 	allChannels := ch.apiProvider.ProvideChannelsMaps().Channels
 	ch.logger.Debug("Total channels available", zap.Int("count", len(allChannels)))
@@ -115,22 +111,7 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	ch.logger.Debug("Channels after filtering by type", zap.Int("count", len(channels)))
 
 	if query != "" {
-		validTargets := map[string]bool{"name": true, "topic": true, "purpose": true}
-		targetSet := make(map[string]bool)
-		for _, t := range strings.Split(queryTargets, ",") {
-			t = strings.TrimSpace(strings.ToLower(t))
-			if validTargets[t] {
-				targetSet[t] = true
-			} else if t != "" {
-				ch.logger.Warn("Invalid query target ignored", zap.String("target", t))
-			}
-		}
-		if len(targetSet) == 0 {
-			ch.logger.Debug("No valid query targets provided, using default (name)")
-			targetSet["name"] = true
-		}
-
-		channels = filterChannelsByQuery(channels, query, targetSet)
+		channels = filterChannelsByQuery(channels, query, targets)
 		ch.logger.Debug("Channels after keyword filter", zap.Int("count", len(channels)))
 	}
 
@@ -183,20 +164,12 @@ func nextPageSize(limit, have int) int {
 
 func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	types := request.GetString("channel_types", "public_channel,private_channel")
+	channelTypes, err := parseChoices("channel_types", request.GetString("channel_types", ""), provider.AllChanTypes, defaultChannelTypes)
+	if err != nil {
+		return nil, err
+	}
 	cursor := request.GetString("cursor", "")
 	limit := pageLimit(request, 100, 999)
-
-	channelTypes := []string{}
-	for _, t := range strings.Split(types, ",") {
-		t = strings.TrimSpace(t)
-		if ch.validTypes[t] {
-			channelTypes = append(channelTypes, t)
-		}
-	}
-	if len(channelTypes) == 0 {
-		channelTypes = []string{provider.PubChanType, provider.PrivateChanType}
-	}
 
 	usersMap := ch.apiProvider.ProvideUsersMap().Users
 	var allChannels []provider.Channel
@@ -277,7 +250,10 @@ type StarredChannel struct {
 
 func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	channelTypesFilter := request.GetString("channel_types", "all")
+	channelTypesFilter, err := parseChoice("channel_types", request.GetString("channel_types", ""), categoryFilters, allCategories)
+	if err != nil {
+		return nil, err
+	}
 	limit := pageLimit(request, 100, 1000)
 
 	starredIDs, err := ch.apiProvider.Slack().GetStarredChannelIDs(ctx, limit)
@@ -316,7 +292,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 			sc.ChannelType = provider.CategoryInternal
 		}
 
-		if channelTypesFilter != "all" && sc.ChannelType != channelTypesFilter {
+		if channelTypesFilter != allCategories && sc.ChannelType != channelTypesFilter {
 			continue
 		}
 
@@ -336,13 +312,13 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	return rendered, nil
 }
 
-func filterChannelsByQuery(channels []provider.Channel, query string, targetSet map[string]bool) []provider.Channel {
+func filterChannelsByQuery(channels []provider.Channel, query string, targets []string) []provider.Channel {
 	q := strings.ToLower(query)
 	var result []provider.Channel
 	for _, ch := range channels {
-		if (targetSet["name"] && strings.Contains(strings.ToLower(ch.Name), q)) ||
-			(targetSet["topic"] && strings.Contains(strings.ToLower(ch.Topic), q)) ||
-			(targetSet["purpose"] && strings.Contains(strings.ToLower(ch.Purpose), q)) {
+		if (slices.Contains(targets, "name") && strings.Contains(strings.ToLower(ch.Name), q)) ||
+			(slices.Contains(targets, "topic") && strings.Contains(strings.ToLower(ch.Topic), q)) ||
+			(slices.Contains(targets, "purpose") && strings.Contains(strings.ToLower(ch.Purpose), q)) {
 			result = append(result, ch)
 		}
 	}
@@ -398,16 +374,18 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 	return paged, nextCursor, nil
 }
 
+var channelTypesDescription = fmt.Sprintf("Comma-separated channel types. Allowed values: %s. Default: '%s'.", quotedList(provider.AllChanTypes), strings.Join(defaultChannelTypes, ","))
+
 // Tools lists the MCP tools this handler serves.
 func (ch *ChannelsHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.ChannelsList, Run: ch.ChannelsHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("List channels in the workspace, filtered by channel_types. Returns CSV."),
 			mcp.WithString("channel_types",
-				mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Default: 'public_channel,private_channel'."),
+				mcp.Description(channelTypesDescription),
 			),
 			mcp.WithString("sort",
-				mcp.Description("Sort order. Allowed value: 'popularity' sorts by number of members in each channel."),
+				mcp.Description(fmt.Sprintf("Sort order. Allowed value: '%s' sorts by number of members in each channel.", channelSorts[0])),
 			),
 			mcp.WithNumber("limit",
 				mcp.DefaultNumber(100),
@@ -420,14 +398,14 @@ func (ch *ChannelsHandler) Tools() []ToolDef {
 				mcp.Description("Optional keyword to filter channels. Case-insensitive substring match against the fields specified by query_targets. Example: 'marketing' returns channels like #marketing, #marketing-ops."),
 			),
 			mcp.WithString("query_targets",
-				mcp.DefaultString("name"),
-				mcp.Description("Comma-separated list of fields to match the query against. Allowed values: 'name', 'topic', 'purpose'. Example: 'name,topic,purpose' to search all fields. Default is 'name'."),
+				mcp.DefaultString(queryTargets[0]),
+				mcp.Description(fmt.Sprintf("Comma-separated list of fields to match the query against. Allowed values: %s. Example: '%s' to search all fields. Default is '%s'.", quotedList(queryTargets), strings.Join(queryTargets, ","), queryTargets[0])),
 			),
 		}},
 		{Name: capability.ChannelsMe, Run: ch.ChannelsMeHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("List only the channels you have joined, unlike channels_list which returns all workspace channels. Useful on large workspaces where channels_list returns thousands of results."),
 			mcp.WithString("channel_types",
-				mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Default: 'public_channel,private_channel'."),
+				mcp.Description(channelTypesDescription),
 			),
 			mcp.WithNumber("limit",
 				mcp.DefaultNumber(100),
@@ -440,8 +418,9 @@ func (ch *ChannelsHandler) Tools() []ToolDef {
 		{Name: capability.ChannelsStarred, Run: ch.ChannelsStarredHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("List channels and DMs the user has starred (bookmarked). Returns only that subset, not the full channel list."),
 			mcp.WithString("channel_types",
-				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-shared channels), 'internal' (regular workspace channels)."),
-				mcp.DefaultString("all"),
+				mcp.Description(fmt.Sprintf("Filter by channel type: '%s' (default), '%s' (direct messages), '%s' (group DMs), '%s' (ext-shared channels), '%s' (regular workspace channels).",
+					allCategories, provider.CategoryDM, provider.CategoryGroupDM, provider.CategoryPartner, provider.CategoryInternal)),
+				mcp.DefaultString(allCategories),
 			),
 			mcp.WithNumber("limit",
 				mcp.DefaultNumber(100),

@@ -8,6 +8,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUnitParseChoicesRejectsUnknownValues(t *testing.T) {
+	allowed := []string{"im", "mpim", "public_channel"}
+	got, err := parseChoices("channel_types", " im, public_channel,im,", allowed, []string{"mpim"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"im", "public_channel"}, got)
+
+	got, err = parseChoices("channel_types", "", allowed, []string{"mpim"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mpim"}, got)
+
+	_, err = parseChoices("channel_types", "im,channels", allowed, nil)
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "invalid_arguments", typed.Code)
+	assert.Contains(t, typed.Message, `"channels"`)
+
+	one, err := parseChoice("sort", "", []string{"popularity"}, "popularity")
+	require.NoError(t, err)
+	assert.Equal(t, "popularity", one)
+	_, err = parseChoice("sort", "name", []string{"popularity"}, "popularity")
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "invalid_arguments", typed.Code)
+}
+
 func TestUnitSignpostFileParam(t *testing.T) {
 	tests := []struct {
 		name      string
