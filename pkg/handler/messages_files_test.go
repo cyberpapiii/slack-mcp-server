@@ -127,44 +127,26 @@ func TestUnitMessagesUpdateRejectsInvalidTimestamp(t *testing.T) {
 	assert.Equal(t, 0, service.updateCalls)
 }
 
-func TestUnitMessagesScheduleHonorsAddMessageAllowlist(t *testing.T) {
+// The denial side is TestUnitEveryAllowlistedToolRefusesADeniedChannel; this
+// checks the handler tests the channel it was given, not some other value.
+func TestUnitMessageFilesPassAnAllowlistedChannel(t *testing.T) {
 	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1")
 	service := &fakeMessageFilesService{}
 	handler := newTestMessageFilesHandler(service)
 	handler.now = func() time.Time { return time.Unix(1_800_000_000, 0).UTC() }
 
-	ok, err := served(handler.MessagesSchedule(context.Background(), toolRequest(map[string]any{
+	scheduled, err := served(handler.MessagesSchedule(context.Background(), toolRequest(map[string]any{
 		"channel_id": "C1", "text": "later", "post_at": "1800000060",
 	})))
 	require.NoError(t, err)
-	require.False(t, ok.IsError)
+	require.False(t, scheduled.IsError)
 	assert.Equal(t, 1, service.scheduleCalls)
 
-	denied, err := served(handler.MessagesSchedule(context.Background(), toolRequest(map[string]any{
-		"channel_id": "C9", "text": "later", "post_at": "1800000060",
-	})))
-	require.NoError(t, err)
-	require.True(t, denied.IsError)
-	assert.Equal(t, 1, service.scheduleCalls)
-}
-
-func TestUnitFilesUploadHonorsChannelAllowlist(t *testing.T) {
-	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1")
-
-	service := &fakeMessageFilesService{}
-	blocked, err := served(newTestMessageFilesHandler(service).FilesUpload(context.Background(), toolRequest(map[string]any{
-		"filename": "a.txt", "content": "hello", "channel_id": "C9", "initial_comment": "here",
-	})))
-	require.NoError(t, err)
-	assert.True(t, blocked.IsError, "sharing into a blocked channel posts a message and must be denied")
-	assert.Contains(t, ResultText(blocked), "SLACK_MCP_ADD_MESSAGE_TOOL", "the denial must name the variable that caused it")
-	assert.Equal(t, 0, service.uploadCalls)
-
-	allowed, err := served(newTestMessageFilesHandler(service).FilesUpload(context.Background(), toolRequest(map[string]any{
+	uploaded, err := served(handler.FilesUpload(context.Background(), toolRequest(map[string]any{
 		"filename": "a.txt", "content": "hello", "channel_id": "C1",
 	})))
 	require.NoError(t, err)
-	require.False(t, allowed.IsError)
+	require.False(t, uploaded.IsError)
 	assert.Equal(t, 1, service.uploadCalls)
 }
 

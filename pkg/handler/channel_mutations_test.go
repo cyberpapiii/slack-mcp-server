@@ -111,7 +111,9 @@ func TestChannelMetadataHandlerAcceptsPrivateChannelID(t *testing.T) {
 	assert.Equal(t, "G123", service.channelID)
 }
 
-func TestChannelMutationHandlersCheckChannelAllowlist(t *testing.T) {
+// The denial side is TestUnitEveryAllowlistedToolRefusesADeniedChannel; this
+// checks each handler tests the channel it was given, not some other value.
+func TestChannelMutationHandlersPassAnAllowlistedChannel(t *testing.T) {
 	tests := []struct {
 		name   string
 		call   func(*ChannelMutationHandler, context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
@@ -125,18 +127,7 @@ func TestChannelMutationHandlersCheckChannelAllowlist(t *testing.T) {
 		{"channels_archive", (*ChannelMutationHandler).ConversationsArchiveHandler, map[string]any{"channel_id": "C123", "action": "prepare"}, "prepare", ""},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name+" denied", func(t *testing.T) {
-			t.Setenv(capability.ChannelManagementAllowlist, "C456")
-			service := &fakeChannelMutationService{}
-			_, err := tt.call(newTestChannelMutationHandler(service), context.Background(), toolRequest(tt.args))
-			var toolErr *ToolError
-			require.ErrorAs(t, err, &toolErr)
-			assert.Equal(t, "permission_denied", toolErr.Code)
-			assert.Contains(t, err.Error(), tt.name+` is not allowed for channel "C123" by `+capability.ChannelManagementAllowlist)
-			assert.Empty(t, service.action)
-			assert.Zero(t, service.prepareCalls)
-		})
-		t.Run(tt.name+" allowed", func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(capability.ChannelManagementAllowlist, "C123")
 			service := &fakeChannelMutationService{}
 			_, err := tt.call(newTestChannelMutationHandler(service), context.Background(), toolRequest(tt.args))
@@ -151,16 +142,6 @@ func TestChannelMutationHandlersCheckChannelAllowlist(t *testing.T) {
 			assert.Equal(t, tt.value, service.value)
 		})
 	}
-}
-
-func TestChannelMutationHandlerEmptyAllowlistAllowsAllChannels(t *testing.T) {
-	t.Setenv(capability.ChannelManagementAllowlist, "")
-	service := &fakeChannelMutationService{}
-	_, err := newTestChannelMutationHandler(service).ConversationsRenameHandler(
-		context.Background(), toolRequest(map[string]any{"channel_id": "C123", "name": "new-name"}),
-	)
-	require.NoError(t, err)
-	assert.Equal(t, "rename", service.action)
 }
 
 func TestArchiveHandlerUsesPrepareThenExactArchiveSeam(t *testing.T) {

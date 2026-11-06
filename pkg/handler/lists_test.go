@@ -131,17 +131,6 @@ func TestUnitListsDeleteDoesNotRetryMutation(t *testing.T) {
 	assert.Equal(t, "rate_limited", ErrorCode(result))
 }
 
-func TestUnitListsHandlerMapsPlanScopeAndPermissionErrors(t *testing.T) {
-	for slackCode, code := range map[string]string{"plan_upgrade_required": "paid_plan_unavailable", "missing_scope": "permission_denied", "no_permission": "permission_denied"} {
-		api := &fakeListsAPI{getItemErr: slack.SlackErrorResponse{Err: slackCode}}
-		handler := newTestListsHandler(api)
-		result, err := served(handler.DeleteItem(context.Background(), toolRequest(map[string]any{"action": "prepare", "list_id": "F1", "item_id": "Rec1"})))
-		require.NoError(t, err)
-		assert.True(t, result.IsError)
-		assert.Equal(t, code, ErrorCode(result), slackCode)
-	}
-}
-
 func TestUnitListsHandlerRejectsInvalidArgumentsBeforeAPI(t *testing.T) {
 	handler := newTestListsHandler(&fakeListsAPI{})
 	result, err := served(handler.CreateList(context.Background(), toolRequest(map[string]any{"name": "", "schema": "bad"})))

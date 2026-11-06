@@ -129,6 +129,7 @@ func TestTypeErrorCodes(t *testing.T) {
 		{"deadline on a write", context.DeadlineExceeded, true, "outcome_unknown", false},
 		{"deadline on a read", fmt.Errorf("fetch: %w", context.DeadlineExceeded), false, "network_error", true},
 		{"scope", slack.SlackErrorResponse{Err: "missing_scope"}, false, "permission_denied", false},
+		{"no permission", slack.SlackErrorResponse{Err: "no_permission"}, false, "permission_denied", false},
 		{"missing message", slack.SlackErrorResponse{Err: "message_not_found"}, false, "not_found", false},
 		{"unknown Slack error", slack.SlackErrorResponse{Err: "weird"}, false, "slack_error", false},
 		{"paid feature", fmt.Errorf("call slackLists.items.list: %w", slack.SlackErrorResponse{Err: "plan_upgrade_required"}), false, "paid_plan_unavailable", false},

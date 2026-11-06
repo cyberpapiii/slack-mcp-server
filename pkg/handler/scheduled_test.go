@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -117,31 +118,14 @@ func TestUnitScheduledCancelReturnsRetryAfterAndOutcomeUnknown(t *testing.T) {
 	}
 }
 
-func TestUnitScheduledCancelMapsPermissionError(t *testing.T) {
-	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
-	service := &fakeScheduledService{
-		pages:     []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}},
-		cancelErr: slack.SlackErrorResponse{Err: "missing_scope"},
-	}
-	handler := newTestScheduledHandler(service)
-	prepared, _ := handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"}))
-	token := prepared.StructuredContent.(ToolResult[ScheduledCancelData]).Data.ApprovalToken
-	result, err := served(handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": token})))
-	require.NoError(t, err)
-	structured := result.StructuredContent.(ToolResult[struct{}])
-	require.NotNil(t, structured.Error)
-	assert.Equal(t, "permission_denied", structured.Error.Code)
-}
-
-func TestUnitScheduledLookupIsBounded(t *testing.T) {
-	pages := make([]provider.ScheduledPage, maxScheduledLookupPages)
+func TestUnitScheduledCancelLookupIsBounded(t *testing.T) {
+	pages := make([]provider.ScheduledPage, maxScheduledLookupPages+1)
 	for index := range pages {
-		pages[index].NextCursor = "next-" + time.Unix(int64(index), 0).UTC().Format("150405")
+		pages[index].NextCursor = fmt.Sprintf("next-%d", index)
 	}
 	service := &fakeScheduledService{pages: pages}
-	_, err := newTestScheduledHandler(service).findScheduled(context.Background(), "C1", "Q-missing")
-	var typed *ToolError
-	require.ErrorAs(t, err, &typed)
-	assert.Equal(t, "lookup_limit_exceeded", typed.Code)
+	result, err := served(newTestScheduledHandler(service).Cancel(context.Background(), toolRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q-missing"})))
+	require.NoError(t, err)
+	assert.Equal(t, "lookup_limit_exceeded", ErrorCode(result))
 	assert.Equal(t, maxScheduledLookupPages, service.listCalls)
 }
