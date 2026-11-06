@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -83,6 +84,13 @@ func TestUnitSavedMessagesTrailer(t *testing.T) {
 	assert.Equal(t, "#saved_items:", lines[4])
 	assert.Equal(t, savedItemsHeader, lines[5])
 	assert.Len(t, lines, 9, "two item rows follow the section header; body ends with a newline")
+}
+
+func TestUnitUnavailablePlaceholderNamesTheFailure(t *testing.T) {
+	assert.Equal(t, "[message content unavailable: channel access denied]", unavailablePlaceholder(slack.SlackErrorResponse{Err: "channel_not_found"}))
+	assert.Equal(t, "[message content unavailable: channel access denied]", unavailablePlaceholder(slack.SlackErrorResponse{Err: "missing_scope"}))
+	assert.Equal(t, "[message content unavailable: rate_limited]", unavailablePlaceholder(&slack.RateLimitedError{}))
+	assert.Equal(t, "[message content unavailable: tool_error]", unavailablePlaceholder(errors.New("boom")))
 }
 
 func TestUnitUnixTimeText(t *testing.T) {

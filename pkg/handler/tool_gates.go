@@ -7,7 +7,7 @@ import (
 // sendStatus reports whether conversations_add_message would accept a
 // message to the given channel, for the conversations_draft_message preview.
 func (ch *ConversationsHandler) sendStatus(channel string) string {
-	if !ch.settings.AddMessageEnabled {
+	if !ch.sendEnabled {
 		return "not available"
 	}
 	if !ch.settings.channelAllowed(capability.ConversationsAddMessage, channel) {

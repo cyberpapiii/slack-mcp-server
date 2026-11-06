@@ -15,11 +15,6 @@ import (
 
 func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	params, err := ch.parseParamsToolAddMessage(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse add-message params", zap.Error(err))
@@ -77,12 +72,11 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 // Preview for review before conversations_add_message.
 func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
+	text := request.GetString("text", "")
+	if text == "" {
+		return nil, invalidArguments("text is required and must not be empty")
 	}
-
-	params, err := ch.parseParamsToolDraftMessage(ctx, request)
+	params, err := ch.parseMessageParams(ctx, capability.ConversationsDraftMessage, request, text)
 	if err != nil {
 		ch.logger.Debug("Failed to parse draft-message params", zap.Error(err))
 		return nil, err
@@ -115,11 +109,6 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 // ReactionsAddHandler adds an emoji reaction to a message
 func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	params, err := ch.parseParamsToolReaction(ctx, capability.ReactionsAdd, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse add-reaction params", zap.Error(err))
@@ -148,11 +137,6 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 
 // ReactionsRemoveHandler removes an emoji reaction from a message
 func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	params, err := ch.parseParamsToolReaction(ctx, capability.ReactionsRemove, request)
 	if err != nil {
@@ -185,11 +169,6 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 // Uses conversations.replies which works for top-level messages, thread parents, and thread replies
 // alike. Requires only channels:history scope, no additional reactions:read permission needed.
 func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	rawChannel := request.GetString("channel_id", "")
 	if rawChannel == "" {
@@ -274,12 +253,8 @@ func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool str
 	}
 
 	threadTs := request.GetString("thread_ts", "")
-	if threadTs != "" && !strings.Contains(threadTs, ".") {
+	if threadTs != "" && !validSlackTimestamp(threadTs) {
 		return nil, invalidArguments("thread_ts must be a valid timestamp in format 1234567890.123456")
-	}
-
-	if text == "" && tool == capability.ConversationsDraftMessage {
-		return nil, invalidArguments("text is required and must not be empty")
 	}
 
 	contentType := request.GetString("content_type", "text/markdown")
@@ -295,17 +270,8 @@ func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool str
 	}, nil
 }
 
-func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
-	return ch.parseMessageParams(ctx, capability.ConversationsDraftMessage, request, request.GetString("text", ""))
-}
-
 func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
-	msgText := request.GetString("text", "")
-	if msgText == "" {
-		// Backward compatibility with "payload" parameter
-		msgText = request.GetString("payload", "")
-	}
-	params, err := ch.parseMessageParams(ctx, capability.ConversationsAddMessage, request, msgText)
+	params, err := ch.parseMessageParams(ctx, capability.ConversationsAddMessage, request, request.GetString("text", ""))
 	if err != nil {
 		return nil, err
 	}
@@ -321,13 +287,13 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 		default:
 			blocksJSON, err = json.Marshal(v)
 			if err != nil {
-				return nil, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
+				return nil, invalidBlocks(err)
 			}
 		}
 		if blocksJSON != nil {
 			var slackBlocks slack.Blocks
 			if err := json.Unmarshal(blocksJSON, &slackBlocks); err != nil {
-				return nil, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
+				return nil, invalidBlocks(err)
 			}
 			params.blocks = slackBlocks.BlockSet
 		}
@@ -337,6 +303,10 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 		return nil, invalidArguments("either text or blocks must be provided")
 	}
 	return params, nil
+}
+
+func invalidBlocks(err error) error {
+	return &ToolError{Code: codeInvalidArguments, Message: "blocks must be valid Slack Block Kit JSON: " + err.Error(), Cause: err}
 }
 
 func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, tool string, request mcp.CallToolRequest) (*addReactionParams, error) {

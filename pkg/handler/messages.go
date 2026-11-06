@@ -76,11 +76,10 @@ func (p messagePipeline) rows(ctx context.Context, slackMessages []slack.Message
 		}
 
 		userName, realName, ok := resolver.resolve(msg.User)
-
-		if !ok && msg.SubType == "bot_message" {
+		if !ok && msg.Username != "" {
+			// Bot and app posts carry a display name instead of a user.
 			userName, realName, ok = msg.Username, msg.Username, true
 		}
-
 		if !ok {
 			warn = true
 		}
@@ -135,13 +134,8 @@ func (p messagePipeline) rows(ctx context.Context, slackMessages []slack.Message
 		})
 	}
 
-	if ready, err := p.api.IsReady(); !ready {
-		if warn && errors.Is(err, provider.ErrUsersNotReady) {
-			p.logger.Warn(
-				"Slack users sync is not ready yet: names may render as raw UIDs and @handle lookups will fail. Users sync runs as part of channels sync, and IM/MPIM channel operations need the users collection. Wait for the sync to finish and try again.",
-				zap.Error(err),
-			)
-		}
+	if warn && !p.api.UsersCacheReady() {
+		p.logger.Warn("Slack users sync is not ready yet: names may render as raw UIDs and @handle lookups will fail. Users sync runs as part of channels sync, and IM/MPIM channel operations need the users collection. Wait for the sync to finish and try again.")
 	}
 	return messages
 }
@@ -156,7 +150,6 @@ func (p messagePipeline) searchRows(ctx context.Context, matches []slack.SearchM
 }
 
 // searchMatchMessage carries a search match into the history message shape.
-// A match has no subtype; one with a username and no user is a bot post.
 func searchMatchMessage(m slack.SearchMessage) slack.Message {
 	var msg slack.Message
 	msg.Type = m.Type
@@ -169,9 +162,6 @@ func searchMatchMessage(m slack.SearchMessage) slack.Message {
 	msg.Permalink = m.Permalink
 	msg.Attachments = m.Attachments
 	msg.ThreadTimestamp, _ = extractThreadTS(m.Permalink)
-	if m.User == "" && m.Username != "" {
-		msg.SubType = "bot_message"
-	}
 	return msg
 }
 
@@ -198,6 +188,11 @@ func hasImageBlocks(blocks slack.Blocks) bool {
 // conversations.replies, which answers for top-level messages, thread parents
 // and thread replies alike and needs only channels:history. nil means Slack
 // has no message at that timestamp.
+//
+// Slack can answer with a different message than the one asked for (the
+// thread parent, or the next message after a timestamp that matches
+// nothing), so the first message counts only when its timestamp matches,
+// as MessageFilesProvider.GetMessage checks.
 func (p messagePipeline) message(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
 	msgs, _, _, err := p.api.WebAPI().GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 		ChannelID: channel,
@@ -209,37 +204,44 @@ func (p messagePipeline) message(ctx context.Context, channel, timestamp string)
 		p.logger.Debug("Failed to fetch message", zap.Error(err))
 		return nil, fmt.Errorf("failed to fetch message: %w", err)
 	}
-	if len(msgs) == 0 {
-		return nil, nil
+	return messageAt(msgs, timestamp), nil
+}
+
+func messageAt(msgs []slack.Message, timestamp string) *slack.Message {
+	if len(msgs) == 0 || msgs[0].Timestamp != timestamp {
+		return nil
 	}
-	return &msgs[0], nil
+	return &msgs[0]
 }
 
 // channelID resolves a channel reference to an ID. A "#name" or "@user" the
-// cache does not know triggers one cache refresh before it is reported
+// warm cache does not know triggers one cache refresh before it is reported
 // missing; IDs and anything else pass through for Slack to judge.
 func (p messagePipeline) channelID(ctx context.Context, ref string) (string, error) {
 	id, name := provider.ParseChannelRef(ref)
 	if id != "" {
 		return id, nil
 	}
-	if ch, ok := p.api.ChannelByRef(name); ok {
+	ch, err := p.api.ChannelByRef(name)
+	if err == nil {
 		return ch.ID, nil
+	}
+	if !errors.Is(err, provider.ErrNotCached) {
+		return "", cacheMiss(name, err, channelNotFound)
 	}
 
 	p.logger.Debug("Channel not found in cache, attempting refresh", zap.String("channel", name))
 	refreshErr := p.api.ForceRefreshChannels(ctx)
 	if errors.Is(refreshErr, provider.ErrRefreshRateLimited) {
 		p.logger.Warn("Channel not found; cache refresh was rate-limited", zap.String("channel", name))
-		return "", &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found and the cache refresh was rate-limited; retry shortly or pass the channel ID (Cxxxxxxxxxx)", name), Retryable: true}
+		return "", &ToolError{Code: codeNotFound, Message: fmt.Sprintf("channel %q not found and the cache refresh was rate-limited; retry shortly or pass the channel ID (Cxxxxxxxxxx)", name), Retryable: true}
 	}
 	if refreshErr != nil {
 		p.logger.Warn("Failed to refresh channels cache", zap.String("channel", name), zap.Error(refreshErr))
-		return "", &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", name), Cause: refreshErr}
+		return "", &ToolError{Code: codeNotFound, Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", name), Cause: refreshErr}
 	}
-	ch, ok := p.api.ChannelByRef(name)
-	if !ok {
-		return "", channelNotFound(name)
+	if ch, err = p.api.ChannelByRef(name); err != nil {
+		return "", cacheMiss(name, err, channelNotFound)
 	}
 	return ch.ID, nil
 }
@@ -324,7 +326,7 @@ func buildChannelsLegend(messages []Message, channelName func(string) string) st
 func buildAttachmentsLegend(messages []Message) string {
 	for _, m := range messages {
 		if m.AttachmentIDs != "" {
-			return "#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, 5MB cap\n"
+			return "#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, " + megabytes(maxFileSizeBytes) + " cap\n"
 		}
 	}
 	return ""
@@ -381,19 +383,21 @@ func buildLegendHeader(messages []Message, opts renderOptions) string {
 // than once per message.
 type userResolver struct {
 	api          *provider.ApiProvider
+	logger       *zap.Logger
 	ctx          context.Context
 	attemptedIDs map[string]bool
 }
 
 func (p messagePipeline) newUserResolver(ctx context.Context) *userResolver {
-	return &userResolver{api: p.api, ctx: ctx, attemptedIDs: make(map[string]bool)}
+	return &userResolver{api: p.api, logger: p.logger, ctx: ctx, attemptedIDs: make(map[string]bool)}
 }
 
 // prefetch resolves every uncached author on the page in one users.info call.
 // Without it a page whose authors are outside the users cache — Slack Connect
 // guests, members who joined since the last sync — costs one sequential round
-// trip and one full snapshot rebuild each. A batch that fails or comes back
-// short changes nothing: resolve still falls back to the per-user patch.
+// trip and one full snapshot rebuild each. After a batch that worked, a user
+// it did not return is not asked for again; after a failed batch resolve
+// falls back to the per-user patch.
 func (r *userResolver) prefetch(userIDs []string) {
 	dir := r.api.Directory()
 	var missing []string
@@ -407,10 +411,16 @@ func (r *userResolver) prefetch(userIDs []string) {
 			missing = append(missing, id)
 		}
 	}
-	if len(missing) < 2 {
-		return // one miss is exactly what resolve already does in one call
+	if len(missing) == 0 {
+		return
 	}
-	_ = r.api.PatchUsers(r.ctx, missing)
+	if err := r.api.PatchUsers(r.ctx, missing); err != nil {
+		r.logger.Debug("Batched users.info failed; resolving authors one by one", zap.Int("users", len(missing)), zap.Error(err))
+		return
+	}
+	for _, id := range missing {
+		r.attemptedIDs[id] = true
+	}
 }
 
 func (r *userResolver) resolve(userID string) (userName, realName string, ok bool) {
@@ -423,6 +433,7 @@ func (r *userResolver) resolve(userID string) (userName, realName string, ok boo
 	r.attemptedIDs[userID] = true
 	patched, err := r.api.PatchUser(r.ctx, userID)
 	if err != nil {
+		r.logger.Debug("users.info failed; showing the user ID", zap.String("user_id", userID), zap.Error(err))
 		return userID, userID, false
 	}
 	return patched.Name, patched.RealName, true

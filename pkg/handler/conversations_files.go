@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -15,11 +16,6 @@ import (
 )
 
 func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	params, err := ch.parseParamsToolFilesGet(request)
 	if err != nil {
@@ -123,11 +119,6 @@ func nextFilesCursor(paging *slack.Paging) string {
 }
 
 func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	params, err := ch.parseParamsToolFilesList(ctx, request)
 	if err != nil {
@@ -256,6 +247,11 @@ func attachmentKind(f slack.File) string {
 	}
 }
 
+// megabytes renders a whole-megabyte limit, e.g. 5MB.
+func megabytes(n int) string {
+	return strconv.Itoa(n>>20) + "MB"
+}
+
 func humanBytes(n int) string {
 	switch {
 	case n < 1024:
@@ -318,10 +314,7 @@ const maxDownloadBytes = 100 * 1024 * 1024
 // names the variable so a caller can tell the operator what to set.
 func downloadRoot(root string) (string, error) {
 	if root == "" {
-		return "", &ToolError{
-			Code:    "permission_denied",
-			Message: "files_download is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into",
-		}
+		return "", permissionDenied("files_download is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into")
 	}
 	if !filepath.IsAbs(root) {
 		return "", invalidArguments("SLACK_MCP_DOWNLOAD_DIR must be an absolute path")
@@ -351,11 +344,6 @@ func downloadPath(root string, f *slack.File) string {
 }
 
 func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	root, err := downloadRoot(ch.settings.DownloadDir)
 	if err != nil {

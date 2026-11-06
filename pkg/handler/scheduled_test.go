@@ -11,11 +11,10 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func newTestScheduledHandler(service ScheduledService) *ScheduledHandler {
-	return NewScheduledHandler(service, approval.NewStore(), userIdentity, zap.NewNop())
+	return NewScheduledHandler(service, approval.NewStore(), userIdentity)
 }
 
 type fakeScheduledService struct {

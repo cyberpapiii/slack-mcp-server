@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -193,7 +194,7 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item provider.Save
 			zap.String("channel", channel),
 			zap.String("ts", item.Ts),
 			zap.Error(err))
-		return placeholder("[message content unavailable: channel access denied]"), nil
+		return placeholder(unavailablePlaceholder(err)), nil
 	}
 	if msg == nil {
 		return placeholder("[saved item: message not found in channel history]"), nil
@@ -201,7 +202,20 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item provider.Save
 	return h.messages.rows(ctx, []slack.Message{*msg}, channel, false, mode), nil
 }
 
-// parseSavedUpdateParams: schema uses date_due:0 to clear; key presence (not truthiness) gates the required-field check.
+// unavailablePlaceholder is the row text for a saved message that could not
+// be fetched, named by the failure's error code.
+func unavailablePlaceholder(err error) string {
+	code := codeToolError
+	var typed *ToolError
+	if errors.As(TypeError(err, false), &typed) {
+		code = typed.Code
+	}
+	if code == codePermissionDenied || code == codeNotFound {
+		code = "channel access denied"
+	}
+	return "[message content unavailable: " + code + "]"
+}
+
 // parseSavedTarget names one existing item: a message by channel and
 // timestamp, a custom to-do (Sa...) or a file (F...) by its item ID.
 func parseSavedTarget(request mcp.CallToolRequest) (provider.SavedRef, error) {
@@ -377,14 +391,7 @@ func (h *SavedHandler) Tools() []ToolDef {
 				mcp.Description("If true (default), fetches the actual saved message content. If false, returns metadata only."),
 				mcp.DefaultBool(true),
 			),
-			mcp.WithNumber("max_messages_per_item",
-				mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
-				mcp.DefaultNumber(5),
-			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 		{Name: capability.SavedAdd, Run: h.SavedAddHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Add a to-do or saved item: a custom to-do from text, a message, or a file. Pass exactly one of text, channel_id with timestamp, or file_id. Private to the user; nothing is posted."),

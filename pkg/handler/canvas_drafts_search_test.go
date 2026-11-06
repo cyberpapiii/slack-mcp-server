@@ -9,7 +9,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func capabilityRequest(arguments map[string]any) mcp.CallToolRequest {
@@ -39,7 +38,7 @@ func (f *fakeCanvasAPI) UpdateCanvas(_ context.Context, request provider.CanvasU
 
 func TestCanvasHandlersValidateAndReturnPartialRead(t *testing.T) {
 	api := &fakeCanvasAPI{doc: provider.CanvasDocument{CanvasID: "F1", Preview: "preview", Limitation: "metadata only"}}
-	handler := NewCanvasHandler(api, zap.NewNop())
+	handler := NewCanvasHandler(api)
 
 	created, err := served(handler.Create(context.Background(), capabilityRequest(map[string]any{"title": "Plan", "markdown": "# Plan"})))
 	require.NoError(t, err)
@@ -90,7 +89,7 @@ func TestDraftsListReturnsCSVWithChannelsLegendAndNextCursor(t *testing.T) {
 		draft:      provider.Draft{ID: "D1", ChannelID: "C1", ThreadTS: "1723456789.000100", Text: "hello, world", UpdatedTS: "1723456789.000200"},
 		nextCursor: "page2",
 	}
-	handler := NewDraftsHandler(api, mapLabels{channels: map[string]string{"C1": "#general"}}, approval.NewStore(), nil, zap.NewNop())
+	handler := NewDraftsHandler(api, mapLabels{channels: map[string]string{"C1": "#general"}}, approval.NewStore(), nil)
 	result, err := served(handler.List(context.Background(), capabilityRequest(map[string]any{"limit": 20})))
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)
@@ -99,7 +98,7 @@ func TestDraftsListReturnsCSVWithChannelsLegendAndNextCursor(t *testing.T) {
 
 func TestDraftsListWithoutChannelResolverOmitsLegend(t *testing.T) {
 	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
-	handler := NewDraftsHandler(api, mapLabels{}, approval.NewStore(), nil, zap.NewNop())
+	handler := NewDraftsHandler(api, mapLabels{}, approval.NewStore(), nil)
 	result, err := served(handler.List(context.Background(), capabilityRequest(map[string]any{})))
 	require.NoError(t, err)
 	assert.Equal(t, "DraftID,Channel,ThreadTs,Updated,Text\nD1,C1,,,draft\n", ResultText(result))
@@ -109,7 +108,7 @@ func TestDraftDeleteRequiresBoundOneUseApproval(t *testing.T) {
 	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
 	handler := NewDraftsHandler(api, mapLabels{}, approval.NewStore(), func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user"}
-	}, zap.NewNop())
+	})
 
 	prepared, err := served(handler.Delete(context.Background(), capabilityRequest(map[string]any{"action": "prepare", "draft_id": "D1"})))
 	require.NoError(t, err)
@@ -143,7 +142,7 @@ func TestSemanticSearchHandlerSupportsMessageAndFileFilters(t *testing.T) {
 		{Kind: "message", AuthorUserID: "U1", ChannelID: "C1", MessageTS: "1723456789.000200", Content: "launch plan draft"},
 		{Kind: "file", AuthorUserID: "U2", FileID: "F1", Title: "Launch plan", FileType: "canvas", Content: "plan, v2"},
 	}}
-	handler := NewSemanticSearchHandler(api, mapLabels{channels: map[string]string{"C1": "#launch"}}, zap.NewNop())
+	handler := NewSemanticSearchHandler(api, mapLabels{channels: map[string]string{"C1": "#launch"}})
 	result, err := served(handler.Search(context.Background(), capabilityRequest(map[string]any{"query": "launch plan", "content_types": []any{"messages", "files"}})))
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
@@ -163,7 +162,7 @@ func TestSemanticSearchMessagesOnlyUsesHistoryShapedColumns(t *testing.T) {
 	api := &fakeSemanticAPI{items: []provider.SemanticSearchItem{
 		{Kind: "message", AuthorUserID: "U1", ChannelID: "C1", MessageTS: "1723456789.000200", Content: "match"},
 	}}
-	handler := NewSemanticSearchHandler(api, mapLabels{}, zap.NewNop())
+	handler := NewSemanticSearchHandler(api, mapLabels{})
 	result, err := served(handler.Search(context.Background(), capabilityRequest(map[string]any{"query": "match", "content_types": []any{"messages"}})))
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)

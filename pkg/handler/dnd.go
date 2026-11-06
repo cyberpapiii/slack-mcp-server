@@ -9,7 +9,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
-	"go.uber.org/zap"
 )
 
 const maxSnoozeMinutes = 7 * 24 * 60
@@ -33,11 +32,10 @@ type DNDStateData struct {
 type DNDHandler struct {
 	api      DNDAPI
 	identity func() provider.ProviderIdentity
-	logger   *zap.Logger
 }
 
-func NewDNDHandler(api DNDAPI, identity func() provider.ProviderIdentity, logger *zap.Logger) *DNDHandler {
-	return &DNDHandler{api: api, identity: identityFunc(identity), logger: logger}
+func NewDNDHandler(api DNDAPI, identity func() provider.ProviderIdentity) *DNDHandler {
+	return &DNDHandler{api: api, identity: identity}
 }
 
 func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -47,7 +45,7 @@ func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	}
 	status, err := h.api.GetDNDInfoContext(ctx, nil)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	return dndResult(identity.UserID, status)
 }
@@ -59,7 +57,7 @@ func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest)
 	}
 	minutes := request.GetInt("minutes", 0)
 	if minutes < 1 || minutes > maxSnoozeMinutes {
-		return nil, &ToolError{Code: "invalid_snooze_duration", Message: fmt.Sprintf("minutes must be between 1 and %d", maxSnoozeMinutes)}
+		return nil, &ToolError{Code: codeInvalidSnoozeDuration, Message: fmt.Sprintf("minutes must be between 1 and %d", maxSnoozeMinutes)}
 	}
 	status, err := h.api.SetSnoozeContext(ctx, minutes)
 	if err != nil {
@@ -82,7 +80,7 @@ func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest)
 
 func dndResult(userID string, status *slack.DNDStatus) (*mcp.CallToolResult, error) {
 	if status == nil {
-		return nil, &ToolError{Code: "invalid_slack_response", Message: "Slack returned no DND state"}
+		return nil, &ToolError{Code: codeInvalidSlackResponse, Message: "Slack returned no DND state"}
 	}
 	data := DNDStateData{
 		ActorUserID: userID, DNDEnabled: status.Enabled,
@@ -105,7 +103,7 @@ func (h *DNDHandler) Tools() []ToolDef {
 		}},
 		{Name: capability.DNDSetSnooze, Run: h.SetSnooze, Options: []mcp.ToolOption{
 			mcp.WithDescription("Set a bounded Do Not Disturb snooze for the authenticated user."),
-			mcp.WithNumber("minutes", mcp.Required(), mcp.Min(1), mcp.Max(maxSnoozeMinutes), mcp.Description("Snooze length in minutes, 1 to 10080 (7 days).")),
+			mcp.WithNumber("minutes", mcp.Required(), mcp.Min(1), mcp.Max(maxSnoozeMinutes), mcp.Description(fmt.Sprintf("Snooze length in minutes, 1 to %d (%d days).", maxSnoozeMinutes, maxSnoozeMinutes/(24*60)))),
 		}},
 		{Name: capability.DNDEndSnooze, Run: h.EndSnooze, Options: []mcp.ToolOption{
 			mcp.WithDescription("End the authenticated user's current Do Not Disturb snooze."),

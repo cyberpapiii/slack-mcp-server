@@ -11,7 +11,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
-	"go.uber.org/zap"
 )
 
 const (
@@ -53,11 +52,10 @@ type ScheduledCancelResult = ToolResult[ScheduledCancelData]
 type ScheduledHandler struct {
 	service   ScheduledService
 	approvals approvalGate
-	logger    *zap.Logger
 }
 
-func NewScheduledHandler(service ScheduledService, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ScheduledHandler {
-	return &ScheduledHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
+func NewScheduledHandler(service ScheduledService, approvals *approval.Store, identity func() provider.ProviderIdentity) *ScheduledHandler {
+	return &ScheduledHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}}
 }
 
 func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -141,11 +139,11 @@ func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, schedul
 			}
 		}
 		if page.NextCursor == "" || page.NextCursor == cursor {
-			return provider.ScheduledMessage{}, &ToolError{Code: "not_found", Message: "scheduled message was not found or is no longer pending"}
+			return provider.ScheduledMessage{}, notFound("scheduled message was not found or is no longer pending")
 		}
 		cursor = page.NextCursor
 	}
-	return provider.ScheduledMessage{}, &ToolError{Code: "lookup_limit_exceeded", Message: "scheduled-message lookup exceeded 1000 pending messages; narrow the channel or cancel from Slack"}
+	return provider.ScheduledMessage{}, &ToolError{Code: codeLookupLimitExceeded, Message: "scheduled-message lookup exceeded 1000 pending messages; narrow the channel or cancel from Slack"}
 }
 
 func scheduledResultMessage(message provider.ScheduledMessage) ScheduledMessage {
@@ -170,7 +168,7 @@ func excerpt(text string, limit int) string {
 func scheduledError(err error, mutationAttempted bool) error {
 	var slackError slack.SlackErrorResponse
 	if errors.As(err, &slackError) && (slackError.Err == "invalid_scheduled_message_id" || slackError.Err == "message_not_found") {
-		return &ToolError{Code: "conflict", Message: "scheduled message is no longer pending", Cause: err}
+		return &ToolError{Code: codeConflict, Message: "scheduled message is no longer pending", Cause: err}
 	}
 	return TypeError(err, mutationAttempted)
 }

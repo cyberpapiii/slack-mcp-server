@@ -24,9 +24,14 @@ type ActivityItem struct {
 	Key         string `csv:"Key" json:"key"`
 }
 
-// activityFeedMaxLimit is the largest page activity.feed accepts. Above it Slack
-// answers invalid_arguments instead of a shorter page.
-const activityFeedMaxLimit = 50
+const (
+	// activityFeedMaxLimit is the largest page activity.feed accepts. Above it
+	// Slack answers invalid_arguments instead of a shorter page.
+	activityFeedMaxLimit = 50
+
+	defaultActivityLimit             = 30
+	defaultActivityMessagesPerThread = 10
+)
 
 type ActivityHandler struct {
 	apiProvider *provider.ApiProvider
@@ -51,11 +56,8 @@ func renderActivityItems(items []ActivityItem, channelName func(string) string, 
 
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	includeMessages := request.GetBool("include_messages", true)
-	maxMsgsPerThread := request.GetInt("max_messages_per_thread", 10)
-	if maxMsgsPerThread <= 0 {
-		maxMsgsPerThread = 10
-	}
-	limit := pageLimit(request, 30, activityFeedMaxLimit)
+	maxMsgsPerThread := positiveInt(request, "max_messages_per_thread", defaultActivityMessagesPerThread)
+	limit := pageLimit(request, defaultActivityLimit, activityFeedMaxLimit)
 
 	mode, err := h.settings.outputMode(request)
 	if err != nil {
@@ -202,17 +204,14 @@ func (h *ActivityHandler) Tools() []ToolDef {
 				mcp.DefaultBool(true),
 			),
 			mcp.WithNumber("max_messages_per_thread",
-				mcp.Description("Max messages to fetch per thread when include_messages is true. Default is 10."),
-				mcp.DefaultNumber(10),
+				mcp.Description(fmt.Sprintf("Max messages to fetch per thread when include_messages is true. Default is %d.", defaultActivityMessagesPerThread)),
+				mcp.DefaultNumber(defaultActivityMessagesPerThread),
 			),
 			mcp.WithNumber("limit",
-				mcp.Description("Max Activity items to return, 1 to 50; larger values return 50. Default is 30."),
-				mcp.DefaultNumber(30),
+				mcp.Description(fmt.Sprintf("Max Activity items to return, 1 to %d; larger values return %d. Default is %d.", activityFeedMaxLimit, activityFeedMaxLimit, defaultActivityLimit)),
+				mcp.DefaultNumber(defaultActivityLimit),
 			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 		{Name: capability.ActivityMarkRead, Run: h.ActivityMarkReadHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Mark an Activity item as read. Use the Key, FeedTs and Type values from the activity_unreads item table."),

@@ -2,9 +2,11 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +20,7 @@ import (
 
 const (
 	defaultConversationsNumericLimit = 50
-	maxFileSizeBytes                 = 5 * 1024 * 1024 // 5MB limit
+	maxFileSizeBytes                 = 5 << 20
 
 	// Search `limit` bounds. Default and max are both 100, matching the tool
 	// schema's DefaultNumber(100) and its "between 1 and 100" description.
@@ -26,17 +28,9 @@ const (
 	maxSearchMessagesLimit     = 100
 )
 
-var validFilterKeys = map[string]struct{}{
-	"is":     {},
-	"in":     {},
-	"from":   {},
-	"with":   {},
-	"before": {},
-	"after":  {},
-	"on":     {},
-	"during": {},
-	"has":    {},
-}
+// searchFilterKeys are Slack's search modifiers, in the order the rebuilt
+// query lists them.
+var searchFilterKeys = []string{"is", "in", "from", "with", "before", "after", "on", "during", "has"}
 
 var (
 	flexibleDateStandardFormats = [...]string{
@@ -154,14 +148,18 @@ type ConversationsHandler struct {
 	logger      *zap.Logger
 	settings    Settings
 	messages    messagePipeline
+	// sendEnabled says whether conversations_add_message is served, for the
+	// draft preview's "would it send" line.
+	sendEnabled bool
 }
 
-func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *ConversationsHandler {
+func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings, sendEnabled bool) *ConversationsHandler {
 	return &ConversationsHandler{
 		apiProvider: apiProvider,
 		logger:      logger,
 		settings:    settings,
 		messages:    messagePipeline{api: apiProvider, logger: logger},
+		sendEnabled: sendEnabled,
 	}
 }
 
@@ -193,7 +191,11 @@ func formatThreadTs(threadTs string) string {
 // conversationFilter maps a DM (D...) or group (G...) ID to Slack's `in:`
 // search form: the peer user for a DM, otherwise the cached name.
 func conversationFilter(dir *provider.Directory, raw string) (string, error) {
-	if c, ok := dir.ChannelByRef(raw); ok {
+	c, err := dir.ChannelByRef(raw)
+	if err != nil && !errors.Is(err, provider.ErrNotCached) {
+		return "", cacheMiss(raw, err, nil)
+	}
+	if err == nil {
 		if c.IsIM && c.User != "" {
 			return fmt.Sprintf("<@%s>", c.User), nil
 		}
@@ -219,9 +221,9 @@ func (ch *ConversationsHandler) userFilter(ctx context.Context, raw string) (str
 		}
 		return fmt.Sprintf("<@%s>", patched.ID), nil
 	}
-	u, ok := ch.apiProvider.UserByRef(name)
-	if !ok {
-		return "", userNotFound(name)
+	u, err := ch.apiProvider.UserByRef(name)
+	if err != nil {
+		return "", cacheMiss(name, err, userNotFound)
 	}
 	return fmt.Sprintf("<@%s>", u.ID), nil
 }
@@ -233,10 +235,11 @@ func (ch *ConversationsHandler) channelFilter(raw string) (string, error) {
 	id, name := provider.ParseChannelRef(raw)
 	kind := provider.ClassifyID(id)
 	if strings.HasPrefix(name, "#") || kind == provider.IDChannel || kind == provider.IDGroup {
-		if c, ok := ch.apiProvider.ChannelByRef(raw); ok {
-			return c.Name, nil
+		c, err := ch.apiProvider.ChannelByRef(raw)
+		if err != nil {
+			return "", cacheMiss(raw, err, channelNotFound)
 		}
-		return "", channelNotFound(raw)
+		return c.Name, nil
 	}
 	return "", invalidArguments(fmt.Sprintf("invalid channel %q; pass a channel ID (Cxxxxxxxxxx) or a #channel-name", raw))
 }
@@ -443,8 +446,7 @@ func buildDateFilters(before, after, on, during string) (map[string]string, erro
 }
 
 func isFilterKey(key string) bool {
-	_, ok := validFilterKeys[strings.ToLower(key)]
-	return ok
+	return slices.Contains(searchFilterKeys, strings.ToLower(key))
 }
 
 func splitQuery(q string) (freeText []string, filters map[string][]string) {
@@ -473,7 +475,7 @@ func addFilter(filters map[string][]string, key, val string) {
 func buildQuery(freeText []string, filters map[string][]string) string {
 	var out []string
 	out = append(out, freeText...)
-	for _, key := range []string{"is", "in", "from", "with", "before", "after", "on", "during", "has"} {
+	for _, key := range searchFilterKeys {
 		for _, val := range filters[key] {
 			out = append(out, fmt.Sprintf("%s:%s", key, val))
 		}
@@ -481,10 +483,11 @@ func buildQuery(freeText []string, filters map[string][]string) string {
 	return strings.Join(out, " ")
 }
 
-func channelNotFound(channel string) error {
-	return &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found; pass the channel ID (Cxxxxxxxxxx) or look the name up with channels_list", channel)}
-}
-
-func userNotFound(user string) error {
-	return &ToolError{Code: "user_not_found", Message: fmt.Sprintf("user %q not found; pass the user ID (Uxxxxxxxxxx) or look the name up with users_search", user)}
+// cacheMiss is a failed cache lookup of ref as the caller reports it:
+// notFound once the cache is warm, the retryable warming error before.
+func cacheMiss(ref string, err error, notFound func(string) error) error {
+	if errors.Is(err, provider.ErrNotCached) {
+		return notFound(ref)
+	}
+	return fmt.Errorf("resolve %q: %w", ref, err)
 }

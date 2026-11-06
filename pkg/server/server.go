@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,7 +14,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/korotovsky/slack-mcp-server/pkg/version"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -42,42 +43,24 @@ func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.
 	}, toolHandlerOptions(transport, logger, settings.LogParams)...)
 	s := server.NewMCPServer("Slack MCP Server", version.Version, opts...)
 
-	logger.Info("Authenticating with Slack API...",
-		zap.String("context", "console"),
-	)
-	ar, err := provider.Slack().AuthTest()
-	if err != nil {
-		logger.Fatal("Failed to authenticate with Slack",
-			zap.String("context", "console"),
-			zap.Error(err),
-		)
-	}
-
-	logger.Info("Successfully authenticated with Slack",
-		zap.String("context", "console"),
-		zap.String("team", ar.Team),
-		zap.String("user", ar.User),
-		zap.String("enterprise", ar.EnterpriseID),
-		zap.String("url", ar.URL),
-	)
-
-	ws, err := text.Workspace(ar.URL)
+	ws, err := workspaceName(provider.WorkspaceURL())
 	if err != nil {
 		logger.Fatal("Failed to parse workspace from URL",
 			zap.String("context", "console"),
-			zap.String("url", ar.URL),
+			zap.String("url", provider.WorkspaceURL()),
 			zap.Error(err),
 		)
 	}
 
 	ms := &MCPServer{server: s, logger: logger}
-	families := buildHandlers(provider, logger, enabledTools, settings)
+	availability := handler.NewAvailability(enabledTools, provider)
+	families := buildHandlers(provider, logger, availability, settings, slices.Contains(enabledTools, capability.ConversationsAddMessage))
 	for _, def := range families.tools {
 		spec, ok := capability.Lookup(def.Name)
 		if !ok {
 			panic(fmt.Sprintf("tool %q is not in the capability table", def.Name))
 		}
-		if !slices.Contains(enabledTools, def.Name) || !provider.Satisfies(spec.Requires) {
+		if !availability.Served(spec) {
 			continue
 		}
 		tool := mcpTool(spec, def.Options)
@@ -106,6 +89,20 @@ func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.
 		), Handler: families.conversations.UsersResource},
 	}
 	return ms
+}
+
+// workspaceName is the workspace's subdomain in its Slack URL
+// (https://acme.slack.com/ is "acme"), the host of the resource URIs.
+func workspaceName(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Split(u.Hostname(), ".")
+	if len(parts) < 3 {
+		return "", fmt.Errorf("invalid Slack URL: %q", rawURL)
+	}
+	return parts[0], nil
 }
 
 // mcpTool builds the advertised tool from its capability row. A read-only

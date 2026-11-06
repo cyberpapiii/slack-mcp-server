@@ -42,14 +42,13 @@ const (
 type UsergroupsHandler struct {
 	api    UsergroupsAPI
 	logger *zap.Logger
-	// cachedUserID returns the user the startup auth.test named, or "".
-	// Managed OAuth rotation keeps it valid: a rotated token must belong to
-	// the same user before it is used.
-	cachedUserID func() string
+	// identity is the user the startup auth.test named. Managed OAuth
+	// rotation keeps it valid: a rotated token must belong to the same user
+	// before it is used.
+	identity func() provider.ProviderIdentity
 }
 
 type UsergroupsAPI interface {
-	AuthTest() (*slack.AuthTestResponse, error)
 	GetUserGroupsContext(context.Context, ...slack.GetUserGroupsOption) ([]slack.UserGroup, error)
 	GetUserGroupMembersContext(context.Context, string, ...slack.GetUserGroupMembersOption) ([]string, error)
 	CreateUserGroupContext(context.Context, slack.UserGroup, ...slack.CreateUserGroupOption) (slack.UserGroup, error)
@@ -75,20 +74,10 @@ func newUserGroupFromSlack(g slack.UserGroup) UserGroup {
 	return ug
 }
 
-func NewUsergroupsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *UsergroupsHandler {
-	return &UsergroupsHandler{
-		api:          apiProvider.WebAPI(),
-		logger:       logger,
-		cachedUserID: func() string { return apiProvider.Identity().UserID },
-	}
+func NewUsergroupsHandler(api UsergroupsAPI, identity func() provider.ProviderIdentity, logger *zap.Logger) *UsergroupsHandler {
+	return &UsergroupsHandler{api: api, logger: logger, identity: identity}
 }
 
-func newUsergroupsHandlerWithAPI(api UsergroupsAPI, logger *zap.Logger) *UsergroupsHandler {
-	return &UsergroupsHandler{api: api, logger: logger}
-}
-
-// No IsReady check: usergroup handlers call the Slack API directly and do not
-// depend on the users/channels cache, so cache readiness is not required.
 func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
 	includeUsers := request.GetBool("include_users", false)
@@ -249,20 +238,10 @@ func (h *UsergroupsHandler) UsergroupsLeaveHandler(ctx context.Context, request 
 }
 
 func (h *UsergroupsHandler) currentUserID() (string, error) {
-	if h.cachedUserID != nil {
-		if id := h.cachedUserID(); id != "" {
-			return id, nil
-		}
+	if id := h.identity().UserID; id != "" {
+		return id, nil
 	}
-	authResp, err := h.api.AuthTest()
-	if err != nil {
-		h.logger.Debug("AuthTest failed", zap.Error(err))
-		return "", err
-	}
-	if authResp.UserID == "" {
-		return "", errors.New("Slack auth response has no user ID")
-	}
-	return authResp.UserID, nil
+	return "", errors.New("Slack auth response has no user ID")
 }
 
 func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, currentUserID, usergroupID string, action membershipAction) (*mcp.CallToolResult, error) {

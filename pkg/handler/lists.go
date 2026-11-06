@@ -8,7 +8,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"go.uber.org/zap"
 )
 
 type ListsAPI interface {
@@ -24,11 +23,10 @@ type ListsAPI interface {
 type ListsHandler struct {
 	api       ListsAPI
 	approvals approvalGate
-	logger    *zap.Logger
 }
 
-func NewListsHandler(api ListsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ListsHandler {
-	return &ListsHandler{api: api, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
+func NewListsHandler(api ListsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity) *ListsHandler {
+	return &ListsHandler{api: api, approvals: approvalGate{store: approvals, identity: identity}}
 }
 
 type ListCreateData struct {
@@ -43,7 +41,6 @@ type ListMutationData struct {
 
 type ListItemMutationData struct {
 	ListID string `json:"list_id"`
-	ItemID string `json:"item_id,omitempty"`
 	Status string `json:"status"`
 }
 
@@ -99,7 +96,7 @@ func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolReques
 	}
 	page, err := h.api.ListItems(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	return NewStructuredResult(page, SlackResultMeta(page.NextCursor, false, ""), fallbackJSON(page)), nil
 }

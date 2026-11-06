@@ -88,7 +88,8 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	coverage := unreadsCoverage{mutedUnavailable: params.mutedUnavailable, maxChannels: params.maxChannels, dropped: dropped}
 
 	if !params.includeMessages {
-		return marshalUnreadChannelsToCSV(unreadChannels, coverage.meta())
+		// Rows carry their own Name column, so no "#channels:" legend.
+		return csvResult("", coverage.meta(), &unreadChannels)
 	}
 
 	histories, errs := fetchUnreadHistories(ctx, ch.apiProvider.WebAPI(), unreadChannels, params.maxMessagesPerChannel,
@@ -256,88 +257,34 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 // calls. The caller supplies the cache lookups.
 func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts provider.UnreadCounts, dir *provider.Directory) ([]UnreadChannel, int) {
 	var unreadChannels []UnreadChannel
-
-	for _, snap := range counts.Channels {
-		if !snap.HasUnreads {
-			continue
-		}
-
-		if params.mutedChannels[snap.ID] {
-			continue
-		}
-
-		if params.mentionsOnly && snap.MentionCount == 0 {
-			continue
-		}
-
-		channelType := "internal"
-		if cached, ok := dir.ChannelByRef(snap.ID); ok && cached.IsExtShared {
-			channelType = "partner"
-		}
-
-		if params.channelTypes != "all" && channelType != params.channelTypes {
-			continue
-		}
-
-		unreadChannels = append(unreadChannels, UnreadChannel{
-			ChannelID:   snap.ID,
-			ChannelName: unreadChannelName(dir, snap.ID),
-			ChannelType: channelType,
-			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead,
-		})
+	sections := []struct {
+		snapshots []provider.ConversationUnread
+		category  string
+	}{
+		{counts.Channels, provider.CategoryInternal},
+		{counts.MPIMs, provider.CategoryGroupDM},
+		{counts.IMs, provider.CategoryDM},
 	}
-
-	for _, snap := range counts.MPIMs {
-		if !snap.HasUnreads {
-			continue
+	for _, section := range sections {
+		for _, snap := range section.snapshots {
+			if !snap.HasUnreads || params.mutedChannels[snap.ID] || (params.mentionsOnly && snap.MentionCount == 0) {
+				continue
+			}
+			category := section.category
+			if cached, err := dir.ChannelByRef(snap.ID); err == nil {
+				category = cached.Category()
+			}
+			if params.channelTypes != allCategories && category != params.channelTypes {
+				continue
+			}
+			unreadChannels = append(unreadChannels, UnreadChannel{
+				ChannelID:   snap.ID,
+				ChannelName: unreadChannelName(dir, snap.ID),
+				ChannelType: category,
+				UnreadCount: snap.MentionCount,
+				LastRead:    snap.LastRead,
+			})
 		}
-
-		if params.mutedChannels[snap.ID] {
-			continue
-		}
-
-		if params.mentionsOnly && snap.MentionCount == 0 {
-			continue
-		}
-
-		if params.channelTypes != "all" && params.channelTypes != "group_dm" {
-			continue
-		}
-
-		unreadChannels = append(unreadChannels, UnreadChannel{
-			ChannelID:   snap.ID,
-			ChannelName: unreadChannelName(dir, snap.ID),
-			ChannelType: "group_dm",
-			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead,
-		})
-	}
-
-	for _, snap := range counts.IMs {
-		if !snap.HasUnreads {
-			continue
-		}
-
-		if params.mutedChannels[snap.ID] {
-			continue
-		}
-
-		if params.mentionsOnly && snap.MentionCount == 0 {
-			continue
-		}
-
-		if params.channelTypes != "all" && params.channelTypes != "dm" {
-			continue
-		}
-
-		unreadChannels = append(unreadChannels, UnreadChannel{
-			ChannelID:   snap.ID,
-			ChannelName: unreadChannelName(dir, snap.ID),
-			ChannelType: "dm",
-			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead,
-		})
 	}
 
 	ch.sortChannelsByPriority(unreadChannels)
@@ -453,35 +400,18 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully joined %s", channel)), nil
 }
 
-// Keep in sync with the channel_types param docs in pkg/server/server.go.
-var channelTypePriority = map[string]int{
-	"dm":       0,
-	"group_dm": 1,
-	"partner":  2,
-	"internal": 3,
-}
-
-// Must exceed all channelTypePriority values.
-const unknownChannelTypePriority = 99
-
-// validUnreadsChannelTypes is "all" followed by the channelTypePriority keys in
-// priority order, so the accepted filter values and the sort order cannot drift.
-var validUnreadsChannelTypes = func() []string {
-	types := make([]string, 0, len(channelTypePriority)+1)
-	for channelType := range channelTypePriority {
-		types = append(types, channelType)
-	}
-	sort.Slice(types, func(i, j int) bool { return channelTypePriority[types[i]] < channelTypePriority[types[j]] })
-	return append([]string{"all"}, types...)
-}()
+const (
+	defaultUnreadsMaxChannels        = 50
+	defaultUnreadsMessagesPerChannel = 10
+)
 
 // sortChannelsByPriority: type rank, then UnreadCount desc, ChannelID asc.
 func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel) {
 	rank := func(channelType string) int {
-		if p, ok := channelTypePriority[channelType]; ok {
+		if p := slices.Index(provider.Categories, channelType); p >= 0 {
 			return p
 		}
-		return unknownChannelTypePriority
+		return len(provider.Categories)
 	}
 
 	sort.SliceStable(channels, func(i, j int) bool {
@@ -496,13 +426,7 @@ func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel)
 	})
 }
 
-// marshalUnreadChannelsToCSV renders the include_messages=false summary. Rows
-// carry their own Name column, so no "#channels:" legend is needed.
-func marshalUnreadChannelsToCSV(channels []UnreadChannel, meta ResultMeta) (*mcp.CallToolResult, error) {
-	return csvResult("", meta, &channels)
-}
-
-func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Context, request mcp.CallToolRequest) ([]string, error) {
+func (ch *ConversationsHandler) parseParamsToolOpenConversation(request mcp.CallToolRequest) ([]string, error) {
 	usersStr := request.GetString("users", "")
 	if usersStr == "" {
 		return nil, invalidArguments("users must be a comma-separated string of user IDs or @usernames")
@@ -518,14 +442,9 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 			userIDs = append(userIDs, id)
 			continue
 		}
-		if !strings.HasPrefix(user, "@") {
-			// Anything else goes to Slack as given, for Slack to judge.
-			userIDs = append(userIDs, user)
-			continue
-		}
-		u, ok := ch.apiProvider.UserByRef(user)
-		if !ok {
-			return nil, userNotFound(user)
+		u, err := ch.apiProvider.UserByRef(user)
+		if err != nil {
+			return nil, cacheMiss(user, err, userNotFound)
 		}
 		userIDs = append(userIDs, u.ID)
 	}
@@ -540,12 +459,7 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 // ConversationsOpenHandler opens a new DM or MPIM
 func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
-	userIDs, err := ch.parseParamsToolOpenConversation(ctx, request)
+	userIDs, err := ch.parseParamsToolOpenConversation(request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse open-conversation params", zap.Error(err))
 		return nil, err
@@ -568,25 +482,12 @@ func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, re
 }
 
 func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolRequest) (*unreadsParams, error) {
-	// GetInt only substitutes its default for an absent key, so a caller-supplied
-	// non-positive value survives. maxChannels reaches a slice expression in
-	// collectUnreadChannels, so treat non-positive exactly like absent.
-	maxChannels := request.GetInt("max_channels", 50)
-	if maxChannels <= 0 {
-		maxChannels = 50
-	}
-	maxMessagesPerChannel := request.GetInt("max_messages_per_channel", 10)
-	if maxMessagesPerChannel <= 0 {
-		maxMessagesPerChannel = 10
-	}
+	maxChannels := positiveInt(request, "max_channels", defaultUnreadsMaxChannels)
+	maxMessagesPerChannel := positiveInt(request, "max_messages_per_channel", defaultUnreadsMessagesPerChannel)
 
-	channelTypes := strings.TrimSpace(request.GetString("channel_types", "all"))
-	if channelTypes == "" {
-		channelTypes = "all"
-	}
-	if !slices.Contains(validUnreadsChannelTypes, channelTypes) {
-		return nil, invalidArguments(fmt.Sprintf("unsupported channel_types %q: must be one of %s",
-			channelTypes, strings.Join(validUnreadsChannelTypes, ", ")))
+	channelTypes, err := parseChoice("channel_types", request.GetString("channel_types", ""), categoryFilters, allCategories)
+	if err != nil {
+		return nil, err
 	}
 
 	return &unreadsParams{

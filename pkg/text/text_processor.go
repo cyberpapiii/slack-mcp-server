@@ -2,7 +2,6 @@ package text
 
 import (
 	"fmt"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,21 +18,6 @@ const (
 	ModeStandard OutputMode = iota // compact, agent-oriented (default)
 	ModeFull                       // verbose legacy format, all columns
 )
-
-// ResolveOutputMode maps a tool's `detail` parameter to an OutputMode; an
-// empty parameter takes the fallback.
-func ResolveOutputMode(detailParam string, fallback OutputMode) (OutputMode, error) {
-	switch strings.ToLower(strings.TrimSpace(detailParam)) {
-	case "":
-		return fallback, nil
-	case "standard":
-		return ModeStandard, nil
-	case "full":
-		return ModeFull, nil
-	default:
-		return ModeStandard, fmt.Errorf("invalid detail value %q: must be \"standard\" or \"full\"", detailParam)
-	}
-}
 
 func attachmentToText(att slack.Attachment, mode OutputMode) string {
 	if mode == ModeFull {
@@ -264,19 +248,6 @@ func AttachmentsTo2CSV(msgText string, attachments []slack.Attachment, mode Outp
 	}
 
 	return prefix + strings.Join(descriptions, ", ")
-}
-
-func Workspace(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", err
-	}
-	host := u.Hostname()
-	parts := strings.Split(host, ".")
-	if len(parts) < 3 {
-		return "", fmt.Errorf("invalid Slack URL: %q", rawURL)
-	}
-	return parts[0], nil
 }
 
 func TimestampToIsoRFC3339(slackTS string) (string, error) {

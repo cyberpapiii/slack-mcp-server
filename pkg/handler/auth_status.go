@@ -2,23 +2,20 @@ package handler
 
 import (
 	"context"
-	"slices"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"go.uber.org/zap"
 )
 
 type AuthStatusHandler struct {
 	apiProvider  *provider.ApiProvider
-	enabledTools []string
-	logger       *zap.Logger
+	availability Availability
 }
 
-func NewAuthStatusHandler(apiProvider *provider.ApiProvider, enabledTools []string, logger *zap.Logger) *AuthStatusHandler {
-	return &AuthStatusHandler{apiProvider: apiProvider, enabledTools: enabledTools, logger: logger}
+func NewAuthStatusHandler(apiProvider *provider.ApiProvider, availability Availability) *AuthStatusHandler {
+	return &AuthStatusHandler{apiProvider: apiProvider, availability: availability}
 }
 
 type AuthStatusData struct {
@@ -47,12 +44,7 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 
 	availability := make(map[string]string, len(capability.Tools))
 	for _, tool := range capability.Tools {
-		availability[tool.Name] = toolAvailability(tool, toolState{
-			enabled:    slices.Contains(h.enabledTools, tool.Name),
-			satisfied:  h.apiProvider.Satisfies(tool.Requires),
-			browserOK:  browserOK,
-			cacheReady: usersReady && channelsReady,
-		})
+		availability[tool.Name] = h.availability.State(tool)
 	}
 
 	payload := AuthStatusData{
@@ -77,36 +69,6 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 	}
 
 	return NewStructuredResult(payload, SystemResultMeta(), fallbackJSON(payload)), nil
-}
-
-type toolState struct {
-	enabled    bool // in the enabled-tools list
-	satisfied  bool // the running credentials meet the tool's requirement
-	browserOK  bool // the browser session is healthy
-	cacheReady bool // the users and channels caches are warm
-}
-
-// toolAvailability says whether a tool can be called now and, if not, why,
-// from the same facts registration and the browser-session gate decide on.
-func toolAvailability(tool capability.Tool, state toolState) string {
-	switch {
-	case !state.enabled:
-		return "not_enabled"
-	case !state.satisfied:
-		return requirementMissing[tool.Requires]
-	case tool.Requires == capability.BrowserSession && !state.browserOK:
-		return "browser_session_degraded"
-	case tool.CacheReady && !state.cacheReady:
-		return "available_after_cache_warmup"
-	default:
-		return "available"
-	}
-}
-
-var requirementMissing = map[capability.Requirement]string{
-	capability.UserToken:      "user_token_required",
-	capability.UserOAuth:      "user_oauth_required",
-	capability.BrowserSession: "browser_session_required",
 }
 
 func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason string, browserRecovers bool) string {
