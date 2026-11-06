@@ -167,6 +167,11 @@ func TestTypeErrorKeepsTypedAndPlainErrors(t *testing.T) {
 }
 
 // envSettings reads Settings from the test's environment, as main does.
+// servedTools is the availability of a server that serves exactly tools.
+func servedTools(tools ...string) Availability {
+	return NewAvailability(tools, runtimeState{satisfied: true, browserOK: true, usersReady: true, channelsReady: true})
+}
+
 func envSettings() Settings {
 	settings, err := SettingsFromEnv(os.Getenv)
 	if err != nil {

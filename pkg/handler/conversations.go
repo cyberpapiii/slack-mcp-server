@@ -144,22 +144,20 @@ type reactionRow struct {
 	Users string `csv:"Users"`
 }
 type ConversationsHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
-	settings    Settings
-	messages    messagePipeline
-	// sendEnabled says whether conversations_add_message is served, for the
-	// draft preview's "would it send" line.
-	sendEnabled bool
+	apiProvider  *provider.ApiProvider
+	logger       *zap.Logger
+	settings     Settings
+	availability Availability
+	messages     messagePipeline
 }
 
-func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings, sendEnabled bool) *ConversationsHandler {
+func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings, availability Availability) *ConversationsHandler {
 	return &ConversationsHandler{
-		apiProvider: apiProvider,
-		logger:      logger,
-		settings:    settings,
-		messages:    messagePipeline{api: apiProvider, logger: logger},
-		sendEnabled: sendEnabled,
+		apiProvider:  apiProvider,
+		logger:       logger,
+		settings:     settings,
+		availability: availability,
+		messages:     messagePipeline{api: apiProvider, logger: logger},
 	}
 }
 

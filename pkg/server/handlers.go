@@ -12,8 +12,8 @@ type handlerSet struct {
 	channels      *handler.ChannelsHandler
 }
 
-func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, availability handler.Availability, settings handler.Settings, sendEnabled bool) handlerSet {
-	conversations := handler.NewConversationsHandler(api, logger, settings, sendEnabled)
+func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, availability handler.Availability, settings handler.Settings) handlerSet {
+	conversations := handler.NewConversationsHandler(api, logger, settings, availability)
 	channels := handler.NewChannelsHandler(api, logger)
 	set := handlerSet{conversations: conversations, channels: channels}
 	for _, tools := range [][]handler.ToolDef{

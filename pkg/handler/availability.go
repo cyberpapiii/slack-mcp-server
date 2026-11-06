@@ -33,6 +33,11 @@ func (a Availability) Served(tool capability.Tool) bool {
 	return a.unserved(tool) == ""
 }
 
+func (a Availability) servesName(name string) bool {
+	tool, ok := capability.Lookup(name)
+	return ok && a.Served(tool)
+}
+
 // State says whether a tool can be called now and, if not, why.
 func (a Availability) State(tool capability.Tool) string {
 	if reason := a.unserved(tool); reason != "" {

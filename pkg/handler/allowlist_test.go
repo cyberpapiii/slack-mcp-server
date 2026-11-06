@@ -47,7 +47,7 @@ func TestUnitEveryAllowlistedToolRefusesADeniedChannel(t *testing.T) {
 			messageFiles := &fakeMessageFilesService{}
 			channelMutations := &fakeChannelMutationService{}
 			var tools []ToolDef
-			tools = append(tools, NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop(), settings, true).Tools()...)
+			tools = append(tools, NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop(), settings, servedTools(capability.ConversationsAddMessage)).Tools()...)
 			tools = append(tools, NewMessageFilesHandler(messageFiles, userIdentity, settings).Tools()...)
 			tools = append(tools, NewChannelMutationHandler(channelMutations, userIdentity, settings).Tools()...)
 

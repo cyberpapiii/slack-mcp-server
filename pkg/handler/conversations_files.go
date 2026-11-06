@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -308,15 +309,13 @@ type FileDownloadData struct {
 // cap still keeps a runaway download off the disk.
 const maxDownloadBytes = 100 * 1024 * 1024
 
-// downloadRoot resolves the directory files_download writes into. An empty
-// value disables the tool: writing to the local disk is opt-in, and the error
-// names the variable so a caller can tell the operator what to set.
+// downloadRoot is the directory files_download writes into, which
+// SettingsFromEnv checked is absolute. An empty value disables the tool:
+// writing to the local disk is opt-in, and the error names the variable so a
+// caller can tell the operator what to set.
 func downloadRoot(root string) (string, error) {
 	if root == "" {
-		return "", permissionDenied("files_download is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into")
-	}
-	if !filepath.IsAbs(root) {
-		return "", invalidArguments("SLACK_MCP_DOWNLOAD_DIR must be an absolute path")
+		return "", permissionDenied(capability.FilesDownload + " is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into")
 	}
 	return root, nil
 }

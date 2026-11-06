@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -27,19 +28,20 @@ type Settings struct {
 	// Detail is the output mode for a call that omits `detail`:
 	// SLACK_MCP_COMPACT_OUTPUT set to 0, false, no or off selects full.
 	Detail text.OutputMode
-	// LogParams logs every tool call's arguments at Info.
-	LogParams bool
 }
 
 // SettingsFromEnv reads the handler settings, rejecting a malformed channel
-// allowlist so it fails at startup instead of on a call.
+// allowlist or a relative download directory so it fails at startup instead
+// of on a call.
 func SettingsFromEnv(getenv func(string) string) (Settings, error) {
 	settings := Settings{
 		allowlists:    map[string]channelAllowlist{},
 		MarkAfterPost: envutil.IsTruthy(getenv("SLACK_MCP_ADD_MESSAGE_MARK")),
 		unfurling:     parseUnfurling(getenv("SLACK_MCP_ADD_MESSAGE_UNFURLING")),
 		DownloadDir:   strings.TrimSpace(getenv("SLACK_MCP_DOWNLOAD_DIR")),
-		LogParams:     strings.EqualFold(getenv("SLACK_MCP_LOG_PARAMS"), "debug"),
+	}
+	if settings.DownloadDir != "" && !filepath.IsAbs(settings.DownloadDir) {
+		return Settings{}, fmt.Errorf("SLACK_MCP_DOWNLOAD_DIR must be an absolute path, got %q", settings.DownloadDir)
 	}
 	if envutil.IsFalsy(getenv("SLACK_MCP_COMPACT_OUTPUT")) {
 		settings.Detail = text.ModeFull

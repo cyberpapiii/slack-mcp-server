@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -434,7 +435,11 @@ func TestUnitLimitByExpression_Invalid(t *testing.T) {
 
 func TestUnitSendStatus(t *testing.T) {
 	newHandler := func(sendEnabled bool) *ConversationsHandler {
-		return NewConversationsHandler(nil, zap.NewNop(), envSettings(), sendEnabled)
+		var served []string
+		if sendEnabled {
+			served = []string{capability.ConversationsAddMessage}
+		}
+		return NewConversationsHandler(nil, zap.NewNop(), envSettings(), servedTools(served...))
 	}
 
 	t.Run("not available when add_message not enabled", func(t *testing.T) {

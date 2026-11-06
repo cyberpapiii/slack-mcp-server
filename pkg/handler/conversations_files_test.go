@@ -177,11 +177,8 @@ func TestUnitDownloadRoot(t *testing.T) {
 	assert.Equal(t, "permission_denied", toolErr.Code)
 	assert.Contains(t, toolErr.Message, "SLACK_MCP_DOWNLOAD_DIR", "the error is the only place an operator learns what to set")
 
-	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "relative/dir")
-	_, err = downloadRoot(envSettings().DownloadDir)
-	require.Error(t, err)
-	require.ErrorAs(t, err, &toolErr)
-	assert.Equal(t, "invalid_arguments", toolErr.Code)
+	_, err = settingsWith(map[string]string{"SLACK_MCP_DOWNLOAD_DIR": "relative/dir"})
+	require.ErrorContains(t, err, "SLACK_MCP_DOWNLOAD_DIR must be an absolute path", "a relative directory fails at startup")
 
 	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "  /tmp/slack-downloads  ")
 	root, err := downloadRoot(envSettings().DownloadDir)
