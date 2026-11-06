@@ -1,6 +1,10 @@
 package handler
 
-import "testing"
+import (
+	"testing"
+
+	"go.uber.org/zap"
+)
 
 func TestUnitUnfurls(t *testing.T) {
 	tests := []struct {
@@ -97,7 +101,7 @@ func TestUnitUnfurls(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Settings{unfurling: parseUnfurling(tt.opt)}.unfurls(tt.text, nil)
+			got := Settings{unfurling: parseUnfurling(tt.opt)}.unfurls(tt.text, zap.NewNop())
 			if got != tt.want {
 				t.Fatalf("opt=%q text=%q → got %v; want %v",
 					tt.opt, tt.text, got, tt.want)

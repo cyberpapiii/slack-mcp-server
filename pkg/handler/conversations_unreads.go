@@ -79,13 +79,12 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
 
-	if !ch.backfillUnreadCounts(ctx, request, ch.api, params, unreadChannels) {
-		return nil, ctx.Err()
-	}
-
 	coverage := unreadsCoverage{mutedUnavailable: params.mutedUnavailable, maxChannels: params.maxChannels, dropped: dropped}
 
 	if !params.includeMessages {
+		if !ch.backfillUnreadCounts(ctx, request, ch.api, unreadChannels) {
+			return nil, ctx.Err()
+		}
 		// Rows carry their own Name column, so no "#channels:" legend.
 		return csvResult("", coverage.meta(), &unreadChannels)
 	}
@@ -198,14 +197,11 @@ func fetchUnreadHistories(ctx context.Context, api historyFetcher, channels []Un
 }
 
 // backfillUnreadCounts fills in UnreadCount for channels that client.counts
-// reported as unread with MentionCount==0. It mutates unreadChannels in place
-// and reports false if the context was cancelled mid-flight.
-func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, request mcp.CallToolRequest, api historyFetcher, params *unreadsParams, unreadChannels []UnreadChannel) bool {
-	if params.includeMessages {
-		// Message-fetch loop overwrites UnreadCount; backfill would double API calls.
-		return true
-	}
-
+// reported as unread with MentionCount==0, for the summary output; with
+// include_messages the message fetch sets the counts instead. It mutates
+// unreadChannels in place and reports false if the context was cancelled
+// mid-flight.
+func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, request mcp.CallToolRequest, api historyFetcher, unreadChannels []UnreadChannel) bool {
 	// client.counts gives HasUnreads without a count when MentionCount==0;
 	// history since LastRead is used because conversations.info omits unread_count for xoxc/xoxd.
 	const backfillLimit = 20
@@ -282,9 +278,8 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 
 	ch.sortChannelsByPriority(unreadChannels)
 
-	// maxChannels > 0 backstop: non-positive would slice negative and panic.
 	dropped := 0
-	if params.maxChannels > 0 && len(unreadChannels) > params.maxChannels {
+	if len(unreadChannels) > params.maxChannels {
 		dropped = len(unreadChannels) - params.maxChannels
 		unreadChannels = unreadChannels[:params.maxChannels]
 	}

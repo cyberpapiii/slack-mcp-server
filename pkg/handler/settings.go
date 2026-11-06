@@ -98,20 +98,20 @@ func (s Settings) channelAllowed(tool, channel string) bool {
 	if spec.ChannelAllowlist == "" {
 		return true
 	}
-	allowlist, ok := s.allowlists[spec.ChannelAllowlist]
-	return !ok || allowlist.allows(channel)
+	return s.allowlists[spec.ChannelAllowlist].allows(channel)
 }
 
 // channelAllowlist is one allow/block list. Empty or truthy allows every
 // channel; "C1,C2" allows only those; "!C1,!C2" allows all except those.
+// The zero value allows every channel.
 type channelAllowlist struct {
-	channels map[string]bool
-	block    bool
+	channels  map[string]bool
+	allowOnly bool
 }
 
 func parseChannelAllowlist(value string) (channelAllowlist, error) {
 	if value == "" || envutil.IsTruthy(value) {
-		return channelAllowlist{block: true}, nil
+		return channelAllowlist{}, nil
 	}
 	allowlist := channelAllowlist{channels: map[string]bool{}}
 	negated, positive := false, false
@@ -130,10 +130,10 @@ func parseChannelAllowlist(value string) (channelAllowlist, error) {
 	if negated && positive {
 		return channelAllowlist{}, fmt.Errorf("cannot mix allowed and disallowed (! prefixed) channels")
 	}
-	allowlist.block = negated
+	allowlist.allowOnly = positive
 	return allowlist, nil
 }
 
 func (a channelAllowlist) allows(channel string) bool {
-	return a.channels[channel] != a.block
+	return a.channels[channel] == a.allowOnly
 }

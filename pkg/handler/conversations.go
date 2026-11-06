@@ -389,49 +389,27 @@ func parseStandardDate(dateStr string) (time.Time, string, bool) {
 }
 
 func buildDateFilters(before, after, on, during string) (map[string]string, error) {
+	if on != "" && (during != "" || before != "" || after != "") {
+		return nil, invalidArguments("'on' cannot be combined with other date filters")
+	}
+	if during != "" && (before != "" || after != "") {
+		return nil, invalidArguments("'during' cannot be combined with 'before' or 'after'")
+	}
 	out := make(map[string]string)
-	if on != "" {
-		if during != "" || before != "" || after != "" {
-			return nil, invalidArguments("'on' cannot be combined with other date filters")
+	dates := make(map[string]time.Time)
+	for _, filter := range [][2]string{{"on", on}, {"during", during}, {"after", after}, {"before", before}} {
+		key, value := filter[0], filter[1]
+		if value == "" {
+			continue
 		}
-		_, normalized, err := parseFlexibleDate(on)
+		date, normalized, err := parseFlexibleDate(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid 'on' date: %w", err)
+			return nil, invalidArguments(fmt.Sprintf("invalid '%s' date: %s", key, err.Error()))
 		}
-		out["on"] = normalized
-		return out, nil
+		out[key], dates[key] = normalized, date
 	}
-	if during != "" {
-		if before != "" || after != "" {
-			return nil, invalidArguments("'during' cannot be combined with 'before' or 'after'")
-		}
-		_, normalized, err := parseFlexibleDate(during)
-		if err != nil {
-			return nil, fmt.Errorf("invalid 'during' date: %w", err)
-		}
-		out["during"] = normalized
-		return out, nil
-	}
-	if after != "" {
-		_, normalized, err := parseFlexibleDate(after)
-		if err != nil {
-			return nil, fmt.Errorf("invalid 'after' date: %w", err)
-		}
-		out["after"] = normalized
-	}
-	if before != "" {
-		_, normalized, err := parseFlexibleDate(before)
-		if err != nil {
-			return nil, fmt.Errorf("invalid 'before' date: %w", err)
-		}
-		out["before"] = normalized
-	}
-	if after != "" && before != "" {
-		a, _, _ := parseFlexibleDate(after)
-		b, _, _ := parseFlexibleDate(before)
-		if a.After(b) {
-			return nil, invalidArguments("'after' date is after 'before' date")
-		}
+	if after != "" && before != "" && dates["after"].After(dates["before"]) {
+		return nil, invalidArguments("'after' date is after 'before' date")
 	}
 	return out, nil
 }

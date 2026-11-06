@@ -53,12 +53,10 @@ func (s Settings) unfurls(text string, logger *zap.Logger) bool {
 		return false
 	}
 	refuse := func(host string) bool {
-		if logger != nil {
-			logger.Warn("Security: attempt to unfurl non-whitelisted host",
-				zap.String("host", host),
-				zap.String("allowed", s.unfurling.raw),
-			)
-		}
+		logger.Warn("Security: attempt to unfurl non-whitelisted host",
+			zap.String("host", host),
+			zap.String("allowed", s.unfurling.raw),
+		)
 		return false
 	}
 
