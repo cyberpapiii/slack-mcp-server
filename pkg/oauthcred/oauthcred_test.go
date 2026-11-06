@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -353,7 +354,7 @@ func TestUnitIdentityValidatorAuthTestsTheRecordToken(t *testing.T) {
 }
 
 func TestUnitSlackAuthTestUsesTheGivenClientAndGovSlack(t *testing.T) {
-	t.Setenv("SLACK_MCP_GOVSLACK", "true")
+	t.Cleanup(slackhttp.SetGovSlack(true))
 	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		assert.Equal(t, "https://slack-gov.com/api/auth.test", request.URL.String())
 		body := `{"ok":true,"team_id":"T1","user_id":"U1"}`

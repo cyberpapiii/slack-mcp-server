@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -142,7 +143,7 @@ func TestCallbackAcceptsOnlyOneValidRequest(t *testing.T) {
 }
 
 func TestBuildAuthorizationURLFollowsGovSlack(t *testing.T) {
-	t.Setenv("SLACK_MCP_GOVSLACK", "true")
+	t.Cleanup(slackhttp.SetGovSlack(true))
 	authorization, err := oauthcred.NewPKCE(defaultRedirectURI)
 	require.NoError(t, err)
 	raw, err := buildAuthorizationURL("client-id", "", nil, authorization)

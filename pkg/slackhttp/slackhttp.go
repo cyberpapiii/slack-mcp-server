@@ -17,6 +17,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
@@ -156,11 +158,27 @@ func RateLimited(resp *http.Response) *slack.RateLimitedError {
 
 // SlackDomain is the Slack host the whole process talks to;
 // SLACK_MCP_GOVSLACK switches every Web API, edge and OAuth call to GovSlack.
+// The variable is read once, on first use.
 func SlackDomain() string {
-	if envutil.IsTruthy(os.Getenv("SLACK_MCP_GOVSLACK")) {
+	on := govSlackFromEnv()
+	if override := govSlackOverride.Load(); override != nil {
+		on = *override
+	}
+	if on {
 		return "slack-gov.com"
 	}
 	return "slack.com"
+}
+
+var govSlackFromEnv = sync.OnceValue(func() bool { return envutil.IsTruthy(os.Getenv("SLACK_MCP_GOVSLACK")) })
+
+var govSlackOverride atomic.Pointer[bool]
+
+// SetGovSlack overrides SLACK_MCP_GOVSLACK until restore is called, for
+// tests.
+func SetGovSlack(on bool) (restore func()) {
+	old := govSlackOverride.Swap(&on)
+	return func() { govSlackOverride.Store(old) }
 }
 
 // WorkspaceAPIBase is the Web API root on a workspace's own host, the URL

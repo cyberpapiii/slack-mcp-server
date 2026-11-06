@@ -132,11 +132,11 @@ func TestRateLimited(t *testing.T) {
 }
 
 func TestSlackDomain(t *testing.T) {
-	t.Setenv("SLACK_MCP_GOVSLACK", "")
+	t.Cleanup(SetGovSlack(false))
 	assert.Equal(t, "slack.com", SlackDomain())
 	assert.Equal(t, "https://slack.com/api/", SlackAPIBase())
 
-	t.Setenv("SLACK_MCP_GOVSLACK", "1")
+	t.Cleanup(SetGovSlack(true))
 	assert.Equal(t, "slack-gov.com", SlackDomain())
 	assert.Equal(t, "https://slack-gov.com/api/", SlackAPIBase())
 }
