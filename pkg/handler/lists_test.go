@@ -13,7 +13,7 @@ import (
 )
 
 func newTestListsHandler(api ListsAPI) *ListsHandler {
-	return NewListsHandler(api, approval.NewStore(), userIdentity)
+	return NewListsHandler(api, userIdentity)
 }
 
 type fakeListsAPI struct {
@@ -94,7 +94,8 @@ func TestUnitListsDeleteRejectsChangedOrExpiredStateWithoutMutation(t *testing.T
 	api := &fakeListsAPI{item: item}
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	clock := now
-	handler := NewListsHandler(api, approval.NewStoreWithClock(func() time.Time { return clock }), userIdentity)
+	handler := NewListsHandler(api, userIdentity)
+	handler.approvals.store = approval.NewStoreWithClock(func() time.Time { return clock })
 
 	prepared, _ := handler.DeleteItem(context.Background(), toolRequest(map[string]any{"action": "prepare", "list_id": "F1", "item_id": "Rec1"}))
 	token := prepared.StructuredContent.(ToolResult[ListItemDeleteData]).Data.ApprovalToken

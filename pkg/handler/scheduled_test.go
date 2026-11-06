@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
@@ -14,7 +13,7 @@ import (
 )
 
 func newTestScheduledHandler(service ScheduledService) *ScheduledHandler {
-	return NewScheduledHandler(service, approval.NewStore(), userIdentity)
+	return NewScheduledHandler(service, userIdentity)
 }
 
 type fakeScheduledService struct {

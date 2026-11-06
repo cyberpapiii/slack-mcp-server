@@ -47,40 +47,28 @@ func newSavedItemRow(item provider.SavedItem) SavedItemRow {
 	return row
 }
 
-// renderSavedItems is the include_messages=false output: rows keyed by the
-// bare channel ID with a "#channels:" legend.
-func renderSavedItems(items []SavedItemRow, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
-	ids := make([]string, len(items))
-	for i, item := range items {
-		ids[i] = item.ChannelID
-	}
-	return csvResult(channelsLegend(ids, channelName), meta, &items)
-}
+func (item SavedItemRow) channel() string { return item.ChannelID }
+
+const (
+	defaultSavedLimit = 50
+	// maxSavedPageSize is the largest page saved_list asks saved.list for.
+	maxSavedPageSize = 50
+)
 
 type SavedHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
-	settings    Settings
-	messages    messagePipeline
-
-	// listPage and itemMessages are the Slack side of listSaved, swapped out
-	// in tests. The clients pace saved.list and the message reads.
-	listPage     func(ctx context.Context, filter string, limit int, cursor string) (provider.SavedPage, error)
-	itemMessages func(ctx context.Context, item provider.SavedItem, mode text.OutputMode) ([]Message, error)
+	api      SavedAPI
+	messages MessagePipeline
+	logger   *zap.Logger
+	settings Settings
 }
 
-func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *SavedHandler {
-	h := &SavedHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}}
-	h.listPage = func(ctx context.Context, filter string, limit int, cursor string) (provider.SavedPage, error) {
-		return apiProvider.Slack().SavedList(ctx, filter, limit, cursor)
-	}
-	h.itemMessages = h.savedItemMessages
-	return h
+func NewSavedHandler(api SavedAPI, messages MessagePipeline, logger *zap.Logger, settings Settings) *SavedHandler {
+	return &SavedHandler{api: api, messages: messages, logger: logger, settings: settings}
 }
 
 func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	filter := request.GetString("filter", "saved")
-	limit := pageLimit(request, 50, 0)
+	limit := pageLimit(request, defaultSavedLimit, 0)
 	includeMessages := request.GetBool("include_messages", true)
 
 	mode, err := h.settings.outputMode(request)
@@ -99,10 +87,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 	var allMessages []Message
 	nextCursor := ""
 	fetched := 0
-	pageSize := limit
-	if pageSize > 50 {
-		pageSize = 50
-	}
+	pageSize := min(limit, maxSavedPageSize)
 	// stopErr is set once the walk has to stop early. The rest of the page in
 	// hand is still listed, without messages, so nextCursor stays a valid
 	// resume point.
@@ -116,7 +101,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 			}
 		}
 
-		resp, err := h.listPage(ctx, filter, pageSize, cursor)
+		resp, err := h.api.SavedList(ctx, filter, pageSize, cursor)
 		if err != nil {
 			if len(allItems) > 0 && ctx.Err() != nil {
 				stopErr = err
@@ -141,7 +126,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 				stopErr = err
 				continue
 			}
-			msgs, err := h.itemMessages(ctx, item, mode)
+			msgs, err := h.savedItemMessages(ctx, item, mode)
 			if err != nil {
 				stopErr = err
 				continue
@@ -160,8 +145,8 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 	}
 	partialReason := ""
 	if stopErr != nil {
-		h.logger.Warn("saved_list stopped early; returning the items listed so far", zap.Int("items", len(allItems)), zap.Error(stopErr))
-		partialReason = "saved_list stopped before the walk finished"
+		h.logger.Warn(capability.SavedList+" stopped early; returning the items listed so far", zap.Int("items", len(allItems)), zap.Error(stopErr))
+		partialReason = capability.SavedList + " stopped before the walk finished"
 		if includeMessages {
 			partialReason += "; some rows have no message"
 		}
@@ -174,7 +159,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 		return marshalMessagesToCSV(allMessages, opts)
 	}
 
-	return renderSavedItems(allItems, h.apiProvider.ChannelLabel, meta)
+	return itemRows(allItems, h.messages.channelLabel, meta)
 }
 
 // savedItemMessages fetches one saved message. A Slack failure is logged and
@@ -189,6 +174,9 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item provider.Save
 	placeholder := func(text string) []Message {
 		return []Message{{MsgID: item.Ts, Channel: channel, Text: text, Time: unixTimeText(item.DateCreated)}}
 	}
+	if provider.IsMessageNotFound(err) {
+		return placeholder("[saved item: message not found in channel history]"), nil
+	}
 	if err != nil {
 		h.logger.Warn("Failed to fetch saved message",
 			zap.String("channel", channel),
@@ -196,10 +184,7 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item provider.Save
 			zap.Error(err))
 		return placeholder(unavailablePlaceholder(err)), nil
 	}
-	if msg == nil {
-		return placeholder("[saved item: message not found in channel history]"), nil
-	}
-	return h.messages.rows(ctx, []slack.Message{*msg}, channel, false, mode), nil
+	return h.messages.rows(ctx, []slack.Message{msg}, channel, false, mode), nil
 }
 
 // unavailablePlaceholder is the row text for a saved message that could not
@@ -284,13 +269,13 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 		return nil, err
 	}
 
-	if err := h.apiProvider.Slack().SavedUpdate(ctx, params); err != nil {
+	if err := h.api.SavedUpdate(ctx, params); err != nil {
 		h.logger.Debug("SavedUpdate failed", zap.String("item_id", params.ID), zap.String("ts", params.Ts), zap.Error(err))
 		return nil, fmt.Errorf("failed to update saved item: %w", err)
 	}
 
 	fallback := fmt.Sprintf("Successfully updated saved item (item_id=%s, ts=%s)", params.ID, params.Ts)
-	return NewStructuredResult(savedActionData("update_saved_item", "updated", params.SavedRef), SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(savedActionData("update_saved_item", "updated", params.SavedRef), slackMeta(), fallback), nil
 }
 
 // parseSavedAddParams builds saved.add arguments from exactly one of text, a
@@ -325,14 +310,14 @@ func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallTool
 		return nil, err
 	}
 
-	item, err := h.apiProvider.Slack().SavedAdd(ctx, params)
+	item, err := h.api.SavedAdd(ctx, params)
 	if err != nil {
 		h.logger.Debug("SavedAdd failed", zap.String("item_type", params.Type), zap.Error(err))
 		return nil, fmt.Errorf("failed to add saved item: %w", err)
 	}
 
 	fallback := fmt.Sprintf("Successfully added saved item (item_id=%s, ts=%s)", item.ID, item.Ts)
-	return NewStructuredResult(savedActionData("add_saved_item", "added", provider.SavedRef{Type: params.Type, ID: item.ID, Ts: params.Ts}), SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(savedActionData("add_saved_item", "added", provider.SavedRef{Type: params.Type, ID: item.ID, Ts: params.Ts}), slackMeta(), fallback), nil
 }
 
 func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -341,13 +326,13 @@ func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallT
 		return nil, err
 	}
 
-	if err := h.apiProvider.Slack().SavedDelete(ctx, target); err != nil {
+	if err := h.api.SavedDelete(ctx, target); err != nil {
 		h.logger.Debug("SavedDelete failed", zap.String("item_id", target.ID), zap.String("ts", target.Ts), zap.Error(err))
 		return nil, fmt.Errorf("failed to delete saved item: %w", err)
 	}
 
 	fallback := fmt.Sprintf("Successfully removed saved item (item_id=%s, ts=%s)", target.ID, target.Ts)
-	return NewStructuredResult(savedActionData("delete_saved_item", "deleted", target), SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(savedActionData("delete_saved_item", "deleted", target), slackMeta(), fallback), nil
 }
 
 func savedActionData(action, status string, ref provider.SavedRef) ActionData {
@@ -355,13 +340,13 @@ func savedActionData(action, status string, ref provider.SavedRef) ActionData {
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	err := h.apiProvider.Slack().SavedClearCompleted(ctx)
+	err := h.api.SavedClearCompleted(ctx)
 	if err != nil {
 		h.logger.Debug("SavedClearCompleted failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to clear completed saved items: %w", err)
 	}
 
-	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, SlackResultMeta("", false, ""), "Successfully cleared all completed saved items"), nil
+	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, slackMeta(), "Successfully cleared all completed saved items"), nil
 }
 
 func (h *SavedHandler) Tools() []ToolDef {
@@ -380,8 +365,8 @@ func (h *SavedHandler) Tools() []ToolDef {
 				mcp.DefaultString("saved"),
 			),
 			mcp.WithNumber("limit",
-				mcp.Description("Maximum number of items to return from this page. Default is 50."),
-				mcp.DefaultNumber(50),
+				mcp.Description(fmt.Sprintf("Maximum number of items to return from this page. Default is %d.", defaultSavedLimit)),
+				mcp.DefaultNumber(defaultSavedLimit),
 			),
 			mcp.WithString("cursor",
 				mcp.Description(descCursor),

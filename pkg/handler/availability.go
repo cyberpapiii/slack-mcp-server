@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -33,13 +34,28 @@ func (a Availability) Served(tool capability.Tool) bool {
 	return a.unserved(tool) == ""
 }
 
+func (a Availability) servesName(name string) bool {
+	tool, ok := capability.Lookup(name)
+	return ok && a.Served(tool)
+}
+
+// toolHint is hint with its %s set to tool when the server serves tool, and
+// fallback when it does not, so a hint never points at a tool the caller
+// cannot call.
+func (a Availability) toolHint(tool, hint, fallback string) string {
+	if a.servesName(tool) {
+		return fmt.Sprintf(hint, tool)
+	}
+	return fallback
+}
+
 // State says whether a tool can be called now and, if not, why.
 func (a Availability) State(tool capability.Tool) string {
 	if reason := a.unserved(tool); reason != "" {
 		return reason
 	}
 	switch {
-	case tool.Requires == capability.BrowserSession && !a.state.BrowserFeaturesAvailable():
+	case tool.Requires.Degrades() && !a.state.BrowserFeaturesAvailable():
 		return "browser_session_degraded"
 	case tool.CacheReady && !(a.state.UsersCacheReady() && a.state.ChannelsCacheReady()):
 		return "available_after_cache_warmup"
@@ -52,13 +68,7 @@ func (a Availability) unserved(tool capability.Tool) string {
 		return "not_enabled"
 	}
 	if !tool.Requires.Met(a.state) {
-		return requirementMissing[tool.Requires]
+		return tool.Requires.Missing()
 	}
 	return ""
-}
-
-var requirementMissing = map[capability.Requirement]string{
-	capability.UserToken:      "user_token_required",
-	capability.UserOAuth:      "user_oauth_required",
-	capability.BrowserSession: "browser_session_required",
 }

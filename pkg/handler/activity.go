@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -34,25 +33,17 @@ const (
 )
 
 type ActivityHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
-	settings    Settings
-	messages    messagePipeline
+	api      ActivityAPI
+	messages MessagePipeline
+	logger   *zap.Logger
+	settings Settings
 }
 
-func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *ActivityHandler {
-	return &ActivityHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}}
+func NewActivityHandler(api ActivityAPI, messages MessagePipeline, logger *zap.Logger, settings Settings) *ActivityHandler {
+	return &ActivityHandler{api: api, messages: messages, logger: logger, settings: settings}
 }
 
-// renderActivityItems is the include_messages=false output: rows keyed by the
-// bare channel ID with a "#channels:" legend.
-func renderActivityItems(items []ActivityItem, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
-	ids := make([]string, len(items))
-	for i, item := range items {
-		ids[i] = item.ChannelID
-	}
-	return csvResult(channelsLegend(ids, channelName), meta, &items)
-}
+func (item ActivityItem) channel() string { return item.ChannelID }
 
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	includeMessages := request.GetBool("include_messages", true)
@@ -64,7 +55,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		return nil, err
 	}
 
-	feed, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
+	feed, err := h.api.ActivityFeed(ctx, limit)
 	if err != nil {
 		h.logger.Debug("ActivityFeed failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to get activity feed: %w", err)
@@ -89,7 +80,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	h.logger.Debug("Filtered unread activity items", zap.Int("count", len(items)))
 
 	if !includeMessages {
-		return renderActivityItems(items, h.apiProvider.ChannelLabel, SlackResultMeta("", false, ""))
+		return itemRows(items, h.messages.channelLabel, slackMeta())
 	}
 
 	type threadKey struct {
@@ -118,10 +109,9 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		}{ai.ChannelID, ai.ThreadTs, ai.MinUnreadTs})
 	}
 
-	api := h.apiProvider.WebAPI()
 	replies, errs := fetchInOrder(ctx, len(threads), fanOutWorkers, func(ctx context.Context, i int) ([]slack.Message, error) {
 		t := threads[i]
-		msgs, _, _, err := api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
+		msgs, _, _, err := h.api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 			ChannelID: t.ChannelID,
 			Timestamp: t.ThreadTs,
 			Oldest:    t.MinUnreadTs,
@@ -163,7 +153,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	meta := SlackResultMeta("", partialReason != "", partialReason)
 
 	if len(allMessages) == 0 {
-		return renderActivityItems(items, h.apiProvider.ChannelLabel, meta)
+		return itemRows(items, h.messages.channelLabel, meta)
 	}
 
 	opts := h.messages.render(mode, meta)
@@ -180,7 +170,7 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 		return nil, invalidArguments("key, feed_ts, and type are all required parameters")
 	}
 
-	err := h.apiProvider.Slack().ActivityMarkRead(ctx, itemType, feedTs, key)
+	err := h.api.ActivityMarkRead(ctx, itemType, feedTs, key)
 	if err != nil {
 		h.logger.Debug("ActivityMarkRead failed",
 			zap.String("key", key),
@@ -191,7 +181,7 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 	}
 
 	fallback := fmt.Sprintf("Successfully marked activity item as read (key=%s)", key)
-	return NewStructuredResult(ActionData{Action: "mark_activity_read", Status: "marked", ActivityKey: key, MessageID: feedTs}, SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(ActionData{Action: "mark_activity_read", Status: "marked", ActivityKey: key, MessageID: feedTs}, slackMeta(), fallback), nil
 }
 
 func (h *ActivityHandler) Tools() []ToolDef {

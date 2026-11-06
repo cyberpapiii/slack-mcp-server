@@ -4,15 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func TestUnitAColdCacheFailsOnlyNameLookups(t *testing.T) {
-	p := messagePipeline{api: &provider.ApiProvider{}, logger: zap.NewNop()}
+	p := (&fakeSlack{dir: coldDirectory()}).pipeline()
 
 	for _, ref := range []string{"C0123ABC", "<#C0123ABC|general>"} {
 		id, err := p.channelID(context.Background(), ref)
@@ -46,4 +45,12 @@ func TestUnitSearchMatchMessage(t *testing.T) {
 	bot := searchMatchMessage(slack.SearchMessage{Username: "deploybot", Timestamp: "1712345678.000300"})
 	assert.Equal(t, "", bot.SubType, "no subtype is invented for a bot match")
 	assert.Equal(t, "deploybot", bot.Username)
+}
+
+// The full-mode header is the wire contract of detail=full; it must not move
+// when a Go field is renamed.
+func TestUnitFullModeHeader(t *testing.T) {
+	result, err := marshalMessagesToCSV([]Message{}, renderOptions{mode: text.ModeFull})
+	require.NoError(t, err)
+	assert.Equal(t, "MsgID,UserID,UserName,RealName,Channel,ThreadTs,Text,Time,Permalink,Reactions,BotName,FileCount,AttachmentIDs,HasMedia\n", csvResultBody(t, result))
 }

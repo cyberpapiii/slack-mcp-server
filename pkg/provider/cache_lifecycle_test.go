@@ -93,7 +93,7 @@ func TestUnitRevalidateCachesRefetchesOnlyTheStaleCache(t *testing.T) {
 	assert.Equal(t, int32(1), client.users.Load(), "users cache is past its TTL")
 	assert.Equal(t, int32(0), client.channels.Load(), "channels cache is still fresh")
 	assert.False(t, cacheIsExpired(ap.usersCachePath, ap.cacheTTL), "the refetch rewrote the file")
-	_, ok := ap.ProvideUsersMap().Users["U1"]
+	_, ok := ap.currentUsers().Users["U1"]
 	assert.True(t, ok, "the refetched users are live")
 }
 
@@ -139,7 +139,7 @@ func TestUnitCacheLifecycleWarmsUsersBeforeChannelsThenReportsReady(t *testing.T
 		t.Fatal("onReady was not called once both caches loaded")
 	}
 	assert.Equal(t, []string{"users", "channels"}, client.order)
-	assert.Equal(t, "@one", ap.ProvideChannelsMaps().Channels["D1"].Name, "DM names map from the users fetched first")
+	assert.Equal(t, "@one", ap.currentChannels().Channels["D1"].Name, "DM names map from the users fetched first")
 }
 
 // The warm-up loop used to sleep between attempts with no way to stop it.

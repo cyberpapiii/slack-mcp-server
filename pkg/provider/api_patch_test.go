@@ -58,7 +58,7 @@ func TestUnitPatchUser(t *testing.T) {
 		assert.Equal(t, "U002", result.ID)
 		assert.Equal(t, "bob", result.Name)
 
-		snapshot := ap.ProvideUsersMap()
+		snapshot := ap.currentUsers()
 		assert.Len(t, snapshot.Users, 2)
 		assert.Equal(t, "bob", snapshot.Users["U002"].Name)
 		assert.Equal(t, "U002", snapshot.UsersInv["bob"])
@@ -77,7 +77,7 @@ func TestUnitPatchUser(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, result)
 
-		snapshot := ap.ProvideUsersMap()
+		snapshot := ap.currentUsers()
 		assert.Len(t, snapshot.Users, 1)
 	})
 
@@ -122,7 +122,7 @@ func TestUnitPatchUser(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "alice_new", result.Name)
 
-		snapshot := ap.ProvideUsersMap()
+		snapshot := ap.currentUsers()
 		assert.Equal(t, "alice_new", snapshot.Users["U001"].Name)
 		assert.Equal(t, "U001", snapshot.UsersInv["alice_new"])
 	})
@@ -153,7 +153,7 @@ func TestUnitPatchUserConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	snapshot := ap.ProvideUsersMap()
+	snapshot := ap.currentUsers()
 	assert.Len(t, snapshot.Users, seedCount+concurrentPatches)
 	assert.Len(t, snapshot.UsersInv, seedCount+concurrentPatches)
 

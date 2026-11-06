@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,17 +30,39 @@ type MCPServer struct {
 	cacheToolsOnce sync.Once
 }
 
+// Option configures the server itself, as opposed to the handlers.
+type Option func(*options)
+
+type options struct {
+	logParams bool
+}
+
+// WithLogParams logs every tool call's arguments at Info.
+func WithLogParams(enabled bool) Option {
+	return func(o *options) { o.logParams = enabled }
+}
+
+// LogParamsFromEnv reads SLACK_MCP_LOG_PARAMS: "debug" turns parameter
+// logging on.
+func LogParamsFromEnv(getenv func(string) string) bool {
+	return strings.EqualFold(getenv("SLACK_MCP_LOG_PARAMS"), "debug")
+}
+
 // NewMCPServer registers every enabled tool whose credential requirement the
 // provider meets. Tools the capability table marks CacheReady wait for
 // RegisterCacheDependentTools.
-func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.Logger, enabledTools []string, settings handler.Settings) *MCPServer {
-	opts := append([]server.ServerOption{
+func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.Logger, enabledTools []string, settings handler.Settings, opts ...Option) *MCPServer {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	serverOpts := append([]server.ServerOption{
 		server.WithLogging(),
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, true),
 		server.WithResourceHandlerMiddleware(auth.BuildResourceMiddleware(transport, logger)),
-	}, toolHandlerOptions(transport, logger, settings.LogParams)...)
-	s := server.NewMCPServer("Slack MCP Server", version.Version, opts...)
+	}, toolHandlerOptions(transport, logger, o.logParams)...)
+	s := server.NewMCPServer("Slack MCP Server", version.Version, serverOpts...)
 
 	ws, err := workspaceName(provider.WorkspaceURL())
 	if err != nil {
@@ -54,7 +75,7 @@ func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.
 
 	ms := &MCPServer{server: s, logger: logger}
 	availability := handler.NewAvailability(enabledTools, provider)
-	families := buildHandlers(provider, logger, availability, settings, slices.Contains(enabledTools, capability.ConversationsAddMessage))
+	families := buildHandlers(provider, logger, availability, settings)
 	for _, def := range families.tools {
 		spec, ok := capability.Lookup(def.Name)
 		if !ok {
@@ -65,7 +86,7 @@ func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.
 		}
 		tool := mcpTool(spec, def.Options)
 		run := def.Run
-		if spec.Requires == capability.BrowserSession {
+		if spec.Requires.Degrades() {
 			run = requireBrowserSession(provider, spec.Name, run)
 		}
 		if spec.CacheReady {

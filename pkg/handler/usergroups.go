@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 
@@ -103,7 +102,7 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 		userGroupList = append(userGroupList, newUserGroupFromSlack(g))
 	}
 
-	return csvResult("", SlackResultMeta("", false, ""), &userGroupList)
+	return csvResult("", slackMeta(), &userGroupList)
 }
 
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -137,7 +136,7 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 	h.logger.Debug("Created user group", zap.String("id", created.ID), zap.String("name", created.Name))
 
 	result := newUserGroupFromSlack(created)
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Created user group "+result.ID), nil
+	return NewStructuredResult(result, slackMeta(), "Created user group "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -181,7 +180,7 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 	h.logger.Debug("Updated user group", zap.String("id", updated.ID), zap.String("name", updated.Name))
 
 	result := newUserGroupFromSlack(updated)
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Updated user group "+result.ID), nil
+	return NewStructuredResult(result, slackMeta(), "Updated user group "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -210,7 +209,7 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 
 	result := newUserGroupFromSlack(updated)
 
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), "Updated user group members for "+result.ID), nil
+	return NewStructuredResult(result, slackMeta(), "Updated user group members for "+result.ID), nil
 }
 
 func (h *UsergroupsHandler) UsergroupsMineHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -241,7 +240,7 @@ func (h *UsergroupsHandler) currentUserID() (string, error) {
 	if id := h.identity().UserID; id != "" {
 		return id, nil
 	}
-	return "", errors.New("Slack auth response has no user ID")
+	return "", permissionDenied("Slack's auth.test named no user for this token, so there is no user to add to or remove from the group")
 }
 
 func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, currentUserID, usergroupID string, action membershipAction) (*mcp.CallToolResult, error) {
@@ -268,14 +267,14 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 	case membershipJoin:
 		if isMember {
 			data := UsergroupMeActionResult{Message: "You are already a member of this user group.", GroupID: usergroupID}
-			return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
+			return NewStructuredResult(data, slackMeta(), data.Message), nil
 		}
 		newMembers = append(members, currentUserID)
 		resultMessage = "Successfully joined the user group."
 	default: // membershipLeave
 		if !isMember {
 			data := UsergroupMeActionResult{Message: "You are not a member of this user group.", GroupID: usergroupID}
-			return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
+			return NewStructuredResult(data, slackMeta(), data.Message), nil
 		}
 		newMembers = append([]string(nil), members[:memberIndex]...)
 		newMembers = append(newMembers, members[memberIndex+1:]...)
@@ -300,7 +299,7 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 		GroupName: updated.Name,
 		UserCount: updated.UserCount,
 	}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
+	return NewStructuredResult(data, slackMeta(), data.Message), nil
 }
 
 func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserID string) (*mcp.CallToolResult, error) {
@@ -336,7 +335,7 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 
 	h.logger.Debug("Filtered to my groups", zap.Int("count", len(userGroupList)))
 
-	return csvResult("", SlackResultMeta("", false, ""), &userGroupList)
+	return csvResult("", slackMeta(), &userGroupList)
 }
 
 func parseCommaSeparatedList(s string) []string {

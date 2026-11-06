@@ -10,12 +10,12 @@ import (
 )
 
 type AuthStatusHandler struct {
-	apiProvider  *provider.ApiProvider
+	source       AuthStatusSource
 	availability Availability
 }
 
-func NewAuthStatusHandler(apiProvider *provider.ApiProvider, availability Availability) *AuthStatusHandler {
-	return &AuthStatusHandler{apiProvider: apiProvider, availability: availability}
+func NewAuthStatusHandler(source AuthStatusSource, availability Availability) *AuthStatusHandler {
+	return &AuthStatusHandler{source: source, availability: availability}
 }
 
 type AuthStatusData struct {
@@ -36,11 +36,11 @@ type AuthStatusData struct {
 }
 
 func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	usersReady := h.apiProvider.UsersCacheReady()
-	channelsReady := h.apiProvider.ChannelsCacheReady()
-	browserOK := h.apiProvider.BrowserFeaturesAvailable()
-	degradedReason := h.apiProvider.BrowserDegradedReason()
-	mode := h.apiProvider.Mode()
+	usersReady := h.source.UsersCacheReady()
+	channelsReady := h.source.ChannelsCacheReady()
+	browserOK := h.source.BrowserFeaturesAvailable()
+	degradedReason := h.source.BrowserDegradedReason()
+	mode := h.source.Mode()
 
 	availability := make(map[string]string, len(capability.Tools))
 	for _, tool := range capability.Tools {
@@ -48,14 +48,14 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 	}
 
 	payload := AuthStatusData{
-		ProviderIdentity:         h.apiProvider.Identity(),
-		OAuthCredential:          h.apiProvider.OAuthCredentialStatus(),
+		ProviderIdentity:         h.source.Identity(),
+		OAuthCredential:          h.source.OAuthCredentialStatus(),
 		CapabilityAvailability:   availability,
 		UsersCacheReady:          usersReady,
 		ChannelsCacheReady:       channelsReady,
 		CacheFullyReady:          usersReady && channelsReady,
 		BrowserFeaturesAvailable: browserOK,
-		BrowserCredentialSource:  h.apiProvider.BrowserCredentialSource(),
+		BrowserCredentialSource:  h.source.BrowserCredentialSource(),
 		BrowserDegradedReason:    degradedReason,
 		IsOAuth:                  mode.OAuth(),
 		IsBotToken:               mode == provider.ModeBot,
@@ -83,7 +83,7 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 		if !channelsReady {
 			parts = append(parts, "Channels cache is still loading or failed.")
 		}
-		parts = append(parts, "Cache-dependent tools ("+strings.Join(cacheReadyNames(), ", ")+") are unavailable until caches warm; the server keeps retrying in the background and registers them automatically on success.")
+		parts = append(parts, "Cache-dependent tools ("+strings.Join(capability.CacheReadyNames(), ", ")+") are unavailable until caches warm; the server keeps retrying in the background and registers them automatically on success.")
 	}
 
 	switch {
@@ -98,16 +98,6 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 	}
 
 	return strings.Join(parts, " ")
-}
-
-func cacheReadyNames() []string {
-	var names []string
-	for _, tool := range capability.Tools {
-		if tool.CacheReady {
-			names = append(names, tool.Name)
-		}
-	}
-	return names
 }
 
 func (h *AuthStatusHandler) Tools() []ToolDef {

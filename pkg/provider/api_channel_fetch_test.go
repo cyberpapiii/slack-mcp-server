@@ -55,7 +55,7 @@ func testChannel(id, name string) slack.Channel {
 }
 
 // emptyUsersCache is the minimal users snapshot getChannelsMultiType needs,
-// since it calls ProvideUsersMap to resolve DM names.
+// since it calls currentUsers to resolve DM names.
 func emptyUsersCache() *UsersCache {
 	return newUsersCache(nil)
 }
@@ -109,7 +109,7 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 
 		// The regression: the truncated one-channel result must not have
 		// atomically replaced the good two-channel cache.
-		snapshot := ap.ProvideChannelsMaps()
+		snapshot := ap.currentChannels()
 		require.NotNil(t, snapshot)
 		assert.Len(t, snapshot.Channels, 2, "a failed fetch must leave the existing snapshot intact")
 		assert.Equal(t, "#general", snapshot.Channels["C001"].Name)
@@ -134,7 +134,7 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 		require.Len(t, chans, 2)
 		assert.Equal(t, 2, client.calls)
 
-		snapshot := ap.ProvideChannelsMaps()
+		snapshot := ap.currentChannels()
 		require.NotNil(t, snapshot)
 		assert.Len(t, snapshot.Channels, 2)
 		assert.Equal(t, "#general", snapshot.Channels["C001"].Name)

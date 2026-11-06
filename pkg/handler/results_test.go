@@ -98,6 +98,14 @@ func served(result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) 
 	return result, nil
 }
 
+// servedWrite is served for a write tool, as the server middleware types it.
+func servedWrite(result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) {
+	if err != nil {
+		return NewTypedErrorResult(TypeError(err, true)), nil
+	}
+	return result, nil
+}
+
 type timeoutErr struct{}
 
 func (timeoutErr) Error() string   { return "i/o timeout" }
@@ -130,11 +138,16 @@ func TestTypeErrorCodes(t *testing.T) {
 		{"5xx on a read", slack.StatusCodeError{Code: 502, Status: "502 Bad Gateway"}, false, "slack_error", true},
 		{"unknown write outcome", fmt.Errorf("decode: %w", provider.ErrOutcomeUnknown), true, "outcome_unknown", false},
 		{"user OAuth", provider.ErrUserOAuthRequired, false, "user_oauth_required", false},
+		{"general channel", provider.ErrChannelMutationGeneral, true, "permission_denied", false},
+		{"shared channel", provider.ErrChannelMutationShared, true, "permission_denied", false},
+		{"archive conflict", provider.ErrChannelArchiveConflict, true, "conflict", false},
+		{"already archived", provider.ErrChannelAlreadyArchived, true, "conflict", false},
+		{"invalid List input", fmt.Errorf("cells: %w", provider.ErrInvalidListInput), true, "invalid_arguments", false},
 		{"wrapped sentinel", fmt.Errorf("x: %w", provider.ErrBrowserSessionUnavailable), false, "browser_session_required", false},
 		{"users warming", fmt.Errorf("resolve %q: %w", "@bob", provider.ErrUsersNotReady), false, "cache_warming", true},
 		{"channels warming", provider.ErrChannelsNotReady, true, "cache_warming", true},
-		{"local channel miss", channelNotFound("#x"), false, "not_found", false},
-		{"local user miss", userNotFound("bob"), false, "not_found", false},
+		{"local channel miss", Availability{}.channelNotFound("#x"), false, "not_found", false},
+		{"local user miss", Availability{}.userNotFound("bob"), false, "not_found", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -155,6 +168,11 @@ func TestTypeErrorKeepsTypedAndPlainErrors(t *testing.T) {
 }
 
 // envSettings reads Settings from the test's environment, as main does.
+// servedTools is the availability of a server that serves exactly tools.
+func servedTools(tools ...string) Availability {
+	return NewAvailability(tools, runtimeState{satisfied: true, browserOK: true, usersReady: true, channelsReady: true})
+}
+
 func envSettings() Settings {
 	settings, err := SettingsFromEnv(os.Getenv)
 	if err != nil {

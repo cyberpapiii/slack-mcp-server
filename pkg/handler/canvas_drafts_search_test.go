@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,7 +81,7 @@ func TestDraftsListReturnsCSVWithChannelsLegendAndNextCursor(t *testing.T) {
 		draft:      provider.Draft{ID: "D1", ChannelID: "C1", ThreadTS: "1723456789.000100", Text: "hello, world", UpdatedTS: "1723456789.000200"},
 		nextCursor: "page2",
 	}
-	handler := NewDraftsHandler(api, mapLabels{channels: map[string]string{"C1": "#general"}}, approval.NewStore(), nil)
+	handler := NewDraftsHandler(api, mapLabels{channels: map[string]string{"C1": "#general"}}, nil)
 	result, err := served(handler.List(context.Background(), toolRequest(map[string]any{"limit": 20})))
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)
@@ -91,7 +90,7 @@ func TestDraftsListReturnsCSVWithChannelsLegendAndNextCursor(t *testing.T) {
 
 func TestDraftsListWithoutChannelResolverOmitsLegend(t *testing.T) {
 	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
-	handler := NewDraftsHandler(api, mapLabels{}, approval.NewStore(), nil)
+	handler := NewDraftsHandler(api, mapLabels{}, nil)
 	result, err := served(handler.List(context.Background(), toolRequest(map[string]any{})))
 	require.NoError(t, err)
 	assert.Equal(t, "DraftID,Channel,ThreadTs,Updated,Text\nD1,C1,,,draft\n", ResultText(result))
@@ -99,7 +98,7 @@ func TestDraftsListWithoutChannelResolverOmitsLegend(t *testing.T) {
 
 func TestDraftDeleteRequiresBoundOneUseApproval(t *testing.T) {
 	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
-	handler := NewDraftsHandler(api, mapLabels{}, approval.NewStore(), func() provider.ProviderIdentity {
+	handler := NewDraftsHandler(api, mapLabels{}, func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user"}
 	})
 

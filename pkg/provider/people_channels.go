@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
@@ -104,9 +103,11 @@ type Emoji struct {
 	AliasFor string `json:"alias_for,omitempty"`
 }
 
+// EmojiPage is one page of emoji by name; NextOffset is where the next page
+// starts, 0 on the last page.
 type EmojiPage struct {
 	Emoji      []Emoji `json:"emoji"`
-	NextCursor string  `json:"next_cursor,omitempty"`
+	NextOffset int     `json:"next_offset,omitempty"`
 }
 
 type ChannelState struct {
@@ -163,11 +164,9 @@ func (p *PeopleChannelsProvider) SetStatus(ctx context.Context, userID, text, em
 	return UserProfile{UserID: userID, StatusText: text, StatusEmoji: emoji, StatusExpiresAt: expiration}, nil
 }
 
-func (p *PeopleChannelsProvider) ListEmoji(ctx context.Context, query, cursor string, limit int) (EmojiPage, error) {
-	offset, err := parseOffsetCursor(cursor)
-	if err != nil {
-		return EmojiPage{}, err
-	}
+// ListEmoji lists up to limit emoji whose names contain query, in name
+// order, starting offset names in.
+func (p *PeopleChannelsProvider) ListEmoji(ctx context.Context, query string, offset, limit int) (EmojiPage, error) {
 	items, err := p.client.GetEmojiContext(ctx)
 	if err != nil {
 		return EmojiPage{}, err
@@ -180,7 +179,7 @@ func (p *PeopleChannelsProvider) ListEmoji(ctx context.Context, query, cursor st
 		}
 	}
 	sort.Strings(names)
-	if offset > len(names) {
+	if offset < 0 || offset > len(names) {
 		return EmojiPage{}, ErrInvalidPaginationCursor
 	}
 	end := offset + limit
@@ -198,7 +197,7 @@ func (p *PeopleChannelsProvider) ListEmoji(ctx context.Context, query, cursor st
 		page.Emoji = append(page.Emoji, item)
 	}
 	if end < len(names) {
-		page.NextCursor = strconv.Itoa(end)
+		page.NextOffset = end
 	}
 	return page, nil
 }
@@ -219,17 +218,6 @@ func (p *PeopleChannelsProvider) ListChannelMembers(ctx context.Context, channel
 func (p *PeopleChannelsProvider) InviteChannelMembers(ctx context.Context, channelID string, userIDs []string) (ChannelState, error) {
 	channel, err := p.client.InviteUsersToConversationContext(ctx, channelID, userIDs...)
 	return p.channelWritten(channel, err)
-}
-
-func parseOffsetCursor(cursor string) (int, error) {
-	if cursor == "" {
-		return 0, nil
-	}
-	offset, err := strconv.Atoi(cursor)
-	if err != nil || offset < 0 {
-		return 0, ErrInvalidPaginationCursor
-	}
-	return offset, nil
 }
 
 func (p *PeopleChannelsProvider) channelWritten(channel *slack.Channel, err error) (ChannelState, error) {

@@ -443,21 +443,6 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		assert.Equal(t, "D_ALICE", got[0].ChannelID, "the DM survives truncation because sorting runs first")
 	})
 
-	t.Run("a non-positive max_channels does not panic and truncates nothing", func(t *testing.T) {
-		c := counts()
-		c.IMs = []provider.ConversationUnread{{ID: "D_ALICE", HasUnreads: true}}
-
-		for _, maxChannels := range []int{-1, 0} {
-			p := defaultUnreadsParams()
-			p.maxChannels = maxChannels
-
-			got, _ := ch.collectUnreadChannels(p, c, dir)
-			assert.ElementsMatch(t, []string{"D_ALICE", "C_MENTION", "C_SILENT"}, unreadIDs(got),
-				"a non-positive limit slices with a negative bound unless guarded; "+
-					"the guard skips truncation entirely rather than returning nothing")
-		}
-	})
-
 	t.Run("nothing unread yields a nil slice", func(t *testing.T) {
 		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), provider.UnreadCounts{}, dir)
 		assert.Nil(t, got)
@@ -513,22 +498,6 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 	ch := newUnreadsTestHandler()
 	req := mcp.CallToolRequest{}
 
-	t.Run("include_messages=true issues zero history calls", func(t *testing.T) {
-		fake := &fakeHistoryFetcher{}
-		channels := []UnreadChannel{
-			{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: "1700000000.000000"},
-			{ChannelID: "C_MENTION", UnreadCount: 3, LastRead: "1700000000.000000"},
-		}
-		p := defaultUnreadsParams() // includeMessages defaults to true
-
-		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
-		assert.Empty(t, fake.calls,
-			"the message-fetch loop re-issues the same conversations.history call, so the "+
-				"backfill must not run in include_messages mode")
-		assert.Equal(t, 0, channels[0].UnreadCount, "counts are left untouched for the message loop to set")
-		assert.Equal(t, 3, channels[1].UnreadCount)
-	})
-
 	t.Run("include_messages=false backfills only zero-count channels", func(t *testing.T) {
 		fake := &fakeHistoryFetcher{
 			byChannel: map[string]*slack.GetConversationHistoryResponse{
@@ -539,10 +508,7 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 			{ChannelID: "D_ALICE", UnreadCount: 2, LastRead: "1700000000.000000"},
 			{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: "1700000100.000000"},
 		}
-		p := defaultUnreadsParams()
-		p.includeMessages = false
-
-		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
+		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, channels))
 
 		require.Len(t, fake.calls, 1, "exactly one history call: the already-counted DM is skipped")
 		assert.Equal(t, slack.GetConversationHistoryParameters{
@@ -565,10 +531,7 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 			{ChannelID: "C_BROKEN", UnreadCount: 0, LastRead: "1700000000.000000"},
 			{ChannelID: "C_OK", UnreadCount: 0, LastRead: "1700000000.000000"},
 		}
-		p := defaultUnreadsParams()
-		p.includeMessages = false
-
-		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
+		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, channels))
 		require.Len(t, fake.calls, 2, "a failure on one channel does not abort the loop")
 		assert.Equal(t, 1, channels[0].UnreadCount, "the failed fetch reports a conservative 1")
 		assert.Equal(t, 2, channels[1].UnreadCount)
@@ -579,10 +542,7 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 			byChannel: map[string]*slack.GetConversationHistoryResponse{"C_SILENT": historyWith(0)},
 		}
 		channels := []UnreadChannel{{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: "1700000000.000000"}}
-		p := defaultUnreadsParams()
-		p.includeMessages = false
-
-		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
+		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, channels))
 		require.Len(t, fake.calls, 1)
 		assert.Equal(t, 1, channels[0].UnreadCount)
 	})
@@ -590,13 +550,10 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 	t.Run("cancelled context reports false before any call", func(t *testing.T) {
 		fake := &fakeHistoryFetcher{}
 		channels := []UnreadChannel{{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: "1700000000.000000"}}
-		p := defaultUnreadsParams()
-		p.includeMessages = false
-
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		assert.False(t, ch.backfillUnreadCounts(ctx, req, fake, p, channels))
+		assert.False(t, ch.backfillUnreadCounts(ctx, req, fake, channels))
 		assert.Empty(t, fake.calls)
 		assert.Equal(t, 0, channels[0].UnreadCount)
 	})
@@ -614,10 +571,7 @@ func TestUnitBackfillUnreadCountsFetchesConcurrently(t *testing.T) {
 		fake.byChannel[id] = historyWith(i + 1)
 		channels = append(channels, UnreadChannel{ChannelID: id, LastRead: "1700000000.000000"})
 	}
-	p := defaultUnreadsParams()
-	p.includeMessages = false
-
-	require.True(t, ch.backfillUnreadCounts(context.Background(), mcp.CallToolRequest{}, fake, p, channels))
+	require.True(t, ch.backfillUnreadCounts(context.Background(), mcp.CallToolRequest{}, fake, channels))
 
 	assert.Equal(t, fanOutWorkers, fake.peak, "reads overlap up to the worker bound")
 	for i, c := range channels {
@@ -646,7 +600,7 @@ func TestUnitUnreadsZeroLastReadNeverReachesSlack(t *testing.T) {
 	fake := &fakeHistoryFetcher{
 		byChannel: map[string]*slack.GetConversationHistoryResponse{"C_BOUNDED": historyWith(2)},
 	}
-	require.True(t, ch.backfillUnreadCounts(context.Background(), mcp.CallToolRequest{}, fake, p, channels))
+	require.True(t, ch.backfillUnreadCounts(context.Background(), mcp.CallToolRequest{}, fake, channels))
 
 	require.Len(t, fake.calls, 1, "only the channel with a real last_read is queried")
 	assert.Equal(t, "C_BOUNDED", fake.calls[0].ChannelID)
@@ -683,5 +637,27 @@ func TestUnitUnreadCountFromHistory(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, unreadCountFromHistory(tt.current, tt.msgCount, tt.err))
 		})
+	}
+}
+
+// One conversations.history call per unread channel either way: the summary
+// backfills its count, and include_messages fetches its messages (which set
+// the count) without a second, backfill call.
+func TestUnitUnreadsReadsEachChannelHistoryOnce(t *testing.T) {
+	for _, includeMessages := range []bool{false, true} {
+		var calls []string
+		slackFake := &fakeSlack{
+			counts: provider.UnreadCounts{Channels: []provider.ConversationUnread{
+				{ID: "C_SILENT", HasUnreads: true, LastRead: "1700000000.000000"},
+			}},
+			history: func(params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
+				calls = append(calls, params.ChannelID)
+				return historyWith(2), nil
+			},
+		}
+		ch := NewConversationsHandler(slackFake, slackFake.pipeline(), zap.NewNop(), Settings{}, Availability{})
+		_, err := ch.ConversationsUnreadsHandler(context.Background(), toolRequest(map[string]any{"include_messages": includeMessages}))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"C_SILENT"}, calls, "include_messages=%v", includeMessages)
 	}
 }

@@ -194,7 +194,7 @@ func TestUnitChannelMutationsKeepTheCacheCurrent(t *testing.T) {
 
 	_, err := mutations.Rename(context.Background(), "C123", "renamed")
 	require.NoError(t, err)
-	snapshot := cache.ProvideChannelsMaps()
+	snapshot := cache.currentChannels()
 	assert.Equal(t, "C123", snapshot.ChannelsInv["#renamed"])
 	assert.NotContains(t, snapshot.ChannelsInv, "#"+initial.NameNormalized, "the old name stops resolving")
 
@@ -202,5 +202,5 @@ func TestUnitChannelMutationsKeepTheCacheCurrent(t *testing.T) {
 	require.NoError(t, err)
 	_, err = mutations.ArchivePrepared(context.Background(), preparation)
 	require.NoError(t, err)
-	assert.NotContains(t, cache.ProvideChannelsMaps().Channels, "C123", "an archived channel leaves the cache")
+	assert.NotContains(t, cache.currentChannels().Channels, "C123", "an archived channel leaves the cache")
 }

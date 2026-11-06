@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func filesListFixture() []slack.File {
@@ -177,11 +180,8 @@ func TestUnitDownloadRoot(t *testing.T) {
 	assert.Equal(t, "permission_denied", toolErr.Code)
 	assert.Contains(t, toolErr.Message, "SLACK_MCP_DOWNLOAD_DIR", "the error is the only place an operator learns what to set")
 
-	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "relative/dir")
-	_, err = downloadRoot(envSettings().DownloadDir)
-	require.Error(t, err)
-	require.ErrorAs(t, err, &toolErr)
-	assert.Equal(t, "invalid_arguments", toolErr.Code)
+	_, err = settingsWith(map[string]string{"SLACK_MCP_DOWNLOAD_DIR": "relative/dir"})
+	require.ErrorContains(t, err, "SLACK_MCP_DOWNLOAD_DIR must be an absolute path", "a relative directory fails at startup")
 
 	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "  /tmp/slack-downloads  ")
 	root, err := downloadRoot(envSettings().DownloadDir)
@@ -211,4 +211,40 @@ func TestUnitDownloadPath(t *testing.T) {
 			assert.Equal(t, "/downloads", filepath.Dir(got), "the file must never land outside the configured root")
 		})
 	}
+}
+
+type fileFake struct {
+	fakeSlack
+	file *slack.File
+	body string
+}
+
+func (f *fileFake) GetFileInfoContext(context.Context, string, int, int) (*slack.File, []slack.Comment, *slack.Paging, error) {
+	return f.file, nil, nil, nil
+}
+
+func (f *fileFake) GetFileContext(_ context.Context, _ string, w io.Writer) error {
+	_, err := io.Copy(w, strings.NewReader(f.body))
+	return err
+}
+
+// A file over the limit is refused from its metadata, and a download that
+// turns out larger than its metadata said stops at the limit.
+func TestUnitAttachmentSizeLimit(t *testing.T) {
+	big := &fileFake{file: &slack.File{ID: "F1", Size: maxFileSizeBytes + 1, URLPrivate: "https://files.slack.com/F1"}}
+	_, err := NewConversationsHandler(big, big.pipeline(), zap.NewNop(), Settings{}, Availability{}).FilesGetHandler(context.Background(), toolRequest(map[string]any{"file_id": "F1"}))
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "invalid_arguments", typed.Code)
+	assert.Contains(t, typed.Message, "byte limit")
+
+	lying := &fileFake{file: &slack.File{ID: "F2", Size: 10, Mimetype: "text/plain", URLPrivate: "https://files.slack.com/F2"}, body: strings.Repeat("x", maxFileSizeBytes+1)}
+	_, err = NewConversationsHandler(lying, lying.pipeline(), zap.NewNop(), Settings{}, Availability{}).FilesGetHandler(context.Background(), toolRequest(map[string]any{"file_id": "F2"}))
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "invalid_arguments", typed.Code)
+
+	small := &fileFake{file: &slack.File{ID: "F3", Size: 5, Mimetype: "text/plain", URLPrivate: "https://files.slack.com/F3"}, body: "hello"}
+	result, err := NewConversationsHandler(small, small.pipeline(), zap.NewNop(), Settings{}, Availability{}).FilesGetHandler(context.Background(), toolRequest(map[string]any{"file_id": "F3"}))
+	require.NoError(t, err)
+	assert.Contains(t, ResultText(result), `"content":"hello"`)
 }

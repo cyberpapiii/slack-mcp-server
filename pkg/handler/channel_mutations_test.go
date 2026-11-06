@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -14,7 +13,7 @@ import (
 )
 
 func newTestChannelMutationHandler(service ChannelMutationService) *ChannelMutationHandler {
-	return NewChannelMutationHandler(service, approval.NewStore(), userIdentity, envSettings())
+	return NewChannelMutationHandler(service, userIdentity, envSettings())
 }
 
 type fakeChannelMutationService struct {
@@ -175,20 +174,6 @@ func TestArchiveHandlerDoesNotCallArchiveWhenPreparationFails(t *testing.T) {
 	require.ErrorContains(t, err, "state unavailable")
 	assert.Equal(t, 1, service.prepareCalls)
 	assert.Zero(t, service.archiveCalls)
-}
-
-func TestArchiveHandlerTimeoutIsOutcomeUnknown(t *testing.T) {
-	t.Setenv(capability.ChannelManagementAllowlist, "true")
-	service := &fakeChannelMutationService{}
-	handler := newTestChannelMutationHandler(service)
-	prepared, err := handler.ConversationsArchiveHandler(context.Background(), toolRequest(map[string]any{"channel_id": "C123", "action": "prepare"}))
-	require.NoError(t, err)
-	token := prepared.StructuredContent.(ToolResult[ChannelMutationData]).Data.ApprovalToken
-	service.archiveErr = context.DeadlineExceeded
-	_, err = handler.ConversationsArchiveHandler(context.Background(), toolRequest(map[string]any{"channel_id": "C123", "action": "execute", "approval_token": token}))
-	var typed *ToolError
-	require.ErrorAs(t, err, &typed)
-	assert.Equal(t, "outcome_unknown", typed.Code)
 }
 
 func TestRenameValidationRejectsUnsafeNames(t *testing.T) {

@@ -88,19 +88,19 @@ func TestPeopleChannelsEmojiSearchSortAndPagination(t *testing.T) {
 	}}
 	service := &PeopleChannelsProvider{client: fake, cache: testChannelCache()}
 
-	first, err := service.ListEmoji(context.Background(), "party", "", 1)
+	first, err := service.ListEmoji(context.Background(), "party", 0, 1)
 	require.NoError(t, err)
 	require.Len(t, first.Emoji, 1)
 	assert.Equal(t, "party_blob", first.Emoji[0].Name)
 	assert.Equal(t, "blob", first.Emoji[0].AliasFor)
-	assert.Equal(t, "1", first.NextCursor)
+	assert.Equal(t, 1, first.NextOffset)
 
-	second, err := service.ListEmoji(context.Background(), "party", first.NextCursor, 1)
+	second, err := service.ListEmoji(context.Background(), "party", first.NextOffset, 1)
 	require.NoError(t, err)
 	assert.Equal(t, "party_parrot", second.Emoji[0].Name)
-	assert.Empty(t, second.NextCursor)
+	assert.Zero(t, second.NextOffset)
 
-	_, err = service.ListEmoji(context.Background(), "", "bad", 1)
+	_, err = service.ListEmoji(context.Background(), "", 99, 1)
 	require.ErrorIs(t, err, ErrInvalidPaginationCursor)
 }
 

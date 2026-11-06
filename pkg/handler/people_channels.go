@@ -8,6 +8,7 @@ import (
 	"net/mail"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -18,9 +19,35 @@ import (
 )
 
 const (
-	maxPeoplePageSize = 200
-	maxEmojiPageSize  = 200
+	defaultPeoplePageSize = 100
+	maxPeoplePageSize     = 200
+	maxEmojiPageSize      = 200
+
+	maxStatusTextRunes = 100
+	maxInvitees        = 1000
+	maxCustomFields    = 50
+	maxCustomFieldAlt  = 256
 )
+
+// profileFields are the users_set_profile string fields and the most
+// characters Slack accepts in each.
+var profileFields = []struct {
+	name string
+	max  int
+}{
+	{"first_name", 80}, {"last_name", 80}, {"real_name", 80}, {"display_name", 80},
+	{"pronouns", 100}, {"email", 320}, {"phone", 100}, {"skype", 100},
+	{"title", 100}, {"start_date", 10},
+}
+
+func profileFieldMax(name string) int {
+	for _, field := range profileFields {
+		if field.name == name {
+			return field.max
+		}
+	}
+	panic("no profile field " + name)
+}
 
 var (
 	emojiNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_+\-]+$`)
@@ -30,7 +57,7 @@ type PeopleChannelsService interface {
 	GetProfile(context.Context, string, bool) (provider.UserProfile, error)
 	UpdateProfile(context.Context, string, provider.UserProfileUpdate) (provider.UserProfile, error)
 	SetStatus(context.Context, string, string, string, int64) (provider.UserProfile, error)
-	ListEmoji(context.Context, string, string, int) (provider.EmojiPage, error)
+	ListEmoji(ctx context.Context, query string, offset, limit int) (provider.EmojiPage, error)
 	CreateChannel(context.Context, string, bool, string) (provider.ChannelState, error)
 	ListChannelMembers(context.Context, string, string, int) (provider.ChannelMembersPage, error)
 	InviteChannelMembers(context.Context, string, []string) (provider.ChannelState, error)
@@ -82,7 +109,7 @@ func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.
 		return nil, err
 	}
 	data := ProfileData{Profile: profile}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -96,10 +123,10 @@ func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.
 	}
 	profile, err := h.service.UpdateProfile(ctx, identity.UserID, update)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ProfileData{Profile: profile}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -111,8 +138,8 @@ func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.C
 	if err != nil {
 		return nil, err
 	}
-	if utf8.RuneCountInString(text) > 100 {
-		return nil, invalidArguments("status_text must be at most 100 characters")
+	if utf8.RuneCountInString(text) > maxStatusTextRunes {
+		return nil, invalidArguments(fmt.Sprintf("status_text must be at most %d characters", maxStatusTextRunes))
 	}
 	emoji, err := presentString(request, "status_emoji")
 	if err != nil {
@@ -128,23 +155,48 @@ func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.C
 	}
 	profile, err := h.service.SetStatus(ctx, identity.UserID, text, emoji, expiration)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ProfileData{Profile: profile}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	limit := pageLimit(request, 100, maxEmojiPageSize)
-	page, err := h.service.ListEmoji(ctx, strings.TrimSpace(request.GetString("query", "")), strings.TrimSpace(request.GetString("cursor", "")), limit)
+	limit := pageLimit(request, defaultPeoplePageSize, maxEmojiPageSize)
+	offset, err := emojiOffset(strings.TrimSpace(request.GetString("cursor", "")))
 	if err != nil {
 		return nil, err
+	}
+	page, err := h.service.ListEmoji(ctx, strings.TrimSpace(request.GetString("query", "")), offset, limit)
+	if err != nil {
+		return nil, err
+	}
+	nextCursor := ""
+	if page.NextOffset > 0 {
+		nextCursor = encodeCursor(strconv.Itoa(page.NextOffset))
 	}
 	rows := make([]EmojiRow, len(page.Emoji))
 	for i, e := range page.Emoji {
 		rows[i] = EmojiRow{Name: e.Name, URL: e.URL, Alias: e.AliasFor}
 	}
-	return csvResult("", SlackResultMeta(page.NextCursor, false, ""), &rows)
+	return csvResult("", SlackResultMeta(nextCursor, false, ""), &rows)
+}
+
+// emojiOffset reads an emoji_list cursor: the encoded offset of the next
+// name; "" is the first page.
+func emojiOffset(cursor string) (int, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	value, err := decodeCursor(cursor)
+	if err != nil {
+		return 0, err
+	}
+	offset, err := strconv.Atoi(value)
+	if err != nil || offset < 0 {
+		return 0, invalidCursor(cursor)
+	}
+	return offset, nil
 }
 
 func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -158,10 +210,10 @@ func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.C
 	}
 	state, err := h.service.CreateChannel(ctx, name, request.GetBool("is_private", false), teamID)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ChannelData{Channel: state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -169,7 +221,7 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 	if err != nil {
 		return nil, err
 	}
-	limit := pageLimit(request, 100, maxPeoplePageSize)
+	limit := pageLimit(request, defaultPeoplePageSize, maxPeoplePageSize)
 	page, err := h.service.ListChannelMembers(ctx, channelID, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
 		return nil, err
@@ -190,8 +242,8 @@ func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, reques
 	if err != nil || len(userIDs) == 0 {
 		return nil, invalidArguments("user_ids must contain at least one user ID")
 	}
-	if len(userIDs) > 1000 {
-		return nil, invalidArguments("user_ids must contain at most 1000 user IDs")
+	if len(userIDs) > maxInvitees {
+		return nil, invalidArguments(fmt.Sprintf("user_ids must contain at most %d user IDs", maxInvitees))
 	}
 	unique := make(map[string]struct{}, len(userIDs))
 	for i, userID := range userIDs {
@@ -208,27 +260,23 @@ func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, reques
 	sort.Strings(userIDs)
 	state, err := h.service.InviteChannelMembers(ctx, channelID, userIDs)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ChannelData{Channel: state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func parseProfileUpdate(request mcp.CallToolRequest) (provider.UserProfileUpdate, error) {
 	arguments := request.GetArguments()
 	update := provider.UserProfileUpdate{}
-	fields := []struct {
-		name string
-		max  int
-		dest **string
-	}{
-		{"first_name", 80, &update.FirstName}, {"last_name", 80, &update.LastName},
-		{"real_name", 80, &update.RealName}, {"display_name", 80, &update.DisplayName},
-		{"pronouns", 100, &update.Pronouns}, {"email", 320, &update.Email},
-		{"phone", 100, &update.Phone}, {"skype", 100, &update.Skype},
-		{"title", 100, &update.Title}, {"start_date", 10, &update.StartDate},
+	dests := map[string]**string{
+		"first_name": &update.FirstName, "last_name": &update.LastName,
+		"real_name": &update.RealName, "display_name": &update.DisplayName,
+		"pronouns": &update.Pronouns, "email": &update.Email,
+		"phone": &update.Phone, "skype": &update.Skype,
+		"title": &update.Title, "start_date": &update.StartDate,
 	}
-	for _, field := range fields {
+	for _, field := range profileFields {
 		value, present := arguments[field.name]
 		if !present {
 			continue
@@ -241,7 +289,7 @@ func parseProfileUpdate(request mcp.CallToolRequest) (provider.UserProfileUpdate
 			return provider.UserProfileUpdate{}, invalidArguments(fmt.Sprintf("%s must be at most %d characters", field.name, field.max))
 		}
 		copy := text
-		*field.dest = &copy
+		*dests[field.name] = &copy
 	}
 	if update.Email != nil && *update.Email != "" {
 		address, err := mail.ParseAddress(*update.Email)
@@ -261,12 +309,12 @@ func parseProfileUpdate(request mcp.CallToolRequest) (provider.UserProfileUpdate
 		if err != nil || decoder.Decode(&update.CustomFields) != nil {
 			return provider.UserProfileUpdate{}, invalidArguments("custom_fields must map field IDs to {value, alt} objects")
 		}
-		if len(update.CustomFields) > 50 {
-			return provider.UserProfileUpdate{}, invalidArguments("custom_fields must contain at most 50 fields")
+		if len(update.CustomFields) > maxCustomFields {
+			return provider.UserProfileUpdate{}, invalidArguments(fmt.Sprintf("custom_fields must contain at most %d fields", maxCustomFields))
 		}
 		for id, field := range update.CustomFields {
-			if utf8.RuneCountInString(field.Alt) > 256 {
-				return provider.UserProfileUpdate{}, invalidArguments("custom_fields[" + id + "].alt must be at most 256 characters")
+			if utf8.RuneCountInString(field.Alt) > maxCustomFieldAlt {
+				return provider.UserProfileUpdate{}, invalidArguments(fmt.Sprintf("custom_fields[%s].alt must be at most %d characters", id, maxCustomFieldAlt))
 			}
 		}
 	}
@@ -307,21 +355,21 @@ func (h *PeopleChannelsHandler) Tools() []ToolDef {
 		}},
 		{Name: capability.UsersSetProfile, Run: h.SetUserProfile, Options: []mcp.ToolOption{
 			mcp.WithDescription("Update the authenticated user's Slack profile."),
-			mcp.WithString("first_name", mcp.Description("First name, up to 80 characters; empty string clears it.")),
-			mcp.WithString("last_name", mcp.Description("Last name, up to 80 characters; empty string clears it.")),
-			mcp.WithString("real_name", mcp.Description("Full name, up to 80 characters; empty string clears it.")),
-			mcp.WithString("display_name", mcp.Description("Display name shown in Slack, up to 80 characters; empty string clears it.")),
-			mcp.WithString("pronouns", mcp.Description("Pronouns, up to 100 characters; empty string clears them.")),
-			mcp.WithString("email", mcp.Description("Email address, up to 320 characters; empty string clears it.")),
-			mcp.WithString("phone", mcp.Description("Phone number, up to 100 characters; empty string clears it.")),
-			mcp.WithString("skype", mcp.Description("Skype handle, up to 100 characters; empty string clears it.")),
-			mcp.WithString("title", mcp.Description("Job title, up to 100 characters; empty string clears it.")),
+			mcp.WithString("first_name", mcp.Description(fmt.Sprintf("First name, up to %d characters; empty string clears it.", profileFieldMax("first_name")))),
+			mcp.WithString("last_name", mcp.Description(fmt.Sprintf("Last name, up to %d characters; empty string clears it.", profileFieldMax("last_name")))),
+			mcp.WithString("real_name", mcp.Description(fmt.Sprintf("Full name, up to %d characters; empty string clears it.", profileFieldMax("real_name")))),
+			mcp.WithString("display_name", mcp.Description(fmt.Sprintf("Display name shown in Slack, up to %d characters; empty string clears it.", profileFieldMax("display_name")))),
+			mcp.WithString("pronouns", mcp.Description(fmt.Sprintf("Pronouns, up to %d characters; empty string clears them.", profileFieldMax("pronouns")))),
+			mcp.WithString("email", mcp.Description(fmt.Sprintf("Email address, up to %d characters; empty string clears it.", profileFieldMax("email")))),
+			mcp.WithString("phone", mcp.Description(fmt.Sprintf("Phone number, up to %d characters; empty string clears it.", profileFieldMax("phone")))),
+			mcp.WithString("skype", mcp.Description(fmt.Sprintf("Skype handle, up to %d characters; empty string clears it.", profileFieldMax("skype")))),
+			mcp.WithString("title", mcp.Description(fmt.Sprintf("Job title, up to %d characters; empty string clears it.", profileFieldMax("title")))),
 			mcp.WithString("start_date", mcp.Description("Start date in YYYY-MM-DD format; empty string clears it.")),
-			mcp.WithObject("custom_fields", mcp.Description("Map of custom field ID (Xf...) to {value, alt} objects; at most 50 fields.")),
+			mcp.WithObject("custom_fields", mcp.Description(fmt.Sprintf("Map of custom field ID (Xf...) to {value, alt} objects; at most %d fields.", maxCustomFields))),
 		}},
 		{Name: capability.UsersSetStatus, Run: h.SetUserStatus, Options: []mcp.ToolOption{
 			mcp.WithDescription("Set or clear the authenticated user's Slack status."),
-			mcp.WithString("status_text", mcp.Required(), mcp.Description("Status text, up to 100 characters; empty string clears the status.")),
+			mcp.WithString("status_text", mcp.Required(), mcp.Description(fmt.Sprintf("Status text, up to %d characters; empty string clears the status.", maxStatusTextRunes))),
 			mcp.WithString("status_emoji", mcp.Required(), mcp.Description("Emoji name such as :palm_tree: (colons optional); empty string clears it.")),
 			mcp.WithNumber("status_expiration", mcp.Description("Unix seconds when the status clears; 0 keeps it until changed.")),
 		}},
@@ -329,7 +377,7 @@ func (h *PeopleChannelsHandler) Tools() []ToolDef {
 			mcp.WithDescription("List and search workspace custom emoji."),
 			mcp.WithString("query", mcp.Description("Case-insensitive substring to match against emoji names.")),
 			mcp.WithString("cursor", mcp.Description(descCursor)),
-			mcp.WithNumber("limit", mcp.Description("Maximum emoji per page, 1 to 200; defaults to 100.")),
+			mcp.WithNumber("limit", mcp.Description(fmt.Sprintf("Maximum emoji per page, 1 to %d; defaults to %d.", maxEmojiPageSize, defaultPeoplePageSize))),
 		}},
 		{Name: capability.ChannelsCreate, Run: h.CreateChannel, Options: []mcp.ToolOption{
 			mcp.WithDescription("Create a public or private Slack channel."),
@@ -341,12 +389,12 @@ func (h *PeopleChannelsHandler) Tools() []ToolDef {
 			mcp.WithDescription("List channel members. Returns CSV with UserID and Name (empty when the user is not in the cache)."),
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
 			mcp.WithString("cursor", mcp.Description(descCursor)),
-			mcp.WithNumber("limit", mcp.Description("Maximum members per page, 1 to 200; defaults to 100.")),
+			mcp.WithNumber("limit", mcp.Description(fmt.Sprintf("Maximum members per page, 1 to %d; defaults to %d.", maxPeoplePageSize, defaultPeoplePageSize))),
 		}},
 		{Name: capability.ChannelsInvite, Run: h.InviteChannelMembers, Options: []mcp.ToolOption{
 			mcp.WithDescription("Invite users to a Slack channel."),
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
-			mcp.WithArray("user_ids", mcp.Required(), mcp.Items(map[string]any{"type": "string"}), mcp.Description("User IDs starting with U or W to invite; 1 to 1000 entries, duplicates ignored.")),
+			mcp.WithArray("user_ids", mcp.Required(), mcp.Items(map[string]any{"type": "string"}), mcp.Description(fmt.Sprintf("User IDs starting with U or W to invite; 1 to %d entries, duplicates ignored.", maxInvitees))),
 		}},
 	}
 }

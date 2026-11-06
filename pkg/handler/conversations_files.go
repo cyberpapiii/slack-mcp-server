@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -17,21 +19,16 @@ import (
 
 func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	params, err := ch.parseParamsToolFilesGet(request)
-	if err != nil {
-		ch.logger.Debug("Failed to parse attachment_get_data params", zap.Error(err))
-		return nil, err
+	fileID := request.GetString("file_id", "")
+	if fileID == "" {
+		return nil, invalidArguments("file_id is required")
 	}
 
-	fileInfo, err := ch.fileInfo(ctx, params.fileID, maxFileSizeBytes, func(size int) string {
-		return fmt.Sprintf("file size %d bytes exceeds maximum allowed size of %d bytes", size, maxFileSizeBytes)
-	})
+	fileInfo, err := ch.fileInfo(ctx, fileID, maxFileSizeBytes)
 	if err != nil {
 		return nil, err
 	}
-	content, err := ch.fileBytes(ctx, fileInfo, maxFileSizeBytes, func(size int) string {
-		return fmt.Sprintf("downloaded %d bytes, exceeds maximum allowed size of %d bytes", size, maxFileSizeBytes)
-	})
+	content, err := ch.fileBytes(ctx, fileInfo, maxFileSizeBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -103,10 +100,16 @@ func (ch *ConversationsHandler) parseParamsToolFilesList(ctx context.Context, re
 		channel: channel,
 		user:    request.GetString("user_id", ""),
 		types:   request.GetString("types", ""),
-		limit:   pageLimit(request, 50, 200),
+		limit:   pageLimit(request, defaultFilesListLimit, maxFilesListLimit),
 		page:    page,
 	}, nil
 }
+
+// files_list limit bounds.
+const (
+	defaultFilesListLimit = 50
+	maxFilesListLimit     = 200
+)
 
 // files.list paginates by count/page, not by cursor (Slack ignores `limit`
 // and never returns response_metadata), so the cursor this tool hands out
@@ -122,11 +125,11 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 
 	params, err := ch.parseParamsToolFilesList(ctx, request)
 	if err != nil {
-		ch.logger.Debug("Failed to parse files_list params", zap.Error(err))
+		ch.logger.Debug("Failed to parse "+capability.FilesList+" params", zap.Error(err))
 		return nil, err
 	}
 
-	files, paging, err := ch.apiProvider.WebAPI().GetFilesContext(ctx, slack.GetFilesParameters{
+	files, paging, err := ch.api.GetFilesContext(ctx, slack.GetFilesParameters{
 		Channel: params.channel,
 		User:    params.user,
 		Types:   params.types,
@@ -150,7 +153,7 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 		rows = append(rows, fileRowFromSlack(f, params.channel, resolver.label))
 	}
 
-	result, err := marshalFilesToCSV(rows, nextCursor, ch.apiProvider.ChannelLabel)
+	result, err := marshalFilesToCSV(rows, nextCursor, ch.api.Directory().ChannelLabel)
 	if err != nil {
 		ch.logger.Error("Failed to marshal files to CSV", zap.Error(err))
 		return nil, err
@@ -280,18 +283,6 @@ func isTextMimetype(mimetype string) bool {
 	return textMimetypes[mimetype]
 }
 
-func (ch *ConversationsHandler) parseParamsToolFilesGet(request mcp.CallToolRequest) (*filesGetParams, error) {
-
-	fileID := request.GetString("file_id", "")
-	if fileID == "" {
-		return nil, invalidArguments("file_id is required")
-	}
-
-	return &filesGetParams{
-		fileID: fileID,
-	}, nil
-}
-
 // FileDownloadData is what files_download reports back: where the file landed
 // and whether this call is what put it there.
 type FileDownloadData struct {
@@ -308,15 +299,13 @@ type FileDownloadData struct {
 // cap still keeps a runaway download off the disk.
 const maxDownloadBytes = 100 * 1024 * 1024
 
-// downloadRoot resolves the directory files_download writes into. An empty
-// value disables the tool: writing to the local disk is opt-in, and the error
-// names the variable so a caller can tell the operator what to set.
+// downloadRoot is the directory files_download writes into, which
+// SettingsFromEnv checked is absolute. An empty value disables the tool:
+// writing to the local disk is opt-in, and the error names the variable so a
+// caller can tell the operator what to set.
 func downloadRoot(root string) (string, error) {
 	if root == "" {
-		return "", permissionDenied("files_download is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into")
-	}
-	if !filepath.IsAbs(root) {
-		return "", invalidArguments("SLACK_MCP_DOWNLOAD_DIR must be an absolute path")
+		return "", permissionDenied(capability.FilesDownload + " is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into")
 	}
 	return root, nil
 }
@@ -354,9 +343,7 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 		return nil, invalidArguments("file_id is required")
 	}
 
-	fileInfo, err := ch.fileInfo(ctx, fileID, maxDownloadBytes, func(size int) string {
-		return fmt.Sprintf("file size %d bytes exceeds the %d byte download limit", size, maxDownloadBytes)
-	})
+	fileInfo, err := ch.fileInfo(ctx, fileID, maxDownloadBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -373,9 +360,7 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 		return downloadResult(fileInfo, dest, "already_present"), nil
 	}
 
-	content, err := ch.fileBytes(ctx, fileInfo, maxDownloadBytes, func(size int) string {
-		return fmt.Sprintf("downloaded %d bytes, exceeds the %d byte download limit", size, maxDownloadBytes)
-	})
+	content, err := ch.fileBytes(ctx, fileInfo, maxDownloadBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -397,25 +382,25 @@ func downloadResult(f *slack.File, path, outcome string) *mcp.CallToolResult {
 		Path:     path,
 		Outcome:  outcome,
 	}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data))
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data))
 }
 
-// fileInfo reads a file's metadata and refuses one larger than limit;
-// tooLarge words the refusal for the calling tool.
-func (ch *ConversationsHandler) fileInfo(ctx context.Context, fileID string, limit int, tooLarge func(size int) string) (*slack.File, error) {
-	fileInfo, _, _, err := ch.apiProvider.WebAPI().GetFileInfoContext(ctx, fileID, 0, 0)
+// fileInfo reads a file's metadata and refuses one larger than limit.
+func (ch *ConversationsHandler) fileInfo(ctx context.Context, fileID string, limit int) (*slack.File, error) {
+	fileInfo, _, _, err := ch.api.GetFileInfoContext(ctx, fileID, 0, 0)
 	if err != nil {
 		ch.logger.Debug("Slack GetFileInfoContext failed", zap.Error(err))
 		return nil, err
 	}
 	if fileInfo.Size > limit {
-		return nil, invalidArguments(tooLarge(fileInfo.Size))
+		return nil, fileTooLarge(limit)
 	}
 	return fileInfo, nil
 }
 
-// fileBytes downloads a file's content, refusing more than limit bytes.
-func (ch *ConversationsHandler) fileBytes(ctx context.Context, f *slack.File, limit int, tooLarge func(size int) string) ([]byte, error) {
+// fileBytes downloads a file's content and stops reading once it passes
+// limit, in case the content is larger than the metadata said.
+func (ch *ConversationsHandler) fileBytes(ctx context.Context, f *slack.File, limit int) ([]byte, error) {
 	downloadURL := f.URLPrivateDownload
 	if downloadURL == "" {
 		downloadURL = f.URLPrivate
@@ -424,12 +409,33 @@ func (ch *ConversationsHandler) fileBytes(ctx context.Context, f *slack.File, li
 		return nil, invalidArguments("file has no downloadable URL")
 	}
 	var buf bytes.Buffer
-	if err := ch.apiProvider.WebAPI().GetFileContext(ctx, downloadURL, &buf); err != nil {
+	if err := ch.api.GetFileContext(ctx, downloadURL, &cappedWriter{w: &buf, remaining: limit}); err != nil {
+		if errors.Is(err, errFileTooLarge) {
+			return nil, fileTooLarge(limit)
+		}
 		ch.logger.Debug("Slack GetFileContext failed", zap.Error(err))
 		return nil, err
 	}
-	if buf.Len() > limit {
-		return nil, invalidArguments(tooLarge(buf.Len()))
-	}
 	return buf.Bytes(), nil
+}
+
+func fileTooLarge(limit int) error {
+	return invalidArguments(fmt.Sprintf("file is larger than this tool's %d byte limit", limit))
+}
+
+var errFileTooLarge = errors.New("file exceeds the size limit")
+
+// cappedWriter passes at most remaining bytes to w and fails the write that
+// would go past them.
+type cappedWriter struct {
+	w         *bytes.Buffer
+	remaining int
+}
+
+func (c *cappedWriter) Write(p []byte) (int, error) {
+	if len(p) > c.remaining {
+		return 0, errFileTooLarge
+	}
+	c.remaining -= len(p)
+	return c.w.Write(p)
 }

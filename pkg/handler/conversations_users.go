@@ -10,16 +10,20 @@ import (
 	"go.uber.org/zap"
 )
 
+// users_search limit bounds.
+const (
+	defaultUsersSearchLimit = 10
+	maxUsersSearchLimit     = 100
+)
+
 func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	ch.logger.Debug("UsersResource called")
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Warn("API provider not ready", zap.Error(err))
+	users, err := ch.api.Directory().Users()
+	if err != nil {
+		ch.logger.Warn("Users cache not ready", zap.Error(err))
 		return nil, err
 	}
-
-	usersMaps := ch.apiProvider.ProvideUsersMap()
-	users := usersMaps.Users
 	usersList := make([]User, 0, len(users))
 	for _, user := range users {
 		usersList = append(usersList, User{
@@ -57,13 +61,13 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 		zap.Int("limit", params.limit),
 	)
 
-	users, err := ch.apiProvider.SearchUsers(ctx, params.query, params.limit)
+	users, err := ch.api.SearchUsers(ctx, params.query, params.limit)
 	if err != nil {
 		ch.logger.Debug("UsersSearch failed", zap.Error(err))
 		return nil, fmt.Errorf("users search failed: %w", err)
 	}
 
-	dir := ch.apiProvider.Directory()
+	dir := ch.api.Directory()
 	results := make([]UserSearchResult, 0, len(users))
 	for _, user := range users {
 		if user.Deleted {
@@ -83,7 +87,7 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 		})
 	}
 
-	return csvResult("", SlackResultMeta("", false, ""), &results)
+	return csvResult("", slackMeta(), &results)
 }
 
 func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolRequest) (*usersSearchParams, error) {
@@ -92,7 +96,7 @@ func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolR
 		return nil, invalidArguments("query is required")
 	}
 
-	limit := pageLimit(request, 10, 100)
+	limit := pageLimit(request, defaultUsersSearchLimit, maxUsersSearchLimit)
 
 	return &usersSearchParams{
 		query: query,

@@ -22,8 +22,7 @@ const (
 	defaultConversationsNumericLimit = 50
 	maxFileSizeBytes                 = 5 << 20
 
-	// Search `limit` bounds. Default and max are both 100, matching the tool
-	// schema's DefaultNumber(100) and its "between 1 and 100" description.
+	// Search `limit` bounds.
 	defaultSearchMessagesLimit = 100
 	maxSearchMessagesLimit     = 100
 )
@@ -105,10 +104,6 @@ type addReactionParams struct {
 	emoji     string
 }
 
-type filesGetParams struct {
-	fileID string
-}
-
 type filesListParams struct {
 	channel string
 	user    string
@@ -144,22 +139,20 @@ type reactionRow struct {
 	Users string `csv:"Users"`
 }
 type ConversationsHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
-	settings    Settings
-	messages    messagePipeline
-	// sendEnabled says whether conversations_add_message is served, for the
-	// draft preview's "would it send" line.
-	sendEnabled bool
+	api          ConversationsAPI
+	messages     MessagePipeline
+	logger       *zap.Logger
+	settings     Settings
+	availability Availability
 }
 
-func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings, sendEnabled bool) *ConversationsHandler {
+func NewConversationsHandler(api ConversationsAPI, messages MessagePipeline, logger *zap.Logger, settings Settings, availability Availability) *ConversationsHandler {
 	return &ConversationsHandler{
-		apiProvider: apiProvider,
-		logger:      logger,
-		settings:    settings,
-		messages:    messagePipeline{api: apiProvider, logger: logger},
-		sendEnabled: sendEnabled,
+		api:          api,
+		messages:     messages,
+		logger:       logger,
+		settings:     settings,
+		availability: availability,
 	}
 }
 
@@ -211,19 +204,19 @@ func conversationFilter(dir *provider.Directory, raw string) (string, error) {
 func (ch *ConversationsHandler) userFilter(ctx context.Context, raw string) (string, error) {
 	id, name := provider.ParseUserRef(raw)
 	if id != "" {
-		if _, ok := ch.apiProvider.Directory().User(id); ok {
+		if _, ok := ch.api.Directory().User(id); ok {
 			return fmt.Sprintf("<@%s>", id), nil
 		}
-		patched, err := ch.apiProvider.PatchUser(ctx, id)
+		patched, err := ch.api.PatchUser(ctx, id)
 		if err != nil {
 			ch.logger.Debug("Targeted user fetch failed, user not found", zap.String("user_id", id), zap.Error(err))
-			return "", userNotFound(id)
+			return "", ch.availability.userNotFound(id)
 		}
 		return fmt.Sprintf("<@%s>", patched.ID), nil
 	}
-	u, err := ch.apiProvider.UserByRef(name)
+	u, err := ch.api.Directory().UserByRef(name)
 	if err != nil {
-		return "", cacheMiss(name, err, userNotFound)
+		return "", cacheMiss(name, err, ch.availability.userNotFound)
 	}
 	return fmt.Sprintf("<@%s>", u.ID), nil
 }
@@ -235,9 +228,9 @@ func (ch *ConversationsHandler) channelFilter(raw string) (string, error) {
 	id, name := provider.ParseChannelRef(raw)
 	kind := provider.ClassifyID(id)
 	if strings.HasPrefix(name, "#") || kind == provider.IDChannel || kind == provider.IDGroup {
-		c, err := ch.apiProvider.ChannelByRef(raw)
+		c, err := ch.api.Directory().ChannelByRef(raw)
 		if err != nil {
-			return "", cacheMiss(raw, err, channelNotFound)
+			return "", cacheMiss(raw, err, ch.availability.channelNotFound)
 		}
 		return c.Name, nil
 	}
@@ -396,49 +389,27 @@ func parseStandardDate(dateStr string) (time.Time, string, bool) {
 }
 
 func buildDateFilters(before, after, on, during string) (map[string]string, error) {
+	if on != "" && (during != "" || before != "" || after != "") {
+		return nil, invalidArguments("'on' cannot be combined with other date filters")
+	}
+	if during != "" && (before != "" || after != "") {
+		return nil, invalidArguments("'during' cannot be combined with 'before' or 'after'")
+	}
 	out := make(map[string]string)
-	if on != "" {
-		if during != "" || before != "" || after != "" {
-			return nil, invalidArguments("'on' cannot be combined with other date filters")
+	dates := make(map[string]time.Time)
+	for _, filter := range [][2]string{{"on", on}, {"during", during}, {"after", after}, {"before", before}} {
+		key, value := filter[0], filter[1]
+		if value == "" {
+			continue
 		}
-		_, normalized, err := parseFlexibleDate(on)
+		date, normalized, err := parseFlexibleDate(value)
 		if err != nil {
-			return nil, fmt.Errorf("invalid 'on' date: %w", err)
+			return nil, invalidArguments(fmt.Sprintf("invalid '%s' date: %s", key, err.Error()))
 		}
-		out["on"] = normalized
-		return out, nil
+		out[key], dates[key] = normalized, date
 	}
-	if during != "" {
-		if before != "" || after != "" {
-			return nil, invalidArguments("'during' cannot be combined with 'before' or 'after'")
-		}
-		_, normalized, err := parseFlexibleDate(during)
-		if err != nil {
-			return nil, fmt.Errorf("invalid 'during' date: %w", err)
-		}
-		out["during"] = normalized
-		return out, nil
-	}
-	if after != "" {
-		_, normalized, err := parseFlexibleDate(after)
-		if err != nil {
-			return nil, fmt.Errorf("invalid 'after' date: %w", err)
-		}
-		out["after"] = normalized
-	}
-	if before != "" {
-		_, normalized, err := parseFlexibleDate(before)
-		if err != nil {
-			return nil, fmt.Errorf("invalid 'before' date: %w", err)
-		}
-		out["before"] = normalized
-	}
-	if after != "" && before != "" {
-		a, _, _ := parseFlexibleDate(after)
-		b, _, _ := parseFlexibleDate(before)
-		if a.After(b) {
-			return nil, invalidArguments("'after' date is after 'before' date")
-		}
+	if after != "" && before != "" && dates["after"].After(dates["before"]) {
+		return nil, invalidArguments("'after' date is after 'before' date")
 	}
 	return out, nil
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -20,12 +20,18 @@ import (
 const (
 	maxUploadBytes  = 50 << 20
 	maxMessageRunes = 40000
+
+	// A scheduled message posts between these two offsets from now.
+	minScheduleLeadSeconds = 5
+	maxScheduleLeadDays    = 120
 )
 
 var (
 	maxUploadSize = strconv.Itoa(maxUploadBytes>>20) + " MiB"
 	maxRunesText  = strconv.Itoa(maxMessageRunes) + " characters"
 )
+
+var scheduleWindow = fmt.Sprintf("between %d seconds and %d days in the future", minScheduleLeadSeconds, maxScheduleLeadDays)
 
 var slackTimestampPattern = regexp.MustCompile(`^[0-9]+\.[0-9]{6}$`)
 
@@ -65,8 +71,8 @@ type MessageFilesHandler struct {
 	now       func() time.Time
 }
 
-func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings) *MessageFilesHandler {
-	return &MessageFilesHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}, settings: settings, now: time.Now}
+func NewMessageFilesHandler(service MessageFilesService, identity func() provider.ProviderIdentity, settings Settings) *MessageFilesHandler {
+	return &MessageFilesHandler{service: service, approvals: newApprovalGate(identity), settings: settings, now: time.Now}
 }
 
 func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -100,14 +106,14 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 		AltText: strings.TrimSpace(request.GetString("alt_text", "")), SnippetType: strings.TrimSpace(request.GetString("snippet_type", "")),
 	})
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	result := FileUploadData{FileID: uploaded.FileID, Filename: uploaded.Filename, Title: uploaded.Title, ChannelID: uploaded.ChannelID, Outcome: "uploaded"}
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+	return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 }
 
 func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	channelID, text, _, err := validateMessageMutation(request, false)
+	channelID, text, err := messageMutationText(request)
 	if err != nil {
 		return nil, err
 	}
@@ -116,8 +122,8 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 	}
 	postAt, err := parsePostAt(request.GetString("post_at", ""))
 	now := h.now()
-	if err != nil || !postAt.After(now.Add(5*time.Second)) || postAt.After(now.Add(120*24*time.Hour)) {
-		return nil, invalidArguments("post_at must be a Unix timestamp or RFC3339 time between 5 seconds and 120 days in the future")
+	if err != nil || !postAt.After(now.Add(minScheduleLeadSeconds*time.Second)) || postAt.After(now.Add(maxScheduleLeadDays*24*time.Hour)) {
+		return nil, invalidArguments("post_at must be a Unix timestamp or RFC3339 time " + scheduleWindow)
 	}
 	threadTS := strings.TrimSpace(request.GetString("thread_ts", ""))
 	if threadTS != "" && !validSlackTimestamp(threadTS) {
@@ -125,26 +131,30 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 	}
 	mutation, err := h.service.Schedule(ctx, channelID, text, postAt, threadTS)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	result := MessageMutationData{Action: "schedule", ApprovalPhase: ApprovalPhase{Phase: "executed"}, ChannelID: mutation.ChannelID, ScheduledMessageID: mutation.ScheduledMessageID, PostAt: postAt.UTC().Format(time.RFC3339), Outcome: "scheduled"}
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+	return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 }
 
 func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	channelID, text, timestamp, err := validateMessageMutation(request, true)
+	channelID, text, err := messageMutationText(request)
 	if err != nil {
 		return nil, err
+	}
+	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
+	if !validSlackTimestamp(timestamp) {
+		return nil, invalidArguments("timestamp must be a Slack timestamp")
 	}
 	if err := h.settings.requireChannel(capability.MessagesUpdate, channelID); err != nil {
 		return nil, err
 	}
 	mutation, err := h.service.Update(ctx, channelID, timestamp, text)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	result := MessageMutationData{Action: "update", ApprovalPhase: ApprovalPhase{Phase: "executed"}, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Outcome: "updated"}
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+	return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 }
 
 // MessageSnapshot is the message a delete would remove, as its approval shows
@@ -184,14 +194,14 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	}
 	if phase.Prepared() {
 		result := MessageMutationData{Action: "delete", ApprovalPhase: phase, ChannelID: channelID, Timestamp: timestamp, Target: &target, Outcome: "awaiting_confirmation"}
-		return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+		return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 	}
 	mutation, err := h.service.Delete(ctx, channelID, timestamp)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	result := MessageMutationData{Action: "delete", ApprovalPhase: phase, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Target: &target, Outcome: "deleted"}
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+	return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 }
 
 func readUploadData(request mcp.CallToolRequest) ([]byte, error) {
@@ -224,17 +234,15 @@ func readUploadData(request mcp.CallToolRequest) ([]byte, error) {
 	return data, nil
 }
 
-func validateMessageMutation(request mcp.CallToolRequest, requireTimestamp bool) (string, string, string, error) {
-	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
-	text := request.GetString("text", "")
-	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
+// messageMutationText reads the channel and text messages_schedule and
+// messages_update both take.
+func messageMutationText(request mcp.CallToolRequest) (channelID, text string, err error) {
+	channelID = strings.TrimSpace(request.GetString("channel_id", ""))
+	text = request.GetString("text", "")
 	if channelID == "" || !validMessageText(text, false) {
-		return "", "", "", invalidArguments("channel_id and valid non-empty text up to " + maxRunesText + " are required")
+		return "", "", invalidArguments("channel_id and valid non-empty text up to " + maxRunesText + " are required")
 	}
-	if requireTimestamp && !validSlackTimestamp(timestamp) {
-		return "", "", "", invalidArguments("timestamp must be a Slack timestamp")
-	}
-	return channelID, text, timestamp, nil
+	return channelID, text, nil
 }
 
 func validMessageText(text string, allowEmpty bool) bool {
@@ -269,7 +277,7 @@ func (h *MessageFilesHandler) Tools() []ToolDef {
 			mcp.WithDescription("Schedule a Slack message for a future time."),
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) to post into; names are not resolved.")),
 			mcp.WithString("text", mcp.Required(), mcp.Description("Message text, non-empty and up to "+maxRunesText+".")),
-			mcp.WithString("post_at", mcp.Required(), mcp.Description("Unix seconds or RFC 3339 time between 5 seconds and 120 days in the future.")),
+			mcp.WithString("post_at", mcp.Required(), mcp.Description("Unix seconds or RFC 3339 time "+scheduleWindow+".")),
 			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to schedule a thread reply.")),
 		}},
 		{Name: capability.MessagesUpdate, Run: h.MessagesUpdate, Options: []mcp.ToolOption{
@@ -278,13 +286,12 @@ func (h *MessageFilesHandler) Tools() []ToolDef {
 			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to edit, e.g. 1712345678.123456.")),
 			mcp.WithString("text", mcp.Required(), mcp.Description("Replacement message text, non-empty and up to "+maxRunesText+".")),
 		}},
-		{Name: capability.MessagesDelete, Run: h.MessagesDelete, Options: []mcp.ToolOption{
+		{Name: capability.MessagesDelete, Run: h.MessagesDelete, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[MessageMutationResult](),
 			mcp.WithDescription("Preview or delete a Slack message. Prepare first, then execute with the approval token."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) containing the message; names are not resolved.")),
 			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to delete, e.g. 1712345678.123456.")),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }

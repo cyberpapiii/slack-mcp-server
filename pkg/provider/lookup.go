@@ -199,6 +199,35 @@ func (d *Directory) ChannelByRef(ref string) (Channel, error) {
 	return Channel{}, ErrNotCached
 }
 
+// UsersReady reports whether the users cache has loaded.
+func (d *Directory) UsersReady() bool { return d.usersReady }
+
+// Users lists every cached user, in no particular order, or
+// ErrUsersNotReady while the users cache is still warming.
+func (d *Directory) Users() ([]slack.User, error) {
+	if !d.usersReady {
+		return nil, ErrUsersNotReady
+	}
+	users := make([]slack.User, 0, len(d.users.Users))
+	for _, u := range d.users.Users {
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+// Channels lists every cached conversation, in no particular order, or
+// ErrChannelsNotReady while the channels cache is still warming.
+func (d *Directory) Channels() ([]Channel, error) {
+	if !d.channelsReady {
+		return nil, ErrChannelsNotReady
+	}
+	channels := make([]Channel, 0, len(d.channels.Channels))
+	for _, ch := range d.channels.Channels {
+		channels = append(channels, ch)
+	}
+	return channels, nil
+}
+
 func (d *Directory) User(id string) (slack.User, bool) {
 	u, ok := d.users.Users[id]
 	return u, ok

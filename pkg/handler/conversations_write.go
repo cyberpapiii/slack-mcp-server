@@ -47,7 +47,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		zap.String("thread_ts", params.threadTs),
 		zap.String("content_type", params.contentType),
 	)
-	respChannel, respTimestamp, err := ch.apiProvider.WebAPI().PostMessageContext(ctx, params.channel, options...)
+	respChannel, respTimestamp, err := ch.api.PostMessageContext(ctx, params.channel, options...)
 	if err != nil {
 		ch.logger.Debug("Slack PostMessageContext failed", zap.Error(err))
 		return nil, err
@@ -58,9 +58,10 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		posted = fmt.Sprintf("Successfully posted message to channel %s in thread %s (ts=%s)", respChannel, params.threadTs, respTimestamp)
 	}
 	// The message is already posted, so a failed mark is reported, not
-	// returned as an error a caller would retry into a duplicate post.
-	if ch.settings.MarkAfterPost {
-		if err := ch.apiProvider.Slack().MarkConversationContext(ctx, params.channel, respTimestamp); err != nil {
+	// returned as an error a caller would retry into a duplicate post. A bot
+	// has no read state to mark.
+	if ch.settings.MarkAfterPost && ch.api.Identity().IsUser() {
+		if err := ch.api.MarkConversationContext(ctx, params.channel, respTimestamp); err != nil {
 			ch.logger.Debug("Slack MarkConversationContext failed", zap.Error(err))
 			posted += fmt.Sprintf(". Warning: marking the channel read failed: %v", err)
 		}
@@ -72,11 +73,10 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 // Preview for review before conversations_add_message.
 func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	text := request.GetString("text", "")
-	if text == "" {
+	if request.GetString("text", "") == "" {
 		return nil, invalidArguments("text is required and must not be empty")
 	}
-	params, err := ch.parseMessageParams(ctx, capability.ConversationsDraftMessage, request, text)
+	params, err := ch.parseMessageParams(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse draft-message params", zap.Error(err))
 		return nil, err
@@ -94,13 +94,13 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 		"Send status: %s\n\n"+
 		"[Message text]\n"+
 		"%s\n\n"+
-		"[End of draft]\n"+
-		"To send this message, use conversations_add_message with the same parameters.",
+		"[End of draft]%s",
 		params.channel,
 		formatThreadTs(params.threadTs),
 		formatStatus,
 		sendability,
 		params.text,
+		ch.availability.toolHint(capability.ConversationsAddMessage, "\nTo send this message, use %s with the same parameters.", ""),
 	)
 
 	return mcp.NewToolResultText(preview), nil
@@ -125,7 +125,7 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 		zap.String("emoji", params.emoji),
 	)
 
-	err = ch.apiProvider.WebAPI().AddReactionContext(ctx, params.emoji, itemRef)
+	err = ch.api.AddReactionContext(ctx, params.emoji, itemRef)
 	if err != nil {
 		ch.logger.Debug("Slack AddReactionContext failed", zap.Error(err))
 		return nil, err
@@ -153,14 +153,14 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 		zap.String("emoji", params.emoji),
 	)
 
-	err = ch.apiProvider.WebAPI().RemoveReactionContext(ctx, params.emoji, itemRef)
+	err = ch.api.RemoveReactionContext(ctx, params.emoji, itemRef)
 	if err != nil {
 		ch.logger.Debug("Slack RemoveReactionContext failed", zap.Error(err))
 		return nil, err
 	}
 
 	fallback := fmt.Sprintf("Successfully removed :%s: reaction from message %s in channel %s", params.emoji, params.timestamp, params.channel)
-	return NewStructuredResult(ActionData{Action: "remove_reaction", Status: "removed", ChannelID: params.channel, MessageID: params.timestamp}, SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(ActionData{Action: "remove_reaction", Status: "removed", ChannelID: params.channel, MessageID: params.timestamp}, slackMeta(), fallback), nil
 }
 
 // ReactionsGetHandler returns detailed reaction data (including user IDs) for a specific message.
@@ -192,9 +192,6 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 	if err != nil {
 		return nil, err
 	}
-	if msg == nil {
-		return mcp.NewToolResultText("No message found at the specified timestamp"), nil
-	}
 
 	rows := make([]reactionRow, 0, len(msg.Reactions))
 	for _, r := range msg.Reactions {
@@ -205,7 +202,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		})
 	}
 
-	return csvResult("", SlackResultMeta("", false, ""), &rows)
+	return csvResult("", slackMeta(), &rows)
 }
 
 // messageBody is how a message's text goes to Slack, and how the draft
@@ -231,9 +228,9 @@ func (ch *ConversationsHandler) messageBody(params *addMessageParams) messageBod
 
 // parseMessageParams reads what conversations_add_message and
 // conversations_draft_message share: the destination, thread, text and
-// content type. tool picks the channel allowlist, if the tool has one.
-func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool string, request mcp.CallToolRequest, text string) (*addMessageParams, error) {
-	if err := signpostFileParam(request); err != nil {
+// content type.
+func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
+	if err := signpostFileParam(request, ch.availability); err != nil {
 		return nil, err
 	}
 
@@ -244,9 +241,6 @@ func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool str
 	channel, err := ch.messages.channelID(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
-		return nil, err
-	}
-	if err := ch.settings.requireChannel(tool, channel); err != nil {
 		return nil, err
 	}
 
@@ -263,14 +257,17 @@ func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool str
 	return &addMessageParams{
 		channel:     channel,
 		threadTs:    threadTs,
-		text:        text,
+		text:        request.GetString("text", ""),
 		contentType: contentType,
 	}, nil
 }
 
 func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
-	params, err := ch.parseMessageParams(ctx, capability.ConversationsAddMessage, request, request.GetString("text", ""))
+	params, err := ch.parseMessageParams(ctx, request)
 	if err != nil {
+		return nil, err
+	}
+	if err := ch.settings.requireChannel(capability.ConversationsAddMessage, params.channel); err != nil {
 		return nil, err
 	}
 

@@ -3,10 +3,10 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	scheduledExcerptRunes   = 24
-	maxScheduledPageSize    = 100
-	maxScheduledLookupPages = 10
+	scheduledExcerptRunes    = 24
+	defaultScheduledPageSize = 50
+	maxScheduledPageSize     = 100
+	maxScheduledLookupPages  = 10
 )
 
 type ScheduledService interface {
@@ -54,12 +55,12 @@ type ScheduledHandler struct {
 	approvals approvalGate
 }
 
-func NewScheduledHandler(service ScheduledService, approvals *approval.Store, identity func() provider.ProviderIdentity) *ScheduledHandler {
-	return &ScheduledHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}}
+func NewScheduledHandler(service ScheduledService, identity func() provider.ProviderIdentity) *ScheduledHandler {
+	return &ScheduledHandler{service: service, approvals: newApprovalGate(identity)}
 }
 
 func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	limit := pageLimit(request, 50, maxScheduledPageSize)
+	limit := pageLimit(request, defaultScheduledPageSize, maxScheduledPageSize)
 	page, err := h.service.ListScheduled(ctx, provider.ScheduledListRequest{
 		ChannelID: strings.TrimSpace(request.GetString("channel_id", "")),
 		Cursor:    strings.TrimSpace(request.GetString("cursor", "")),
@@ -116,14 +117,14 @@ func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolReque
 	if phase.Prepared() {
 		preview := scheduledResultMessage(target)
 		data := ScheduledCancelData{ApprovalPhase: phase, Target: &preview, Outcome: "awaiting_confirmation"}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+		return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 	}
 	if err := h.service.CancelScheduled(ctx, channelID, scheduledMessageID); err != nil {
 		return nil, scheduledError(err, true)
 	}
 	resultTarget := ScheduledMessage{ScheduledMessageID: scheduledMessageID, ChannelID: channelID}
 	data := ScheduledCancelData{ApprovalPhase: phase, Target: &resultTarget, Cancelled: true, Outcome: "cancelled"}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, scheduledMessageID string) (provider.ScheduledMessage, error) {
@@ -143,7 +144,7 @@ func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, schedul
 		}
 		cursor = page.NextCursor
 	}
-	return provider.ScheduledMessage{}, &ToolError{Code: codeLookupLimitExceeded, Message: "scheduled-message lookup exceeded 1000 pending messages; narrow the channel or cancel from Slack"}
+	return provider.ScheduledMessage{}, &ToolError{Code: codeLookupLimitExceeded, Message: fmt.Sprintf("scheduled-message lookup exceeded %d pending messages; narrow the channel or cancel from Slack", maxScheduledLookupPages*maxScheduledPageSize)}
 }
 
 func scheduledResultMessage(message provider.ScheduledMessage) ScheduledMessage {
@@ -182,15 +183,14 @@ func (h *ScheduledHandler) Tools() []ToolDef {
 			mcp.WithString("oldest", mcp.Description("Unix seconds; only messages scheduled to post at or after this time.")),
 			mcp.WithString("latest", mcp.Description("Unix seconds; only messages scheduled to post at or before this time.")),
 			mcp.WithString("text_query", mcp.Description("Case-insensitive substring filter applied to message text after fetching the page.")),
-			mcp.WithNumber("limit", mcp.DefaultNumber(50), mcp.Description("Maximum messages per page, 1 to 100; defaults to 50.")),
+			mcp.WithNumber("limit", mcp.DefaultNumber(defaultScheduledPageSize), mcp.Description(fmt.Sprintf("Maximum messages per page, 1 to %d; defaults to %d.", maxScheduledPageSize, defaultScheduledPageSize))),
 		}},
-		{Name: capability.ScheduledMessageCancel, Run: h.Cancel, Options: []mcp.ToolOption{
+		{Name: capability.ScheduledMessageCancel, Run: h.Cancel, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[ScheduledCancelResult](),
 			mcp.WithDescription("Preview or execute cancellation of one pending scheduled message. Prepare first, then confirm the exact target before execute."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) of the scheduled message; names are not resolved.")),
 			mcp.WithString("scheduled_message_id", mcp.Required(), mcp.Description("Scheduled message ID from scheduled_messages_list, e.g. Q1234ABCD.")),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }

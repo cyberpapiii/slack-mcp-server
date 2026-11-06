@@ -69,7 +69,7 @@ func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.Use
 	if err := ap.PatchUsers(ctx, []string{userID}); err != nil {
 		return nil, err
 	}
-	user, ok := ap.ProvideUsersMap().Users[userID]
+	user, ok := ap.currentUsers().Users[userID]
 	if !ok {
 		return nil, errors.New("user not found")
 	}
@@ -276,7 +276,7 @@ func (ap *ApiProvider) slackConnectUsers(ctx context.Context, listed []slack.Use
 	return users, nil
 }
 
-func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
+func (ap *ApiProvider) currentUsers() *UsersCache {
 	return ap.usersSnapshot.Load()
 }
 

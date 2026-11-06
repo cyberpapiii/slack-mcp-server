@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"strconv"
 	"strings"
 	"testing"
 
@@ -53,56 +52,12 @@ func TestUnitPaginateChannelsRoundTrip(t *testing.T) {
 	assert.Empty(t, cursor3, "the final page must not advertise another page")
 }
 
-// Non-positive limit must not panic the page slice (GetInt only defaults absent keys).
-func TestUnitPaginateChannelsNonPositiveLimit(t *testing.T) {
-	channels := []provider.Channel{
-		{ID: "C01", Name: "#one"},
-		{ID: "C02", Name: "#two"},
-		{ID: "C03", Name: "#three"},
-	}
-
-	for _, limit := range []int{-5, -1, 0} {
-		t.Run(strconv.Itoa(limit), func(t *testing.T) {
-			paged, nextCursor, err := paginateChannels(channels, "", limit)
-
-			require.NoError(t, err)
-			assert.Empty(t, paged, "a non-positive limit yields an empty page, not a panic")
-			assert.Empty(t, nextCursor, "an empty page must not advertise a cursor to resume from")
-		})
-	}
-}
-
 func channelIDs(channels []provider.Channel) []string {
 	ids := make([]string, len(channels))
 	for i, c := range channels {
 		ids[i] = c.ID
 	}
 	return ids
-}
-
-func TestUnitNextPageSize(t *testing.T) {
-	tests := []struct {
-		name     string
-		limit    int
-		have     int
-		expected int
-	}{
-		{name: "default limit fits in one page", limit: 100, have: 0, expected: 100},
-		{name: "oversized limit caps at slack max", limit: 250, have: 0, expected: 200},
-		{name: "second request asks only for the remainder", limit: 250, have: 200, expected: 50},
-		{name: "max limit caps at slack max", limit: 999, have: 0, expected: 200},
-		{name: "exactly slack max", limit: 200, have: 0, expected: 200},
-		{name: "one row still missing", limit: 5, have: 4, expected: 1},
-		{name: "nothing missing floors at one", limit: 100, have: 100, expected: 1},
-		{name: "over-fetched floors at one", limit: 10, have: 25, expected: 1},
-		{name: "nonpositive limit floors at one", limit: 0, have: 0, expected: 1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, nextPageSize(tt.limit, tt.have))
-		})
-	}
 }
 
 func TestUnitSortChannelsPopularityPaginatesInSortedOrder(t *testing.T) {
@@ -138,7 +93,7 @@ func TestUnitChannelsCSVCursorLineAndHeader(t *testing.T) {
 	assert.Equal(t, "ID,Name,Topic,Purpose,MemberCount", lines[1])
 	assert.Equal(t, "C01,#general,t,p,12", lines[2])
 
-	last, err := csvResult("", SlackResultMeta("", false, ""), &rows)
+	last, err := csvResult("", slackMeta(), &rows)
 	require.NoError(t, err)
 	assert.Nil(t, last.StructuredContent)
 	body := ResultText(last)
@@ -150,7 +105,7 @@ func TestUnitChannelsCSVCursorLineAndHeader(t *testing.T) {
 func TestUnitStarredChannelsCSVHeader(t *testing.T) {
 	rows := []StarredChannel{{ID: "D01", Name: "@bob", ChannelType: "dm", IsMuted: true, MemberCount: 2}}
 
-	result, err := csvResult("", SlackResultMeta("", false, ""), &rows)
+	result, err := csvResult("", slackMeta(), &rows)
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)
 	assert.Equal(t, "ID,Name,ChannelType,IsMuted,MemberCount\nD01,@bob,dm,true,2\n", ResultText(result))

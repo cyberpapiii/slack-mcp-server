@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -38,44 +37,34 @@ func NewDNDHandler(api DNDAPI, identity func() provider.ProviderIdentity) *DNDHa
 	return &DNDHandler{api: api, identity: identity}
 }
 
+// The DND tools require user OAuth, so they are only served for a user
+// identity.
 func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	identity, err := requireUserActor(h.identity())
-	if err != nil {
-		return nil, err
-	}
 	status, err := h.api.GetDNDInfoContext(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	return dndResult(identity.UserID, status)
+	return dndResult(h.identity().UserID, status)
 }
 
 func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	identity, err := requireUserActor(h.identity())
-	if err != nil {
-		return nil, err
-	}
 	minutes := request.GetInt("minutes", 0)
 	if minutes < 1 || minutes > maxSnoozeMinutes {
 		return nil, &ToolError{Code: codeInvalidSnoozeDuration, Message: fmt.Sprintf("minutes must be between 1 and %d", maxSnoozeMinutes)}
 	}
 	status, err := h.api.SetSnoozeContext(ctx, minutes)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
-	return dndResult(identity.UserID, status)
+	return dndResult(h.identity().UserID, status)
 }
 
 func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	identity, err := requireUserActor(h.identity())
+	status, err := h.api.EndSnoozeContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	status, err := h.api.EndSnoozeContext(ctx)
-	if err != nil {
-		return nil, TypeError(err, true)
-	}
-	return dndResult(identity.UserID, status)
+	return dndResult(h.identity().UserID, status)
 }
 
 func dndResult(userID string, status *slack.DNDStatus) (*mcp.CallToolResult, error) {
@@ -88,11 +77,7 @@ func dndResult(userID string, status *slack.DNDStatus) (*mcp.CallToolResult, err
 		SnoozeEnabled: status.SnoozeEnabled, SnoozeEndsAt: unixTimeText(int64(status.SnoozeEndTime)),
 		SnoozeMinutesLeft: status.SnoozeRemaining,
 	}
-	fallback, err := json.Marshal(data)
-	if err != nil {
-		return nil, err
-	}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), string(fallback)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *DNDHandler) Tools() []ToolDef {

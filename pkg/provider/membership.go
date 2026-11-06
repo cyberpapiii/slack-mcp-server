@@ -23,7 +23,7 @@ func (ap *ApiProvider) LeaveConversation(ctx context.Context, channelID string) 
 	if err != nil {
 		return false, err
 	}
-	if ch, ok := ap.ProvideChannelsMaps().Channels[channelID]; ok && (ch.IsPrivate || ch.IsMpIM) {
+	if ch, ok := ap.currentChannels().Channels[channelID]; ok && (ch.IsPrivate || ch.IsMpIM) {
 		ap.forgetChannel(channelID)
 	}
 	return notInChannel, nil

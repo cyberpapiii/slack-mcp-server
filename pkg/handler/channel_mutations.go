@@ -2,17 +2,20 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 var channelNamePattern = regexp.MustCompile(`^[a-z0-9_-]{1,80}$`)
+
+// maxTopicRunes is the longest topic or purpose Slack accepts.
+const maxTopicRunes = 250
 
 type ChannelMutationService interface {
 	Rename(context.Context, string, string) (provider.ChannelMutationState, error)
@@ -36,8 +39,8 @@ type ChannelMutationData struct {
 
 type ChannelMutationResult = ToolResult[ChannelMutationData]
 
-func NewChannelMutationHandler(service ChannelMutationService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings) *ChannelMutationHandler {
-	return &ChannelMutationHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}, settings: settings}
+func NewChannelMutationHandler(service ChannelMutationService, identity func() provider.ProviderIdentity, settings Settings) *ChannelMutationHandler {
+	return &ChannelMutationHandler{service: service, approvals: newApprovalGate(identity), settings: settings}
 }
 
 func (h *ChannelMutationHandler) ConversationsRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -71,8 +74,8 @@ func (h *ChannelMutationHandler) ConversationsSetTopicHandler(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
-	if utf8.RuneCountInString(topic) > 250 {
-		return nil, invalidArguments("topic must be at most 250 characters")
+	if utf8.RuneCountInString(topic) > maxTopicRunes {
+		return nil, invalidArguments(fmt.Sprintf("topic must be at most %d characters", maxTopicRunes))
 	}
 	state, err := h.service.SetTopic(ctx, channelID, topic)
 	return mutationResult("set_topic", state, err)
@@ -90,8 +93,8 @@ func (h *ChannelMutationHandler) ConversationsSetPurposeHandler(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
-	if utf8.RuneCountInString(purpose) > 250 {
-		return nil, invalidArguments("purpose must be at most 250 characters")
+	if utf8.RuneCountInString(purpose) > maxTopicRunes {
+		return nil, invalidArguments(fmt.Sprintf("purpose must be at most %d characters", maxTopicRunes))
 	}
 	state, err := h.service.SetPurpose(ctx, channelID, purpose)
 	return mutationResult("set_purpose", state, err)
@@ -109,9 +112,6 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	if _, err := requireUserActor(h.approvals.identity()); err != nil {
-		return nil, err
-	}
 	preparation, err := h.service.PrepareArchive(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -125,14 +125,14 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	}
 	if phase.Prepared() {
 		data := ChannelMutationData{Action: "archive", ApprovalPhase: phase, Channel: &preparation.Expected}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+		return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 	}
 	state, err := h.service.ArchivePrepared(ctx, preparation)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ChannelMutationData{Action: "archive", ApprovalPhase: phase, Channel: &state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func mutationResult(action string, state provider.ChannelMutationState, err error) (*mcp.CallToolResult, error) {
@@ -140,7 +140,7 @@ func mutationResult(action string, state provider.ChannelMutationState, err erro
 		return nil, err
 	}
 	data := ChannelMutationData{Action: action, ApprovalPhase: ApprovalPhase{Phase: "executed"}, Channel: &state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *ChannelMutationHandler) Tools() []ToolDef {
@@ -153,19 +153,18 @@ func (h *ChannelMutationHandler) Tools() []ToolDef {
 		{Name: capability.ChannelsSetTopic, Run: h.ConversationsSetTopicHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Set or clear one ordinary channel topic."),
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
-			mcp.WithString("topic", mcp.Required(), mcp.Description("New topic, up to 250 characters; pass an empty string to clear it.")),
+			mcp.WithString("topic", mcp.Required(), mcp.Description(fmt.Sprintf("New topic, up to %d characters; pass an empty string to clear it.", maxTopicRunes))),
 		}},
 		{Name: capability.ChannelsSetPurpose, Run: h.ConversationsSetPurposeHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Set or clear one ordinary channel purpose."),
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
-			mcp.WithString("purpose", mcp.Required(), mcp.Description("New purpose, up to 250 characters; pass an empty string to clear it.")),
+			mcp.WithString("purpose", mcp.Required(), mcp.Description(fmt.Sprintf("New purpose, up to %d characters; pass an empty string to clear it.", maxTopicRunes))),
 		}},
-		{Name: capability.ChannelsArchive, Run: h.ConversationsArchiveHandler, Options: []mcp.ToolOption{
+		{Name: capability.ChannelsArchive, Run: h.ConversationsArchiveHandler, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[ChannelMutationResult](),
 			mcp.WithDescription("Preview or archive one ordinary channel. Prepare first, then confirm the exact observed channel before execute."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }

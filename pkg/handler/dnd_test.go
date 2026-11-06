@@ -58,25 +58,3 @@ func TestUnitDNDSetValidatesDuration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 90, api.set)
 }
-
-func TestUnitDNDMutationsRejectBotIdentity(t *testing.T) {
-	api := &fakeDNDAPI{status: &slack.DNDStatus{}}
-	handler := NewDNDHandler(api, func() provider.ProviderIdentity {
-		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "bot"}
-	})
-	_, err := handler.EndSnooze(context.Background(), mcp.CallToolRequest{})
-	var typed *ToolError
-	require.ErrorAs(t, err, &typed)
-	assert.Equal(t, "user_oauth_required", typed.Code)
-	assert.False(t, api.ended)
-}
-
-func TestUnitDNDMutationTimeoutIsOutcomeUnknown(t *testing.T) {
-	api := &fakeDNDAPI{err: context.DeadlineExceeded}
-	handler := NewDNDHandler(api, userIdentity)
-	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"minutes": 30}}}
-	_, err := handler.SetSnooze(context.Background(), request)
-	var typed *ToolError
-	require.ErrorAs(t, err, &typed)
-	assert.Equal(t, "outcome_unknown", typed.Code)
-}

@@ -66,7 +66,7 @@ func main() {
 
 	settings, err := handler.SettingsFromEnv(os.Getenv)
 	if err != nil {
-		fatal(logger, "error in a channel allowlist", err)
+		fatal(logger, "invalid handler configuration", err)
 	}
 	for _, w := range settings.Warnings {
 		logger.Warn(w, zap.String("context", "console"))
@@ -78,7 +78,7 @@ func main() {
 		fatal(logger, "Failed to initialize Slack provider", err)
 	}
 	defer p.Close()
-	s := server.NewMCPServer(p, transport, logger, enabledTools, settings)
+	s := server.NewMCPServer(p, transport, logger, enabledTools, settings, server.WithLogParams(server.LogParamsFromEnv(os.Getenv)))
 	logStartupAuthStatus(p, logger)
 	warnMissingOAuthScopes(p, enabledTools, logger)
 

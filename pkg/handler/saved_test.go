@@ -43,7 +43,7 @@ func savedFixtureChannelName(id string) string {
 
 func TestUnitRenderSavedItems(t *testing.T) {
 	t.Run("rows carry the bare channel ID, names go in the legend, cursor in meta", func(t *testing.T) {
-		res, err := renderSavedItems(savedFixtureItems(), savedFixtureChannelName, SlackResultMeta("next-page", false, ""))
+		res, err := itemRows(savedFixtureItems(), savedFixtureChannelName, SlackResultMeta("next-page", false, ""))
 		require.NoError(t, err)
 		assert.Nil(t, res.StructuredContent)
 
@@ -56,7 +56,7 @@ func TestUnitRenderSavedItems(t *testing.T) {
 	})
 
 	t.Run("no items is a header-only CSV", func(t *testing.T) {
-		res, err := renderSavedItems(nil, savedFixtureChannelName, SlackResultMeta("", false, ""))
+		res, err := itemRows([]SavedItemRow(nil), savedFixtureChannelName, slackMeta())
 		require.NoError(t, err)
 		assert.Equal(t, savedItemsHeader+"\n", csvResultBody(t, res))
 	})
@@ -236,7 +236,7 @@ func TestUnitListSavedShowsCustomToDosWithoutFetchingMessages(t *testing.T) {
 		{SavedRef: provider.SavedRef{ID: "Sa1", Type: "reminder"}, State: "in_progress", TodoState: "to_do", Description: body},
 		{SavedRef: provider.SavedRef{ID: "F1", Type: "file"}, State: "in_progress", TodoState: "to_do"},
 	}}
-	h := newStubSavedHandler([]provider.SavedPage{page}, nil, func(item provider.SavedItem) { fetched = append(fetched, item.ID) })
+	h := newStubSavedHandler([]provider.SavedPage{page}, nil, func(ts string) { fetched = append(fetched, ts) })
 
 	res, err := served(h.listSaved(context.Background(), "todo", 50, "", true, text.ModeStandard))
 	require.NoError(t, err)
@@ -248,29 +248,21 @@ func TestUnitListSavedShowsCustomToDosWithoutFetchingMessages(t *testing.T) {
 }
 
 // newStubSavedHandler serves one saved.list page per call from pages and
-// runs onPage after each; itemMessages returns one message per item and runs
-// onItem first.
-func newStubSavedHandler(pages []provider.SavedPage, onPage func(n int), onItem func(provider.SavedItem)) *SavedHandler {
-	calls := 0
-	return &SavedHandler{
-		apiProvider: &provider.ApiProvider{},
-		logger:      zap.NewNop(),
-		messages:    messagePipeline{api: &provider.ApiProvider{}, logger: zap.NewNop()},
-		listPage: func(context.Context, string, int, string) (provider.SavedPage, error) {
-			page := pages[calls]
-			calls++
-			if onPage != nil {
-				onPage(calls)
+// runs onPage after each. Every saved message exists, with the text
+// "saved <ts>"; onFetch runs before each message fetch.
+func newStubSavedHandler(pages []provider.SavedPage, onPage func(n int), onFetch func(ts string)) *SavedHandler {
+	slackFake := &fakeSlack{savedPages: pages, onSavedPage: onPage, messages: map[[2]string]slack.Message{}}
+	for _, page := range pages {
+		for _, item := range page.Items {
+			if item.IsMessage() {
+				slackFake.messages[[2]string{item.Channel(), item.Ts}] = slack.Message{Msg: slack.Msg{Timestamp: item.Ts, Text: "saved " + item.Ts}}
 			}
-			return page, nil
-		},
-		itemMessages: func(_ context.Context, item provider.SavedItem, _ text.OutputMode) ([]Message, error) {
-			if onItem != nil {
-				onItem(item)
-			}
-			return []Message{{MsgID: item.Ts, Channel: item.Channel(), Text: "saved " + item.Ts}}, nil
-		},
+		}
 	}
+	if onFetch != nil {
+		slackFake.onGetMessage = func(_, ts string) { onFetch(ts) }
+	}
+	return NewSavedHandler(slackFake, slackFake.pipeline(), zap.NewNop(), Settings{})
 }
 
 func savedPage(nextCursor string, ts ...string) provider.SavedPage {
@@ -300,7 +292,12 @@ func TestUnitSavedListKeepsRowsWhenStoppedBetweenPages(t *testing.T) {
 func TestUnitSavedListListsTheRestOfThePageWhenStoppedMidPage(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	h := newStubSavedHandler([]provider.SavedPage{savedPage("c2", "1.0", "2.0", "3.0")}, nil, func(provider.SavedItem) { cancel() })
+	// The stop lands while 2.0 is being fetched, so that message is dropped.
+	h := newStubSavedHandler([]provider.SavedPage{savedPage("c2", "1.0", "2.0", "3.0")}, nil, func(ts string) {
+		if ts == "2.0" {
+			cancel()
+		}
+	})
 
 	res, err := served(h.listSaved(ctx, "saved", 50, "", true, text.ModeStandard))
 	require.NoError(t, err)

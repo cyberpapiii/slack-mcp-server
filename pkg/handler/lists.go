@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -25,8 +24,8 @@ type ListsHandler struct {
 	approvals approvalGate
 }
 
-func NewListsHandler(api ListsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity) *ListsHandler {
-	return &ListsHandler{api: api, approvals: approvalGate{store: approvals, identity: identity}}
+func NewListsHandler(api ListsAPI, identity func() provider.ProviderIdentity) *ListsHandler {
+	return &ListsHandler{api: api, approvals: newApprovalGate(identity)}
 }
 
 type ListCreateData struct {
@@ -64,9 +63,9 @@ func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolReque
 	}
 	listID, metadata, err := h.api.CreateList(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
-	return NewStructuredResult(ListCreateData{ListID: listID, Metadata: metadata}, SlackResultMeta("", false, ""), "Created Slack List "+listID), nil
+	return NewStructuredResult(ListCreateData{ListID: listID, Metadata: metadata}, slackMeta(), "Created Slack List "+listID), nil
 }
 
 func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -78,9 +77,9 @@ func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolReque
 		return nil, invalidArguments("id is required")
 	}
 	if err := h.api.UpdateList(ctx, input); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
-	return NewStructuredResult(ListMutationData{ListID: input.ID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List "+input.ID), nil
+	return NewStructuredResult(ListMutationData{ListID: input.ID, Status: "updated"}, slackMeta(), "Updated Slack List "+input.ID), nil
 }
 
 func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -111,9 +110,9 @@ func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolReque
 	}
 	item, err := h.api.CreateItem(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
-	return NewStructuredResult(item, SlackResultMeta("", false, ""), "Created Slack List item "+item.ID), nil
+	return NewStructuredResult(item, slackMeta(), "Created Slack List item "+item.ID), nil
 }
 
 func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -125,9 +124,9 @@ func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequ
 		return nil, invalidArguments("list_id and at least one cell are required")
 	}
 	if err := h.api.UpdateItems(ctx, input); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
-	return NewStructuredResult(ListItemMutationData{ListID: input.ListID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List items"), nil
+	return NewStructuredResult(ListItemMutationData{ListID: input.ListID, Status: "updated"}, slackMeta(), "Updated Slack List items"), nil
 }
 
 func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -154,13 +153,13 @@ func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolReque
 	}
 	if phase.Prepared() {
 		data := ListItemDeleteData{ApprovalPhase: phase, ListID: listID, ItemID: itemID, Item: &item, Status: "awaiting_confirmation"}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), "Prepared deletion of Slack List item "+itemID), nil
+		return NewStructuredResult(data, slackMeta(), "Prepared deletion of Slack List item "+itemID), nil
 	}
 	if err := h.api.DeleteItem(ctx, listID, itemID); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ListItemDeleteData{ApprovalPhase: phase, ListID: listID, ItemID: itemID, Status: "deleted"}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Deleted Slack List item "+itemID), nil
+	return NewStructuredResult(data, slackMeta(), "Deleted Slack List item "+itemID), nil
 }
 
 func (h *ListsHandler) Tools() []ToolDef {
@@ -200,14 +199,13 @@ func (h *ListsHandler) Tools() []ToolDef {
 			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID containing the items (starts with F, e.g. F1234567890).")),
 			mcp.WithArray("cells", mcp.Required(), mcp.MinItems(1), mcp.Items(listFieldItemSchema(true)), mcp.Description("Cells to set; each has column_id, row_id (the item ID), and one typed value key such as rich_text or select.")),
 		}},
-		{Name: capability.ListsItemDelete, Run: h.DeleteItem, Options: []mcp.ToolOption{
+		{Name: capability.ListsItemDelete, Run: h.DeleteItem, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[ListItemDeleteResult](),
 			mcp.WithDescription("Preview or delete one Slack List item. Prepare first, then confirm the exact item before execute."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID containing the item (starts with F, e.g. F1234567890).")),
 			mcp.WithString("item_id", mcp.Required(), mcp.Description("ID of the List item to delete, from lists_items_list or lists_items_create.")),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }
 

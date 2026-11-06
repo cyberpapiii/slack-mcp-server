@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
@@ -37,10 +36,10 @@ func (h *CanvasHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 	}
 	id, err := h.api.CreateCanvas(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := CanvasMutationData{CanvasID: id, Status: "created"}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *CanvasHandler) Read(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -93,11 +92,17 @@ func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 		}
 	}
 	if err := h.api.UpdateCanvas(ctx, input); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := CanvasMutationData{CanvasID: input.CanvasID, Status: "updated"}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
+
+// drafts_list limit bounds.
+const (
+	defaultDraftsLimit = 50
+	maxDraftsLimit     = 100
+)
 
 type DraftsHandler struct {
 	api       provider.DraftsAPI
@@ -105,8 +110,8 @@ type DraftsHandler struct {
 	labels    Labels
 }
 
-func NewDraftsHandler(api provider.DraftsAPI, labels Labels, approvals *approval.Store, identity func() provider.ProviderIdentity) *DraftsHandler {
-	return &DraftsHandler{api: renderedDrafts{api}, labels: labels, approvals: approvalGate{store: approvals, identity: identity}}
+func NewDraftsHandler(api provider.DraftsAPI, labels Labels, identity func() provider.ProviderIdentity) *DraftsHandler {
+	return &DraftsHandler{api: renderedDrafts{api}, labels: labels, approvals: newApprovalGate(identity)}
 }
 
 // renderedDrafts fills each draft Slack returns with its blocks rendered as
@@ -162,7 +167,7 @@ type DraftRow struct {
 }
 
 func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	limit := pageLimit(request, 50, 100)
+	limit := pageLimit(request, defaultDraftsLimit, maxDraftsLimit)
 	page, err := h.api.ListDrafts(ctx, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
 		return nil, err
@@ -185,7 +190,7 @@ func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	return NewStructuredResult(draft, SlackResultMeta("", false, ""), fallbackJSON(draft)), nil
+	return NewStructuredResult(draft, slackMeta(), fallbackJSON(draft)), nil
 }
 
 func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -195,10 +200,10 @@ func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 	}
 	created, err := h.api.CreateDraft(ctx, draft)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: ApprovalPhase{Phase: "executed"}, Status: "created", Draft: &created}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -208,10 +213,10 @@ func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 	}
 	updated, err := h.api.UpdateDraft(ctx, draft)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: ApprovalPhase{Phase: "executed"}, Status: "updated", Draft: &updated}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -236,13 +241,13 @@ func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest)
 	}
 	if phase.Prepared() {
 		data := DraftMutationData{ApprovalPhase: phase, Status: "awaiting_confirmation", Draft: &current}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+		return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 	}
 	if err := h.api.DeleteDraft(ctx, id, current.UpdatedTS); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: phase, Status: "deleted", Draft: &current}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func decodeDraft(request mcp.CallToolRequest, requireID bool) (provider.Draft, error) {
@@ -353,7 +358,7 @@ func (h *DraftsHandler) Tools() []ToolDef {
 		{Name: capability.DraftsList, Run: h.List, Options: []mcp.ToolOption{
 			mcp.WithDescription("List persisted Slack drafts from the authenticated browser session."),
 			mcp.WithString("cursor", mcp.Description(descCursor)),
-			mcp.WithNumber("limit", mcp.Description("Maximum drafts per page, 1 to 100; defaults to 50.")),
+			mcp.WithNumber("limit", mcp.Description(fmt.Sprintf("Maximum drafts per page, 1 to %d; defaults to %d.", maxDraftsLimit, defaultDraftsLimit))),
 		}},
 		{Name: capability.DraftsGet, Run: h.Get, Options: []mcp.ToolOption{
 			mcp.WithDescription("Read one persisted Slack draft."),
@@ -372,13 +377,12 @@ func (h *DraftsHandler) Tools() []ToolDef {
 			mcp.WithString("text", mcp.Required(), mcp.Description("Replacement draft text; required and non-empty.")),
 			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to target a thread; omit for a top-level draft.")),
 		}},
-		{Name: capability.DraftsDelete, Run: h.Delete, Options: []mcp.ToolOption{
+		{Name: capability.DraftsDelete, Run: h.Delete, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[DraftMutationResult](),
 			mcp.WithDescription("Preview or delete a persisted Slack draft."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("draft_id", mcp.Required(), mcp.Description("ID of the draft to delete, as returned by drafts_list.")),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }
 
@@ -392,7 +396,7 @@ func (h *SemanticSearchHandler) Tools() []ToolDef {
 			mcp.WithString("context_channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) Slack uses to scope or bias results when applicable.")),
 			mcp.WithString("cursor", mcp.Description(descCursor)),
 			mcp.WithBoolean("include_bots", mcp.Description("Include messages authored by bots; defaults to false.")),
-			mcp.WithNumber("limit", mcp.Description("Maximum results per page, 1 to 20; defaults to 20.")),
+			mcp.WithNumber("limit", mcp.Description(fmt.Sprintf("Maximum results per page, 1 to %d; defaults to %d.", maxSemanticResults, maxSemanticResults))),
 		}},
 	}
 }

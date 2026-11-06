@@ -23,18 +23,18 @@ func TestUpsertChannelAddsOpenedDMToSnapshot(t *testing.T) {
 	dm.User = "U1"
 	ap.UpsertChannel(dm)
 
-	snapshot := ap.ProvideChannelsMaps()
+	snapshot := ap.currentChannels()
 	require.Len(t, snapshot.Channels, 2, "existing channels survive the upsert")
 	assert.Equal(t, "#general", snapshot.Channels["C001"].Name)
 	assert.Equal(t, "@alice", snapshot.Channels["D123"].Name)
 	assert.Equal(t, "D123", snapshot.ChannelsInv["@alice"])
 
 	ap.UpsertChannel(dm)
-	assert.Len(t, ap.ProvideChannelsMaps().Channels, 2, "upsert is idempotent")
+	assert.Len(t, ap.currentChannels().Channels, 2, "upsert is idempotent")
 
 	ap.UpsertChannel(nil)
 	ap.UpsertChannel(&slack.Channel{})
-	assert.Len(t, ap.ProvideChannelsMaps().Channels, 2, "nil and blank channels are ignored")
+	assert.Len(t, ap.currentChannels().Channels, 2, "nil and blank channels are ignored")
 }
 
 type leaveClient struct{ SlackAPI }
@@ -54,7 +54,7 @@ func TestUnitUpsertKeepsCountAndLeaveForgetsPrivateChannels(t *testing.T) {
 	renamed := &slack.Channel{}
 	renamed.ID, renamed.NameNormalized = "C1", "new"
 	ap.UpsertChannel(renamed)
-	snapshot := ap.ProvideChannelsMaps()
+	snapshot := ap.currentChannels()
 	assert.Equal(t, 12, snapshot.Channels["C1"].MemberCount, "a write response omits num_members")
 	assert.Equal(t, "C1", snapshot.ChannelsInv["#new"])
 	assert.NotContains(t, snapshot.ChannelsInv, "#old")
@@ -63,7 +63,7 @@ func TestUnitUpsertKeepsCountAndLeaveForgetsPrivateChannels(t *testing.T) {
 	require.NoError(t, err)
 	_, err = ap.LeaveConversation(context.Background(), "G1")
 	require.NoError(t, err)
-	snapshot = ap.ProvideChannelsMaps()
+	snapshot = ap.currentChannels()
 	assert.Contains(t, snapshot.Channels, "C1", "a public channel is still listed")
 	assert.NotContains(t, snapshot.Channels, "G1")
 	assert.NotContains(t, snapshot.ChannelsInv, "#secret")

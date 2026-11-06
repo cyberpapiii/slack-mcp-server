@@ -17,7 +17,7 @@ func (ap *ApiProvider) RefreshChannels(ctx context.Context) error {
 	ap.channelsMu.Lock()
 	if cached, expired, ok := loadCacheFile[Channel](ap.channelsCachePath, ap.cacheTTL, ap.logger); ok {
 		// Re-map IMs against current users so @names stay fresh after user cache updates.
-		usersMap := ap.ProvideUsersMap().Users
+		usersMap := ap.currentUsers().Users
 		newSnapshot := newChannelsCache(len(cached))
 		for _, c := range cached {
 			if c.IsIM {
@@ -96,7 +96,7 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 
 	var chans []Channel
 
-	usersMap := ap.ProvideUsersMap().Users
+	usersMap := ap.currentUsers().Users
 	for {
 		// The client paces conversations.list on Tier2 and retries a 429;
 		// faster budgets caused 429 truncations.
@@ -151,7 +151,7 @@ func (ap *ApiProvider) UpsertChannel(channel *slack.Channel) {
 	if channel == nil || channel.ID == "" {
 		return
 	}
-	mapped := MapChannelFromSlack(*channel, ap.ProvideUsersMap().Users)
+	mapped := MapChannelFromSlack(*channel, ap.currentUsers().Users)
 	ap.editChannels(func(c *ChannelsCache) {
 		if old, ok := c.Channels[mapped.ID]; ok && mapped.MemberCount == 0 {
 			mapped.MemberCount = old.MemberCount
@@ -185,6 +185,6 @@ func (ap *ApiProvider) editChannels(edit func(*ChannelsCache)) {
 	}
 }
 
-func (ap *ApiProvider) ProvideChannelsMaps() *ChannelsCache {
+func (ap *ApiProvider) currentChannels() *ChannelsCache {
 	return ap.channelsSnapshot.Load()
 }

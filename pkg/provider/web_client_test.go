@@ -98,7 +98,7 @@ func TestUnitPeopleChannelsProviderFollowsClientRotation(t *testing.T) {
 
 	f.rotate()
 
-	_, err := service.ListEmoji(context.Background(), "", "", 10)
+	_, err := service.ListEmoji(context.Background(), "", 0, 10)
 	require.NoError(t, err)
 	f.assertUsedRotatedClient(t)
 }

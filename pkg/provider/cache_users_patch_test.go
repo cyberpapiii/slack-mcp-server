@@ -61,7 +61,7 @@ func TestUnitPatchUsersUsesOneRoundTripPerBatch(t *testing.T) {
 		assert.Equal(t, 1, client.calls, "one batch must cost one round trip, not one per id")
 		assert.Equal(t, want, client.batches[0])
 
-		snapshot := ap.ProvideUsersMap()
+		snapshot := ap.currentUsers()
 		require.Len(t, snapshot.Users, 6)
 		for _, id := range want {
 			_, ok := snapshot.Users[id]
@@ -84,7 +84,7 @@ func TestUnitPatchUsersUsesOneRoundTripPerBatch(t *testing.T) {
 		assert.Equal(t, 3, client.calls)
 		assert.Len(t, client.batches[0], usersInfoBatch)
 		assert.Len(t, client.batches[2], 1)
-		assert.Len(t, ap.ProvideUsersMap().Users, len(ids))
+		assert.Len(t, ap.currentUsers().Users, len(ids))
 	})
 
 	t.Run("ids the API does not return are simply absent", func(t *testing.T) {
@@ -95,7 +95,7 @@ func TestUnitPatchUsersUsesOneRoundTripPerBatch(t *testing.T) {
 
 		require.NoError(t, ap.PatchUsers(context.Background(), []string{"UOK", "UGONE"}))
 
-		snapshot := ap.ProvideUsersMap()
+		snapshot := ap.currentUsers()
 		_, ok := snapshot.Users["UOK"]
 		assert.True(t, ok)
 		_, ok = snapshot.Users["UGONE"]
@@ -120,7 +120,7 @@ func TestUnitPatchKeepsSearchIndexConsistent(t *testing.T) {
 		_, err := ap.PatchUser(context.Background(), "U003")
 		require.NoError(t, err)
 
-		snapshot := ap.ProvideUsersMap()
+		snapshot := ap.currentUsers()
 		assert.Len(t, snapshot.Users, 3)
 		assert.Equal(t, "U003", snapshot.UsersInv["carol-renamed"])
 		_, stale := snapshot.UsersInv["carol"]
@@ -177,7 +177,7 @@ func TestUnitPatchedSearchIndexMatchesFullRebuild(t *testing.T) {
 
 	ap := newTestApiProvider(client, newUsersCache(seed))
 	require.NoError(t, ap.PatchUsers(context.Background(), ids))
-	incremental := ap.ProvideUsersMap()
+	incremental := ap.currentUsers()
 
 	all := make([]slack.User, 0, len(incremental.Users))
 	for _, u := range incremental.Users {
@@ -230,7 +230,7 @@ func TestUnitPatchUsersKeepsSucceededBatchesOnLaterFailure(t *testing.T) {
 	err := ap.PatchUsers(context.Background(), ids)
 
 	require.Error(t, err, "the failed batch must still be reported")
-	snapshot := ap.ProvideUsersMap()
+	snapshot := ap.currentUsers()
 	assert.Len(t, snapshot.Users, usersInfoBatch, "the first batch must survive the second batch failing")
 	assert.Len(t, snapshot.search, len(snapshot.Users))
 

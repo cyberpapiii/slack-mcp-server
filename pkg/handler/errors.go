@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/slack-go/slack"
 )
@@ -67,12 +68,12 @@ func permissionDenied(message string) *ToolError {
 	return &ToolError{Code: codePermissionDenied, Message: message}
 }
 
-func channelNotFound(channel string) error {
-	return notFound(fmt.Sprintf("channel %q not found; pass the channel ID (Cxxxxxxxxxx) or look the name up with channels_list", channel))
+func (a Availability) channelNotFound(channel string) error {
+	return notFound(fmt.Sprintf("channel %q not found; pass the channel ID (Cxxxxxxxxxx)%s", channel, a.toolHint(capability.ChannelsList, " or look the name up with %s", "")))
 }
 
-func userNotFound(user string) error {
-	return notFound(fmt.Sprintf("user %q not found; pass the user ID (Uxxxxxxxxxx) or look the name up with users_search", user))
+func (a Availability) userNotFound(user string) error {
+	return notFound(fmt.Sprintf("user %q not found; pass the user ID (Uxxxxxxxxxx)%s", user, a.toolHint(capability.UsersSearch, " or look the name up with %s", "")))
 }
 
 // BrowserSessionRequired is the error for a call that needs the browser
@@ -87,7 +88,7 @@ func BrowserSessionRequired(tool, reason string) *ToolError {
 	}
 	return &ToolError{
 		Code:    codeBrowserSessionRequired,
-		Message: fmt.Sprintf("%s needs a Slack browser session (xoxc/xoxd): %s. Check slack_auth_status; token-only tools still work.", tool, reason),
+		Message: fmt.Sprintf("%s needs a Slack browser session (xoxc/xoxd): %s. Check %s; token-only tools still work.", tool, reason, capability.SlackAuthStatus),
 	}
 }
 
@@ -147,6 +148,11 @@ func TypeError(err error, mutationAttempted bool) error {
 	for sentinel, code := range map[error]string{
 		provider.ErrUserOAuthRequired:       codeUserOAuthRequired,
 		provider.ErrInvalidPaginationCursor: codeInvalidCursor,
+		provider.ErrChannelMutationGeneral:  codePermissionDenied,
+		provider.ErrChannelMutationShared:   codePermissionDenied,
+		provider.ErrChannelArchiveConflict:  codeConflict,
+		provider.ErrChannelAlreadyArchived:  codeConflict,
+		provider.ErrInvalidListInput:        codeInvalidArguments,
 	} {
 		if errors.Is(err, sentinel) {
 			return &ToolError{Code: code, Message: err.Error(), Cause: err}

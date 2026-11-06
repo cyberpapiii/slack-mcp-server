@@ -45,10 +45,10 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			mutedChannels, mutedErr = ch.apiProvider.Slack().GetMutedChannels(ctx)
+			mutedChannels, mutedErr = ch.api.GetMutedChannels(ctx)
 		}()
 	}
-	counts, err := ch.apiProvider.Slack().ClientCounts(ctx)
+	counts, err := ch.api.ClientCounts(ctx)
 	wg.Wait()
 
 	if !params.includeMuted {
@@ -75,22 +75,21 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		zap.Int("mpims", len(counts.MPIMs)),
 		zap.Int("ims", len(counts.IMs)))
 
-	unreadChannels, dropped := ch.collectUnreadChannels(params, counts, ch.apiProvider.Directory())
+	unreadChannels, dropped := ch.collectUnreadChannels(params, counts, ch.api.Directory())
 
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
-
-	if !ch.backfillUnreadCounts(ctx, request, ch.apiProvider.WebAPI(), params, unreadChannels) {
-		return nil, ctx.Err()
-	}
 
 	coverage := unreadsCoverage{mutedUnavailable: params.mutedUnavailable, maxChannels: params.maxChannels, dropped: dropped}
 
 	if !params.includeMessages {
+		if !ch.backfillUnreadCounts(ctx, request, ch.api, unreadChannels) {
+			return nil, ctx.Err()
+		}
 		// Rows carry their own Name column, so no "#channels:" legend.
 		return csvResult("", coverage.meta(), &unreadChannels)
 	}
 
-	histories, errs := fetchUnreadHistories(ctx, ch.apiProvider.WebAPI(), unreadChannels, params.maxMessagesPerChannel,
+	histories, errs := fetchUnreadHistories(ctx, ch.api, unreadChannels, params.maxMessagesPerChannel,
 		func(c UnreadChannel) bool { return c.LastRead == "" },
 		func(finished int) {
 			sendProgress(ctx, request, finished, len(unreadChannels), fmt.Sprintf("Fetching messages: %d of %d channels", finished, len(unreadChannels)))
@@ -198,14 +197,11 @@ func fetchUnreadHistories(ctx context.Context, api historyFetcher, channels []Un
 }
 
 // backfillUnreadCounts fills in UnreadCount for channels that client.counts
-// reported as unread with MentionCount==0. It mutates unreadChannels in place
-// and reports false if the context was cancelled mid-flight.
-func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, request mcp.CallToolRequest, api historyFetcher, params *unreadsParams, unreadChannels []UnreadChannel) bool {
-	if params.includeMessages {
-		// Message-fetch loop overwrites UnreadCount; backfill would double API calls.
-		return true
-	}
-
+// reported as unread with MentionCount==0, for the summary output; with
+// include_messages the message fetch sets the counts instead. It mutates
+// unreadChannels in place and reports false if the context was cancelled
+// mid-flight.
+func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, request mcp.CallToolRequest, api historyFetcher, unreadChannels []UnreadChannel) bool {
 	// client.counts gives HasUnreads without a count when MentionCount==0;
 	// history since LastRead is used because conversations.info omits unread_count for xoxc/xoxd.
 	const backfillLimit = 20
@@ -282,9 +278,8 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 
 	ch.sortChannelsByPriority(unreadChannels)
 
-	// maxChannels > 0 backstop: non-positive would slice negative and panic.
 	dropped := 0
-	if params.maxChannels > 0 && len(unreadChannels) > params.maxChannels {
+	if len(unreadChannels) > params.maxChannels {
 		dropped = len(unreadChannels) - params.maxChannels
 		unreadChannels = unreadChannels[:params.maxChannels]
 	}
@@ -297,98 +292,6 @@ func unreadChannelName(dir *provider.Directory, id string) string {
 		return label
 	}
 	return id
-}
-
-func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	params, err := ch.parseParamsToolMark(ctx, request)
-	if err != nil {
-		ch.logger.Debug("Failed to parse mark params", zap.Error(err))
-		return nil, err
-	}
-
-	channel := params.channel
-	ts := params.ts
-
-	if ts == "" {
-		// No explicit ts: mark the channel read up to its newest message.
-		historyParams := slack.GetConversationHistoryParameters{
-			ChannelID: channel,
-			Limit:     1,
-		}
-		history, err := ch.apiProvider.WebAPI().GetConversationHistoryContext(ctx, &historyParams)
-		if err != nil {
-			ch.logger.Debug("Failed to get latest message", zap.Error(err))
-			return nil, fmt.Errorf("failed to get latest message: %w", err)
-		}
-		if len(history.Messages) > 0 {
-			ts = history.Messages[0].Timestamp
-		} else {
-			return NewStructuredResult(ActionData{Action: "mark_read", Status: "no_messages", ChannelID: channel}, SlackResultMeta("", false, ""), "No messages to mark as read"), nil
-		}
-	}
-
-	err = ch.apiProvider.Slack().MarkConversationContext(ctx, channel, ts)
-	if err != nil {
-		ch.logger.Debug("Failed to mark conversation", zap.Error(err))
-		return nil, fmt.Errorf("failed to mark conversation as read: %w", err)
-	}
-
-	ch.logger.Info("Marked conversation as read",
-		zap.String("channel", channel),
-		zap.String("ts", ts))
-
-	fallback := fmt.Sprintf("Marked %s as read up to %s", channel, ts)
-	return NewStructuredResult(ActionData{Action: "mark_read", Status: "marked", ChannelID: channel, MessageID: ts}, SlackResultMeta("", false, ""), fallback), nil
-}
-
-func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	channel := request.GetString("channel_id", "")
-	if channel == "" {
-		return nil, invalidArguments("channel_id is required")
-	}
-
-	channel, err := ch.messages.channelID(ctx, channel)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve channel: %w", err)
-	}
-
-	notInChannel, err := ch.apiProvider.Slack().LeaveConversationContext(ctx, channel)
-	if err != nil {
-		ch.logger.Debug("Failed to leave conversation", zap.Error(err))
-		return nil, fmt.Errorf("failed to leave conversation: %w", err)
-	}
-
-	if notInChannel {
-		ch.logger.Info("Was not in channel", zap.String("channel", channel))
-		return mcp.NewToolResultText(fmt.Sprintf("Not a member of %s", channel)), nil
-	}
-
-	ch.logger.Info("Left conversation", zap.String("channel", channel))
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully left %s", channel)), nil
-}
-
-func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	channel := request.GetString("channel_id", "")
-	if channel == "" {
-		return nil, invalidArguments("channel_id is required")
-	}
-
-	channel, err := ch.messages.channelID(ctx, channel)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve channel: %w", err)
-	}
-
-	_, _, _, err = ch.apiProvider.WebAPI().JoinConversationContext(ctx, channel)
-	if err != nil {
-		ch.logger.Debug("Failed to join conversation", zap.Error(err))
-		return nil, fmt.Errorf("failed to join conversation: %w", err)
-	}
-
-	ch.logger.Info("Joined conversation", zap.String("channel", channel))
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully joined %s", channel)), nil
 }
 
 const (
@@ -417,60 +320,6 @@ func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel)
 	})
 }
 
-func (ch *ConversationsHandler) parseParamsToolOpenConversation(request mcp.CallToolRequest) ([]string, error) {
-	usersStr := request.GetString("users", "")
-	if usersStr == "" {
-		return nil, invalidArguments("users must be a comma-separated string of user IDs or @usernames")
-	}
-
-	var userIDs []string
-	for _, user := range strings.Split(usersStr, ",") {
-		user = strings.TrimSpace(user)
-		if user == "" {
-			continue
-		}
-		if id, _ := provider.ParseUserRef(user); id != "" {
-			userIDs = append(userIDs, id)
-			continue
-		}
-		u, err := ch.apiProvider.UserByRef(user)
-		if err != nil {
-			return nil, cacheMiss(user, err, userNotFound)
-		}
-		userIDs = append(userIDs, u.ID)
-	}
-
-	if len(userIDs) == 0 {
-		return nil, invalidArguments("no valid users provided")
-	}
-
-	return userIDs, nil
-}
-
-func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	userIDs, err := ch.parseParamsToolOpenConversation(request)
-	if err != nil {
-		ch.logger.Debug("Failed to parse open-conversation params", zap.Error(err))
-		return nil, err
-	}
-
-	params := &slack.OpenConversationParameters{
-		Users:    userIDs,
-		ReturnIM: true,
-	}
-
-	channel, _, _, err := ch.apiProvider.WebAPI().OpenConversationContext(ctx, params)
-	if err != nil {
-		ch.logger.Debug("Slack OpenConversationContext failed", zap.Error(err))
-		return nil, err
-	}
-
-	ch.apiProvider.UpsertChannel(channel)
-
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully opened conversation. Channel ID: %s", channel.Conversation.ID)), nil
-}
-
 func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolRequest) (*unreadsParams, error) {
 	maxChannels := positiveInt(request, "max_channels", defaultUnreadsMaxChannels)
 	maxMessagesPerChannel := positiveInt(request, "max_messages_per_channel", defaultUnreadsMessagesPerChannel)
@@ -487,26 +336,5 @@ func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolReque
 		maxMessagesPerChannel: maxMessagesPerChannel,
 		mentionsOnly:          request.GetBool("mentions_only", false),
 		includeMuted:          request.GetBool("include_muted", false),
-	}, nil
-}
-
-func (ch *ConversationsHandler) parseParamsToolMark(ctx context.Context, request mcp.CallToolRequest) (*markParams, error) {
-
-	channel := request.GetString("channel_id", "")
-	if channel == "" {
-		ch.logger.Debug("channel_id missing in mark params")
-		return nil, invalidArguments("channel_id is required")
-	}
-
-	channel, err := ch.messages.channelID(ctx, channel)
-	if err != nil {
-		return nil, err
-	}
-
-	ts := request.GetString("timestamp", "")
-
-	return &markParams{
-		channel: channel,
-		ts:      ts,
 	}, nil
 }
