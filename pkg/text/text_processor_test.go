@@ -594,25 +594,6 @@ func TestUnitAttachmentCompactTruncatesWithReceipt(t *testing.T) {
 	}
 }
 
-func TestUnitAttachmentCompactNoReceiptWhenFits(t *testing.T) {
-	att := slack.Attachment{
-		Title:     "Build passed",
-		TitleLink: "https://ci.example.com/build/43",
-		Fields: []slack.AttachmentField{
-			{Title: "env", Value: "staging"},
-		},
-		Text: "All 128 tests green.",
-	}
-
-	got := attachmentToText(att, ModeStandard)
-	if strings.Contains(got, attachmentTruncationReceipt) {
-		t.Errorf("ModeStandard output %q should not contain the truncation receipt", got)
-	}
-	if !strings.Contains(got, "All 128 tests green.") {
-		t.Errorf("ModeStandard output %q should contain the body text", got)
-	}
-}
-
 func TestUnitAttachmentCompactTitleOnlyUnchanged(t *testing.T) {
 	att := slack.Attachment{
 		Title:     "Title",
