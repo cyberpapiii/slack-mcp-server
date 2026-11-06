@@ -213,10 +213,10 @@ func listenHostPort() (host, port string) {
 
 func newLogger(transport string) (*zap.Logger, error) {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
-	if envLevel := os.Getenv("SLACK_MCP_LOG_LEVEL"); envLevel != "" {
-		if err := atomicLevel.UnmarshalText([]byte(envLevel)); err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid log level '%s': %v, using 'info'\n", envLevel, err)
-		}
+	envLevel := os.Getenv("SLACK_MCP_LOG_LEVEL")
+	var levelErr error
+	if envLevel != "" {
+		levelErr = atomicLevel.UnmarshalText([]byte(envLevel))
 	}
 
 	useJSON := shouldUseJSONFormat()
@@ -282,8 +282,13 @@ func newLogger(transport string) (*zap.Logger, error) {
 	}
 
 	logger = logger.With(zap.String("app", "slack-mcp-server"))
+	// Plug discards stderr, so the bad value is reported where the rest of
+	// the log goes.
+	if levelErr != nil {
+		logger.Warn("SLACK_MCP_LOG_LEVEL is not a log level; using info", zap.String("value", envLevel), zap.Error(levelErr))
+	}
 
-	return logger, err
+	return logger, nil
 }
 
 func shouldUseJSONFormat() bool {

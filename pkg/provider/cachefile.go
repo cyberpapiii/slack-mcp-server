@@ -56,33 +56,46 @@ func cachePath(cacheDir, teamID, filename string) string {
 	return filepath.Join(cacheDir, filename)
 }
 
-// Go duration or integer seconds; empty/negative/unparseable → defaultVal.
-func parseEnvDuration(envKey string, defaultVal time.Duration) time.Duration {
-	raw := os.Getenv(envKey)
+// cacheConfig is the cache environment, read once by New. An empty path means
+// the per-team file in the user cache directory.
+type cacheConfig struct {
+	usersPath          string        // SLACK_MCP_USERS_CACHE
+	channelsPath       string        // SLACK_MCP_CHANNELS_CACHE
+	ttl                time.Duration // SLACK_MCP_CACHE_TTL; 0 never expires
+	minRefreshInterval time.Duration // SLACK_MCP_MIN_REFRESH_INTERVAL; 0 disables the limit
+}
+
+func cacheConfigFromEnv(logger *zap.Logger) cacheConfig {
+	return cacheConfig{
+		usersPath:          os.Getenv("SLACK_MCP_USERS_CACHE"),
+		channelsPath:       os.Getenv("SLACK_MCP_CHANNELS_CACHE"),
+		ttl:                envDuration("SLACK_MCP_CACHE_TTL", defaultCacheTTL, logger),
+		minRefreshInterval: envDuration("SLACK_MCP_MIN_REFRESH_INTERVAL", defaultMinRefreshInterval, logger),
+	}
+}
+
+// envDuration reads a Go duration or integer seconds. Unset means def; a
+// negative or unparseable value is logged and means def too.
+func envDuration(key string, def time.Duration, logger *zap.Logger) time.Duration {
+	raw := os.Getenv(key)
 	if raw == "" {
-		return defaultVal
+		return def
 	}
-	if d, err := time.ParseDuration(raw); err == nil {
-		if d < 0 {
-			return defaultVal
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		secs, secsErr := strconv.ParseInt(raw, 10, 64)
+		if secsErr != nil {
+			logger.Warn(key+" is not a duration or a number of seconds; using the default",
+				zap.String("value", raw), zap.Duration("default", def))
+			return def
 		}
-		return d
+		d = time.Duration(secs) * time.Second
 	}
-	if secs, err := strconv.ParseInt(raw, 10, 64); err == nil {
-		if secs < 0 {
-			return defaultVal
-		}
-		return time.Duration(secs) * time.Second
+	if d < 0 {
+		logger.Warn(key+" is negative; using the default", zap.String("value", raw), zap.Duration("default", def))
+		return def
 	}
-	return defaultVal
-}
-
-func getCacheTTL() time.Duration {
-	return parseEnvDuration("SLACK_MCP_CACHE_TTL", defaultCacheTTL)
-}
-
-func getMinRefreshInterval() time.Duration {
-	return parseEnvDuration("SLACK_MCP_MIN_REFRESH_INTERVAL", defaultMinRefreshInterval)
+	return d
 }
 
 // loadCacheFile reads a JSON list from path. ok is false when the file is

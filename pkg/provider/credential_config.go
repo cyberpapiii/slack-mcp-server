@@ -3,7 +3,13 @@ package provider
 import (
 	"os"
 	"strings"
+
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 )
+
+// envBrowserKeychainAccount names the browser session's Keychain item. The
+// OAuth item's variables are oauthcred's.
+const envBrowserKeychainAccount = "SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"
 
 // CredentialConfig is the credential environment, read once. Every value is
 // trimmed; empty means unset.
@@ -13,11 +19,11 @@ type CredentialConfig struct {
 	XOXC string // SLACK_MCP_XOXC_TOKEN
 	XOXD string // SLACK_MCP_XOXD_TOKEN
 
-	OAuthKeychainAccount string // SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT
-	OAuthClientID        string // SLACK_MCP_OAUTH_CLIENT_ID
-	OAuthClientSecret    string // SLACK_MCP_OAUTH_CLIENT_SECRET
+	OAuthKeychainAccount string // oauthcred.EnvKeychainAccount
+	OAuthClientID        string // oauthcred.EnvClientID
+	OAuthClientSecret    string // oauthcred.EnvClientSecret
 
-	BrowserKeychainAccount string // SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT
+	BrowserKeychainAccount string // envBrowserKeychainAccount
 }
 
 func CredentialConfigFromEnv() CredentialConfig {
@@ -27,10 +33,10 @@ func CredentialConfigFromEnv() CredentialConfig {
 		XOXB:                   env("SLACK_MCP_XOXB_TOKEN"),
 		XOXC:                   env("SLACK_MCP_XOXC_TOKEN"),
 		XOXD:                   env("SLACK_MCP_XOXD_TOKEN"),
-		OAuthKeychainAccount:   env("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"),
-		OAuthClientID:          env("SLACK_MCP_OAUTH_CLIENT_ID"),
-		OAuthClientSecret:      env("SLACK_MCP_OAUTH_CLIENT_SECRET"),
-		BrowserKeychainAccount: env("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"),
+		OAuthKeychainAccount:   env(oauthcred.EnvKeychainAccount),
+		OAuthClientID:          env(oauthcred.EnvClientID),
+		OAuthClientSecret:      env(oauthcred.EnvClientSecret),
+		BrowserKeychainAccount: env(envBrowserKeychainAccount),
 	}
 }
 

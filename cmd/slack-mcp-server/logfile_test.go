@@ -31,6 +31,23 @@ func TestUnitNewLoggerWritesToLogFile(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "log file may hold message text, keep it owner-only")
 }
 
+// Plug discards stderr, so a bad level used to be reported nowhere it was read.
+func TestUnitNewLoggerLogsABadLevel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.log")
+	t.Setenv("SLACK_MCP_LOG_FILE", path)
+	t.Setenv("SLACK_MCP_LOG_FORMAT", "json")
+	t.Setenv("SLACK_MCP_LOG_LEVEL", "loud")
+
+	logger, err := newLogger("stdio")
+	require.NoError(t, err)
+	require.NoError(t, logger.Sync())
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "SLACK_MCP_LOG_LEVEL is not a log level")
+	assert.Contains(t, string(got), `"value":"loud"`)
+}
+
 func TestUnitNewLoggerRejectsRelativeLogFile(t *testing.T) {
 	t.Setenv("SLACK_MCP_LOG_FILE", "relative/server.log")
 	_, err := newLogger("stdio")

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +90,7 @@ type ProviderIdentity struct {
 // Every failure is returned; the caller decides whether it is fatal.
 func New(logger *zap.Logger) (*ApiProvider, error) {
 	creds := CredentialConfigFromEnv()
+	cache := cacheConfigFromEnv(logger)
 	xoxpToken, xoxbToken, xoxcToken, xoxdToken := creds.XOXP, creds.XOXB, creds.XOXC, creds.XOXD
 	browserAccount := creds.BrowserKeychainAccount
 	var managedManager *oauthcred.Manager
@@ -147,7 +147,7 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 			xoxc: xoxcToken, xoxd: xoxdToken, loadErr: browserLoadErr,
 			account: browserAccount, envXoxc: envXoxc, envXoxd: envXoxd,
 		}
-		ap, err := newProvider(authProvider, creds, browser.configured(), logger)
+		ap, err := newProvider(authProvider, creds, cache, browser.configured(), logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -169,7 +169,7 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 			zap.String("token_type", "xoxb"),
 		)
 
-		ap, err := newProvider(authProvider, creds, false, logger)
+		ap, err := newProvider(authProvider, creds, cache, false, logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -181,7 +181,7 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXC/XOXD tokens: %w", err)
 		}
-		ap, err := newProvider(authProvider, creds, true, logger)
+		ap, err := newProvider(authProvider, creds, cache, true, logger)
 		if err != nil {
 			if oauthLoadErr != nil {
 				err = errors.Join(err, oauthLoadErr)
@@ -247,7 +247,7 @@ func (ap *ApiProvider) startUserOAuth(managed *oauthcred.Manager, record oauthcr
 	ap.startBrowserReprobe(client, browser.account, browser.envXoxc, browser.envXoxd)
 }
 
-func newProvider(authProvider slackcreds.Credentials, creds CredentialConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
+func newProvider(authProvider slackcreds.Credentials, creds CredentialConfig, cache cacheConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
 	mode := credentialModeFor(authProvider.SlackToken(), browserConfigured)
 	if creds.Demo() {
 		mode = ModeDemo
@@ -263,18 +263,18 @@ func newProvider(authProvider slackcreds.Credentials, creds CredentialConfig, br
 	if err != nil {
 		logger.Warn("User cache directory unavailable; caching in the working directory", zap.Error(err))
 	}
-	usersCache := os.Getenv("SLACK_MCP_USERS_CACHE")
+	usersCache := cache.usersPath
 	if usersCache == "" {
 		usersCache = cachePath(cacheDir, teamID, "users_cache.json")
 	}
-	channelsCache := os.Getenv("SLACK_MCP_CHANNELS_CACHE")
+	channelsCache := cache.channelsPath
 	if channelsCache == "" {
 		channelsCache = cachePath(cacheDir, teamID, "channels_cache_v2.json")
 	}
 
 	ap.ctx, ap.cancel = context.WithCancel(context.Background())
-	ap.cacheTTL = getCacheTTL()
-	ap.minRefreshInterval = getMinRefreshInterval()
+	ap.cacheTTL = cache.ttl
+	ap.minRefreshInterval = cache.minRefreshInterval
 	ap.backgroundRefreshTimeout = defaultBackgroundRefreshTimeout
 	ap.usersCachePath = usersCache
 	ap.channelsCachePath = channelsCache

@@ -10,8 +10,8 @@ import (
 )
 
 // CheckKeychainAccess reads every Keychain item creds names
-// (SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT, SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT) and
-// discards the contents. It returns how many items it read.
+// (oauthcred.EnvKeychainAccount, envBrowserKeychainAccount) and discards the
+// contents. It returns how many items it read.
 //
 // A rebuilt binary has a new cdhash, so macOS asks before letting it read
 // these items. `make deploy-local` runs the staged binary with
@@ -24,8 +24,8 @@ func CheckKeychainAccess(ctx context.Context, creds CredentialConfig) (int, erro
 
 func checkKeychainAccess(ctx context.Context, store keychain.Store, creds CredentialConfig) (int, error) {
 	items := []struct{ label, service, account, envVar string }{
-		{"OAuth", oauthcred.KeychainService, creds.OAuthKeychainAccount, "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"},
-		{"browser", browserKeychainService, creds.BrowserKeychainAccount, "SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"},
+		{"OAuth", oauthcred.KeychainService, creds.OAuthKeychainAccount, oauthcred.EnvKeychainAccount},
+		{"browser", browserKeychainService, creds.BrowserKeychainAccount, envBrowserKeychainAccount},
 	}
 	read := 0
 	for _, item := range items {

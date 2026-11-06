@@ -22,6 +22,14 @@ import (
 
 const RecordVersion = 1
 
+// The environment variables naming the managed OAuth login, read by the
+// server and by slack-mcp-auth.
+const (
+	EnvKeychainAccount = "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"
+	EnvClientID        = "SLACK_MCP_OAUTH_CLIENT_ID"
+	EnvClientSecret    = "SLACK_MCP_OAUTH_CLIENT_SECRET"
+)
+
 var ErrRefreshUnavailable = errors.New("OAuth refresh is unavailable")
 
 // Record is persisted only through Store. Callers must
