@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
@@ -98,14 +99,14 @@ func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
 	return nil
 }
 
-// SlackRetryAfter is the limiter.CallWithRetry callback for Slack errors:
-// the server's Retry-After for rate limits, 0 for anything else.
+// SlackRetryAfter is the server's Retry-After for a rate limit, 0 for anything
+// else.
+//
+// Deprecated: only managedOAuthRefreshInterval still calls it; use
+// slackhttp.RetryAfter.
 func SlackRetryAfter(err error) time.Duration {
-	var rle *slack.RateLimitedError
-	if errors.As(err, &rle) {
-		return rle.RetryAfter
-	}
-	return 0
+	wait, _ := slackhttp.RetryAfter(err)
+	return wait
 }
 
 // Wraps channels+cursor so CallWithRetry (one T) can paginate GetConversationsContext.
@@ -128,12 +129,12 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 	// Tier2 matches conversations.list; faster budgets caused 429 truncations.
 	lim := ap.conversationsLimiter
 	if lim == nil {
-		lim = limiter.Tier2.Limiter()
+		lim = limiter.Tier2
 	}
 
 	for {
 		// CallWithRetry already paces; do not wait again in this loop.
-		page, err := limiter.CallWithRetry(ctx, lim, 2, SlackRetryAfter,
+		page, err := limiter.CallWithRetry(ctx, lim, 2,
 			func() (channelsPageResult, error) {
 				c, cur, err := ap.client.GetConversationsContext(ctx, params)
 				return channelsPageResult{channels: c, cursor: cur}, err

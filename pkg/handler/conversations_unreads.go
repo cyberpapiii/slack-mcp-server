@@ -17,7 +17,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 // UnreadChannel is one summary row of conversations_unreads. LastRead is the
@@ -198,11 +197,6 @@ type historyFetcher interface {
 	GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
 }
 
-// unpaced lets CallWithRetry retry a 429 without adding proactive pacing:
-// these history reads never had a limiter, and Slack's Retry-After is the
-// signal that matters.
-var unpaced = rate.NewLimiter(rate.Inf, 0)
-
 // fetchUnreadHistories reads each channel's messages newer than its LastRead,
 // fanOutWorkers at a time, retrying once on a 429. Channels skip selects get a
 // nil history and a nil error. Results are in channel order.
@@ -212,7 +206,7 @@ func fetchUnreadHistories(ctx context.Context, api historyFetcher, channels []Un
 		if skip(c) {
 			return nil, nil
 		}
-		return limiter.CallWithRetry(ctx, unpaced, 1, provider.SlackRetryAfter, func() (*slack.GetConversationHistoryResponse, error) {
+		return limiter.CallWithRetry(ctx, nil, 1, func() (*slack.GetConversationHistoryResponse, error) {
 			return api.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
 				ChannelID: c.ChannelID,
 				Oldest:    c.LastRead,

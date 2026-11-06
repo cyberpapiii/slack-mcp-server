@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	utls "github.com/refraction-networking/utls"
 	"github.com/stretchr/testify/assert"
@@ -314,30 +313,4 @@ func TestProvideHTTPClientRejectsConflictingAndBrokenEnv(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
-}
-
-func TestRateLimited(t *testing.T) {
-	assert.Nil(t, RateLimited(&http.Response{StatusCode: http.StatusOK}))
-
-	withHeader := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{" 7 "}}}
-	limited := RateLimited(withHeader)
-	require.NotNil(t, limited)
-	assert.Equal(t, 7*time.Second, limited.RetryAfter)
-
-	for _, raw := range []string{"", "soon", "-1"} {
-		resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{raw}}}
-		limited := RateLimited(resp)
-		require.NotNil(t, limited, raw)
-		assert.Equal(t, defaultRetryAfter, limited.RetryAfter, raw)
-	}
-}
-
-func TestSlackDomain(t *testing.T) {
-	t.Setenv("SLACK_MCP_GOVSLACK", "")
-	assert.Equal(t, "slack.com", SlackDomain())
-	assert.Equal(t, "https://slack.com/api/", SlackAPIBase())
-
-	t.Setenv("SLACK_MCP_GOVSLACK", "1")
-	assert.Equal(t, "slack-gov.com", SlackDomain())
-	assert.Equal(t, "https://slack-gov.com/api/", SlackAPIBase())
 }

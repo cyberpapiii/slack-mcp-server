@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime/trace"
 )
 
 type userPrefsGetForm struct {
@@ -13,7 +12,6 @@ type userPrefsGetForm struct {
 }
 
 type userPrefsGetResponse struct {
-	baseResponse
 	Prefs map[string]json.RawMessage `json:"prefs"`
 }
 
@@ -28,24 +26,13 @@ type channelNotifSettings struct {
 
 // GetMutedChannels returns muted channel IDs from users.prefs.get.
 func (cl *Client) GetMutedChannels(ctx context.Context) (map[string]bool, error) {
-	ctx, task := trace.NewTask(ctx, "GetMutedChannels")
-	defer task.End()
-
 	form := userPrefsGetForm{
 		BaseRequest:     BaseRequest{Token: cl.token},
 		WebClientFields: webclientReason("prefs"),
 	}
 
-	resp, err := cl.postForm(ctx, "users.prefs.get", values(form, true))
-	if err != nil {
-		return nil, err
-	}
-
 	var prefsResp userPrefsGetResponse
-	if err := cl.parseResponse(&prefsResp, resp); err != nil {
-		return nil, err
-	}
-	if err := prefsResp.validate("users.prefs.get"); err != nil {
+	if err := cl.postForm(ctx, "users.prefs.get", form, &prefsResp); err != nil {
 		return nil, err
 	}
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -175,4 +176,22 @@ func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {
 	body = `{"ok":false,"error":"canvas_not_found"}`
 	_, err = client.GetCanvasContentContext(context.Background(), "F1", "markdown")
 	assert.ErrorContains(t, err, "canvas_not_found")
+}
+
+type draftsRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f draftsRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// A drafts failure reaches the tool with Slack's error code, not as a generic
+// slack_api_error.
+func TestUnitDraftsErrorCarriesSlackCode(t *testing.T) {
+	client := edge.NewWithInfo(&slack.AuthTestResponse{TeamID: "T1", URL: "https://example.slack.com/"}, "xoxc-test",
+		edge.OptionHTTPClient(&http.Client{Transport: draftsRoundTrip(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"ok":false,"error":"channel_not_found"}`))}, nil
+		})}))
+
+	_, err := (&BrowserDraftsProvider{client: client}).ListDrafts(context.Background(), "", 10)
+	var capabilityErr *CapabilityAPIError
+	require.ErrorAs(t, err, &capabilityErr)
+	assert.Equal(t, "channel_not_found", capabilityErr.Code)
 }

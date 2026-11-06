@@ -9,7 +9,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
@@ -26,9 +25,9 @@ func TestIsBrowserSessionAuthError(t *testing.T) {
 		{"nil", nil, false},
 		{"invalid_auth", errors.New("invalid_auth"), true},
 		{"not_authed", errors.New("not_authed"), true},
-		{"edge api error code", &edge.APIError{Err: "token_revoked"}, true},
-		{"wrapped edge api error", fmt.Errorf("saved.list: %w", &edge.APIError{Err: "invalid_auth"}), true},
-		{"edge api non-auth code", &edge.APIError{Err: "ratelimited"}, false},
+		{"edge api error code", slack.SlackErrorResponse{Err: "token_revoked"}, true},
+		{"wrapped edge api error", fmt.Errorf("saved.list: %w: [ERROR] detail", slack.SlackErrorResponse{Err: "invalid_auth"}), true},
+		{"edge api non-auth code", slack.SlackErrorResponse{Err: "ratelimited"}, false},
 		{"http 401", slack.StatusCodeError{Code: 401}, true},
 		{"http 500", slack.StatusCodeError{Code: 500}, false},
 		{"slack error response", slack.SlackErrorResponse{Err: "account_inactive"}, true},

@@ -13,14 +13,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	utls "github.com/refraction-networking/utls"
-	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
 )
@@ -433,34 +432,11 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) (*http.Client
 	return client, nil
 }
 
-// SlackDomain is the Slack host the whole process talks to;
-// SLACK_MCP_GOVSLACK switches every Web API, edge and OAuth call to GovSlack.
-func SlackDomain() string {
-	if envutil.IsTruthy(os.Getenv("SLACK_MCP_GOVSLACK")) {
-		return "slack-gov.com"
-	}
-	return "slack.com"
-}
-
-// SlackAPIBase is the Web API root for direct HTTP calls and for slack.Client
-// construction before the workspace URL is known.
-func SlackAPIBase() string {
-	return "https://" + SlackDomain() + "/api/"
-}
-
-// defaultRetryAfter covers 429 responses whose Retry-After header is missing
-// or unparsable, so callers still see a retryable RateLimitedError.
-const defaultRetryAfter = 5 * time.Second
-
-// RateLimited converts a 429 response into slack.RateLimitedError carrying
-// the server's Retry-After; nil for every other status.
-func RateLimited(resp *http.Response) *slack.RateLimitedError {
-	if resp.StatusCode != http.StatusTooManyRequests {
-		return nil
-	}
-	secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After")))
-	if err != nil || secs < 0 {
-		return &slack.RateLimitedError{RetryAfter: defaultRetryAfter}
-	}
-	return &slack.RateLimitedError{RetryAfter: time.Duration(secs) * time.Second}
-}
+// SlackAPIBase and RateLimited moved to slackhttp.
+//
+// Deprecated: kept only for the OAuth refresher in pkg/provider/oauth*.go;
+// call slackhttp directly.
+var (
+	SlackAPIBase = slackhttp.SlackAPIBase
+	RateLimited  = slackhttp.RateLimited
+)

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net/url"
 	"strings"
 )
 
@@ -29,131 +28,151 @@ type Draft struct {
 }
 
 type draftsResponse struct {
-	baseResponse
 	Draft  Draft   `json:"draft"`
 	Drafts []Draft `json:"drafts"`
 	NextTS string  `json:"next_ts,omitempty"`
 }
 
+// draftsListDefaultLimit is what DraftsList asks for when limit is not positive.
+const draftsListDefaultLimit = 50
+
+type draftsListForm struct {
+	BaseRequest
+	Limit    int    `json:"limit"`
+	IsActive bool   `json:"is_active,omitempty"`
+	NextTS   string `json:"next_ts,omitempty"`
+	WebClientFields
+}
+
 func (cl *Client) DraftsList(ctx context.Context, limit int, activeOnly bool, cursor string) ([]Draft, string, error) {
-	form := url.Values{}
-	form.Set("token", cl.token)
-	form.Set("limit", intString(limit))
-	if activeOnly {
-		form.Set("is_active", "true")
+	if limit <= 0 {
+		limit = draftsListDefaultLimit
+	}
+	form := draftsListForm{
+		BaseRequest:     BaseRequest{Token: cl.token},
+		Limit:           limit,
+		IsActive:        activeOnly,
+		WebClientFields: webclientReason("drafts/list"),
 	}
 	if strings.TrimSpace(cursor) != "" {
-		form.Set("next_ts", cursor)
-	}
-	addDraftWebClientFields(form, "drafts/list")
-	response, err := cl.postForm(ctx, "drafts.list", form)
-	if err != nil {
-		return nil, "", err
+		form.NextTS = cursor
 	}
 	var parsed draftsResponse
-	if err := cl.parseResponse(&parsed, response); err != nil {
-		return nil, "", err
-	}
-	if err := parsed.validate("drafts.list"); err != nil {
+	if err := cl.postForm(ctx, "drafts.list", form, &parsed); err != nil {
 		return nil, "", err
 	}
 	return parsed.Drafts, parsed.NextTS, nil
 }
 
+// DraftContent is the body every draft mutation sends: blocks, destinations
+// and file_ids are JSON strings inside the form.
+type DraftContent struct {
+	Blocks       string `json:"blocks"`
+	Destinations string `json:"destinations"`
+	ClientMsgID  string `json:"client_msg_id"`
+	FileIDs      string `json:"file_ids"`
+}
+
+type draftCreateForm struct {
+	BaseRequest
+	DraftContent
+	IsFromComposer bool `json:"is_from_composer"`
+	WebClientFields
+}
+
+type draftUpdateForm struct {
+	BaseRequest
+	DraftContent
+	DraftID             string `json:"draft_id"`
+	ClientLastUpdatedTS string `json:"client_last_updated_ts"`
+	WebClientFields
+}
+
+type draftDeleteForm struct {
+	BaseRequest
+	DraftID             string `json:"draft_id"`
+	ClientLastUpdatedTS string `json:"client_last_updated_ts"`
+	WebClientFields
+}
+
 func (cl *Client) DraftCreate(ctx context.Context, channelID, threadTS, text string) (Draft, error) {
-	form, err := draftMutationForm(channelID, threadTS, text)
+	content, err := newDraftContent(channelID, threadTS, text)
 	if err != nil {
 		return Draft{}, err
 	}
-	form.Set("token", cl.token)
-	form.Set("is_from_composer", "true")
-	addDraftWebClientFields(form, "drafts/create")
+	form := draftCreateForm{
+		BaseRequest:     BaseRequest{Token: cl.token},
+		DraftContent:    content,
+		IsFromComposer:  true,
+		WebClientFields: webclientReason("drafts/create"),
+	}
 	return cl.postDraft(ctx, "drafts.create", form)
 }
 
 func (cl *Client) DraftUpdate(ctx context.Context, id, lastUpdatedTS, channelID, threadTS, text string) (Draft, error) {
-	form, err := draftMutationForm(channelID, threadTS, text)
+	content, err := newDraftContent(channelID, threadTS, text)
 	if err != nil {
 		return Draft{}, err
 	}
-	form.Set("token", cl.token)
-	form.Set("draft_id", id)
-	form.Set("client_last_updated_ts", padDraftTimestamp(lastUpdatedTS))
-	addDraftWebClientFields(form, "drafts/update")
+	form := draftUpdateForm{
+		BaseRequest:         BaseRequest{Token: cl.token},
+		DraftContent:        content,
+		DraftID:             id,
+		ClientLastUpdatedTS: padDraftTimestamp(lastUpdatedTS),
+		WebClientFields:     webclientReason("drafts/update"),
+	}
 	return cl.postDraft(ctx, "drafts.update", form)
 }
 
 func (cl *Client) DraftDelete(ctx context.Context, id, lastUpdatedTS string) error {
-	form := url.Values{
-		"token":                  {cl.token},
-		"draft_id":               {id},
-		"client_last_updated_ts": {padDraftTimestamp(lastUpdatedTS)},
+	form := draftDeleteForm{
+		BaseRequest:         BaseRequest{Token: cl.token},
+		DraftID:             id,
+		ClientLastUpdatedTS: padDraftTimestamp(lastUpdatedTS),
+		WebClientFields:     webclientReason("drafts/delete"),
 	}
-	addDraftWebClientFields(form, "drafts/delete")
-	response, err := cl.postForm(ctx, "drafts.delete", form)
-	if err != nil {
-		return err
-	}
-	var parsed baseResponse
-	if err := cl.parseResponse(&parsed, response); err != nil {
-		return err
-	}
-	return parsed.validate("drafts.delete")
+	return cl.postForm(ctx, "drafts.delete", form, nil)
 }
 
-func (cl *Client) postDraft(ctx context.Context, method string, form url.Values) (Draft, error) {
-	response, err := cl.postForm(ctx, method, form)
-	if err != nil {
-		return Draft{}, err
-	}
+func (cl *Client) postDraft(ctx context.Context, method string, form any) (Draft, error) {
 	var parsed draftsResponse
-	if err := cl.parseResponse(&parsed, response); err != nil {
-		return Draft{}, err
-	}
-	if err := parsed.validate(method); err != nil {
+	if err := cl.postForm(ctx, method, form, &parsed); err != nil {
 		return Draft{}, err
 	}
 	return parsed.Draft, nil
 }
 
-func draftMutationForm(channelID, threadTS, text string) (url.Values, error) {
+func newDraftContent(channelID, threadTS, text string) (DraftContent, error) {
 	if strings.TrimSpace(channelID) == "" || strings.TrimSpace(text) == "" {
-		return nil, errors.New("channel ID and text are required")
+		return DraftContent{}, errors.New("channel ID and text are required")
 	}
-	destination := DraftDestination{ChannelID: channelID, ThreadTS: threadTS}
-	blocks := []map[string]any{{
+	blocks, err := RichTextJSON(text)
+	if err != nil {
+		return DraftContent{}, err
+	}
+	destinations, err := json.Marshal([]DraftDestination{{ChannelID: channelID, ThreadTS: threadTS}})
+	if err != nil {
+		return DraftContent{}, err
+	}
+	return DraftContent{
+		Blocks:       blocks,
+		Destinations: string(destinations),
+		ClientMsgID:  newDraftClientMessageID(),
+		FileIDs:      "[]",
+	}, nil
+}
+
+// RichTextJSON is plain text as the JSON of a one-section rich_text block
+// list, the body Slack's drafts and custom to-dos store.
+func RichTextJSON(text string) (string, error) {
+	blocks, err := json.Marshal([]map[string]any{{
 		"type": "rich_text",
 		"elements": []map[string]any{{
 			"type":     "rich_text_section",
 			"elements": []map[string]any{{"type": "text", "text": text}},
 		}},
-	}}
-	blocksJSON, err := json.Marshal(blocks)
-	if err != nil {
-		return nil, err
-	}
-	destinationsJSON, err := json.Marshal([]DraftDestination{destination})
-	if err != nil {
-		return nil, err
-	}
-	fileIDsJSON, err := json.Marshal([]string{})
-	if err != nil {
-		return nil, err
-	}
-	return url.Values{
-		"blocks":        {string(blocksJSON)},
-		"destinations":  {string(destinationsJSON)},
-		"client_msg_id": {newDraftClientMessageID()},
-		"file_ids":      {string(fileIDsJSON)},
-	}, nil
-}
-
-func addDraftWebClientFields(form url.Values, reason string) {
-	fields := webclientReason(reason)
-	form.Set("_x_reason", fields.XReason)
-	form.Set("_x_mode", fields.XMode)
-	form.Set("_x_sonic", "true")
-	form.Set("_x_app_name", fields.XAppName)
+	}})
+	return string(blocks), err
 }
 
 func newDraftClientMessageID() string {
@@ -173,19 +192,4 @@ func padDraftTimestamp(timestamp string) string {
 		return timestamp
 	}
 	return parts[0] + "." + (parts[1] + "0000000")[:7]
-}
-
-func intString(value int) string {
-	if value <= 0 {
-		return "50"
-	}
-	const digits = "0123456789"
-	var buf [20]byte
-	i := len(buf)
-	for value > 0 {
-		i--
-		buf[i] = digits[value%10]
-		value /= 10
-	}
-	return string(buf[i:])
 }

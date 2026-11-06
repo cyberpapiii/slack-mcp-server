@@ -3,7 +3,8 @@ package edge
 import (
 	"context"
 	"encoding/json"
-	"runtime/trace"
+
+	"github.com/slack-go/slack"
 )
 
 // saved.* API (xoxc/xoxd; replaced stars.* March 2023)
@@ -18,9 +19,9 @@ type savedListForm struct {
 }
 
 type SavedListResponse struct {
-	baseResponse
-	SavedItems []SavedItem `json:"saved_items"`
-	Counts     SavedCounts `json:"counts"`
+	SavedItems       []SavedItem            `json:"saved_items"`
+	Counts           SavedCounts            `json:"counts"`
+	ResponseMetadata slack.ResponseMetadata `json:"response_metadata"`
 }
 
 type SavedItem struct {
@@ -49,9 +50,6 @@ type SavedCounts struct {
 }
 
 func (cl *Client) SavedList(ctx context.Context, filter string, limit int, cursor string) (SavedListResponse, error) {
-	ctx, task := trace.NewTask(ctx, "SavedList")
-	defer task.End()
-
 	form := savedListForm{
 		BaseRequest:       BaseRequest{Token: cl.token},
 		Limit:             limit,
@@ -61,15 +59,8 @@ func (cl *Client) SavedList(ctx context.Context, filter string, limit int, curso
 		WebClientFields:   webclientReason("saved-api/savedList"),
 	}
 
-	resp, err := cl.postForm(ctx, "saved.list", values(form, true))
-	if err != nil {
-		return SavedListResponse{}, err
-	}
 	r := SavedListResponse{}
-	if err := cl.parseResponse(&r, resp); err != nil {
-		return SavedListResponse{}, err
-	}
-	if err := r.validate("saved.list"); err != nil {
+	if err := cl.postForm(ctx, "saved.list", form, &r); err != nil {
 		return SavedListResponse{}, err
 	}
 	return r, nil
@@ -106,9 +97,6 @@ type savedUpdateForm struct {
 }
 
 func (cl *Client) SavedUpdate(ctx context.Context, params SavedUpdateParams) error {
-	ctx, task := trace.NewTask(ctx, "SavedUpdate")
-	defer task.End()
-
 	form := savedUpdateForm{
 		BaseRequest:     BaseRequest{Token: cl.token},
 		ItemType:        params.ItemType,
@@ -120,18 +108,7 @@ func (cl *Client) SavedUpdate(ctx context.Context, params SavedUpdateParams) err
 		WebClientFields: webclientReason("saved-api/updateSavedItem"),
 	}
 
-	resp, err := cl.postForm(ctx, "saved.update", values(form, true))
-	if err != nil {
-		return err
-	}
-	r := baseResponse{}
-	if err := cl.parseResponse(&r, resp); err != nil {
-		return err
-	}
-	if err := r.validate("saved.update"); err != nil {
-		return err
-	}
-	return nil
+	return cl.postForm(ctx, "saved.update", form, nil)
 }
 
 // SavedAddParams creates a saved item. Description is the JSON rich-text body of
@@ -157,9 +134,6 @@ type savedAddForm struct {
 }
 
 func (cl *Client) SavedAdd(ctx context.Context, params SavedAddParams) (SavedItem, error) {
-	ctx, task := trace.NewTask(ctx, "SavedAdd")
-	defer task.End()
-
 	form := savedAddForm{
 		BaseRequest:     BaseRequest{Token: cl.token},
 		ItemType:        params.ItemType,
@@ -171,18 +145,10 @@ func (cl *Client) SavedAdd(ctx context.Context, params SavedAddParams) (SavedIte
 		WebClientFields: webclientReason("saved-api/addSavedItem"),
 	}
 
-	resp, err := cl.postForm(ctx, "saved.add", values(form, true))
-	if err != nil {
-		return SavedItem{}, err
-	}
 	r := struct {
-		baseResponse
 		Item SavedItem `json:"item"`
 	}{}
-	if err := cl.parseResponse(&r, resp); err != nil {
-		return SavedItem{}, err
-	}
-	if err := r.validate("saved.add"); err != nil {
+	if err := cl.postForm(ctx, "saved.add", form, &r); err != nil {
 		return SavedItem{}, err
 	}
 	return r.Item, nil
@@ -197,9 +163,6 @@ type savedDeleteForm struct {
 }
 
 func (cl *Client) SavedDelete(ctx context.Context, itemType, itemID, ts string) error {
-	ctx, task := trace.NewTask(ctx, "SavedDelete")
-	defer task.End()
-
 	form := savedDeleteForm{
 		BaseRequest:     BaseRequest{Token: cl.token},
 		ItemType:        itemType,
@@ -208,15 +171,7 @@ func (cl *Client) SavedDelete(ctx context.Context, itemType, itemID, ts string) 
 		WebClientFields: webclientReason("saved-api/deleteSavedItem"),
 	}
 
-	resp, err := cl.postForm(ctx, "saved.delete", values(form, true))
-	if err != nil {
-		return err
-	}
-	r := baseResponse{}
-	if err := cl.parseResponse(&r, resp); err != nil {
-		return err
-	}
-	return r.validate("saved.delete")
+	return cl.postForm(ctx, "saved.delete", form, nil)
 }
 
 type savedClearCompletedForm struct {
@@ -225,24 +180,10 @@ type savedClearCompletedForm struct {
 }
 
 func (cl *Client) SavedClearCompleted(ctx context.Context) error {
-	ctx, task := trace.NewTask(ctx, "SavedClearCompleted")
-	defer task.End()
-
 	form := savedClearCompletedForm{
 		BaseRequest:     BaseRequest{Token: cl.token},
 		WebClientFields: webclientReason("manually_marked_all_completed"),
 	}
 
-	resp, err := cl.postForm(ctx, "saved.clearCompleted", values(form, true))
-	if err != nil {
-		return err
-	}
-	r := baseResponse{}
-	if err := cl.parseResponse(&r, resp); err != nil {
-		return err
-	}
-	if err := r.validate("saved.clearCompleted"); err != nil {
-		return err
-	}
-	return nil
+	return cl.postForm(ctx, "saved.clearCompleted", form, nil)
 }

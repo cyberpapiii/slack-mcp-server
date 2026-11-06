@@ -2,31 +2,17 @@ package limiter
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 )
 
-// retryableError is a test error that simulates a rate limit response.
-type retryableError struct {
-	retryAfter time.Duration
-}
-
-func (e *retryableError) Error() string {
-	return "rate limited"
-}
-
-// testRetryAfter is the retryAfter callback used in tests.
-func testRetryAfter(err error) time.Duration {
-	var re *retryableError
-	if errors.As(err, &re) {
-		return re.retryAfter
-	}
-	return 0
+func rateLimited(after time.Duration) error {
+	return &slack.RateLimitedError{RetryAfter: after}
 }
 
 func TestCallWithRetry_Success(t *testing.T) {
@@ -34,7 +20,7 @@ func TestCallWithRetry_Success(t *testing.T) {
 	ctx := context.Background()
 
 	callCount := 0
-	result, err := CallWithRetry(ctx, rl, 2, testRetryAfter, func() (string, error) {
+	result, err := CallWithRetry(ctx, rl, 2, func() (string, error) {
 		callCount++
 		return "ok", nil
 	})
@@ -49,10 +35,10 @@ func TestCallWithRetry_RetryOnRateLimit(t *testing.T) {
 	ctx := context.Background()
 
 	callCount := 0
-	result, err := CallWithRetry(ctx, rl, 2, testRetryAfter, func() (string, error) {
+	result, err := CallWithRetry(ctx, rl, 2, func() (string, error) {
 		callCount++
 		if callCount <= 2 {
-			return "", &retryableError{retryAfter: 10 * time.Millisecond}
+			return "", rateLimited(10 * time.Millisecond)
 		}
 		return "ok", nil
 	})
@@ -67,13 +53,13 @@ func TestCallWithRetry_ExhaustedRetries(t *testing.T) {
 	ctx := context.Background()
 
 	callCount := 0
-	_, err := CallWithRetry(ctx, rl, 2, testRetryAfter, func() (string, error) {
+	_, err := CallWithRetry(ctx, rl, 2, func() (string, error) {
 		callCount++
-		return "", &retryableError{retryAfter: 10 * time.Millisecond}
+		return "", rateLimited(10 * time.Millisecond)
 	})
 
 	require.Error(t, err)
-	var re *retryableError
+	var re *slack.RateLimitedError
 	assert.ErrorAs(t, err, &re, "should return retryable error after exhausting retries")
 	assert.Equal(t, 3, callCount, "should count initial call + 2 retries")
 }
@@ -83,7 +69,7 @@ func TestCallWithRetry_NonRetryableError(t *testing.T) {
 	ctx := context.Background()
 
 	callCount := 0
-	_, err := CallWithRetry(ctx, rl, 2, testRetryAfter, func() (string, error) {
+	_, err := CallWithRetry(ctx, rl, 2, func() (string, error) {
 		callCount++
 		return "", assert.AnError
 	})
@@ -98,10 +84,10 @@ func TestCallWithRetry_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	callCount := 0
-	_, err := CallWithRetry(ctx, rl, 2, testRetryAfter, func() (string, error) {
+	_, err := CallWithRetry(ctx, rl, 2, func() (string, error) {
 		callCount++
 		cancel()
-		return "", &retryableError{retryAfter: 5 * time.Second}
+		return "", rateLimited(5 * time.Second)
 	})
 
 	require.Error(t, err)
@@ -115,7 +101,7 @@ func TestCallWithRetry_RateLimiterThrottles(t *testing.T) {
 
 	start := time.Now()
 	callCount := 0
-	result, err := CallWithRetry(ctx, rl, 0, testRetryAfter, func() (string, error) {
+	result, err := CallWithRetry(ctx, rl, 0, func() (string, error) {
 		callCount++
 		return "ok", nil
 	})
@@ -133,13 +119,13 @@ func TestCallWithRetry_ZeroRetries(t *testing.T) {
 	ctx := context.Background()
 
 	callCount := 0
-	_, err := CallWithRetry(ctx, rl, 0, testRetryAfter, func() (string, error) {
+	_, err := CallWithRetry(ctx, rl, 0, func() (string, error) {
 		callCount++
-		return "", &retryableError{retryAfter: 10 * time.Millisecond}
+		return "", rateLimited(10 * time.Millisecond)
 	})
 
 	require.Error(t, err)
-	var re *retryableError
+	var re *slack.RateLimitedError
 	assert.ErrorAs(t, err, &re)
 	assert.Equal(t, 1, callCount, "should make exactly 1 call with 0 retries")
 }
@@ -154,10 +140,10 @@ func TestCallWithRetry_RetryThenSuccess(t *testing.T) {
 
 	callCount := 0
 	start := time.Now()
-	res, err := CallWithRetry(ctx, rl, 1, testRetryAfter, func() (*result, error) {
+	res, err := CallWithRetry(ctx, rl, 1, func() (*result, error) {
 		callCount++
 		if callCount == 1 {
-			return nil, &retryableError{retryAfter: 50 * time.Millisecond}
+			return nil, rateLimited(50 * time.Millisecond)
 		}
 		return &result{ID: "C123"}, nil
 	})
@@ -167,4 +153,19 @@ func TestCallWithRetry_RetryThenSuccess(t *testing.T) {
 	assert.Equal(t, "C123", res.ID)
 	assert.Equal(t, 2, callCount)
 	assert.GreaterOrEqual(t, elapsed, 50*time.Millisecond, "should have slept for retryAfter duration")
+}
+
+// A nil limiter retries a 429 without pacing the calls.
+func TestCallWithRetry_NilLimiterRetriesWithoutPacing(t *testing.T) {
+	callCount := 0
+	res, err := CallWithRetry(context.Background(), nil, 1, func() (string, error) {
+		callCount++
+		if callCount == 1 {
+			return "", rateLimited(0)
+		}
+		return "ok", nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ok", res)
+	assert.Equal(t, 2, callCount)
 }

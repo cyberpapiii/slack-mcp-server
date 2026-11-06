@@ -95,7 +95,7 @@ type SavedHandler struct {
 }
 
 func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, convHandler *ConversationsHandler) *SavedHandler {
-	h := &SavedHandler{apiProvider: apiProvider, logger: logger, convHandler: convHandler, pace: limiter.Tier3.Limiter()}
+	h := &SavedHandler{apiProvider: apiProvider, logger: logger, convHandler: convHandler, pace: limiter.Tier3}
 	h.listPage = func(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error) {
 		return apiProvider.Slack().SavedList(ctx, filter, limit, cursor)
 	}
@@ -159,7 +159,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 			h.logger.Debug("SavedList failed", zap.Error(err))
 			return nil, fmt.Errorf("failed to list saved items: %w", err)
 		}
-		nextCursor = resp.ResponseMetadata.NextCursor
+		nextCursor = resp.ResponseMetadata.Cursor
 
 		for _, item := range resp.SavedItems {
 			if fetched >= limit {
@@ -183,10 +183,10 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 			allMessages = append(allMessages, msgs...)
 		}
 
-		if resp.ResponseMetadata.NextCursor == "" {
+		if resp.ResponseMetadata.Cursor == "" {
 			break
 		}
-		cursor = resp.ResponseMetadata.NextCursor
+		cursor = resp.ResponseMetadata.Cursor
 	}
 
 	if stopErr != nil && len(allItems) == 0 {
@@ -389,17 +389,11 @@ func parseSavedAddParams(request mcp.CallToolRequest) (edge.SavedAddParams, erro
 	}
 	switch {
 	case body != "" && channelID == "" && ts == "" && fileID == "":
-		description, err := json.Marshal([]map[string]any{{
-			"type": "rich_text",
-			"elements": []map[string]any{{
-				"type":     "rich_text_section",
-				"elements": []map[string]any{{"type": "text", "text": body}},
-			}},
-		}})
+		description, err := edge.RichTextJSON(body)
 		if err != nil {
 			return edge.SavedAddParams{}, err
 		}
-		params.ItemType, params.Description = edge.SavedItemReminder, string(description)
+		params.ItemType, params.Description = edge.SavedItemReminder, description
 	case body == "" && channelID != "" && ts != "" && fileID == "":
 		params.ItemType, params.ItemID, params.Ts = edge.SavedItemMessage, channelID, ts
 	case body == "" && channelID == "" && ts == "" && fileID != "":

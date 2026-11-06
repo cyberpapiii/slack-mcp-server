@@ -11,6 +11,7 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -102,7 +103,7 @@ func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Cl
 
 	slackClient := slack.New(authProvider.SlackToken(),
 		slack.OptionHTTPClient(httpClient),
-		slack.OptionAPIURL(transportpkg.SlackAPIBase()),
+		slack.OptionAPIURL(slackhttp.SlackAPIBase()),
 	)
 	authResp, err := slackClient.AuthTest()
 	if err != nil {
@@ -127,12 +128,10 @@ func newMCPSlackClient(authProvider slackcreds.Credentials, logger *zap.Logger) 
 		slack.OptionAPIURL(authResp.URL+"api/"),
 	)
 
-	edgeClient, err := edge.NewWithInfo(authResp, authProvider,
+	edgeClient := edge.NewWithInfo(authResp, authProvider.SlackToken(),
 		edge.OptionHTTPClient(httpClient),
+		edge.OptionLogger(logger),
 	)
-	if err != nil {
-		return nil, err
-	}
 
 	token := authProvider.SlackToken()
 

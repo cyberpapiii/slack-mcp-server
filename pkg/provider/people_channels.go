@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 
-	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 )
 
@@ -346,37 +344,20 @@ func (c *MCPSlackClient) UpdateUserProfileContext(ctx context.Context, update Us
 	if err != nil {
 		return nil, err
 	}
-	values := url.Values{"profile": {string(profileJSON)}}
 	token, _ := c.oauthAccessToken.Load().(string)
 	if token == "" {
 		token = c.authProvider.SlackToken()
 	}
-	endpoint := transportpkg.SlackAPIBase() + "users.profile.set"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(values.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if rateLimited := transportpkg.RateLimited(response); rateLimited != nil {
-		return nil, rateLimited
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("Slack users.profile.set returned HTTP %d", response.StatusCode)
-	}
 	var result struct {
-		slack.SlackResponse
 		Profile *slack.UserProfile `json:"profile"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	if err := result.Err(); err != nil {
+	err = slackhttp.Call(ctx, c.httpClient, slackhttp.Request{
+		URL:    slackhttp.SlackAPIBase() + "users.profile.set",
+		Token:  token,
+		Bearer: true,
+		Form:   url.Values{"profile": {string(profileJSON)}},
+	}, &result)
+	if err != nil {
 		return nil, err
 	}
 	return result.Profile, nil

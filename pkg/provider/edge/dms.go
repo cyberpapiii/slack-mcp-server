@@ -2,9 +2,9 @@ package edge
 
 import (
 	"context"
-	"runtime/trace"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
+	"github.com/slack-go/slack"
 )
 
 // im.* API
@@ -18,39 +18,29 @@ type imListForm struct {
 }
 
 type imListResponse struct {
-	baseResponse
-	IMs []IM `json:"ims,omitempty"`
+	IMs              []Channel              `json:"ims,omitempty"`
+	ResponseMetadata slack.ResponseMetadata `json:"response_metadata"`
 }
 
-func (cl *Client) imList(ctx context.Context) ([]IM, error) {
-	ctx, task := trace.NewTask(ctx, "IMList")
-	defer task.End()
-
+func (cl *Client) imList(ctx context.Context) ([]Channel, error) {
 	form := imListForm{
 		BaseRequest:     BaseRequest{Token: cl.token},
 		GetLatest:       true,
 		GetReadState:    true,
 		WebClientFields: webclientReason("guided-search-people-empty-state"),
 	}
-	lim := limiter.Tier2boost.Limiter()
-	var IMs []IM
+	lim := limiter.Tier2boost
+	var IMs []Channel
 	for {
-		resp, err := cl.postForm(ctx, "im.list", values(form, true))
-		if err != nil {
-			return nil, err
-		}
-		r := imListResponse{}
-		if err := cl.parseResponse(&r, resp); err != nil {
-			return nil, err
-		}
-		if err := r.validate("im.list"); err != nil {
+		var r imListResponse
+		if err := cl.postForm(ctx, "im.list", form, &r); err != nil {
 			return nil, err
 		}
 		IMs = append(IMs, r.IMs...)
-		if r.ResponseMetadata.NextCursor == "" {
+		if r.ResponseMetadata.Cursor == "" {
 			break
 		}
-		form.Cursor = r.ResponseMetadata.NextCursor
+		form.Cursor = r.ResponseMetadata.Cursor
 		if err := lim.Wait(ctx); err != nil {
 			return nil, err
 		}

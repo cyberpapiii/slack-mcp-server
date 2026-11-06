@@ -144,11 +144,11 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		}{ai.ChannelID, ai.ThreadTs, ai.MinUnreadTs})
 	}
 
-	rl := limiter.ConversationsReplies.Limiter()
+	rl := limiter.ConversationsReplies
 	api := h.apiProvider.WebAPI()
 	replies, errs := fetchInOrder(ctx, len(threads), fanOutWorkers, func(ctx context.Context, i int) ([]slack.Message, error) {
 		t := threads[i]
-		return limiter.CallWithRetry(ctx, rl, 1, provider.SlackRetryAfter, func() ([]slack.Message, error) {
+		return limiter.CallWithRetry(ctx, rl, 1, func() ([]slack.Message, error) {
 			msgs, _, _, err := api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 				ChannelID: t.ChannelID,
 				Timestamp: t.ThreadTs,

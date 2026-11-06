@@ -26,7 +26,7 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 			return std.GetConversationsContext(ctx, params)
 		}
 
-		edgeChannels, _, edgeErr := c.edgeClient.Load().GetConversationsContext(ctx, nil)
+		edgeChannels, edgeErr := c.edgeClient.Load().GetConversationsContext(ctx)
 		if edgeErr != nil {
 			return std.GetConversationsContext(ctx, params)
 		}
@@ -36,35 +36,7 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 			if params != nil && params.ExcludeArchived && ec.IsArchived {
 				continue
 			}
-			channels = append(channels, slack.Channel{
-				IsGeneral: ec.IsGeneral,
-				GroupConversation: slack.GroupConversation{
-					Conversation: slack.Conversation{
-						ID:                 ec.ID,
-						IsIM:               ec.IsIM,
-						IsMpIM:             ec.IsMpIM,
-						IsPrivate:          ec.IsPrivate,
-						Created:            slack.JSONTime(ec.Created.Time().UnixMilli()),
-						Unlinked:           ec.Unlinked,
-						NameNormalized:     ec.NameNormalized,
-						IsShared:           ec.IsShared,
-						IsExtShared:        ec.IsExtShared,
-						IsOrgShared:        ec.IsOrgShared,
-						IsPendingExtShared: ec.IsPendingExtShared,
-						NumMembers:         ec.NumMembers,
-						User:               ec.User,
-					},
-					Name:       ec.Name,
-					IsArchived: ec.IsArchived,
-					Members:    ec.Members,
-					Topic: slack.Topic{
-						Value: ec.Topic.Value,
-					},
-					Purpose: slack.Purpose{
-						Value: ec.Purpose.Value,
-					},
-				},
-			})
+			channels = append(channels, ec)
 		}
 
 		return mergeStandardConversationPages(channels, params, func(p *slack.GetConversationsParameters) ([]slack.Channel, string, error) {

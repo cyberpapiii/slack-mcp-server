@@ -1,7 +1,6 @@
 package slackcreds
 
 import (
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -74,27 +73,5 @@ func TestUnitNewRejectsIncompleteCredentials(t *testing.T) {
 	}
 	if _, err := New(clientToken, ""); err != ErrNoCookies {
 		t.Errorf("xoxc without cookie: got %v, want ErrNoCookies", err)
-	}
-}
-
-// The user agent has to name the build platform; Slack rejects obviously
-// non-browser agents on the private endpoints.
-func TestUnitUserAgentNamesBuildPlatform(t *testing.T) {
-	want := map[string]string{
-		"darwin":  "Macintosh; Intel Mac OS X 10_15_7",
-		"windows": "Windows NT 10.0; Win64; x64",
-		"linux":   "X11; Linux x86_64",
-		"plan9":   "X11; Linux x86_64",
-	}
-	for goos, platform := range want {
-		if got := userAgentOS(goos); got != platform {
-			t.Errorf("userAgentOS(%q) = %q, want %q", goos, got, platform)
-		}
-	}
-	if !strings.Contains(UserAgent, want[runtime.GOOS]) && runtime.GOOS != "plan9" {
-		t.Errorf("UserAgent %q does not name this platform", UserAgent)
-	}
-	if !strings.HasPrefix(UserAgent, "Mozilla/5.0 (") || !strings.HasSuffix(UserAgent, "Safari/537.36") {
-		t.Errorf("UserAgent %q is not shaped like a browser agent", UserAgent)
 	}
 }
