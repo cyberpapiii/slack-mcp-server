@@ -64,7 +64,7 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 		Summary:                  buildAuthSummary(usersReady, channelsReady, browserOK, degradedReason, mode.BrowserRecovers()),
 	}
 
-	if payload.OAuthCredential.Reason != "" && payload.OAuthCredential.State == "unavailable" {
+	if payload.OAuthCredential.Reason != "" && payload.OAuthCredential.State == provider.OAuthStateUnavailable {
 		payload.Summary += " OAuth is unavailable: " + payload.OAuthCredential.Reason + "."
 	}
 
@@ -90,7 +90,7 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 	case browserOK:
 		parts = append(parts, "Browser session auth is healthy for the browser-session tools.")
 	case degradedReason != "" && browserRecovers:
-		parts = append(parts, "Browser session auth is degraded: "+degradedReason+". Refresh Slack in your browser or the browser Keychain item; the server retries every 5 minutes and recovers without a restart.")
+		parts = append(parts, "Browser session auth is degraded: "+degradedReason+". Refresh Slack in your browser or the browser Keychain item; the server retries every "+provider.BrowserReprobeEvery()+" and recovers without a restart.")
 	case degradedReason != "":
 		parts = append(parts, "Browser session auth is degraded: "+degradedReason+". Refresh Slack in your browser and restart Plug.")
 	default:

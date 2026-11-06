@@ -12,7 +12,7 @@ import (
 // requireUserActor accepts only a Slack user identity: personal actions and
 // approval tokens are bound to a team and user.
 func requireUserActor(identity provider.ProviderIdentity) (provider.ProviderIdentity, error) {
-	if identity.ActorType != "user" || identity.TeamID == "" || identity.UserID == "" {
+	if !identity.IsUser() || identity.TeamID == "" || identity.UserID == "" {
 		return provider.ProviderIdentity{}, &ToolError{Code: codeUserOAuthRequired, Message: provider.ErrUserOAuthRequired.Error()}
 	}
 	return identity, nil

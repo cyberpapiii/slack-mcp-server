@@ -11,6 +11,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// OAuthCredentialStatus.State values.
+const (
+	OAuthStateUnavailable = "unavailable" // no usable OAuth login
+	OAuthStateConfigured  = "configured"  // a Keychain login with rotation, not yet loaded
+	OAuthStateFoundation  = "foundation"  // a Keychain login without a client to rotate it
+	OAuthStateLive        = "live"
+	OAuthStateDegraded    = "degraded" // the last rotation failed
+)
+
 type OAuthCredentialStatus struct {
 	Source             string `json:"source"`
 	RotationConfigured bool   `json:"rotation_configured"`
@@ -20,15 +29,15 @@ type OAuthCredentialStatus struct {
 }
 
 func (c CredentialConfig) oauthStatus() OAuthCredentialStatus {
-	status := OAuthCredentialStatus{Source: "not_configured", Store: "not_configured", State: "unavailable"}
+	status := OAuthCredentialStatus{Source: "not_configured", Store: "not_configured", State: OAuthStateUnavailable}
 	if c.OAuthKeychainAccount != "" {
 		status.Source = "keychain"
 		status.Store = "macos_keychain"
 		if c.OAuthClientID != "" {
 			status.RotationConfigured = true
-			status.State = "configured"
+			status.State = OAuthStateConfigured
 		} else {
-			status.State = "foundation"
+			status.State = OAuthStateFoundation
 			status.Reason = "OAuth client configuration is absent; authorization and rotation are unavailable"
 		}
 		return status
@@ -36,14 +45,14 @@ func (c CredentialConfig) oauthStatus() OAuthCredentialStatus {
 	if c.XOXP != "" {
 		status.Source = "static_user_oauth"
 		status.Store = "environment"
-		status.State = "live"
+		status.State = OAuthStateLive
 		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
 		return status
 	}
 	if c.XOXB != "" {
 		status.Source = "static_bot_oauth"
 		status.Store = "environment"
-		status.State = "live"
+		status.State = OAuthStateLive
 		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
 		return status
 	}
@@ -79,13 +88,13 @@ func loadManagedOAuth(ctx context.Context, creds CredentialConfig, logger *zap.L
 func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 	status := ap.creds.oauthStatus()
 	if ap.oauthLoadErr != nil {
-		status.State = "unavailable"
+		status.State = OAuthStateUnavailable
 		status.Reason = "stored OAuth login failed to load (" + ap.oauthLoadErr.Error() + "); run slack-mcp-auth login --replace, then restart"
 		return status
 	}
 	if state, loaded := ap.client.oauthRuntimeState.Load().(string); loaded && state != "" {
 		status.State = state
-		if state == "live" {
+		if state == OAuthStateLive {
 			status.Reason = ""
 		}
 	}
@@ -101,7 +110,7 @@ func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oaut
 	}))
 	client.oauthManager = manager
 	client.oauthGeneration.Store(record.Generation)
-	client.oauthRuntimeState.Store("live")
+	client.oauthRuntimeState.Store(OAuthStateLive)
 	go client.runManagedOAuthRefresh(ap.ctx)
 }
 
@@ -122,7 +131,7 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 	}
 	record, err := c.oauthManager.Current(ctx)
 	if err != nil {
-		c.oauthRuntimeState.Store("degraded")
+		c.oauthRuntimeState.Store(OAuthStateDegraded)
 		return err
 	}
 	if record.Generation == c.oauthGeneration.Load() {
@@ -130,7 +139,7 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 	}
 	replacement, _, err := c.managedSlackClient(ctx, record.AccessToken)
 	if err != nil {
-		c.oauthRuntimeState.Store("degraded")
+		c.oauthRuntimeState.Store(OAuthStateDegraded)
 		return err
 	}
 	c.oauthClientMu.Lock()
@@ -138,7 +147,7 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 	c.oauthClientMu.Unlock()
 	c.oauthGeneration.Store(record.Generation)
 	c.token.Store(record.AccessToken)
-	c.oauthRuntimeState.Store("live")
+	c.oauthRuntimeState.Store(OAuthStateLive)
 	return nil
 }
 

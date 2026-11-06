@@ -67,12 +67,8 @@ func main() {
 	if err != nil {
 		fatal(logger, "error in a channel allowlist", err)
 	}
-	for _, name := range capability.ChannelAllowlists() {
-		if value := os.Getenv(name); envutil.IsFalsy(value) {
-			logger.Warn(name+"="+value+" is treated as a channel allowlist and blocks every channel; unset it, or drop the tool from SLACK_MCP_ENABLED_TOOLS to disable it",
-				zap.String("context", "console"),
-			)
-		}
+	for _, w := range settings.Warnings {
+		logger.Warn(w, zap.String("context", "console"))
 	}
 	warnRemovedGateVars(logger)
 
@@ -154,7 +150,7 @@ func main() {
 // without a restart.
 func logStartupAuthStatus(p *provider.ApiProvider, logger *zap.Logger) {
 	if reason := p.BrowserDegradedReason(); reason != "" && !p.BrowserFeaturesAvailable() {
-		logger.Warn("Browser session auth degraded: browser-session tools fail until the browser credential works again; the server retries every 5 minutes",
+		logger.Warn("Browser session auth degraded: browser-session tools fail until the browser credential works again; the server retries every "+provider.BrowserReprobeEvery(),
 			zap.String("context", "console"),
 			zap.Strings("tools", capability.BrowserNames()),
 			zap.String("reason", reason),

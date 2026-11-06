@@ -78,6 +78,13 @@ type ApiProvider struct {
 	revalidateOnce sync.Once // startCacheRevalidation
 }
 
+// ProviderIdentity.ActorType values.
+const (
+	ActorUser    = "user"
+	ActorBot     = "bot"
+	ActorUnknown = "unknown"
+)
+
 type ProviderIdentity struct {
 	TeamID       string `json:"team_id,omitempty"`
 	UserID       string `json:"user_id,omitempty"`
@@ -347,19 +354,24 @@ func (ap *ApiProvider) Identity() ProviderIdentity {
 	}
 	switch {
 	case client.mode == 0:
-		identity.ActorType = "unknown"
+		identity.ActorType = ActorUnknown
 		identity.TokenMode = "unknown"
 	case client.mode == ModeBot:
-		identity.ActorType = "bot"
+		identity.ActorType = ActorBot
 		identity.TokenMode = "bot-oauth"
 	case client.mode.OAuth():
-		identity.ActorType = "user"
+		identity.ActorType = ActorUser
 		identity.TokenMode = "user-oauth"
 	default:
-		identity.ActorType = "user"
+		identity.ActorType = ActorUser
 		identity.TokenMode = "browser-session"
 	}
 	return identity
+}
+
+// IsUser reports whether the server acts as a Slack user, not a bot.
+func (i ProviderIdentity) IsUser() bool {
+	return i.ActorType == ActorUser
 }
 
 // Auth workspace base URL, or "" if unavailable (omit workspace-dependent output).

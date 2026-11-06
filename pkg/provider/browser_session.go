@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
@@ -195,10 +196,15 @@ func (c *MCPSlackClient) useBrowserEdge(browserEdge *edge.Client) {
 	c.browserState.Store(int32(browserStateActive))
 }
 
-// browserReprobeInterval is how often a degraded browser session is retried.
+// BrowserReprobeInterval is how often a degraded browser session is retried.
 // Recovery needs the credential to work again (a refreshed Keychain item, or
 // Slack clearing a transient failure), so a slow cadence is enough.
-const browserReprobeInterval = 5 * time.Minute
+const BrowserReprobeInterval = 5 * time.Minute
+
+// BrowserReprobeEvery is BrowserReprobeInterval as status text says it.
+func BrowserReprobeEvery() string {
+	return strconv.Itoa(int(BrowserReprobeInterval/time.Minute)) + " minutes"
+}
 
 // browserProbeFunc loads the browser credential again and checks it with
 // auth.test.
@@ -263,7 +269,7 @@ func (ap *ApiProvider) startBrowserReprobe(client *MCPSlackClient, account, xoxc
 		httpClient, identity, err := authTest(browserAuth, client.logger)
 		return browserAuth, identity, httpClient, err
 	}
-	go client.runBrowserReprobe(ap.ctx, browserReprobeInterval)
+	go client.runBrowserReprobe(ap.ctx, BrowserReprobeInterval)
 }
 
 var loadBrowserCredential = func(ctx context.Context, account string) (BrowserTokenRecord, error) {
