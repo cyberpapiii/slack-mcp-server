@@ -57,6 +57,12 @@ func renderSavedItems(items []SavedItemRow, channelName func(string) string, met
 	return csvResult(channelsLegend(ids, channelName), meta, &items)
 }
 
+const (
+	defaultSavedLimit = 50
+	// maxSavedPageSize is the largest page saved_list asks saved.list for.
+	maxSavedPageSize = 50
+)
+
 type SavedHandler struct {
 	api      SavedAPI
 	messages MessagePipeline
@@ -70,7 +76,7 @@ func NewSavedHandler(api SavedAPI, messages MessagePipeline, logger *zap.Logger,
 
 func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	filter := request.GetString("filter", "saved")
-	limit := pageLimit(request, 50, 0)
+	limit := pageLimit(request, defaultSavedLimit, 0)
 	includeMessages := request.GetBool("include_messages", true)
 
 	mode, err := h.settings.outputMode(request)
@@ -89,10 +95,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 	var allMessages []Message
 	nextCursor := ""
 	fetched := 0
-	pageSize := limit
-	if pageSize > 50 {
-		pageSize = 50
-	}
+	pageSize := min(limit, maxSavedPageSize)
 	// stopErr is set once the walk has to stop early. The rest of the page in
 	// hand is still listed, without messages, so nextCursor stays a valid
 	// resume point.
@@ -370,8 +373,8 @@ func (h *SavedHandler) Tools() []ToolDef {
 				mcp.DefaultString("saved"),
 			),
 			mcp.WithNumber("limit",
-				mcp.Description("Maximum number of items to return from this page. Default is 50."),
-				mcp.DefaultNumber(50),
+				mcp.Description(fmt.Sprintf("Maximum number of items to return from this page. Default is %d.", defaultSavedLimit)),
+				mcp.DefaultNumber(defaultSavedLimit),
 			),
 			mcp.WithString("cursor",
 				mcp.Description(descCursor),

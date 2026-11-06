@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -19,12 +20,18 @@ import (
 const (
 	maxUploadBytes  = 50 << 20
 	maxMessageRunes = 40000
+
+	// A scheduled message posts between these two offsets from now.
+	minScheduleLeadSeconds = 5
+	maxScheduleLeadDays    = 120
 )
 
 var (
 	maxUploadSize = strconv.Itoa(maxUploadBytes>>20) + " MiB"
 	maxRunesText  = strconv.Itoa(maxMessageRunes) + " characters"
 )
+
+var scheduleWindow = fmt.Sprintf("between %d seconds and %d days in the future", minScheduleLeadSeconds, maxScheduleLeadDays)
 
 var slackTimestampPattern = regexp.MustCompile(`^[0-9]+\.[0-9]{6}$`)
 
@@ -115,8 +122,8 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 	}
 	postAt, err := parsePostAt(request.GetString("post_at", ""))
 	now := h.now()
-	if err != nil || !postAt.After(now.Add(5*time.Second)) || postAt.After(now.Add(120*24*time.Hour)) {
-		return nil, invalidArguments("post_at must be a Unix timestamp or RFC3339 time between 5 seconds and 120 days in the future")
+	if err != nil || !postAt.After(now.Add(minScheduleLeadSeconds*time.Second)) || postAt.After(now.Add(maxScheduleLeadDays*24*time.Hour)) {
+		return nil, invalidArguments("post_at must be a Unix timestamp or RFC3339 time " + scheduleWindow)
 	}
 	threadTS := strings.TrimSpace(request.GetString("thread_ts", ""))
 	if threadTS != "" && !validSlackTimestamp(threadTS) {
@@ -270,7 +277,7 @@ func (h *MessageFilesHandler) Tools() []ToolDef {
 			mcp.WithDescription("Schedule a Slack message for a future time."),
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) to post into; names are not resolved.")),
 			mcp.WithString("text", mcp.Required(), mcp.Description("Message text, non-empty and up to "+maxRunesText+".")),
-			mcp.WithString("post_at", mcp.Required(), mcp.Description("Unix seconds or RFC 3339 time between 5 seconds and 120 days in the future.")),
+			mcp.WithString("post_at", mcp.Required(), mcp.Description("Unix seconds or RFC 3339 time "+scheduleWindow+".")),
 			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to schedule a thread reply.")),
 		}},
 		{Name: capability.MessagesUpdate, Run: h.MessagesUpdate, Options: []mcp.ToolOption{

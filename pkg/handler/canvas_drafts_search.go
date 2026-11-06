@@ -98,6 +98,12 @@ func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
+// drafts_list limit bounds.
+const (
+	defaultDraftsLimit = 50
+	maxDraftsLimit     = 100
+)
+
 type DraftsHandler struct {
 	api       provider.DraftsAPI
 	approvals approvalGate
@@ -161,7 +167,7 @@ type DraftRow struct {
 }
 
 func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	limit := pageLimit(request, 50, 100)
+	limit := pageLimit(request, defaultDraftsLimit, maxDraftsLimit)
 	page, err := h.api.ListDrafts(ctx, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
 		return nil, err
@@ -352,7 +358,7 @@ func (h *DraftsHandler) Tools() []ToolDef {
 		{Name: capability.DraftsList, Run: h.List, Options: []mcp.ToolOption{
 			mcp.WithDescription("List persisted Slack drafts from the authenticated browser session."),
 			mcp.WithString("cursor", mcp.Description(descCursor)),
-			mcp.WithNumber("limit", mcp.Description("Maximum drafts per page, 1 to 100; defaults to 50.")),
+			mcp.WithNumber("limit", mcp.Description(fmt.Sprintf("Maximum drafts per page, 1 to %d; defaults to %d.", maxDraftsLimit, defaultDraftsLimit))),
 		}},
 		{Name: capability.DraftsGet, Run: h.Get, Options: []mcp.ToolOption{
 			mcp.WithDescription("Read one persisted Slack draft."),
@@ -390,7 +396,7 @@ func (h *SemanticSearchHandler) Tools() []ToolDef {
 			mcp.WithString("context_channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) Slack uses to scope or bias results when applicable.")),
 			mcp.WithString("cursor", mcp.Description(descCursor)),
 			mcp.WithBoolean("include_bots", mcp.Description("Include messages authored by bots; defaults to false.")),
-			mcp.WithNumber("limit", mcp.Description("Maximum results per page, 1 to 20; defaults to 20.")),
+			mcp.WithNumber("limit", mcp.Description(fmt.Sprintf("Maximum results per page, 1 to %d; defaults to %d.", maxSemanticResults, maxSemanticResults))),
 		}},
 	}
 }

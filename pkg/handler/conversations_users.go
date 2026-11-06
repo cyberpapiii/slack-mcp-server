@@ -10,6 +10,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// users_search limit bounds.
+const (
+	defaultUsersSearchLimit = 10
+	maxUsersSearchLimit     = 100
+)
+
 func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	ch.logger.Debug("UsersResource called")
 
@@ -90,7 +96,7 @@ func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolR
 		return nil, invalidArguments("query is required")
 	}
 
-	limit := pageLimit(request, 10, 100)
+	limit := pageLimit(request, defaultUsersSearchLimit, maxUsersSearchLimit)
 
 	return &usersSearchParams{
 		query: query,

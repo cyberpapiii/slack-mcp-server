@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -13,9 +14,10 @@ import (
 )
 
 const (
-	scheduledExcerptRunes   = 24
-	maxScheduledPageSize    = 100
-	maxScheduledLookupPages = 10
+	scheduledExcerptRunes    = 24
+	defaultScheduledPageSize = 50
+	maxScheduledPageSize     = 100
+	maxScheduledLookupPages  = 10
 )
 
 type ScheduledService interface {
@@ -58,7 +60,7 @@ func NewScheduledHandler(service ScheduledService, identity func() provider.Prov
 }
 
 func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	limit := pageLimit(request, 50, maxScheduledPageSize)
+	limit := pageLimit(request, defaultScheduledPageSize, maxScheduledPageSize)
 	page, err := h.service.ListScheduled(ctx, provider.ScheduledListRequest{
 		ChannelID: strings.TrimSpace(request.GetString("channel_id", "")),
 		Cursor:    strings.TrimSpace(request.GetString("cursor", "")),
@@ -142,7 +144,7 @@ func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, schedul
 		}
 		cursor = page.NextCursor
 	}
-	return provider.ScheduledMessage{}, &ToolError{Code: codeLookupLimitExceeded, Message: "scheduled-message lookup exceeded 1000 pending messages; narrow the channel or cancel from Slack"}
+	return provider.ScheduledMessage{}, &ToolError{Code: codeLookupLimitExceeded, Message: fmt.Sprintf("scheduled-message lookup exceeded %d pending messages; narrow the channel or cancel from Slack", maxScheduledLookupPages*maxScheduledPageSize)}
 }
 
 func scheduledResultMessage(message provider.ScheduledMessage) ScheduledMessage {
@@ -181,7 +183,7 @@ func (h *ScheduledHandler) Tools() []ToolDef {
 			mcp.WithString("oldest", mcp.Description("Unix seconds; only messages scheduled to post at or after this time.")),
 			mcp.WithString("latest", mcp.Description("Unix seconds; only messages scheduled to post at or before this time.")),
 			mcp.WithString("text_query", mcp.Description("Case-insensitive substring filter applied to message text after fetching the page.")),
-			mcp.WithNumber("limit", mcp.DefaultNumber(50), mcp.Description("Maximum messages per page, 1 to 100; defaults to 50.")),
+			mcp.WithNumber("limit", mcp.DefaultNumber(defaultScheduledPageSize), mcp.Description(fmt.Sprintf("Maximum messages per page, 1 to %d; defaults to %d.", maxScheduledPageSize, defaultScheduledPageSize))),
 		}},
 		{Name: capability.ScheduledMessageCancel, Run: h.Cancel, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[ScheduledCancelResult](),

@@ -38,6 +38,13 @@ var (
 	channelSorts        = []string{"popularity"}
 )
 
+// limit bounds of channels_list and channels_me, and of channels_starred.
+const (
+	defaultChannelsLimit = 100
+	maxChannelsLimit     = 999
+	maxStarredLimit      = 1000
+)
+
 // allCategories is the channel_types value of conversations_unreads and
 // channels_starred that filters nothing.
 const allCategories = "all"
@@ -103,7 +110,7 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		return nil, err
 	}
 	cursor := request.GetString("cursor", "")
-	limit := pageLimit(request, 100, 999)
+	limit := pageLimit(request, defaultChannelsLimit, maxChannelsLimit)
 	query := request.GetString("query", "")
 
 	allChannels, err := ch.api.Directory().Channels()
@@ -146,7 +153,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 		return nil, err
 	}
 	cursor := request.GetString("cursor", "")
-	limit := pageLimit(request, 100, 999)
+	limit := pageLimit(request, defaultChannelsLimit, maxChannelsLimit)
 
 	channels, nextCursor, err := ch.api.ChannelsForUser(ctx, channelTypes, cursor, limit)
 	if err != nil {
@@ -181,7 +188,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	if err != nil {
 		return nil, err
 	}
-	limit := pageLimit(request, 100, 1000)
+	limit := pageLimit(request, defaultChannelsLimit, maxStarredLimit)
 
 	starredIDs, err := ch.api.GetStarredChannelIDs(ctx, limit)
 	if err != nil {
@@ -302,8 +309,8 @@ func (ch *ChannelsHandler) Tools() []ToolDef {
 				mcp.Description(fmt.Sprintf("Sort order. Allowed value: '%s' sorts by number of members in each channel.", channelSorts[0])),
 			),
 			mcp.WithNumber("limit",
-				mcp.DefaultNumber(100),
-				mcp.Description("Maximum number of items to return, an integer between 1 and 999. Default is 100."),
+				mcp.DefaultNumber(defaultChannelsLimit),
+				mcp.Description(fmt.Sprintf("Maximum number of items to return, an integer between 1 and %d. Default is %d.", maxChannelsLimit, defaultChannelsLimit)),
 			),
 			mcp.WithString("cursor",
 				mcp.Description(descCursor),
@@ -322,8 +329,8 @@ func (ch *ChannelsHandler) Tools() []ToolDef {
 				mcp.Description(channelTypesDescription),
 			),
 			mcp.WithNumber("limit",
-				mcp.DefaultNumber(100),
-				mcp.Description("Maximum number of items to return (1-999)."),
+				mcp.DefaultNumber(defaultChannelsLimit),
+				mcp.Description(fmt.Sprintf("Maximum number of items to return (1-%d).", maxChannelsLimit)),
 			),
 			mcp.WithString("cursor",
 				mcp.Description(descCursor),
@@ -337,8 +344,8 @@ func (ch *ChannelsHandler) Tools() []ToolDef {
 				mcp.DefaultString(allCategories),
 			),
 			mcp.WithNumber("limit",
-				mcp.DefaultNumber(100),
-				mcp.Description("Maximum number of starred channels to return (1-1000). Default is 100."),
+				mcp.DefaultNumber(defaultChannelsLimit),
+				mcp.Description(fmt.Sprintf("Maximum number of starred channels to return (1-%d). Default is %d.", maxStarredLimit, defaultChannelsLimit)),
 			),
 		}},
 	}

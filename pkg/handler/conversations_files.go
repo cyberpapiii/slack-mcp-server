@@ -104,10 +104,16 @@ func (ch *ConversationsHandler) parseParamsToolFilesList(ctx context.Context, re
 		channel: channel,
 		user:    request.GetString("user_id", ""),
 		types:   request.GetString("types", ""),
-		limit:   pageLimit(request, 50, 200),
+		limit:   pageLimit(request, defaultFilesListLimit, maxFilesListLimit),
 		page:    page,
 	}, nil
 }
+
+// files_list limit bounds.
+const (
+	defaultFilesListLimit = 50
+	maxFilesListLimit     = 200
+)
 
 // files.list paginates by count/page, not by cursor (Slack ignores `limit`
 // and never returns response_metadata), so the cursor this tool hands out

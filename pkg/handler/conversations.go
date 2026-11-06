@@ -22,8 +22,7 @@ const (
 	defaultConversationsNumericLimit = 50
 	maxFileSizeBytes                 = 5 << 20
 
-	// Search `limit` bounds. Default and max are both 100, matching the tool
-	// schema's DefaultNumber(100) and its "between 1 and 100" description.
+	// Search `limit` bounds.
 	defaultSearchMessagesLimit = 100
 	maxSearchMessagesLimit     = 100
 )
