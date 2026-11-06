@@ -353,7 +353,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 		}
 	}
 
-	channelsMaps := ch.apiProvider.ProvideChannelsMaps()
+	dir := ch.apiProvider.Directory()
 
 	var result []StarredChannel
 	for _, id := range starredIDs {
@@ -362,7 +362,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 			IsMuted: mutedChannels[id],
 		}
 
-		if cached, ok := channelsMaps.Channels[id]; ok {
+		if cached, ok := dir.ChannelByRef(id); ok {
 			sc.Name = cached.Name
 			sc.MemberCount = cached.MemberCount
 			sc.ChannelType = classifyChannelType(cached)
