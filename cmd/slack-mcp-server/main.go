@@ -54,7 +54,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	enabledTools, err := resolveEnabledTools(enabledToolsFlag, toolPreset)
+	enabledTools, err := capability.Resolve(enabledToolsFlag, toolPreset)
 	if err != nil {
 		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS / SLACK_MCP_TOOL_PRESET", err)
 	}
@@ -68,11 +68,6 @@ func main() {
 	}
 	warnRemovedGateVars(logger)
 
-	err = capability.Validate(enabledTools)
-	if err != nil {
-		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS", err)
-	}
-
 	p, err := provider.New(logger)
 	if err != nil {
 		fatal(logger, "Failed to initialize Slack provider", err)
@@ -80,6 +75,7 @@ func main() {
 	defer p.Close()
 	s := server.NewMCPServer(p, transport, logger, enabledTools, settings)
 	logStartupAuthStatus(p, logger)
+	warnMissingOAuthScopes(p, enabledTools, logger)
 
 	if noCache {
 		p.SkipCache()
@@ -158,23 +154,41 @@ func fatal(logger *zap.Logger, msg string, err error) {
 	logger.Fatal(msg, zap.String("context", "console"), zap.Error(err))
 }
 
-func resolveEnabledTools(explicit, preset string) ([]string, error) {
-	if strings.TrimSpace(explicit) != "" {
-		var tools []string
-		for _, tool := range strings.Split(explicit, ",") {
-			if tool = strings.TrimSpace(tool); tool != "" {
-				tools = append(tools, tool)
-			}
-		}
-		if len(tools) == 0 {
-			return nil, fmt.Errorf("SLACK_MCP_ENABLED_TOOLS / --enabled-tools is set but contains no tool names")
-		}
-		return tools, nil
+// warnMissingOAuthScopes warns when the managed OAuth login was granted fewer
+// scopes than the served tools need: those tools fail with missing_scope
+// until slack-mcp-auth logs in again for the same tool list.
+func warnMissingOAuthScopes(p *provider.ApiProvider, enabled []string, logger *zap.Logger) {
+	granted, ok := p.ManagedOAuthScopes()
+	if !ok {
+		return
 	}
-	if preset == "" {
-		preset = capability.DefaultPreset
+	if missing := missingOAuthScopes(granted, servedTools(p, enabled)); len(missing) > 0 {
+		logger.Warn("The stored OAuth login lacks scopes enabled tools need; run slack-mcp-auth login --replace with the same SLACK_MCP_ENABLED_TOOLS, then restart",
+			zap.String("context", "console"),
+			zap.Strings("missing_scopes", missing),
+		)
 	}
-	return capability.Preset(preset)
+}
+
+// servedTools are the enabled tools the running credentials can serve.
+func servedTools(creds capability.Credentials, enabled []string) []string {
+	var served []string
+	for _, name := range enabled {
+		if tool, ok := capability.Lookup(name); ok && tool.Requires.Met(creds) {
+			served = append(served, name)
+		}
+	}
+	return served
+}
+
+func missingOAuthScopes(granted, tools []string) []string {
+	var missing []string
+	for _, scope := range capability.OAuthScopesForTools(tools) {
+		if !slices.Contains(granted, scope) {
+			missing = append(missing, scope)
+		}
+	}
+	return missing
 }
 
 // warnRemovedGateVars flags SLACK_MCP_*_TOOL variables left over from the

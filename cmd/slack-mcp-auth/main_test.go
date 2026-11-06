@@ -36,7 +36,7 @@ func TestBuildAuthorizationURLUsesUserScopesAndPKCE(t *testing.T) {
 }
 
 func TestCustomOAuthScopesContainLocalPowerUserScopes(t *testing.T) {
-	scopes, err := customOAuthScopes("legacy-full")
+	scopes, err := toolSelection{preset: "legacy-full"}.scopes()
 	require.NoError(t, err)
 	for _, scope := range []string{
 		"channels:history", "channels:read", "channels:write", "chat:write",
@@ -57,7 +57,7 @@ func TestCustomOAuthScopesContainLocalPowerUserScopes(t *testing.T) {
 }
 
 func TestDailyPowerOAuthScopesExcludeHiddenWrites(t *testing.T) {
-	scopes, err := customOAuthScopes("daily-power")
+	scopes, err := toolSelection{preset: "daily-power"}.scopes()
 	require.NoError(t, err)
 	assert.Contains(t, scopes, "channels:history")
 	assert.Contains(t, scopes, "channels:read")
@@ -68,6 +68,30 @@ func TestDailyPowerOAuthScopesExcludeHiddenWrites(t *testing.T) {
 	assert.NotContains(t, scopes, "chat:write")
 	assert.NotContains(t, scopes, "dnd:write")
 	assert.NotContains(t, scopes, "lists:write")
+}
+
+func TestLoginScopesFollowTheEnabledTools(t *testing.T) {
+	t.Setenv(envEnabledTools, "dnd_set_snooze")
+	t.Setenv(envToolPreset, "")
+	parse := func(args ...string) []string {
+		options, err := parseLoginOptions(args)
+		require.NoError(t, err)
+		scopes, err := options.tools.scopes()
+		require.NoError(t, err)
+		return scopes
+	}
+
+	assert.Contains(t, parse(), "dnd:write", "$SLACK_MCP_ENABLED_TOOLS is the default")
+	assert.NotContains(t, parse(), "chat:write")
+	assert.Contains(t, parse("--enabled-tools", "conversations_add_message"), "chat:write")
+	legacy := parse("--preset", "legacy-full")
+	assert.Contains(t, legacy, "chat:write", "an explicit --preset replaces the inherited list")
+	assert.Contains(t, legacy, "dnd:write")
+
+	_, err := parseLoginOptions([]string{"--enabled-tools", "no_such_tool"})
+	require.NoError(t, err)
+	_, err = toolSelection{enabledTools: "no_such_tool"}.scopes()
+	assert.ErrorContains(t, err, "no_such_tool")
 }
 
 func TestLoginRequiresExpectedIdentity(t *testing.T) {

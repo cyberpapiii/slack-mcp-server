@@ -43,6 +43,9 @@ type ApiProvider struct {
 	// oauthLoadErr is why managed OAuth failed at startup when the server
 	// continued on the browser session instead. OAuth-only tools are absent.
 	oauthLoadErr error
+	// oauthScopes are the scopes the managed OAuth login was granted, as
+	// loaded at startup; nil without managed OAuth.
+	oauthScopes []string
 
 	creds CredentialConfig
 	// client is the Slack session. api is the Slack calls the caches make:

@@ -4,6 +4,7 @@
 package capability
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -342,8 +343,38 @@ func Preset(name string) ([]string, error) {
 	case PresetLegacyFull:
 		return Names(), nil
 	default:
-		return nil, fmt.Errorf("unknown tool preset %q (valid: %s, %s)", name, PresetDailyPower, PresetLegacyFull)
+		return nil, fmt.Errorf("unknown tool preset %q (valid: %s)", name, strings.Join(PresetNames(), ", "))
 	}
+}
+
+// PresetNames lists the presets, the default first.
+func PresetNames() []string {
+	return []string{PresetDailyPower, PresetLegacyFull}
+}
+
+// Resolve is the enabled-tools list the server serves and slack-mcp-auth
+// requests scopes for: explicit, a comma-separated list of tool names, when it
+// names any, else preset, else DefaultPreset. Every name must be a tool.
+func Resolve(explicit, preset string) ([]string, error) {
+	if strings.TrimSpace(explicit) == "" {
+		if preset == "" {
+			preset = DefaultPreset
+		}
+		return Preset(preset)
+	}
+	var tools []string
+	for _, tool := range strings.Split(explicit, ",") {
+		if tool = strings.TrimSpace(tool); tool != "" {
+			tools = append(tools, tool)
+		}
+	}
+	if len(tools) == 0 {
+		return nil, errors.New("the enabled-tools list is set but contains no tool names")
+	}
+	if err := Validate(tools); err != nil {
+		return nil, err
+	}
+	return tools, nil
 }
 
 // Validate reports every name that is not a tool in the table.

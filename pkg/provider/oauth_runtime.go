@@ -101,6 +101,12 @@ func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 	return status
 }
 
+// ManagedOAuthScopes are the scopes the managed OAuth login was granted; ok
+// is false without one.
+func (ap *ApiProvider) ManagedOAuthScopes() (scopes []string, ok bool) {
+	return ap.oauthScopes, ap.client.oauthManager != nil
+}
+
 func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oauthcred.Record) {
 	client := &ap.client
 	expected := oauthcred.IdentityOf(&client.authResponse)
@@ -109,6 +115,7 @@ func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oaut
 		return identity, err
 	}))
 	client.oauthManager = manager
+	ap.oauthScopes = record.Scopes
 	client.oauthGeneration.Store(record.Generation)
 	client.oauthRuntimeState.Store(OAuthStateLive)
 	go client.runManagedOAuthRefresh(ap.ctx)

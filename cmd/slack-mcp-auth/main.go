@@ -25,7 +25,12 @@ import (
 
 const accountUsage = "macOS Keychain account; defaults to $" + oauthcred.EnvKeychainAccount + ", else " + defaultAccount + ", which only this tool falls back to: the server uses the account $" + oauthcred.EnvKeychainAccount + " names"
 
-const presetUsage = "scope preset: " + capability.PresetDailyPower + " or " + capability.PresetLegacyFull
+const (
+	presetUsage       = "request the scopes of this tool preset when no enabled-tools list is given: " + capability.PresetDailyPower + " (default) or " + capability.PresetLegacyFull + "; defaults to $" + envToolPreset
+	enabledToolsUsage = "request the scopes these comma-separated tools need, as the server's SLACK_MCP_ENABLED_TOOLS serves them; defaults to $" + envEnabledTools + " unless --preset is given"
+	envEnabledTools   = "SLACK_MCP_ENABLED_TOOLS"
+	envToolPreset     = "SLACK_MCP_TOOL_PRESET"
+)
 
 const (
 	defaultAccount     = "slack-mcp-local"
@@ -51,7 +56,7 @@ type loginOptions struct {
 	redirectURI  string
 	teamID       string
 	userID       string
-	preset       string
+	tools        toolSelection
 	replace      bool
 	noOpen       bool
 }
@@ -122,7 +127,7 @@ func runLogin(args []string) error {
 	}
 	defer listener.Close()
 
-	scopes, err := customOAuthScopes(options.preset)
+	scopes, err := options.tools.scopes()
 	if err != nil {
 		return err
 	}
@@ -191,13 +196,45 @@ func parseLoginOptions(args []string) (loginOptions, error) {
 	options.redirectURI = defaultRedirectURI
 	flags.StringVar(&options.teamID, "team", os.Getenv("SLACK_MCP_OAUTH_TEAM_ID"), "expected Slack team ID")
 	flags.StringVar(&options.userID, "user", os.Getenv("SLACK_MCP_OAUTH_USER_ID"), "expected Slack user ID")
-	flags.StringVar(&options.preset, "preset", capability.DefaultPreset, presetUsage)
+	options.tools.register(flags)
 	flags.BoolVar(&options.replace, "replace", false, "replace existing credential after exact identity validation")
 	flags.BoolVar(&options.noOpen, "no-open", false, "print authorization URL without opening browser")
 	if err := flags.Parse(args); err != nil {
 		return loginOptions{}, err
 	}
+	options.tools.parsed(flags)
 	return options, nil
+}
+
+// toolSelection is the tool list a login requests scopes for, resolved the
+// way the server resolves the tools it serves (capability.Resolve), so the
+// login grants what the server's tools need.
+type toolSelection struct {
+	enabledTools string
+	preset       string
+}
+
+func (t *toolSelection) register(flags *flag.FlagSet) {
+	flags.StringVar(&t.enabledTools, "enabled-tools", os.Getenv(envEnabledTools), enabledToolsUsage)
+	flags.StringVar(&t.preset, "preset", os.Getenv(envToolPreset), presetUsage)
+}
+
+// parsed drops the inherited $SLACK_MCP_ENABLED_TOOLS when --preset is given
+// on the command line without --enabled-tools: the flag is the request.
+func (t *toolSelection) parsed(flags *flag.FlagSet) {
+	set := map[string]bool{}
+	flags.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["preset"] && !set["enabled-tools"] {
+		t.enabledTools = ""
+	}
+}
+
+func (t toolSelection) scopes() ([]string, error) {
+	tools, err := capability.Resolve(t.enabledTools, t.preset)
+	if err != nil {
+		return nil, err
+	}
+	return capability.OAuthScopesForTools(tools), nil
 }
 
 func buildAuthorizationURL(clientID, teamID string, scopes []string, authorization *oauthcred.PKCE) (string, error) {
@@ -363,11 +400,13 @@ func runLogout(args []string) error {
 
 func runManifest(args []string) error {
 	flags := flag.NewFlagSet("manifest", flag.ContinueOnError)
-	preset := flags.String("preset", capability.DefaultPreset, presetUsage)
+	var tools toolSelection
+	tools.register(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	scopes, err := customOAuthScopes(*preset)
+	tools.parsed(flags)
+	scopes, err := tools.scopes()
 	if err != nil {
 		return err
 	}
@@ -388,14 +427,6 @@ func runManifest(args []string) error {
 	}
 	fmt.Println(string(encoded))
 	return nil
-}
-
-func customOAuthScopes(preset string) ([]string, error) {
-	tools, err := capability.Preset(preset)
-	if err != nil {
-		return nil, err
-	}
-	return capability.OAuthScopesForTools(tools), nil
 }
 
 func envOrDefault(key, fallback string) string {
