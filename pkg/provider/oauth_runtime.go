@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
-	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -215,7 +215,7 @@ func managedOAuthRefreshInterval(err error) time.Duration {
 		base = time.Minute
 		max  = 15 * time.Minute
 	)
-	retryAfter, _ := slackhttp.RetryAfter(err)
+	retryAfter, _ := limiter.RetryAfter(err)
 	if retryAfter <= base {
 		return base
 	}

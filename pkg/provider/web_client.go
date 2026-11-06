@@ -37,7 +37,7 @@ func (c *WebClient) token() string {
 }
 
 func (c *WebClient) GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-	return limiter.Paced(ctx, c.client.pacing, "conversations.history", func() (*slack.GetConversationHistoryResponse, error) {
+	return limiter.Paced(ctx, c.client.pacing, "conversations.history", nil, func() (*slack.GetConversationHistoryResponse, error) {
 		return c.resolve().GetConversationHistoryContext(ctx, params)
 	})
 }
@@ -49,7 +49,7 @@ type repliesPage struct {
 }
 
 func (c *WebClient) GetConversationRepliesContext(ctx context.Context, params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
-	page, err := limiter.Paced(ctx, c.client.pacing, "conversations.replies", func() (repliesPage, error) {
+	page, err := limiter.Paced(ctx, c.client.pacing, "conversations.replies", nil, func() (repliesPage, error) {
 		messages, hasMore, cursor, err := c.resolve().GetConversationRepliesContext(ctx, params)
 		return repliesPage{messages, hasMore, cursor}, err
 	})
@@ -118,7 +118,7 @@ type searchPage struct {
 }
 
 func (c *WebClient) SearchContext(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, *slack.SearchFiles, error) {
-	page, err := limiter.Paced(ctx, c.client.pacing, "search.messages", func() (searchPage, error) {
+	page, err := limiter.Paced(ctx, c.client.pacing, "search.messages", nil, func() (searchPage, error) {
 		messages, files, err := c.resolve().SearchContext(ctx, query, params)
 		return searchPage{messages, files}, err
 	})

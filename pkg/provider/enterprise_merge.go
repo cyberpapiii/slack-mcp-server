@@ -31,7 +31,7 @@ type conversationsPage struct {
 // On an Enterprise browser session one call merges the edge list with every
 // standard page.
 func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
-	page, err := limiter.Paced(ctx, c.pacing, "conversations.list", func() (conversationsPage, error) {
+	page, err := limiter.Paced(ctx, c.pacing, "conversations.list", nil, func() (conversationsPage, error) {
 		channels, cursor, err := c.conversations(ctx, params)
 		return conversationsPage{channels, cursor}, err
 	})

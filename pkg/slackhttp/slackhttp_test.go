@@ -2,7 +2,6 @@ package slackhttp
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -71,9 +70,9 @@ func TestPostStatusErrors(t *testing.T) {
 			return respond(http.StatusTooManyRequests, "slow down", http.Header{"Retry-After": {"7"}}), nil
 		})
 		_, err := Post(context.Background(), client, Request{URL: "https://x"})
-		wait, limited := RetryAfter(err)
-		assert.True(t, limited)
-		assert.Equal(t, 7*time.Second, wait)
+		var limited *slack.RateLimitedError
+		require.ErrorAs(t, err, &limited)
+		assert.Equal(t, 7*time.Second, limited.RetryAfter)
 	})
 
 	t.Run("other non-2xx is a StatusCodeError", func(t *testing.T) {
@@ -130,16 +129,6 @@ func TestRateLimited(t *testing.T) {
 		require.NotNil(t, limited, raw)
 		assert.Equal(t, DefaultRetryAfter, limited.RetryAfter, raw)
 	}
-}
-
-func TestRetryAfter(t *testing.T) {
-	wait, limited := RetryAfter(errors.Join(errors.New("ctx"), &slack.RateLimitedError{RetryAfter: 2 * time.Second}))
-	assert.True(t, limited)
-	assert.Equal(t, 2*time.Second, wait)
-
-	wait, limited = RetryAfter(errors.New("boom"))
-	assert.False(t, limited)
-	assert.Zero(t, wait)
 }
 
 func TestSlackDomain(t *testing.T) {

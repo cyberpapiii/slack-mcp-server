@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -153,16 +152,6 @@ func RateLimited(resp *http.Response) *slack.RateLimitedError {
 		return &slack.RateLimitedError{RetryAfter: DefaultRetryAfter}
 	}
 	return &slack.RateLimitedError{RetryAfter: time.Duration(secs) * time.Second}
-}
-
-// RetryAfter reports whether err is a Slack rate limit and, if so, the wait
-// Slack asked for, which may be zero.
-func RetryAfter(err error) (time.Duration, bool) {
-	var limited *slack.RateLimitedError
-	if errors.As(err, &limited) {
-		return limited.RetryAfter, true
-	}
-	return 0, false
 }
 
 // SlackDomain is the Slack host the whole process talks to;
