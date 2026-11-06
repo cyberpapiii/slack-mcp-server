@@ -36,25 +36,8 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools [
 	set.tools = append(set.tools, channels.Tools()...)
 	set.tools = append(set.tools, handler.NewAuthStatusHandler(api, logger).Tools()...)
 	set.tools = append(set.tools, handler.NewUsergroupsHandler(api, logger).Tools()...)
-	set.tools = append(set.tools, handler.NewSavedHandler(api, logger, conversations).Tools()...)
-	set.tools = append(set.tools, handler.NewActivityHandler(api, logger, conversations).Tools()...)
-
-	userName := func(id string) string {
-		u, ok := api.ProvideUsersMap().Users[id]
-		if !ok {
-			return ""
-		}
-		if u.RealName != "" {
-			return u.RealName
-		}
-		return u.Name
-	}
-	channelName := func(id string) string {
-		if cached, ok := api.ProvideChannelsMaps().Channels[id]; ok {
-			return cached.Name
-		}
-		return ""
-	}
+	set.tools = append(set.tools, handler.NewSavedHandler(api, logger, settings).Tools()...)
+	set.tools = append(set.tools, handler.NewActivityHandler(api, logger, settings).Tools()...)
 
 	add("scheduled", func() ([]handler.ToolDef, error) {
 		service, err := api.Scheduled()
@@ -96,9 +79,7 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools [
 		if err != nil {
 			return nil, err
 		}
-		h := handler.NewPeopleChannelsHandler(service, api.Identity, logger)
-		h.UserName = userName
-		return h.Tools(), nil
+		return handler.NewPeopleChannelsHandler(service, api, api.Identity, logger).Tools(), nil
 	})
 	add("canvases", func() ([]handler.ToolDef, error) {
 		service, err := api.Canvases()
@@ -108,18 +89,14 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools [
 		return handler.NewCanvasHandler(service, logger).Tools(), nil
 	})
 	add("drafts", func() ([]handler.ToolDef, error) {
-		h := handler.NewDraftsHandler(api.Drafts(), approvals, api.Identity, logger)
-		h.ChannelName = channelName
-		return h.Tools(), nil
+		return handler.NewDraftsHandler(api.Drafts(), api, approvals, api.Identity, logger).Tools(), nil
 	})
 	add("semantic search", func() ([]handler.ToolDef, error) {
 		service, err := api.SemanticSearch()
 		if err != nil {
 			return nil, err
 		}
-		h := handler.NewSemanticSearchHandler(service, logger)
-		h.ChannelName = channelName
-		return h.Tools(), nil
+		return handler.NewSemanticSearchHandler(service, api, logger).Tools(), nil
 	})
 	return set
 }

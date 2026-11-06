@@ -228,17 +228,18 @@ func (d *Directory) UserLabel(id string) string {
 }
 
 // ChannelLabel is the cached "#name" or "@user" label for a conversation, or
-// "" when the cache cannot name it. A DM cached before its peer was known is
-// labelled from the users cache as it is now.
+// "" when the cache cannot name it. A DM is labelled by its peer's username
+// as the users cache knows it now, or the peer's ID.
 func (d *Directory) ChannelLabel(id string) string {
 	ch, ok := d.channels.Channels[id]
 	if !ok {
 		return ""
 	}
-	if ch.IsIM && ch.User != "" && (ch.Name == "@" || ch.Name == "@"+ch.User) {
+	if ch.IsIM && ch.User != "" {
 		if u, ok := d.users.Users[ch.User]; ok && u.Name != "" {
 			return "@" + u.Name
 		}
+		return "@" + ch.User
 	}
 	if ch.Name == "@" || ch.Name == "#" {
 		return ""

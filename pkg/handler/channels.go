@@ -11,7 +11,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -69,19 +68,9 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 		return nil, err
 	}
 
-	ar, err := ch.apiProvider.Slack().AuthTest()
+	ws, err := workspaceName(ch.apiProvider, ch.logger)
 	if err != nil {
-		ch.logger.Error("Auth test failed", zap.Error(err))
 		return nil, err
-	}
-
-	ws, err := text.Workspace(ar.URL)
-	if err != nil {
-		ch.logger.Error("Failed to parse workspace from URL",
-			zap.String("url", ar.URL),
-			zap.Error(err),
-		)
-		return nil, fmt.Errorf("failed to parse workspace from URL: %w", err)
 	}
 
 	channels := ch.apiProvider.ProvideChannelsMaps().Channels

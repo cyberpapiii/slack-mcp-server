@@ -364,7 +364,7 @@ func TestUnitAttachmentToTextModeSelection(t *testing.T) {
 		Text:      longBody,
 	}
 
-	standard := AttachmentToText(att, ModeStandard)
+	standard := attachmentToText(att, ModeStandard)
 	if !strings.Contains(standard, "Release notes") {
 		t.Errorf("ModeStandard output %q should contain the title", standard)
 	}
@@ -378,7 +378,7 @@ func TestUnitAttachmentToTextModeSelection(t *testing.T) {
 		t.Errorf("ModeStandard output %q should not contain the tail of the long body", standard)
 	}
 
-	full := AttachmentToText(att, ModeFull)
+	full := attachmentToText(att, ModeFull)
 	if !strings.Contains(full, "UNIQUE-TAIL-MARKER") {
 		t.Errorf("ModeFull output %q should contain the full body text", full)
 	}
@@ -402,9 +402,9 @@ func TestAttachmentToTextWithBlocks(t *testing.T) {
 		},
 	}
 
-	result := AttachmentToText(att, ModeFull)
+	result := attachmentToText(att, ModeFull)
 	if result != "Blocks: block content" {
-		t.Errorf("AttachmentToText() = %q, want %q", result, "Blocks: block content")
+		t.Errorf("attachmentToText() = %q, want %q", result, "Blocks: block content")
 	}
 }
 
@@ -425,10 +425,10 @@ func TestAttachmentToTextWithBlocksAndText(t *testing.T) {
 		},
 	}
 
-	result := AttachmentToText(att, ModeFull)
+	result := attachmentToText(att, ModeFull)
 	expected := "Title: Email Subject; Text: email body; Blocks: extra block info"
 	if result != expected {
-		t.Errorf("AttachmentToText() = %q, want %q", result, expected)
+		t.Errorf("attachmentToText() = %q, want %q", result, expected)
 	}
 }
 
@@ -543,9 +543,9 @@ func TestAttachmentToText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := AttachmentToText(tt.att, ModeFull)
+			got := attachmentToText(tt.att, ModeFull)
 			if got != tt.want {
-				t.Errorf("AttachmentToText() = %q, want %q", got, tt.want)
+				t.Errorf("attachmentToText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -553,7 +553,7 @@ func TestAttachmentToText(t *testing.T) {
 
 func TestAttachmentToTextCompact(t *testing.T) {
 	mode := ModeStandard
-	got := AttachmentToText(slack.Attachment{
+	got := attachmentToText(slack.Attachment{
 		Title:     "Free Ideas",
 		TitleLink: "https://loop.substack.com/",
 		Text:      "Short preview body that fits the standard-mode budget.",
@@ -563,7 +563,7 @@ func TestAttachmentToTextCompact(t *testing.T) {
 	// footer is not part of the standard-mode priority list and stays absent.
 	want := "Free Ideas (https://loop.substack.com/); Short preview body that fits the standard-mode budget."
 	if got != want {
-		t.Errorf("AttachmentToText() = %q, want %q", got, want)
+		t.Errorf("attachmentToText() = %q, want %q", got, want)
 	}
 }
 
@@ -577,7 +577,7 @@ func TestUnitAttachmentCompactIncludesFields(t *testing.T) {
 		},
 	}
 
-	got := AttachmentToText(att, ModeStandard)
+	got := attachmentToText(att, ModeStandard)
 	for _, part := range []string{"Alert fired", "https://alerts.example.com/123", "sev: P1", "svc: api-gw"} {
 		if !strings.Contains(got, part) {
 			t.Errorf("ModeStandard output %q should contain %q", got, part)
@@ -599,7 +599,7 @@ func TestUnitAttachmentCompactTruncatesWithReceipt(t *testing.T) {
 		Text: strings.Repeat("stack trace frame ", 30) + "FINAL-FRAME",
 	}
 
-	got := AttachmentToText(att, ModeStandard)
+	got := attachmentToText(att, ModeStandard)
 	if !strings.HasSuffix(got, attachmentTruncationReceipt) {
 		t.Fatalf("ModeStandard output %q should end with the truncation receipt", got)
 	}
@@ -612,7 +612,7 @@ func TestUnitAttachmentCompactTruncatesWithReceipt(t *testing.T) {
 	}
 
 	// Full mode remains the untouched recovery path: everything renders, no receipt.
-	full := AttachmentToText(att, ModeFull)
+	full := attachmentToText(att, ModeFull)
 	if !strings.Contains(full, "FINAL-FRAME") {
 		t.Errorf("ModeFull output %q should contain the full body text", full)
 	}
@@ -631,7 +631,7 @@ func TestUnitAttachmentCompactNoReceiptWhenFits(t *testing.T) {
 		Text: "All 128 tests green.",
 	}
 
-	got := AttachmentToText(att, ModeStandard)
+	got := attachmentToText(att, ModeStandard)
 	if strings.Contains(got, attachmentTruncationReceipt) {
 		t.Errorf("ModeStandard output %q should not contain the truncation receipt", got)
 	}
@@ -646,10 +646,10 @@ func TestUnitAttachmentCompactTitleOnlyUnchanged(t *testing.T) {
 		TitleLink: "https://link",
 	}
 
-	got := AttachmentToText(att, ModeStandard)
+	got := attachmentToText(att, ModeStandard)
 	want := "Title (https://link)"
 	if got != want {
-		t.Errorf("AttachmentToText() = %q, want %q", got, want)
+		t.Errorf("attachmentToText() = %q, want %q", got, want)
 	}
 }
 
@@ -658,7 +658,7 @@ func TestUnitAttachmentCompactOversizedTitle(t *testing.T) {
 		Title: strings.Repeat("A", 400),
 	}
 
-	got := AttachmentToText(att, ModeStandard)
+	got := attachmentToText(att, ModeStandard)
 	if !strings.HasSuffix(got, attachmentTruncationReceipt) {
 		t.Fatalf("ModeStandard output %q should end with the truncation receipt", got)
 	}
@@ -676,7 +676,7 @@ func TestUnitAttachmentCompactOversizedTitleMultibyte(t *testing.T) {
 		Title: strings.Repeat("é", 200),
 	}
 
-	got := AttachmentToText(att, ModeStandard)
+	got := attachmentToText(att, ModeStandard)
 	if !strings.HasSuffix(got, attachmentTruncationReceipt) {
 		t.Fatalf("ModeStandard output %q should end with the truncation receipt", got)
 	}
@@ -746,110 +746,6 @@ func TestAttachmentsTo2CSV(t *testing.T) {
 			got := AttachmentsTo2CSV(tt.msgText, tt.attachments, ModeFull)
 			if got != tt.want {
 				t.Errorf("AttachmentsTo2CSV() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsUnfurlingEnabled(t *testing.T) {
-	tests := []struct {
-		name string
-		opt  string
-		text string
-		want bool
-	}{
-		{
-			name: "no domains",
-			opt:  "example.com,foo.io",
-			text: "Hello world, no domains here.",
-			want: true,
-		},
-		{
-			name: "allowed URL",
-			opt:  "example.com,foo.io",
-			text: "Check this link: http://example.com/page",
-			want: true,
-		},
-		{
-			name: "disallowed URL",
-			opt:  "example.com,foo.io",
-			text: "Visit http://bad.com now",
-			want: false,
-		},
-		{
-			name: "allowed bare domain",
-			opt:  "example.com,foo.io",
-			text: "Visit example.com for info.",
-			want: true,
-		},
-		{
-			name: "disallowed bare domain",
-			opt:  "example.com,foo.io",
-			text: "Visit bad.com for info.",
-			want: false,
-		},
-		{
-			name: "multiple allowed mixed",
-			opt:  "example.com,foo.io",
-			text: "example.com and foo.io and https://example.com/test",
-			want: true,
-		},
-		{
-			name: "one disallowed among many",
-			opt:  "example.com,foo.io",
-			text: "example.com and bar.org",
-			want: false,
-		},
-		{
-			name: "subdomain not allowed",
-			opt:  "example.com,foo.io",
-			text: "Visit sub.example.com",
-			want: false,
-		},
-		{
-			name: "bare domain with port",
-			opt:  "example.com",
-			text: "Service at example.com:8080 is running",
-			want: true,
-		},
-		{
-			name: "invalid TLD skipped",
-			opt:  "example.com",
-			text: "Check foo.invalidtld and example.com",
-			want: true, // foo.invalidtld is ignored, example.com is allowed
-		},
-		{
-			name: "allowed subdomain check",
-			opt:  "sub.example.com,bar.com",
-			text: "Check sub.example.com forsubdomain",
-			want: true,
-		},
-		{
-			name: "enable for all - YOLO mode",
-			opt:  "yes",
-			text: "YOLO mode, any link works http://anydomain.com",
-			want: true,
-		},
-		{
-			name: "enable for all - YOLO mode",
-			opt:  "1",
-			text: "YOLO mode, any link works http://anydomain.com",
-			want: true,
-		},
-		{
-			name: "enable for all - YOLO mode",
-			opt:  "true",
-			text: "YOLO mode, any link works http://anydomain.com",
-			want: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := IsUnfurlingEnabled(tt.text, tt.opt, nil)
-			if got != tt.want {
-				t.Fatalf("opt=%q text=%q → got %v; want %v",
-					tt.opt, tt.text, got, tt.want)
 			}
 		})
 	}

@@ -33,11 +33,12 @@ const activityFeedMaxLimit = 50
 type ActivityHandler struct {
 	apiProvider *provider.ApiProvider
 	logger      *zap.Logger
-	convHandler *ConversationsHandler
+	settings    Settings
+	messages    messagePipeline
 }
 
-func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, convHandler *ConversationsHandler) *ActivityHandler {
-	return &ActivityHandler{apiProvider: apiProvider, logger: logger, convHandler: convHandler}
+func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *ActivityHandler {
+	return &ActivityHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}}
 }
 
 // renderActivityItems is the include_messages=false output: rows keyed by the
@@ -66,7 +67,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	}
 	limit := pageLimit(request, 30, activityFeedMaxLimit)
 
-	mode, err := h.convHandler.settings.outputMode(request)
+	mode, err := h.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +115,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	h.logger.Debug("Filtered unread activity items", zap.Int("count", len(items)))
 
 	if !includeMessages {
-		return renderActivityItems(items, h.convHandler.channelDisplayName, SlackResultMeta("", false, ""))
+		return renderActivityItems(items, h.apiProvider.ChannelLabel, SlackResultMeta("", false, ""))
 	}
 
 	type threadKey struct {
@@ -175,7 +176,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			failedThreads++
 			continue
 		}
-		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies[i], t.ChannelID, false, mode)
+		msgs := h.messages.rows(ctx, replies[i], t.ChannelID, false, mode)
 		allMessages = append(allMessages, msgs...)
 	}
 
@@ -191,10 +192,10 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	meta := SlackResultMeta("", partialReason != "", partialReason)
 
 	if len(allMessages) == 0 {
-		return renderActivityItems(items, h.convHandler.channelDisplayName, meta)
+		return renderActivityItems(items, h.apiProvider.ChannelLabel, meta)
 	}
 
-	opts := h.convHandler.render(mode, meta)
+	opts := h.messages.render(mode, meta)
 	if opts.trailer, err = csvSection("activity_items", &items); err != nil {
 		return nil, err
 	}

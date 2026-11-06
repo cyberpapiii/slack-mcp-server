@@ -66,13 +66,11 @@ type PeopleChannelsHandler struct {
 	service  PeopleChannelsService
 	identity func() provider.ProviderIdentity
 	logger   *zap.Logger
-	// UserName resolves a user ID to a display name for channels_members;
-	// nil or "" leaves the Name column empty.
-	UserName func(userID string) string
+	labels   Labels
 }
 
-func NewPeopleChannelsHandler(service PeopleChannelsService, identity func() provider.ProviderIdentity, logger *zap.Logger) *PeopleChannelsHandler {
-	return &PeopleChannelsHandler{service: service, identity: identityFunc(identity), logger: logger}
+func NewPeopleChannelsHandler(service PeopleChannelsService, labels Labels, identity func() provider.ProviderIdentity, logger *zap.Logger) *PeopleChannelsHandler {
+	return &PeopleChannelsHandler{service: service, labels: labels, identity: identityFunc(identity), logger: logger}
 }
 
 func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -186,10 +184,7 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 	}
 	rows := make([]ChannelMemberRow, len(page.UserIDs))
 	for i, id := range page.UserIDs {
-		rows[i] = ChannelMemberRow{UserID: id}
-		if h.UserName != nil {
-			rows[i].Name = h.UserName(id)
-		}
+		rows[i] = ChannelMemberRow{UserID: id, Name: h.labels.UserLabel(id)}
 	}
 	csvBytes, err := gocsv.MarshalBytes(&rows)
 	if err != nil {

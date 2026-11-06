@@ -6,6 +6,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// mapLabels is a Labels backed by fixed maps.
+type mapLabels struct {
+	channels map[string]string
+	users    map[string]string
+}
+
+func (l mapLabels) ChannelLabel(id string) string { return l.channels[id] }
+
+func (l mapLabels) UserLabel(id string) string { return l.users[id] }
+
 func TestNewCSVResultCommentLines(t *testing.T) {
 	result := NewCSVResult("#users: U1=alice\n", SlackResultMeta("abc", true, "stopped at limit"), "User,Text\nalice,hi\n")
 

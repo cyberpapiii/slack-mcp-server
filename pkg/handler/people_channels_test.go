@@ -64,7 +64,7 @@ func peopleRequest(arguments map[string]any) mcp.CallToolRequest {
 }
 
 func newPeopleHandler(service PeopleChannelsService) *PeopleChannelsHandler {
-	return NewPeopleChannelsHandler(service, func() provider.ProviderIdentity {
+	return NewPeopleChannelsHandler(service, mapLabels{}, func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user", TokenMode: "user-oauth"}
 	}, zap.NewNop())
 }
@@ -130,12 +130,7 @@ func TestPeopleHandlerEmojiAndMembersReturnCSVWithNextCursor(t *testing.T) {
 		members: provider.ChannelMembersPage{ChannelID: "C1", UserIDs: []string{"U1", "U2"}, NextCursor: "next"},
 	}
 	handler := newPeopleHandler(service)
-	handler.UserName = func(id string) string {
-		if id == "U1" {
-			return "Alice Smith"
-		}
-		return ""
-	}
+	handler.labels = mapLabels{users: map[string]string{"U1": "Alice Smith"}}
 
 	emojiResult, err := served(handler.ListEmoji(context.Background(), peopleRequest(map[string]any{"limit": 10})))
 	require.NoError(t, err)

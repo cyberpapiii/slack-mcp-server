@@ -265,7 +265,7 @@ func TestUnitListSavedShowsCustomToDosWithoutFetchingMessages(t *testing.T) {
 }
 
 func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
-	h := NewSavedHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
+	h := NewSavedHandler(&provider.ApiProvider{}, zap.NewNop(), Settings{})
 	ctx := context.Background()
 
 	req := mcp.CallToolRequest{}
@@ -294,7 +294,7 @@ func newStubSavedHandler(pages []edge.SavedListResponse, onPage func(n int), onI
 	return &SavedHandler{
 		apiProvider: &provider.ApiProvider{},
 		logger:      zap.NewNop(),
-		convHandler: &ConversationsHandler{apiProvider: &provider.ApiProvider{}, logger: zap.NewNop()},
+		messages:    messagePipeline{api: &provider.ApiProvider{}, logger: zap.NewNop()},
 		pace:        rate.NewLimiter(rate.Inf, 0),
 		listPage: func(context.Context, string, int, string) (edge.SavedListResponse, error) {
 			page := pages[calls]

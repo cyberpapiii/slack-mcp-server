@@ -10,8 +10,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/slack-go/slack"
-	"go.uber.org/zap"
-	"golang.org/x/net/publicsuffix"
 )
 
 // OutputMode selects the render fidelity for tool output.
@@ -37,7 +35,7 @@ func ResolveOutputMode(detailParam string, fallback OutputMode) (OutputMode, err
 	}
 }
 
-func AttachmentToText(att slack.Attachment, mode OutputMode) string {
+func attachmentToText(att slack.Attachment, mode OutputMode) string {
 	if mode == ModeFull {
 		return attachmentToFullText(att)
 	}
@@ -254,7 +252,7 @@ func AttachmentsTo2CSV(msgText string, attachments []slack.Attachment, mode Outp
 
 	var descriptions []string
 	for _, att := range attachments {
-		plainText := AttachmentToText(att, mode)
+		plainText := attachmentToText(att, mode)
 		if plainText != "" {
 			descriptions = append(descriptions, plainText)
 		}
@@ -266,70 +264,6 @@ func AttachmentsTo2CSV(msgText string, attachments []slack.Attachment, mode Outp
 	}
 
 	return prefix + strings.Join(descriptions, ", ")
-}
-
-func IsUnfurlingEnabled(text string, opt string, logger *zap.Logger) bool {
-	if opt == "" || opt == "no" || opt == "false" || opt == "0" {
-		return false
-	}
-
-	if opt == "yes" || opt == "true" || opt == "1" {
-		return true
-	}
-
-	allowed := make(map[string]struct{}, 0)
-	for _, d := range strings.Split(opt, ",") {
-		d = strings.ToLower(strings.TrimSpace(d))
-		if d == "" {
-			continue
-		}
-		allowed[d] = struct{}{}
-	}
-
-	urls := unfurlURLRegex.FindAllString(text, -1)
-	for _, rawURL := range urls {
-		u, err := url.Parse(rawURL)
-		if err != nil || u.Host == "" {
-			continue
-		}
-		host := strings.ToLower(u.Host)
-		if idx := strings.Index(host, ":"); idx != -1 {
-			host = host[:idx]
-		}
-		host = strings.TrimPrefix(host, "www.")
-		if _, ok := allowed[host]; !ok {
-			if logger != nil {
-				logger.Warn("Security: attempt to unfurl non-whitelisted host",
-					zap.String("host", host),
-					zap.String("allowed", opt),
-				)
-			}
-			return false
-		}
-	}
-
-	txtNoURLs := unfurlURLRegex.ReplaceAllString(text, " ")
-	doms := unfurlDomainRegex.FindAllString(txtNoURLs, -1)
-
-	for _, d := range doms {
-		d = strings.ToLower(d)
-
-		if _, icann := publicsuffix.PublicSuffix(d); !icann {
-			continue
-		}
-
-		if _, ok := allowed[d]; !ok {
-			if logger != nil {
-				logger.Warn("Security: attempt to unfurl non-whitelisted host",
-					zap.String("host", d),
-					zap.String("allowed", opt),
-				)
-			}
-			return false
-		}
-	}
-
-	return true
 }
 
 func Workspace(rawURL string) (string, error) {
@@ -379,8 +313,6 @@ var (
 	markdownLinkRegex = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)]+)\)`)
 	htmlLinkRegex     = regexp.MustCompile(`<a\s+href=["']([^"']+)["'][^>]*>([^<]+)</a>`)
 	inlineSpaceRegex  = regexp.MustCompile(`[ \t]+`)
-	unfurlURLRegex    = regexp.MustCompile(`https?://[^\s]+`)
-	unfurlDomainRegex = regexp.MustCompile(`\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}\b`)
 )
 
 // normalizeLinks rewrites Slack, Markdown and HTML links as "url - label",

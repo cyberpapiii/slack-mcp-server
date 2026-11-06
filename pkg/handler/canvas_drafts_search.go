@@ -107,13 +107,11 @@ type DraftsHandler struct {
 	api       provider.DraftsAPI
 	approvals approvalGate
 	logger    *zap.Logger
-	// ChannelName resolves a conversation ID to its cached "#name" or "@user"
-	// label for the #channels legend. nil leaves the legend out.
-	ChannelName func(channelID string) string
+	labels    Labels
 }
 
-func NewDraftsHandler(api provider.DraftsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *DraftsHandler {
-	return &DraftsHandler{api: api, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
+func NewDraftsHandler(api provider.DraftsAPI, labels Labels, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *DraftsHandler {
+	return &DraftsHandler{api: api, labels: labels, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
 }
 
 type DraftMutationData struct {
@@ -150,7 +148,7 @@ func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (
 	if err != nil {
 		return nil, err
 	}
-	return NewCSVResult(channelsLegend(channelIDs, h.ChannelName), SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
+	return NewCSVResult(channelsLegend(channelIDs, h.labels.ChannelLabel), SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
 }
 
 // slackTsTime renders a Slack "seconds.micros" timestamp as RFC3339 and
@@ -251,13 +249,11 @@ func decodeDraft(request mcp.CallToolRequest, requireID bool) (provider.Draft, e
 type SemanticSearchHandler struct {
 	api    provider.SemanticSearchAPI
 	logger *zap.Logger
-	// ChannelName resolves a conversation ID to its cached "#name" or "@user"
-	// label for the #channels legend. nil leaves the legend out.
-	ChannelName func(channelID string) string
+	labels Labels
 }
 
-func NewSemanticSearchHandler(api provider.SemanticSearchAPI, logger *zap.Logger) *SemanticSearchHandler {
-	return &SemanticSearchHandler{api: api, logger: logger}
+func NewSemanticSearchHandler(api provider.SemanticSearchAPI, labels Labels, logger *zap.Logger) *SemanticSearchHandler {
+	return &SemanticSearchHandler{api: api, labels: labels, logger: logger}
 }
 
 // semanticMessageColumns mirror the history row shape so message hits read
@@ -327,7 +323,7 @@ func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallTool
 	for i, item := range page.Items {
 		channelIDs[i] = item.ChannelID
 	}
-	return NewCSVResult(channelsLegend(channelIDs, h.ChannelName), SlackResultMeta(page.NextCursor, false, ""), csvText), nil
+	return NewCSVResult(channelsLegend(channelIDs, h.labels.ChannelLabel), SlackResultMeta(page.NextCursor, false, ""), csvText), nil
 }
 
 // Tools lists the MCP tools this handler serves.

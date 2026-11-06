@@ -490,27 +490,6 @@ func TestUnitFormatThreadTs(t *testing.T) {
 	}
 }
 
-func TestUnitIsSlackUserIDPrefix(t *testing.T) {
-	tests := []struct {
-		name string
-		s    string
-		want bool
-	}{
-		{"U prefix", "U0123ABCD", true},
-		{"W prefix", "W0123ABCD", true},
-		{"plain name not ID", "alice", false},
-		{"empty", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isSlackUserIDPrefix(tt.s)
-			if got != tt.want {
-				t.Errorf("isSlackUserIDPrefix(%q) = %v, want %v", tt.s, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestUnitSplitQueryHasModifier(t *testing.T) {
 	free, filters := splitQuery("quarterly report has:link from:@bob")
 	assert.Equal(t, []string{"quarterly", "report"}, free)
@@ -724,29 +703,7 @@ func TestUnitCompactCSVLegendDeterministic(t *testing.T) {
 	assert.Equal(t, body1, body2)
 }
 
-// Documented 'D1234567890' filter_in_im_or_mpim is a conversation ID, not a user ID.
-func TestUnitIsSlackConversationIDPrefix(t *testing.T) {
-	tests := []struct {
-		input string
-		want  bool
-	}{
-		{"D1234567890", true},
-		{"G1234567890", true},
-		{"U1234567890", false},
-		{"W1234567890", false},
-		{"C1234567890", false},
-		{"@username_dm", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, isSlackConversationIDPrefix(tt.input))
-		})
-	}
-}
-
-func TestUnitFormatConversationFilter(t *testing.T) {
+func TestUnitConversationFilter(t *testing.T) {
 	cms := &provider.ChannelsCache{
 		Channels: map[string]provider.Channel{
 			"D1234567890": {ID: "D1234567890", Name: "@alice", IsIM: true, User: "U0000000001"},
@@ -755,24 +712,25 @@ func TestUnitFormatConversationFilter(t *testing.T) {
 		},
 		ChannelsInv: map[string]string{},
 	}
+	dir := provider.NewDirectory(nil, cms)
 
 	tests := []struct {
 		name    string
-		cms     *provider.ChannelsCache
+		dir     *provider.Directory
 		input   string
 		want    string
 		wantErr bool
 	}{
-		{"DM resolves to the peer user link", cms, "D1234567890", "<@U0000000001>", false},
-		{"DM without a peer falls back to the cached name", cms, "D2222222222", "@bob", false},
-		{"MPIM resolves to the cached name", cms, "G1234567890", "@mpdm-alice--bob--carol", false},
-		{"unknown conversation errors", cms, "D9999999999", "", true},
-		{"nil cache errors", nil, "D1234567890", "", true},
+		{"DM resolves to the peer user link", dir, "D1234567890", "<@U0000000001>", false},
+		{"DM without a peer falls back to the cached name", dir, "D2222222222", "@bob", false},
+		{"MPIM resolves to the cached name", dir, "G1234567890", "@mpdm-alice--bob--carol", false},
+		{"unknown conversation errors", dir, "D9999999999", "", true},
+		{"empty cache errors", provider.NewDirectory(nil, nil), "D1234567890", "", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := formatConversationFilter(tt.cms, tt.input)
+			got, err := conversationFilter(tt.dir, tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
 				// Never the misleading users-map error.

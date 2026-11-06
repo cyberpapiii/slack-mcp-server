@@ -103,7 +103,7 @@ func TestUnitActivityMessagesTrailer(t *testing.T) {
 }
 
 func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
-	h := NewActivityHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
+	h := NewActivityHandler(&provider.ApiProvider{}, zap.NewNop(), Settings{})
 	ctx := context.Background()
 
 	req := mcp.CallToolRequest{}

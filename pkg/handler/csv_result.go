@@ -47,3 +47,12 @@ func channelsLegend(channelIDs []string, channelName func(string) string) string
 	}
 	return "#channels: " + strings.Join(parts, ", ") + "\n"
 }
+
+// Labels names conversations and users for legends and name columns.
+// *provider.ApiProvider is the production implementation.
+type Labels interface {
+	// ChannelLabel is "#name" or "@user", or "" when unknown.
+	ChannelLabel(channelID string) string
+	// UserLabel is the real name, else the username, or "" when unknown.
+	UserLabel(userID string) string
+}

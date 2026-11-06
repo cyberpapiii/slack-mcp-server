@@ -93,7 +93,7 @@ func (f *fakeDraftsAPI) DeleteDraft(_ context.Context, id, _ string) error {
 }
 
 func TestDraftsUnsupportedIsTyped(t *testing.T) {
-	handler := NewDraftsHandler(&fakeDraftsAPI{unsupported: true}, approval.NewStore(), func() provider.ProviderIdentity {
+	handler := NewDraftsHandler(&fakeDraftsAPI{unsupported: true}, mapLabels{}, approval.NewStore(), func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user"}
 	}, zap.NewNop())
 	result, err := served(handler.List(context.Background(), capabilityRequest(map[string]any{"limit": 20})))
@@ -107,13 +107,7 @@ func TestDraftsListReturnsCSVWithChannelsLegendAndNextCursor(t *testing.T) {
 		draft:      provider.Draft{ID: "D1", ChannelID: "C1", ThreadTS: "1723456789.000100", Text: "hello, world", UpdatedTS: "1723456789.000200"},
 		nextCursor: "page2",
 	}
-	handler := NewDraftsHandler(api, approval.NewStore(), nil, zap.NewNop())
-	handler.ChannelName = func(id string) string {
-		if id == "C1" {
-			return "#general"
-		}
-		return ""
-	}
+	handler := NewDraftsHandler(api, mapLabels{channels: map[string]string{"C1": "#general"}}, approval.NewStore(), nil, zap.NewNop())
 	result, err := served(handler.List(context.Background(), capabilityRequest(map[string]any{"limit": 20})))
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)
@@ -122,7 +116,7 @@ func TestDraftsListReturnsCSVWithChannelsLegendAndNextCursor(t *testing.T) {
 
 func TestDraftsListWithoutChannelResolverOmitsLegend(t *testing.T) {
 	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
-	handler := NewDraftsHandler(api, approval.NewStore(), nil, zap.NewNop())
+	handler := NewDraftsHandler(api, mapLabels{}, approval.NewStore(), nil, zap.NewNop())
 	result, err := served(handler.List(context.Background(), capabilityRequest(map[string]any{})))
 	require.NoError(t, err)
 	assert.Equal(t, "DraftID,Channel,ThreadTs,Updated,Text\nD1,C1,,,draft\n", ResultText(result))
@@ -130,7 +124,7 @@ func TestDraftsListWithoutChannelResolverOmitsLegend(t *testing.T) {
 
 func TestDraftDeleteRequiresBoundOneUseApproval(t *testing.T) {
 	api := &fakeDraftsAPI{draft: provider.Draft{ID: "D1", ChannelID: "C1", Text: "draft"}}
-	handler := NewDraftsHandler(api, approval.NewStore(), func() provider.ProviderIdentity {
+	handler := NewDraftsHandler(api, mapLabels{}, approval.NewStore(), func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user"}
 	}, zap.NewNop())
 
@@ -166,8 +160,7 @@ func TestSemanticSearchHandlerSupportsMessageAndFileFilters(t *testing.T) {
 		{Kind: "message", AuthorUserID: "U1", ChannelID: "C1", MessageTS: "1723456789.000200", Content: "launch plan draft"},
 		{Kind: "file", AuthorUserID: "U2", FileID: "F1", Title: "Launch plan", FileType: "canvas", Content: "plan, v2"},
 	}}
-	handler := NewSemanticSearchHandler(api, zap.NewNop())
-	handler.ChannelName = func(id string) string { return map[string]string{"C1": "#launch"}[id] }
+	handler := NewSemanticSearchHandler(api, mapLabels{channels: map[string]string{"C1": "#launch"}}, zap.NewNop())
 	result, err := served(handler.Search(context.Background(), capabilityRequest(map[string]any{"query": "launch plan", "content_types": []any{"messages", "files"}})))
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
@@ -187,7 +180,7 @@ func TestSemanticSearchMessagesOnlyUsesHistoryShapedColumns(t *testing.T) {
 	api := &fakeSemanticAPI{items: []provider.SemanticSearchItem{
 		{Kind: "message", AuthorUserID: "U1", ChannelID: "C1", MessageTS: "1723456789.000200", Content: "match"},
 	}}
-	handler := NewSemanticSearchHandler(api, zap.NewNop())
+	handler := NewSemanticSearchHandler(api, mapLabels{}, zap.NewNop())
 	result, err := served(handler.Search(context.Background(), capabilityRequest(map[string]any{"query": "match", "content_types": []any{"messages"}})))
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)

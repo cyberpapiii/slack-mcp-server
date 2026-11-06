@@ -87,10 +87,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		zap.Int("mpims", len(counts.MPIMs)),
 		zap.Int("ims", len(counts.IMs)))
 
-	usersMap := ch.apiProvider.ProvideUsersMap()
-	channelsMaps := ch.apiProvider.ProvideChannelsMaps()
-
-	unreadChannels, dropped := ch.collectUnreadChannels(params, counts, usersMap, channelsMaps)
+	unreadChannels, dropped := ch.collectUnreadChannels(params, counts, ch.apiProvider.Directory())
 
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
 
@@ -136,13 +133,13 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		// Zero-row window still reports ≥1 when HasUnreads was true.
 		unreadChannels[i].UnreadCount = unreadCountFromHistory(unreadChannels[i].UnreadCount, len(history.Messages), nil)
 
-		channelMessages := ch.convertMessagesFromHistory(ctx, history.Messages, unreadChannels[i].ChannelID, false, mode)
+		channelMessages := ch.messages.rows(ctx, history.Messages, unreadChannels[i].ChannelID, false, mode)
 		allMessages = append(allMessages, channelMessages...)
 	}
 
 	ch.logger.Debug("Fetched unread messages", zap.Int("total", len(allMessages)))
 
-	return marshalMessagesToCSV(allMessages, ch.render(mode, coverage.meta()))
+	return marshalMessagesToCSV(allMessages, ch.messages.render(mode, coverage.meta()))
 }
 
 // unreadsCoverage records why a conversations_unreads page may under-report
@@ -266,8 +263,8 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 
 // collectUnreadChannels turns a client.counts snapshot into the sorted, limited
 // list of unread channels plus the count cut by max_channels. Pure: no API
-// calls. The caller supplies the cache snapshots.
-func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts edge.ClientCountsResponse, usersMap *provider.UsersCache, channelsMaps *provider.ChannelsCache) ([]UnreadChannel, int) {
+// calls. The caller supplies the cache lookups.
+func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts edge.ClientCountsResponse, dir *provider.Directory) ([]UnreadChannel, int) {
 	var unreadChannels []UnreadChannel
 
 	for _, snap := range counts.Channels {
@@ -283,18 +280,9 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			continue
 		}
 
-		channelName := snap.ID
 		channelType := "internal"
-		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
-			name := cached.Name
-			if strings.HasPrefix(name, "#") {
-				channelName = name
-			} else {
-				channelName = "#" + name
-			}
-			if cached.IsExtShared {
-				channelType = "partner"
-			}
+		if cached, ok := dir.ChannelByRef(snap.ID); ok && cached.IsExtShared {
+			channelType = "partner"
 		}
 
 		if params.channelTypes != "all" && channelType != params.channelTypes {
@@ -303,7 +291,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 
 		unreadChannels = append(unreadChannels, UnreadChannel{
 			ChannelID:   snap.ID,
-			ChannelName: channelName,
+			ChannelName: unreadChannelName(dir, snap.ID),
 			ChannelType: channelType,
 			UnreadCount: snap.MentionCount,
 			LastRead:    snap.LastRead.SlackString(),
@@ -327,19 +315,9 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			continue
 		}
 
-		channelName := snap.ID
-		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
-			name := cached.Name
-			if strings.HasPrefix(name, "#") {
-				channelName = name
-			} else {
-				channelName = "#" + name
-			}
-		}
-
 		unreadChannels = append(unreadChannels, UnreadChannel{
 			ChannelID:   snap.ID,
-			ChannelName: channelName,
+			ChannelName: unreadChannelName(dir, snap.ID),
 			ChannelType: "group_dm",
 			UnreadCount: snap.MentionCount,
 			LastRead:    snap.LastRead.SlackString(),
@@ -363,20 +341,9 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			continue
 		}
 
-		channelName := snap.ID
-		if cached, ok := channelsMaps.Channels[snap.ID]; ok {
-			if cached.User != "" {
-				if u, ok := usersMap.Users[cached.User]; ok {
-					channelName = "@" + u.Name
-				} else {
-					channelName = "@" + cached.User
-				}
-			}
-		}
-
 		unreadChannels = append(unreadChannels, UnreadChannel{
 			ChannelID:   snap.ID,
-			ChannelName: channelName,
+			ChannelName: unreadChannelName(dir, snap.ID),
 			ChannelType: "dm",
 			UnreadCount: snap.MentionCount,
 			LastRead:    snap.LastRead.SlackString(),
@@ -395,10 +362,18 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 	return unreadChannels, dropped
 }
 
+// unreadChannelName is the cached label for a conversation, or its ID.
+func unreadChannelName(dir *provider.Directory, id string) string {
+	if label := dir.ChannelLabel(id); label != "" {
+		return label
+	}
+	return id
+}
+
 // ConversationsMarkHandler marks a channel as read up to a specific timestamp
 func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	params, err := ch.parseParamsToolMark(request)
+	params, err := ch.parseParamsToolMark(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse mark params", zap.Error(err))
 		return nil, err
@@ -446,7 +421,7 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 		return nil, invalidArguments("channel_id is required")
 	}
 
-	channel, err := ch.resolveChannelID(ctx, channel)
+	channel, err := ch.messages.channelID(ctx, channel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve channel: %w", err)
 	}
@@ -473,7 +448,7 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 		return nil, invalidArguments("channel_id is required")
 	}
 
-	channel, err := ch.resolveChannelID(ctx, channel)
+	channel, err := ch.messages.channelID(ctx, channel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve channel: %w", err)
 	}
@@ -548,26 +523,25 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 	}
 
 	var userIDs []string
-	usersMap := ch.apiProvider.ProvideUsersMap()
-
 	for _, user := range strings.Split(usersStr, ",") {
 		user = strings.TrimSpace(user)
 		if user == "" {
 			continue
 		}
-
-		if strings.HasPrefix(user, "@") {
-			username := strings.TrimPrefix(user, "@")
-			if id, ok := usersMap.UsersInv[username]; ok {
-				userIDs = append(userIDs, id)
-			} else {
-				ch.logger.Debug("User not found", zap.String("username", username))
-				return nil, userNotFound(user)
-			}
-		} else {
-			// Assume it's a User ID
-			userIDs = append(userIDs, user)
+		if id, _ := provider.ParseUserRef(user); id != "" {
+			userIDs = append(userIDs, id)
+			continue
 		}
+		if !strings.HasPrefix(user, "@") {
+			// Anything else goes to Slack as given, for Slack to judge.
+			userIDs = append(userIDs, user)
+			continue
+		}
+		u, ok := ch.apiProvider.UserByRef(user)
+		if !ok {
+			return nil, userNotFound(user)
+		}
+		userIDs = append(userIDs, u.ID)
 	}
 
 	if len(userIDs) == 0 {
@@ -639,7 +613,7 @@ func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolReque
 	}, nil
 }
 
-func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest) (*markParams, error) {
+func (ch *ConversationsHandler) parseParamsToolMark(ctx context.Context, request mcp.CallToolRequest) (*markParams, error) {
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
@@ -647,14 +621,9 @@ func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest)
 		return nil, invalidArguments("channel_id is required")
 	}
 
-	if strings.HasPrefix(channel, "#") || strings.HasPrefix(channel, "@") {
-		channelsMaps := ch.apiProvider.ProvideChannelsMaps()
-		chn, ok := channelsMaps.ChannelsInv[channel]
-		if !ok {
-			ch.logger.Debug("Channel not found", zap.String("channel", channel))
-			return nil, channelNotFound(channel)
-		}
-		channel = channelsMaps.Channels[chn].ID
+	channel, err := ch.messages.channelID(ctx, channel)
+	if err != nil {
+		return nil, err
 	}
 
 	ts := request.GetString("timestamp", "")

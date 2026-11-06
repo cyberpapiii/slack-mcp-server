@@ -7,7 +7,6 @@ import (
 
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
 )
@@ -25,19 +24,9 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 		return nil, err
 	}
 
-	ar, err := ch.apiProvider.Slack().AuthTest()
+	ws, err := workspaceName(ch.apiProvider, ch.logger)
 	if err != nil {
-		ch.logger.Error("Slack AuthTest failed", zap.Error(err))
 		return nil, err
-	}
-
-	ws, err := text.Workspace(ar.URL)
-	if err != nil {
-		ch.logger.Error("Failed to parse workspace from URL",
-			zap.String("url", ar.URL),
-			zap.Error(err),
-		)
-		return nil, fmt.Errorf("failed to parse workspace from URL: %w", err)
 	}
 
 	usersMaps := ch.apiProvider.ProvideUsersMap()
@@ -90,21 +79,14 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 		return nil, fmt.Errorf("users search failed: %w", err)
 	}
 
-	channelsMap := ch.apiProvider.ProvideChannelsMaps()
-
+	dir := ch.apiProvider.Directory()
 	results := make([]UserSearchResult, 0, len(users))
 	for _, user := range users {
 		if user.Deleted {
 			continue
 		}
-
-		dmChannelID := ""
-		for _, ch := range channelsMap.Channels {
-			if ch.IsIM && ch.User == user.ID {
-				dmChannelID = ch.ID
-				break
-			}
-		}
+		dm, _ := dir.DMChannelFor(user.ID)
+		dmChannelID := dm.ID
 
 		results = append(results, UserSearchResult{
 			UserID:      user.ID,
