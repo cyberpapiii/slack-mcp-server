@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/gocarina/gocsv"
-	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
@@ -14,11 +13,6 @@ import (
 
 func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	ch.logger.Debug("UsersResource called")
-
-	if authenticated, err := auth.IsAuthenticated(ctx, ch.apiProvider.ServerTransport(), ch.logger); !authenticated {
-		ch.logger.Error("Authentication failed for users resource", zap.Error(err))
-		return nil, err
-	}
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Warn("API provider not ready", zap.Error(err))

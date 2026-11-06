@@ -26,7 +26,7 @@ func TestDemoCredentialsBuildFullClient(t *testing.T) {
 			}
 			require.True(t, IsDemoCredentials())
 
-			ap, err := New("stdio", zap.NewNop())
+			ap, err := New(zap.NewNop())
 			require.NoError(t, err)
 			defer ap.Close()
 			require.NotNil(t, ap.WebAPI(), "demo must expose the Web API surface")
@@ -51,7 +51,7 @@ func TestUnitFailedManagedOAuthFallsBackToBrowserSession(t *testing.T) {
 	t.Setenv("SLACK_MCP_XOXC_TOKEN", "demo")
 	t.Setenv("SLACK_MCP_XOXD_TOKEN", "demo")
 
-	ap, err := New("stdio", zap.NewNop())
+	ap, err := New(zap.NewNop())
 	require.NoError(t, err, "a dead OAuth login must not take the browser session down with it")
 	defer ap.Close()
 
@@ -66,7 +66,7 @@ func TestUnitFailedManagedOAuthStaysFatalWithoutBrowserSession(t *testing.T) {
 	}
 	t.Setenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT", "slack-mcp-test-account-that-does-not-exist")
 
-	_, err := New("stdio", zap.NewNop())
+	_, err := New(zap.NewNop())
 	require.ErrorContains(t, err, "load managed OAuth credential")
 }
 

@@ -47,10 +47,9 @@ type ApiProvider struct {
 	// continued on the browser session instead. OAuth-only tools are absent.
 	oauthLoadErr error
 
-	creds     CredentialConfig
-	transport string
-	client    SlackAPI
-	logger    *zap.Logger
+	creds  CredentialConfig
+	client SlackAPI
+	logger *zap.Logger
 
 	// ctx bounds every background goroutine the provider starts; Close cancels it.
 	ctx    context.Context
@@ -93,7 +92,7 @@ type ProviderIdentity struct {
 
 // New resolves credentials from the environment and authenticates once.
 // Every failure is returned; the caller decides whether it is fatal.
-func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
+func New(logger *zap.Logger) (*ApiProvider, error) {
 	creds := CredentialConfigFromEnv()
 	xoxpToken, xoxbToken, xoxcToken, xoxdToken := creds.XOXP, creds.XOXB, creds.XOXC, creds.XOXD
 	browserAccount := creds.BrowserKeychainAccount
@@ -151,7 +150,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 			xoxc: xoxcToken, xoxd: xoxdToken, loadErr: browserLoadErr,
 			account: browserAccount, envXoxc: envXoxc, envXoxd: envXoxd,
 		}
-		ap, err := newProvider(transport, authProvider, creds, browser.configured(), logger)
+		ap, err := newProvider(authProvider, creds, browser.configured(), logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -173,7 +172,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 			zap.String("token_type", "xoxb"),
 		)
 
-		ap, err := newProvider(transport, authProvider, creds, false, logger)
+		ap, err := newProvider(authProvider, creds, false, logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -185,7 +184,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXC/XOXD tokens: %w", err)
 		}
-		ap, err := newProvider(transport, authProvider, creds, true, logger)
+		ap, err := newProvider(authProvider, creds, true, logger)
 		if err != nil {
 			if oauthLoadErr != nil {
 				err = errors.Join(err, oauthLoadErr)
@@ -254,7 +253,7 @@ func (ap *ApiProvider) startUserOAuth(managed *oauthcred.Manager, record oauthcr
 	ap.startBrowserReprobe(client, browser.account, browser.envXoxc, browser.envXoxd)
 }
 
-func newProvider(transport string, authProvider slackcreds.Credentials, creds CredentialConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
+func newProvider(authProvider slackcreds.Credentials, creds CredentialConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
 	client, err := newMCPSlackClient(authProvider, creds.Demo(), browserConfigured, logger)
 	if err != nil {
 		return nil, err
@@ -279,12 +278,11 @@ func newProvider(transport string, authProvider slackcreds.Credentials, creds Cr
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ap := &ApiProvider{
-		creds:     creds,
-		transport: transport,
-		client:    client,
-		logger:    logger,
-		ctx:       ctx,
-		cancel:    cancel,
+		creds:  creds,
+		client: client,
+		logger: logger,
+		ctx:    ctx,
+		cancel: cancel,
 
 		cacheTTL:           getCacheTTL(),
 		minRefreshInterval: getMinRefreshInterval(),
@@ -342,10 +340,6 @@ func (ap *ApiProvider) ChannelsCacheReady() bool {
 func (ap *ApiProvider) SkipCache() {
 	ap.usersReady.Store(true)
 	ap.channelsReady.Store(true)
-}
-
-func (ap *ApiProvider) ServerTransport() string {
-	return ap.transport
 }
 
 func (ap *ApiProvider) Slack() SlackAPI {

@@ -124,12 +124,10 @@ func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
 	return true, nil
 }
 
-// AuthFromRequest extracts the auth token from the request headers.
-func AuthFromRequest(logger *zap.Logger) func(context.Context, *http.Request) context.Context {
-	return func(ctx context.Context, r *http.Request) context.Context {
-		authHeader := r.Header.Get("Authorization")
-		return withAuthKey(ctx, authHeader)
-	}
+// AuthFromRequest carries the request's Authorization header in ctx for the
+// tool and resource middlewares to check.
+func AuthFromRequest(ctx context.Context, r *http.Request) context.Context {
+	return withAuthKey(ctx, r.Header.Get("Authorization"))
 }
 
 // BuildMiddleware creates a middleware function that ensures authentication based on the provided transport type.
@@ -152,6 +150,19 @@ func BuildMiddleware(transport string, logger *zap.Logger) server.ToolHandlerMid
 				zap.String("tool", req.Params.Name),
 			)
 
+			return next(ctx, req)
+		}
+	}
+}
+
+// BuildResourceMiddleware applies the tool calls' authentication to resource
+// reads.
+func BuildResourceMiddleware(transport string, logger *zap.Logger) server.ResourceHandlerMiddleware {
+	return func(next server.ResourceHandlerFunc) server.ResourceHandlerFunc {
+		return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			if authenticated, err := IsAuthenticated(ctx, transport, logger); !authenticated {
+				return nil, err
+			}
 			return next(ctx, req)
 		}
 	}

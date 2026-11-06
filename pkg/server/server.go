@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -35,12 +34,13 @@ type MCPServer struct {
 // NewMCPServer registers every enabled tool whose credential requirement the
 // provider meets. Tools the capability table marks CacheReady wait for
 // RegisterCacheDependentTools.
-func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledTools []string, settings handler.Settings) *MCPServer {
+func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.Logger, enabledTools []string, settings handler.Settings) *MCPServer {
 	opts := append([]server.ServerOption{
 		server.WithLogging(),
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, true),
-	}, toolHandlerOptions(provider.ServerTransport(), logger, settings.LogParams)...)
+		server.WithResourceHandlerMiddleware(auth.BuildResourceMiddleware(transport, logger)),
+	}, toolHandlerOptions(transport, logger, settings.LogParams)...)
 	s := server.NewMCPServer("Slack MCP Server", version.Version, opts...)
 
 	logger.Info("Authenticating with Slack API...",
@@ -145,11 +145,7 @@ func (s *MCPServer) ServeSSE(addr string) *server.SSEServer {
 	)
 	return server.NewSSEServer(s.server,
 		server.WithBaseURL(fmt.Sprintf("http://%s", addr)),
-		server.WithSSEContextFunc(func(ctx context.Context, r *http.Request) context.Context {
-			ctx = auth.AuthFromRequest(s.logger)(ctx, r)
-
-			return ctx
-		}),
+		server.WithSSEContextFunc(auth.AuthFromRequest),
 	)
 }
 
@@ -163,11 +159,7 @@ func (s *MCPServer) ServeHTTP(addr string) *server.StreamableHTTPServer {
 	)
 	return server.NewStreamableHTTPServer(s.server,
 		server.WithEndpointPath("/mcp"),
-		server.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
-			ctx = auth.AuthFromRequest(s.logger)(ctx, r)
-
-			return ctx
-		}),
+		server.WithHTTPContextFunc(auth.AuthFromRequest),
 	)
 }
 
@@ -195,9 +187,6 @@ func stdioExitErr(logger *zap.Logger, err error) error {
 	return err
 }
 
-// buildErrorRecoveryMiddleware converts tool handler errors into MCP tool results
-// with isError=true, allowing LLMs to see the error and retry with different parameters.
-// Without this, errors become JSON-RPC -32603 protocol errors that crash MCP clients.
 // toolHandlerOptions is the middleware stack every tool call runs through.
 // mcp-go wraps middlewares in reverse registration order. Auth stays outermost
 // so API-key failures remain protocol errors; WithRecovery sits innermost so a
@@ -212,6 +201,9 @@ func toolHandlerOptions(transport string, logger *zap.Logger, logParams bool) []
 	}
 }
 
+// buildErrorRecoveryMiddleware converts tool handler errors into MCP tool results
+// with isError=true, allowing LLMs to see the error and retry with different parameters.
+// Without this, errors become JSON-RPC -32603 protocol errors that crash MCP clients.
 func buildErrorRecoveryMiddleware(logger *zap.Logger) server.ToolHandlerMiddleware {
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
