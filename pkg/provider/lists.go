@@ -8,39 +8,14 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 )
 
-type ListsErrorKind string
-
-const (
-	ListsErrorUnavailable ListsErrorKind = "paid_plan_unavailable"
-	ListsErrorScope       ListsErrorKind = "missing_scope"
-	ListsErrorPermission  ListsErrorKind = "permission_denied"
-	ListsErrorRateLimit   ListsErrorKind = "rate_limited"
-	ListsErrorConflict    ListsErrorKind = "conflict"
-	ListsErrorAPI         ListsErrorKind = "slack_api_error"
-)
-
-type ListsAPIError struct {
-	Kind           ListsErrorKind
-	SlackCode      string
-	StatusCode     int
-	RetryAfter     time.Duration
-	MayHaveMutated bool
-}
-
-func (e *ListsAPIError) Error() string {
-	if e.SlackCode != "" {
-		return fmt.Sprintf("Slack Lists %s: %s", e.Kind, e.SlackCode)
-	}
-	return fmt.Sprintf("Slack Lists %s", e.Kind)
-}
-
-func (e *ListsAPIError) Retryable() bool { return e.Kind == ListsErrorRateLimit }
+// ErrOutcomeUnknown marks a write whose result Slack did not report: it may
+// have been applied.
+var ErrOutcomeUnknown = errors.New("Slack may have applied the change")
 
 type ListsClient struct {
 	HTTPClient    *http.Client
@@ -317,52 +292,28 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 	})
 	if err != nil {
 		var limited *slack.RateLimitedError
-		if errors.As(err, &limited) {
-			return &ListsAPIError{Kind: ListsErrorRateLimit, StatusCode: http.StatusTooManyRequests, RetryAfter: limited.RetryAfter}
-		}
 		var status slack.StatusCodeError
-		if errors.As(err, &status) {
-			return &ListsAPIError{Kind: ListsErrorAPI, StatusCode: status.Code, MayHaveMutated: mutates && status.Code >= 500}
-		}
-		if mutates {
-			return listsOutcomeUnknown()
+		if mutates && !errors.As(err, &limited) && !errors.As(err, &status) {
+			// The request may have reached Slack before the connection or the
+			// body read failed.
+			return fmt.Errorf("call %s: %w: %w", method, ErrOutcomeUnknown, err)
 		}
 		return fmt.Errorf("call %s: %w", method, err)
 	}
 	if err := slackhttp.Decode(body, output); err != nil {
 		var slackErr slack.SlackErrorResponse
-		if errors.As(err, &slackErr) {
-			return classifyListsError(slackErr.Err)
-		}
-		if mutates {
-			return listsOutcomeUnknown()
+		if mutates && !errors.As(err, &slackErr) {
+			// A 2xx whose body is unreadable says nothing about whether the
+			// write landed.
+			return fmt.Errorf("decode %s response: %w: %w", method, ErrOutcomeUnknown, err)
 		}
 		return fmt.Errorf("decode %s response: %w", method, err)
 	}
 	return nil
 }
 
-func listsOutcomeUnknown() error {
-	return &ListsAPIError{Kind: ListsErrorAPI, SlackCode: "outcome_unknown", MayHaveMutated: true}
-}
-
 func listsMethodMutates(method string) bool {
 	return method == "slackLists.create" || method == "slackLists.update" || method == "slackLists.items.create" || method == "slackLists.items.update" || method == "slackLists.items.delete"
-}
-
-func classifyListsError(code string) error {
-	kind := ListsErrorAPI
-	switch code {
-	case "missing_scope":
-		kind = ListsErrorScope
-	case "no_permission", "permission_denied", "access_denied", "not_allowed_token_type":
-		kind = ListsErrorPermission
-	case "paid_feature_not_available", "feature_not_enabled", "plan_upgrade_required", "enterprise_is_restricted":
-		kind = ListsErrorUnavailable
-	case "item_not_found", "invalid_row_id", "list_not_found":
-		kind = ListsErrorConflict
-	}
-	return &ListsAPIError{Kind: kind, SlackCode: code, MayHaveMutated: code == "fatal_error" || code == "internal_error"}
 }
 
 func validateFieldInputs(fields []ListFieldValue, requireRowID bool) error {

@@ -8,6 +8,7 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -125,7 +126,7 @@ func TestUnitListsDeleteRejectsChangedOrExpiredStateWithoutMutation(t *testing.T
 func TestUnitListsDeleteDoesNotRetryMutation(t *testing.T) {
 	api := &fakeListsAPI{
 		item:      provider.ListItem{ID: "Rec1", ListID: "F1", UpdatedTimestamp: "100.1", Fields: []provider.ListFieldValue{}},
-		deleteErr: &provider.ListsAPIError{Kind: provider.ListsErrorRateLimit, RetryAfter: 5 * time.Second},
+		deleteErr: &slack.RateLimitedError{RetryAfter: 5 * time.Second},
 	}
 	handler := newTestListsHandler(api)
 	prepared, _ := handler.DeleteItem(context.Background(), listRequest(map[string]any{"action": "prepare", "list_id": "F1", "item_id": "Rec1"}))
@@ -135,17 +136,17 @@ func TestUnitListsDeleteDoesNotRetryMutation(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Equal(t, 1, api.deleteCalls)
-	assert.Contains(t, ResultText(result), "rate_limited")
+	assert.Equal(t, "rate_limited", ErrorCode(result))
 }
 
 func TestUnitListsHandlerMapsPlanScopeAndPermissionErrors(t *testing.T) {
-	for _, kind := range []provider.ListsErrorKind{provider.ListsErrorUnavailable, provider.ListsErrorScope, provider.ListsErrorPermission} {
-		api := &fakeListsAPI{getItemErr: &provider.ListsAPIError{Kind: kind, SlackCode: string(kind)}}
+	for slackCode, code := range map[string]string{"plan_upgrade_required": "paid_plan_unavailable", "missing_scope": "permission_denied", "no_permission": "permission_denied"} {
+		api := &fakeListsAPI{getItemErr: slack.SlackErrorResponse{Err: slackCode}}
 		handler := newTestListsHandler(api)
 		result, err := served(handler.DeleteItem(context.Background(), listRequest(map[string]any{"action": "prepare", "list_id": "F1", "item_id": "Rec1"})))
 		require.NoError(t, err)
 		assert.True(t, result.IsError)
-		assert.Contains(t, ResultText(result), string(kind))
+		assert.Equal(t, code, ErrorCode(result), slackCode)
 	}
 }
 

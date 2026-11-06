@@ -2,13 +2,11 @@ package provider
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/slack-go/slack"
@@ -127,29 +125,6 @@ func TestSemanticSearchProviderMapsAssistantContext(t *testing.T) {
 	assert.Equal(t, "F1", page.Items[1].FileID)
 }
 
-type timeoutFailure struct{}
-
-func (timeoutFailure) Error() string   { return "timeout" }
-func (timeoutFailure) Timeout() bool   { return true }
-func (timeoutFailure) Temporary() bool { return true }
-
-func TestCapabilityErrorMarksOnlyAmbiguousMutation(t *testing.T) {
-	mutation := capabilityError("canvas update", timeoutFailure{}, true)
-	var mutationError *CapabilityAPIError
-	require.ErrorAs(t, mutation, &mutationError)
-	assert.True(t, mutationError.MayHaveMutated)
-
-	read := capabilityError("semantic search", timeoutFailure{}, false)
-	var readError *CapabilityAPIError
-	require.ErrorAs(t, read, &readError)
-	assert.False(t, readError.MayHaveMutated)
-
-	limited := capabilityError("semantic search", &slack.RateLimitedError{RetryAfter: 2 * time.Second}, false)
-	var limitedError *CapabilityAPIError
-	require.True(t, errors.As(limited, &limitedError))
-	assert.True(t, limitedError.Retryable())
-}
-
 func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {
 	var form url.Values
 	body := `{"ok":true,"content":"# Plan"}`
@@ -182,8 +157,7 @@ type draftsRoundTrip func(*http.Request) (*http.Response, error)
 
 func (f draftsRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// A drafts failure reaches the tool with Slack's error code, not as a generic
-// slack_api_error.
+// A drafts failure reaches the tool with Slack's error code.
 func TestUnitDraftsErrorCarriesSlackCode(t *testing.T) {
 	client := edge.NewWithInfo(&slack.AuthTestResponse{TeamID: "T1", URL: "https://example.slack.com/"}, "xoxc-test",
 		&http.Client{Transport: draftsRoundTrip(func(*http.Request) (*http.Response, error) {
@@ -191,7 +165,7 @@ func TestUnitDraftsErrorCarriesSlackCode(t *testing.T) {
 		})})
 
 	_, err := (&BrowserDraftsProvider{client: client}).ListDrafts(context.Background(), "", 10)
-	var capabilityErr *CapabilityAPIError
-	require.ErrorAs(t, err, &capabilityErr)
-	assert.Equal(t, "channel_not_found", capabilityErr.Code)
+	var slackErr slack.SlackErrorResponse
+	require.ErrorAs(t, err, &slackErr)
+	assert.Equal(t, "channel_not_found", slackErr.Err)
 }

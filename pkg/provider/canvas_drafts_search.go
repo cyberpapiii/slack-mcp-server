@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
@@ -15,29 +14,6 @@ import (
 )
 
 var ErrPersistedDraftsUnsupported = errors.New("persisted Slack drafts require a healthy browser session")
-
-type CapabilityAPIError struct {
-	Capability     string
-	Code           string
-	RetryAfter     time.Duration
-	MayHaveMutated bool
-	Cause          error
-}
-
-func (e *CapabilityAPIError) Error() string {
-	if e.Code != "" {
-		return fmt.Sprintf("Slack %s failed: %s", e.Capability, e.Code)
-	}
-	if e.Cause != nil {
-		return fmt.Sprintf("Slack %s failed: %v", e.Capability, e.Cause)
-	}
-	return "Slack " + e.Capability + " failed"
-}
-
-func (e *CapabilityAPIError) Unwrap() error { return e.Cause }
-func (e *CapabilityAPIError) Retryable() bool {
-	return e.RetryAfter > 0 && !e.MayHaveMutated
-}
 
 type CanvasCreateRequest struct {
 	Title    string `json:"title,omitempty"`
@@ -111,16 +87,16 @@ func (ap *ApiProvider) Canvases() (*CanvasProvider, error) {
 
 func (p *CanvasProvider) CreateCanvas(ctx context.Context, request CanvasCreateRequest) (string, error) {
 	id, err := p.client.CreateCanvasContext(ctx, request.Title, slack.DocumentContent{Type: "markdown", Markdown: request.Markdown})
-	return id, capabilityError("canvas create", err, true)
+	return id, wrapSlack("canvas create", err)
 }
 
 func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadRequest) (CanvasDocument, error) {
 	file, _, _, err := p.client.GetFileInfoContext(ctx, request.CanvasID, 0, 0)
 	if err != nil {
-		return CanvasDocument{}, capabilityError("canvas metadata read", err, false)
+		return CanvasDocument{}, wrapSlack("canvas metadata read", err)
 	}
 	if file == nil {
-		return CanvasDocument{}, &CapabilityAPIError{Capability: "canvas metadata read", Code: "empty_response"}
+		return CanvasDocument{}, errors.New("canvas metadata read: Slack returned no file")
 	}
 	preview := strings.TrimSpace(file.PreviewPlainText)
 	if preview == "" {
@@ -152,7 +128,7 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 			Criteria: slack.LookupCanvasSectionsCriteria{SectionTypes: request.SectionTypes, ContainsText: request.ContainsText},
 		})
 		if lookupErr != nil {
-			return CanvasDocument{}, capabilityError("canvas section lookup", lookupErr, false)
+			return CanvasDocument{}, wrapSlack("canvas section lookup", lookupErr)
 		}
 		document.SectionIDs = make([]string, len(sections))
 		for i, section := range sections {
@@ -171,7 +147,7 @@ func (p *CanvasProvider) UpdateCanvas(ctx context.Context, request CanvasUpdateR
 		}
 	}
 	err := p.client.EditCanvasContext(ctx, slack.EditCanvasParams{CanvasID: request.CanvasID, Changes: changes})
-	return capabilityError("canvas update", err, true)
+	return wrapSlack("canvas update", err)
 }
 
 func (c *MCPSlackClient) CreateCanvasContext(ctx context.Context, title string, content slack.DocumentContent) (string, error) {
@@ -254,7 +230,7 @@ func (ap *ApiProvider) Drafts() DraftsAPI {
 func (p *BrowserDraftsProvider) ListDrafts(ctx context.Context, cursor string, limit int) (DraftPage, error) {
 	drafts, next, err := p.client.DraftsList(ctx, limit, true, cursor)
 	if err != nil {
-		return DraftPage{}, capabilityError("draft list", err, false)
+		return DraftPage{}, wrapSlack("draft list", err)
 	}
 	page := DraftPage{Drafts: make([]Draft, len(drafts)), NextCursor: next}
 	for i := range drafts {
@@ -269,7 +245,7 @@ func (p *BrowserDraftsProvider) GetDraft(ctx context.Context, id string) (Draft,
 	for page := 0; page < 100; page++ {
 		drafts, next, err := p.client.DraftsList(ctx, 100, false, cursor)
 		if err != nil {
-			return Draft{}, capabilityError("draft read", err, false)
+			return Draft{}, wrapSlack("draft read", err)
 		}
 		for _, draft := range drafts {
 			if draft.ID == id {
@@ -282,13 +258,13 @@ func (p *BrowserDraftsProvider) GetDraft(ctx context.Context, id string) (Draft,
 		seen[next] = true
 		cursor = next
 	}
-	return Draft{}, &CapabilityAPIError{Capability: "draft read", Code: "draft_not_found"}
+	return Draft{}, slack.SlackErrorResponse{Err: "draft_not_found"}
 }
 
 func (p *BrowserDraftsProvider) CreateDraft(ctx context.Context, draft Draft) (Draft, error) {
 	created, err := p.client.DraftCreate(ctx, draft.ChannelID, draft.ThreadTS, draft.Text)
 	if err != nil {
-		return Draft{}, capabilityError("draft create", err, true)
+		return Draft{}, wrapSlack("draft create", err)
 	}
 	return providerDraft(created), nil
 }
@@ -300,13 +276,13 @@ func (p *BrowserDraftsProvider) UpdateDraft(ctx context.Context, draft Draft) (D
 	}
 	updated, err := p.client.DraftUpdate(ctx, draft.ID, current.UpdatedTS, draft.ChannelID, draft.ThreadTS, draft.Text)
 	if err != nil {
-		return Draft{}, capabilityError("draft update", err, true)
+		return Draft{}, wrapSlack("draft update", err)
 	}
 	return providerDraft(updated), nil
 }
 
 func (p *BrowserDraftsProvider) DeleteDraft(ctx context.Context, id, expectedUpdatedTS string) error {
-	return capabilityError("draft delete", p.client.DraftDelete(ctx, id, expectedUpdatedTS), true)
+	return wrapSlack("draft delete", p.client.DraftDelete(ctx, id, expectedUpdatedTS))
 }
 
 func providerDraft(draft edge.Draft) Draft {
@@ -449,7 +425,7 @@ func (ap *ApiProvider) SemanticSearch() (*SemanticSearchProvider, error) {
 func (p *SemanticSearchProvider) SearchSemantic(ctx context.Context, request SemanticSearchRequest) (SemanticSearchPage, error) {
 	page, err := p.client.SearchSemanticContext(ctx, request)
 	if err != nil {
-		return SemanticSearchPage{}, capabilityError("semantic search", err, false)
+		return SemanticSearchPage{}, wrapSlack("semantic search", err)
 	}
 	return page, nil
 }
@@ -513,12 +489,6 @@ func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params Seman
 		} `json:"response_metadata"`
 	}
 	if err := slackhttp.Decode(body, &payload); err != nil {
-		// A Slack error code stays a plain error here, so the tool keeps
-		// reporting slack_api_error rather than the code itself.
-		var slackErr slack.SlackErrorResponse
-		if errors.As(err, &slackErr) {
-			return SemanticSearchPage{}, errors.New(slackErr.Err)
-		}
 		return SemanticSearchPage{}, err
 	}
 	page := SemanticSearchPage{NextCursor: payload.ResponseMetadata.NextCursor, Items: make([]SemanticSearchItem, 0, len(payload.Results.Messages)+len(payload.Results.Files))}
@@ -535,29 +505,11 @@ func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params Seman
 	return page, nil
 }
 
-func capabilityError(capability string, err error, mutation bool) error {
+// wrapSlack names the operation that failed, keeping the Slack error
+// underneath for the handler's error mapping.
+func wrapSlack(operation string, err error) error {
 	if err == nil {
 		return nil
 	}
-	result := &CapabilityAPIError{Capability: capability, Cause: err}
-	var slackError slack.SlackErrorResponse
-	if errors.As(err, &slackError) {
-		result.Code = slackError.Err
-	}
-	var limited *slack.RateLimitedError
-	if errors.As(err, &limited) {
-		result.Code = "rate_limited"
-		result.RetryAfter = limited.RetryAfter
-	}
-	if mutation && (errors.Is(err, context.DeadlineExceeded) || isTimeout(err)) {
-		result.MayHaveMutated = true
-	}
-	return result
-}
-
-type timeoutError interface{ Timeout() bool }
-
-func isTimeout(err error) bool {
-	var timeout timeoutError
-	return errors.As(err, &timeout) && timeout.Timeout()
+	return fmt.Errorf("Slack %s failed: %w", operation, err)
 }

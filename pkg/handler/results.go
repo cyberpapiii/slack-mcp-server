@@ -174,7 +174,23 @@ var slackErrorCodes = map[string]string{
 	"time_in_past":           "invalid_arguments",
 	"time_too_far":           "invalid_arguments",
 	"invalid_cursor":         "invalid_cursor",
+	"no_permission":          "permission_denied",
+	"permission_denied":      "permission_denied",
+	"access_denied":          "permission_denied",
+	"draft_not_found":        "not_found",
+	"item_not_found":         "not_found",
+	"invalid_row_id":         "not_found",
+	"list_not_found":         "not_found",
+	// Lists and other paid features answer these on a plan without them.
+	"paid_feature_not_available": "paid_plan_unavailable",
+	"feature_not_enabled":        "paid_plan_unavailable",
+	"plan_upgrade_required":      "paid_plan_unavailable",
+	"enterprise_is_restricted":   "paid_plan_unavailable",
 }
+
+// slackServerFaults are Slack's answers when it failed partway; after a write
+// they leave the outcome unknown.
+var slackServerFaults = map[string]bool{"fatal_error": true, "internal_error": true}
 
 // TypeError gives a failed call its stable error code. mutationAttempted says
 // whether the call may already have changed Slack state: then a timeout means
@@ -197,23 +213,8 @@ func TypeError(err error, mutationAttempted bool) error {
 			return &ToolError{Code: code, Message: err.Error(), Cause: err}
 		}
 	}
-	var listsError *provider.ListsAPIError
-	if errors.As(err, &listsError) {
-		if listsError.MayHaveMutated {
-			return outcomeUnknown(err)
-		}
-		return &ToolError{Code: string(listsError.Kind), Message: listsError.Error(), Retryable: listsError.Retryable(), RetryAfter: listsError.RetryAfter, Cause: err}
-	}
-	var capabilityError *provider.CapabilityAPIError
-	if errors.As(err, &capabilityError) {
-		if mutationAttempted && capabilityError.MayHaveMutated {
-			return outcomeUnknown(err)
-		}
-		code := capabilityError.Code
-		if code == "" {
-			code = "slack_api_error"
-		}
-		return &ToolError{Code: code, Message: "Slack request failed: " + code, Retryable: capabilityError.Retryable(), RetryAfter: capabilityError.RetryAfter, Cause: err}
+	if errors.Is(err, provider.ErrOutcomeUnknown) {
+		return outcomeUnknown(err)
 	}
 	var rateLimited *slack.RateLimitedError
 	if errors.As(err, &rateLimited) {
@@ -229,10 +230,20 @@ func TypeError(err error, mutationAttempted bool) error {
 	}
 	var slackError slack.SlackErrorResponse
 	if errors.As(err, &slackError) {
+		if mutationAttempted && slackServerFaults[slackError.Err] {
+			return outcomeUnknown(err)
+		}
 		if code, ok := slackErrorCodes[slackError.Err]; ok {
-			return &ToolError{Code: code, Message: slackError.Err, Cause: err}
+			return &ToolError{Code: code, Message: err.Error(), Cause: err}
 		}
 		return &ToolError{Code: "slack_error", Message: err.Error(), Cause: err}
+	}
+	var status slack.StatusCodeError
+	if errors.As(err, &status) {
+		if mutationAttempted && status.Code >= 500 {
+			return outcomeUnknown(err)
+		}
+		return &ToolError{Code: "slack_error", Message: err.Error(), Retryable: status.Code >= 500, Cause: err}
 	}
 	return err
 }

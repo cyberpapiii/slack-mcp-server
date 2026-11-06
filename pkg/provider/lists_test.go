@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -117,19 +118,18 @@ func TestUnitListsItemsPaginationAndFieldRoundTrip(t *testing.T) {
 	assert.Equal(t, "Task", page.Items[0].Fields[0].Text)
 }
 
-func TestUnitListsClientTypedErrors(t *testing.T) {
+func TestUnitListsClientKeepsSlackErrors(t *testing.T) {
 	tests := []struct {
 		name       string
 		status     int
 		response   string
 		retryAfter string
-		kind       ListsErrorKind
+		slackCode  string
+		wait       time.Duration
 	}{
-		{"paid plan", 200, `{"ok":false,"error":"plan_upgrade_required"}`, "", ListsErrorUnavailable},
-		{"scope", 200, `{"ok":false,"error":"missing_scope"}`, "", ListsErrorScope},
-		{"permission", 200, `{"ok":false,"error":"no_permission"}`, "", ListsErrorPermission},
-		{"rate limit", 429, `{"ok":false,"error":"ratelimited"}`, "7", ListsErrorRateLimit},
-		{"rate limit without header", 429, `{"ok":false,"error":"ratelimited"}`, "", ListsErrorRateLimit},
+		{"Slack error", 200, `{"ok":false,"error":"plan_upgrade_required"}`, "", "plan_upgrade_required", 0},
+		{"rate limit", 429, `{"ok":false,"error":"ratelimited"}`, "7", "", 7 * time.Second},
+		{"rate limit without header", 429, `{"ok":false,"error":"ratelimited"}`, "", "", 5 * time.Second},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -141,17 +141,15 @@ func TestUnitListsClientTypedErrors(t *testing.T) {
 			defer server.Close()
 			client := &ListsClient{HTTPClient: server.Client(), TokenProvider: testToken, APIBase: server.URL + "/"}
 			_, err := client.ListItems(context.Background(), ListItemsRequest{ListID: "F1"})
-			var typed *ListsAPIError
-			require.ErrorAs(t, err, &typed)
-			assert.Equal(t, test.kind, typed.Kind)
-			if test.kind == ListsErrorRateLimit {
-				want := 7 * time.Second
-				if test.retryAfter == "" {
-					want = 5 * time.Second
-				}
-				assert.Equal(t, want, typed.RetryAfter, "missing Retry-After falls back to the shared 5s default")
-				assert.True(t, typed.Retryable())
+			if test.slackCode != "" {
+				var slackErr slack.SlackErrorResponse
+				require.ErrorAs(t, err, &slackErr)
+				assert.Equal(t, test.slackCode, slackErr.Err)
+				return
 			}
+			var limited *slack.RateLimitedError
+			require.ErrorAs(t, err, &limited)
+			assert.Equal(t, test.wait, limited.RetryAfter)
 		})
 	}
 }
@@ -165,14 +163,6 @@ func TestUnitListsRejectUnsupportedFieldTypeBeforeHTTP(t *testing.T) {
 	require.ErrorAs(t, err, &unsupported)
 	assert.Equal(t, "quantum", unsupported.Type)
 
-}
-
-func TestUnitListsPartialFailureIsNotBlindlyRetryable(t *testing.T) {
-	err := classifyListsError("fatal_error")
-	var typed *ListsAPIError
-	require.ErrorAs(t, err, &typed)
-	assert.True(t, typed.MayHaveMutated)
-	assert.False(t, typed.Retryable())
 }
 
 func TestUnitListsOfficialFixtureCompatibility(t *testing.T) {
@@ -229,11 +219,7 @@ func TestUnitListsMutationResponseFailuresReportUnknownOutcome(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &ListsClient{HTTPClient: test.client, TokenProvider: testToken, APIBase: "http://127.0.0.1:1/"}
 			err := test.invoke(client)
-			var typed *ListsAPIError
-			require.ErrorAs(t, err, &typed)
-			assert.Equal(t, "outcome_unknown", typed.SlackCode)
-			assert.True(t, typed.MayHaveMutated)
-			assert.False(t, typed.Retryable())
+			assert.ErrorIs(t, err, ErrOutcomeUnknown)
 		})
 	}
 }

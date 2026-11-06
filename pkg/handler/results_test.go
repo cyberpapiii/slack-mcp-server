@@ -112,6 +112,12 @@ func TestTypeErrorCodes(t *testing.T) {
 		{"scope", slack.SlackErrorResponse{Err: "missing_scope"}, false, "permission_denied", false},
 		{"missing message", slack.SlackErrorResponse{Err: "message_not_found"}, false, "not_found", false},
 		{"unknown Slack error", slack.SlackErrorResponse{Err: "weird"}, false, "slack_error", false},
+		{"paid feature", fmt.Errorf("call slackLists.items.list: %w", slack.SlackErrorResponse{Err: "plan_upgrade_required"}), false, "paid_plan_unavailable", false},
+		{"Slack fault on a write", slack.SlackErrorResponse{Err: "fatal_error"}, true, "outcome_unknown", false},
+		{"Slack fault on a read", slack.SlackErrorResponse{Err: "fatal_error"}, false, "slack_error", false},
+		{"5xx on a write", slack.StatusCodeError{Code: 502, Status: "502 Bad Gateway"}, true, "outcome_unknown", false},
+		{"5xx on a read", slack.StatusCodeError{Code: 502, Status: "502 Bad Gateway"}, false, "slack_error", true},
+		{"unknown write outcome", fmt.Errorf("decode: %w", provider.ErrOutcomeUnknown), true, "outcome_unknown", false},
 		{"user OAuth", provider.ErrUserOAuthRequired, false, "user_oauth_required", false},
 		{"wrapped sentinel", fmt.Errorf("x: %w", provider.ErrBrowserSessionUnavailable), false, "browser_session_required", false},
 	}
