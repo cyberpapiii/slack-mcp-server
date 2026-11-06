@@ -19,6 +19,11 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const (
+	transportList  = auth.TransportStdio + ", " + auth.TransportSSE + ", " + auth.TransportHTTP
+	transportUsage = "Transport type (" + transportList + ")"
+)
+
 var defaultSseHost = "127.0.0.1"
 var defaultSsePort = 13080
 
@@ -28,11 +33,11 @@ func main() {
 	var toolPreset string
 	var noCache bool
 	var checkKeychain bool
-	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio, sse or http)")
-	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio, sse or http)")
+	flag.StringVar(&transport, "t", auth.TransportStdio, transportUsage)
+	flag.StringVar(&transport, "transport", auth.TransportStdio, transportUsage)
 	flag.StringVar(&enabledToolsFlag, "e", "", "Comma-separated list of enabled tools (overrides tool preset)")
 	flag.StringVar(&enabledToolsFlag, "enabled-tools", "", "Comma-separated list of enabled tools (overrides tool preset)")
-	flag.StringVar(&toolPreset, "tool-preset", "", "Tool preset: daily-power (default) or legacy-full")
+	flag.StringVar(&toolPreset, "tool-preset", "", "Tool preset: "+capability.PresetDailyPower+" (default) or "+capability.PresetLegacyFull)
 	flag.BoolVar(&noCache, "no-cache", false, "Skip user/channel cache loading on startup for faster initialization. Lookups by #channel-name or @username will not work; use channel/user IDs instead.")
 	flag.BoolVar(&checkKeychain, "check-keychain", false, "Read the Keychain items named by SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT and SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT, then exit. make deploy-local uses it to collect the macOS access approval before Plug starts the binary.")
 	flag.Parse()
@@ -77,22 +82,7 @@ func main() {
 	logStartupAuthStatus(p, logger)
 	warnMissingOAuthScopes(p, enabledTools, logger)
 
-	if noCache {
-		p.SkipCache()
-		s.RegisterCacheDependentTools()
-		logger.Info("Cache loading disabled via --no-cache flag",
-			zap.String("context", "console"),
-		)
-	} else if p.Mode() == provider.ModeDemo {
-		// Register before Serve so early tools/list sees cache-dependent tools.
-		p.SkipCache()
-		s.RegisterCacheDependentTools()
-		logger.Info("Demo credentials are set, skip cache warm-up",
-			zap.String("context", "console"),
-		)
-	} else {
-		p.StartCacheLifecycle(s.RegisterCacheDependentTools)
-	}
+	p.StartCaches(noCache, s.RegisterCacheDependentTools)
 
 	if ready, _ := p.IsReady(); !ready {
 		logger.Info("Slack MCP Server is still warming up caches, serving immediately",
@@ -101,11 +91,11 @@ func main() {
 	}
 
 	switch transport {
-	case "stdio":
+	case auth.TransportStdio:
 		if err := s.ServeStdio(); err != nil {
 			fatal(logger, "Server error", err)
 		}
-	case "sse", "http":
+	case auth.TransportSSE, auth.TransportHTTP:
 		if err := auth.RequireAPIKeyOrOptOut(logger); err != nil {
 			fatal(logger, "Server error", err)
 		}
@@ -113,7 +103,7 @@ func main() {
 		addr := host + ":" + port
 		var srv interface{ Start(string) error }
 		path := ""
-		if transport == "sse" {
+		if transport == auth.TransportSSE {
 			srv = s.ServeSSE(addr)
 			path = "/sse"
 		} else {
@@ -132,7 +122,7 @@ func main() {
 		logger.Fatal("Invalid transport type",
 			zap.String("context", "console"),
 			zap.String("transport", transport),
-			zap.String("allowed", "stdio, sse, http"),
+			zap.String("allowed", transportList),
 		)
 	}
 }
@@ -233,7 +223,7 @@ func newLogger(transport string) (*zap.Logger, error) {
 	useColors := shouldUseColors() && !useJSON
 
 	outputPath := "stdout"
-	if transport == "stdio" {
+	if transport == auth.TransportStdio {
 		outputPath = "stderr"
 	}
 	errorPath := "stderr"
