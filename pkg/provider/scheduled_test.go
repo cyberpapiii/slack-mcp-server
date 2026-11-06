@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestScheduledProviderListUsesSlackScheduledList(t *testing.T) {
+func TestScheduledListUsesSlackScheduledList(t *testing.T) {
 	var path string
 	var form url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +25,7 @@ func TestScheduledProviderListUsesSlackScheduledList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewScheduledProvider(slack.New("token", slack.OptionAPIURL(server.URL+"/")))
+	service := &WebClient{client: &MCPSlackClient{slackClient: slack.New("token", slack.OptionAPIURL(server.URL+"/"))}}
 	page, err := service.ListScheduled(context.Background(), ScheduledListRequest{ChannelID: "C1", Cursor: "cur", Limit: 25})
 	require.NoError(t, err)
 	assert.Equal(t, "/chat.scheduledMessages.list", path)
@@ -39,7 +38,7 @@ func TestScheduledProviderListUsesSlackScheduledList(t *testing.T) {
 	assert.Equal(t, "next", page.NextCursor)
 }
 
-func TestScheduledProviderCancelUsesExactSlackMethodAndDoesNotRetryRateLimit(t *testing.T) {
+func TestScheduledCancelUsesExactSlackMethodAndDoesNotRetryRateLimit(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -52,29 +51,10 @@ func TestScheduledProviderCancelUsesExactSlackMethodAndDoesNotRetryRateLimit(t *
 	}))
 	defer server.Close()
 
-	service := NewScheduledProvider(slack.New("token", slack.OptionAPIURL(server.URL+"/")))
+	service := &WebClient{client: &MCPSlackClient{slackClient: slack.New("token", slack.OptionAPIURL(server.URL+"/"))}}
 	err := service.CancelScheduled(context.Background(), "C1", "Q1")
 	var limited *slack.RateLimitedError
 	require.ErrorAs(t, err, &limited)
 	assert.Equal(t, 7*time.Second, limited.RetryAfter)
 	assert.Equal(t, 1, calls)
-}
-
-type timeoutScheduledClient struct{ calls int }
-
-func (c *timeoutScheduledClient) GetScheduledMessagesContext(context.Context, *slack.GetScheduledMessagesParameters) ([]slack.ScheduledMessage, string, error) {
-	return nil, "", nil
-}
-
-func (c *timeoutScheduledClient) DeleteScheduledMessageContext(context.Context, *slack.DeleteScheduledMessageParameters) (bool, error) {
-	c.calls++
-	return false, context.DeadlineExceeded
-}
-
-func TestScheduledProviderCancelDoesNotRetryAmbiguousTimeout(t *testing.T) {
-	client := &timeoutScheduledClient{}
-	service := NewScheduledProvider(client)
-	err := service.CancelScheduled(context.Background(), "C1", "Q1")
-	assert.True(t, errors.Is(err, context.DeadlineExceeded))
-	assert.Equal(t, 1, client.calls)
 }

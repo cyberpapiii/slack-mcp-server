@@ -104,14 +104,6 @@ func (c *WebClient) ScheduleMessageContext(ctx context.Context, channelID, postA
 	return c.resolve().ScheduleMessageContext(ctx, channelID, postAt, options...)
 }
 
-func (c *WebClient) GetScheduledMessagesContext(ctx context.Context, params *slack.GetScheduledMessagesParameters) ([]slack.ScheduledMessage, string, error) {
-	return c.resolve().GetScheduledMessagesContext(ctx, params)
-}
-
-func (c *WebClient) DeleteScheduledMessageContext(ctx context.Context, params *slack.DeleteScheduledMessageParameters) (bool, error) {
-	return c.resolve().DeleteScheduledMessageContext(ctx, params)
-}
-
 func (c *WebClient) AddReactionContext(ctx context.Context, name string, item slack.ItemRef) error {
 	return c.resolve().AddReactionContext(ctx, name, item)
 }

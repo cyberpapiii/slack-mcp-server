@@ -8,15 +8,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// ScheduledClient is the narrow Slack API surface needed for scheduled-message
-// lifecycle operations. Neither method retries mutations.
-var _ ScheduledClient = (*WebClient)(nil)
-
-type ScheduledClient interface {
-	GetScheduledMessagesContext(context.Context, *slack.GetScheduledMessagesParameters) ([]slack.ScheduledMessage, string, error)
-	DeleteScheduledMessageContext(context.Context, *slack.DeleteScheduledMessageParameters) (bool, error)
-}
-
 type ScheduledListRequest struct {
 	ChannelID string
 	Cursor    string
@@ -37,18 +28,8 @@ type ScheduledPage struct {
 	NextCursor string
 }
 
-type ScheduledProvider struct{ client ScheduledClient }
-
-func NewScheduledProvider(client ScheduledClient) *ScheduledProvider {
-	return &ScheduledProvider{client: client}
-}
-
-func (ap *ApiProvider) Scheduled() *ScheduledProvider {
-	return NewScheduledProvider(ap.WebAPI())
-}
-
-func (p *ScheduledProvider) ListScheduled(ctx context.Context, request ScheduledListRequest) (ScheduledPage, error) {
-	messages, cursor, err := p.client.GetScheduledMessagesContext(ctx, &slack.GetScheduledMessagesParameters{
+func (c *WebClient) ListScheduled(ctx context.Context, request ScheduledListRequest) (ScheduledPage, error) {
+	messages, cursor, err := c.resolve().GetScheduledMessagesContext(ctx, &slack.GetScheduledMessagesParameters{
 		Channel: request.ChannelID,
 		Cursor:  request.Cursor,
 		Limit:   request.Limit,
@@ -70,8 +51,9 @@ func (p *ScheduledProvider) ListScheduled(ctx context.Context, request Scheduled
 	return result, nil
 }
 
-func (p *ScheduledProvider) CancelScheduled(ctx context.Context, channelID, scheduledMessageID string) error {
-	ok, err := p.client.DeleteScheduledMessageContext(ctx, &slack.DeleteScheduledMessageParameters{
+// CancelScheduled deletes a scheduled message once; it never retries.
+func (c *WebClient) CancelScheduled(ctx context.Context, channelID, scheduledMessageID string) error {
+	ok, err := c.resolve().DeleteScheduledMessageContext(ctx, &slack.DeleteScheduledMessageParameters{
 		Channel:            channelID,
 		ScheduledMessageID: scheduledMessageID,
 	})

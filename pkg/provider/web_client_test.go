@@ -59,9 +59,9 @@ func (f *rotatingFixture) assertUsedRotatedClient(t *testing.T) {
 	assert.Equal(t, 1, *f.newCalls, "the call must reach the rotated client")
 }
 
-func TestUnitScheduledProviderFollowsClientRotation(t *testing.T) {
+func TestUnitScheduledFollowsClientRotation(t *testing.T) {
 	f := newRotatingFixture(t, `{"ok":true,"scheduled_messages":[]}`)
-	service := f.provider.Scheduled()
+	service := f.provider.WebAPI()
 
 	f.rotate()
 
