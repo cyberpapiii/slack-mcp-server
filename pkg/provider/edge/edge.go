@@ -42,7 +42,7 @@ func NewWithInfo(info *slack.AuthTestResponse, token string, httpClient slackhtt
 	c := &Client{
 		cl:           httpClient,
 		token:        token,
-		webclientAPI: info.URL + "api/",
+		webclientAPI: slackhttp.WorkspaceAPIBase(info.URL),
 		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", slackhttp.SlackDomain(), info.TeamID),
 		logger:       zap.NewNop(),
 	}

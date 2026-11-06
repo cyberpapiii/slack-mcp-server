@@ -176,6 +176,12 @@ func SlackDomain() string {
 	return "slack.com"
 }
 
+// WorkspaceAPIBase is the Web API root on a workspace's own host, the URL
+// auth.test returned.
+func WorkspaceAPIBase(workspaceURL string) string {
+	return strings.TrimRight(workspaceURL, "/") + "/api/"
+}
+
 // SlackAPIBase is the Web API root for direct HTTP calls and for slack.Client
 // construction before the workspace URL is known.
 func SlackAPIBase() string {

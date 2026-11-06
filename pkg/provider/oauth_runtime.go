@@ -119,13 +119,7 @@ func (c *MCPSlackClient) managedSlackClient(ctx context.Context, token string) (
 			return nil, nil, err
 		}
 	}
-	options := []slack.Option{slack.OptionHTTPClient(httpClient)}
-	if c.authResponse.URL != "" {
-		options = append(options, slack.OptionAPIURL(c.authResponse.URL+"api/"))
-	} else {
-		options = append(options, slack.OptionAPIURL(slackhttp.SlackAPIBase()))
-	}
-	client := slack.New(token, options...)
+	client := slack.New(token, slack.OptionHTTPClient(httpClient), slack.OptionAPIURL(c.apiBase()))
 	identity, err := client.AuthTestContext(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -154,7 +148,7 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 	c.slackClient = replacement
 	c.oauthClientMu.Unlock()
 	c.oauthGeneration.Store(record.Generation)
-	c.oauthAccessToken.Store(record.AccessToken)
+	c.token.Store(record.AccessToken)
 	c.oauthRuntimeState.Store("live")
 	return nil
 }

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
@@ -17,15 +16,16 @@ import (
 // have been applied.
 var ErrOutcomeUnknown = errors.New("Slack may have applied the change")
 
+// ListsClient calls the Slack Lists API on slack.com with the current Web API
+// token.
 type ListsClient struct {
-	HTTPClient    *http.Client
-	TokenProvider func() string
-	APIBase       string
+	httpClient *http.Client
+	token      func() string
 }
 
 func (ap *ApiProvider) Lists() *ListsClient {
 	web := ap.WebAPI()
-	return &ListsClient{HTTPClient: web.client.httpClient, TokenProvider: web.oauthToken}
+	return &ListsClient{httpClient: web.client.httpClient, token: web.token}
 }
 
 type ListChoice struct {
@@ -254,29 +254,14 @@ func (c *ListsClient) DeleteItem(ctx context.Context, listID, itemID string) err
 }
 
 func (c *ListsClient) call(ctx context.Context, method string, requestBody any, output any) error {
-	var token string
-	if c.TokenProvider != nil {
-		token = c.TokenProvider()
-	}
-	if strings.TrimSpace(token) == "" {
-		return errors.New("Slack Lists OAuth token is required")
-	}
 	encoded, err := json.Marshal(requestBody)
 	if err != nil {
 		return fmt.Errorf("encode %s request: %w", method, err)
 	}
-	base := c.APIBase
-	if base == "" {
-		base = slackhttp.SlackAPIBase()
-	}
-	if base != slackhttp.SlackAPIBase() && !strings.HasPrefix(base, "http://127.0.0.1:") {
-		return errors.New("Slack Lists API base must be Slack or loopback test server")
-	}
-	client := c.HTTPClient
 	mutates := listsMethodMutates(method)
-	body, err := slackhttp.Post(ctx, client, slackhttp.Request{
-		URL:    base + method,
-		Token:  token,
+	body, err := slackhttp.Post(ctx, c.httpClient, slackhttp.Request{
+		URL:    slackhttp.SlackAPIBase() + method,
+		Token:  c.token(),
 		Bearer: true,
 		JSON:   encoded,
 		Header: http.Header{"Content-Type": {"application/json; charset=utf-8"}},

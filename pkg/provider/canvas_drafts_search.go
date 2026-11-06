@@ -156,13 +156,9 @@ func (c *WebClient) EditCanvasContext(ctx context.Context, params slack.EditCanv
 // GetCanvasContentContext calls canvases.getContent, which slack-go does not wrap
 // yet. Slack answers not_allowed_token_type to a browser-session token.
 func (c *WebClient) GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error) {
-	token := c.oauthToken()
-	if token == "" {
-		return "", ErrUserOAuthRequired
-	}
 	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
-		URL:   strings.TrimRight(c.client.authResponse.URL, "/") + "/api/canvases.getContent",
-		Token: token,
+		URL:   c.client.apiBase() + "canvases.getContent",
+		Token: c.token(),
 		Form:  url.Values{"canvas_id": {canvasID}, "content_type": {format}},
 	})
 	if err != nil {
@@ -358,10 +354,6 @@ func (p *SemanticSearchProvider) SearchSemantic(ctx context.Context, request Sem
 }
 
 func (c *WebClient) SearchSemanticContext(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
-	token := c.oauthToken()
-	if token == "" {
-		return SemanticSearchPage{}, errors.New("OAuth token unavailable")
-	}
 	form := url.Values{"query": {params.Query}}
 	for _, value := range params.ChannelTypes {
 		form.Add("channel_types", value)
@@ -382,8 +374,8 @@ func (c *WebClient) SearchSemanticContext(ctx context.Context, params SemanticSe
 		form.Set("limit", strconv.Itoa(params.Limit))
 	}
 	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
-		URL:   strings.TrimRight(c.client.authResponse.URL, "/") + "/api/assistant.search.context",
-		Token: token,
+		URL:   c.client.apiBase() + "assistant.search.context",
+		Token: c.token(),
 		Form:  form,
 	})
 	if err != nil {

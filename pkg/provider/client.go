@@ -52,20 +52,21 @@ type MCPSlackClient struct {
 	httpClient *http.Client
 
 	authResponse slack.AuthTestResponse
-	authProvider slackcreds.Credentials
 	logger       *zap.Logger
 
 	mode         CredentialMode
 	isEnterprise bool
 
-	browserState         atomic.Int32
-	browserReason        atomic.Value
-	browserNotified      atomic.Bool
-	browserProbe         browserProbeFunc
-	oauthClientMu        sync.RWMutex
-	oauthManager         *oauthcred.Manager
-	oauthGeneration      atomic.Uint64
-	oauthAccessToken     atomic.Value
+	browserState    atomic.Int32
+	browserReason   atomic.Value
+	browserNotified atomic.Bool
+	browserProbe    browserProbeFunc
+	oauthClientMu   sync.RWMutex
+	oauthManager    *oauthcred.Manager
+	oauthGeneration atomic.Uint64
+	// token is the token Web API calls carry: the primary credential's, then
+	// each rotated OAuth access token. On a browser session it is the xoxc.
+	token                atomic.Value
 	oauthRuntimeState    atomic.Value
 	managedClientFactory func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error)
 	// oauthRefreshMu is held for one managed OAuth refresh; Close waits on it.
@@ -124,18 +125,22 @@ func (c *MCPSlackClient) connect(authProvider slackcreds.Credentials, mode Crede
 	token := authProvider.SlackToken()
 	c.httpClient = httpClient
 	c.authResponse = *authResp
-	c.authProvider = authProvider
 	c.logger = logger
 	c.mode = mode
 	c.isEnterprise = authResp.EnterpriseID != ""
 	c.slackClient = slack.New(token,
 		slack.OptionHTTPClient(httpClient),
-		slack.OptionAPIURL(authResp.URL+"api/"),
+		slack.OptionAPIURL(c.apiBase()),
 	)
 	c.edgeClient.Store(edge.NewWithInfo(authResp, token, httpClient, edge.OptionLogger(logger)))
-	c.oauthAccessToken.Store(token)
+	c.token.Store(token)
 	c.initBrowserState()
 	return nil
+}
+
+// apiBase is the Web API root on the workspace host.
+func (c *MCPSlackClient) apiBase() string {
+	return slackhttp.WorkspaceAPIBase(c.authResponse.URL)
 }
 
 func (c *MCPSlackClient) standardSlackClient() *slack.Client {

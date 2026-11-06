@@ -25,7 +25,7 @@ import (
 //
 // The hand-built calls slack-go does not wrap (users.profile.set,
 // canvases.getContent, assistant.search.context, Lists) live here too, reading
-// the current OAuth access token the same way.
+// the current token the same way.
 type WebClient struct {
 	client *MCPSlackClient
 }
@@ -34,9 +34,9 @@ func (c *WebClient) resolve() *slack.Client {
 	return c.client.standardSlackClient()
 }
 
-// oauthToken is the current OAuth access token, or "" on a browser session.
-func (c *WebClient) oauthToken() string {
-	token, _ := c.client.oauthAccessToken.Load().(string)
+// token is the token the current Web API client carries.
+func (c *WebClient) token() string {
+	token, _ := c.client.token.Load().(string)
 	return token
 }
 

@@ -131,13 +131,11 @@ func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {
 	}
 
 	web := &WebClient{client: client}
-	_, err := web.GetCanvasContentContext(context.Background(), "F1", "markdown")
-	require.ErrorIs(t, err, ErrUserOAuthRequired, "a browser-session client has no OAuth token to send")
-
-	client.oauthAccessToken.Store("xoxp-test")
+	client.token.Store("xoxp-test")
 	content, err := web.GetCanvasContentContext(context.Background(), "F1", "html")
 	require.NoError(t, err)
 	assert.Equal(t, "# Plan", content)
+	assert.Equal(t, "xoxp-test", form.Get("token"))
 	assert.Equal(t, "F1", form.Get("canvas_id"))
 	assert.Equal(t, "html", form.Get("content_type"))
 
