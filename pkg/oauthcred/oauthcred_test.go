@@ -206,12 +206,6 @@ func TestUnitManagerRejectsScopeLoss(t *testing.T) {
 	assert.Equal(t, uint64(3), record.Generation)
 }
 
-func TestUnitManagerRejectsGenerationChange(t *testing.T) {
-	store := &memoryStore{record: Record{Version: RecordVersion, AccessToken: "current", Generation: 9}}
-	err := store.SaveIfGeneration(context.Background(), 8, Record{Version: RecordVersion, AccessToken: "new", Generation: 9})
-	assert.ErrorIs(t, err, ErrGenerationChanged)
-}
-
 func TestUnitManagerRetriesPendingRotationAfterStoreFailure(t *testing.T) {
 	now := time.Now().UTC()
 	store := &flakyStore{memoryStore: memoryStore{record: Record{

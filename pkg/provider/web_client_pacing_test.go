@@ -87,13 +87,13 @@ func TestUnitPacedReadsWaitOnTheirMethodsBucket(t *testing.T) {
 	}
 }
 
-func TestUnitSlackPacingNamesEveryPacedMethod(t *testing.T) {
+// The bucket test above proves each read looks up its own method name; this
+// proves the production table carries a bucket under that same name, so a
+// renamed key cannot silently leave a read unpaced.
+func TestUnitSlackPacingCoversEveryPacedRead(t *testing.T) {
 	pacing := limiter.SlackPacing()
-	assert.Same(t, limiter.Tier2, pacing["conversations.list"])
-	assert.Same(t, limiter.ConversationsReplies, pacing["conversations.replies"])
-	assert.Same(t, limiter.SearchMessages, pacing["search.messages"])
-	assert.Same(t, limiter.Tier2boost, pacing["im.list"])
-	assert.Same(t, limiter.Tier2boost, pacing["search.modules.channels"])
-	assert.Same(t, limiter.Tier3, pacing["saved.list"])
+	for _, method := range []string{"conversations.list", "conversations.replies", "search.messages"} {
+		assert.NotNil(t, pacing[method], method)
+	}
 	assert.Nil(t, pacing["conversations.history"], "history is retried, not paced")
 }

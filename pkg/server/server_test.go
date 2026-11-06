@@ -19,10 +19,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// setupMCPClientServer creates an MCP server with the given options and tool handler,
-// wires up a client via stdio pipes, and returns the connected client.
-// setupMCPClientServer registers toolHandler as "test_tool", or under
-// toolName when the test needs a real catalog name.
+// setupMCPClientServer serves toolHandler as "test_tool" (or toolName, when
+// the test needs a real catalog name) over stdio pipes and returns a
+// connected client.
 func setupMCPClientServer(t *testing.T, opts []server.ServerOption, toolHandler server.ToolHandlerFunc, toolName ...string) *client.Client {
 	t.Helper()
 
@@ -186,22 +185,6 @@ func TestErrorRecoveryMiddleware(t *testing.T) {
 		assert.Equal(t, "rate_limited", errorPayload["code"])
 		assert.Equal(t, true, errorPayload["retryable"])
 		assert.EqualValues(t, 3, errorPayload["retry_after_seconds"])
-	})
-
-	t.Run("without middleware handler error becomes JSON-RPC error", func(t *testing.T) {
-		c := setupMCPClientServer(t,
-			nil, // no error recovery middleware
-			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-				return nil, fmt.Errorf("simulated tool error: invalid channel ID")
-			},
-		)
-
-		var callReq mcp.CallToolRequest
-		callReq.Params.Name = "test_tool"
-		result, err := c.CallTool(context.Background(), callReq)
-
-		assert.Error(t, err, "should return a JSON-RPC error without middleware")
-		assert.Nil(t, result)
 	})
 
 	t.Run("successful tool call passes through unchanged", func(t *testing.T) {

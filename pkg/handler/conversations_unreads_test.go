@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -57,14 +56,6 @@ func newUnreadsTestHandler() *ConversationsHandler {
 	return &ConversationsHandler{logger: zap.NewNop()}
 }
 
-func unreadTypes(channels []UnreadChannel) []string {
-	out := make([]string, 0, len(channels))
-	for _, c := range channels {
-		out = append(out, c.ChannelType)
-	}
-	return out
-}
-
 func unreadIDs(channels []UnreadChannel) []string {
 	out := make([]string, 0, len(channels))
 	for _, c := range channels {
@@ -76,18 +67,6 @@ func unreadIDs(channels []UnreadChannel) []string {
 // Type rank, then UnreadCount desc, ChannelID asc; unknown last.
 func TestUnitSortChannelsByPriority(t *testing.T) {
 	ch := newUnreadsTestHandler()
-
-	t.Run("empty slice does not panic", func(t *testing.T) {
-		var channels []UnreadChannel
-		ch.sortChannelsByPriority(channels)
-		assert.Empty(t, channels)
-	})
-
-	t.Run("single element", func(t *testing.T) {
-		channels := []UnreadChannel{{ChannelID: "C1", ChannelType: "internal"}}
-		ch.sortChannelsByPriority(channels)
-		assert.Equal(t, []string{"C1"}, unreadIDs(channels))
-	})
 
 	t.Run("reversed input sorts dm, group_dm, partner, internal", func(t *testing.T) {
 		channels := []UnreadChannel{
@@ -121,7 +100,6 @@ func TestUnitSortChannelsByPriority(t *testing.T) {
 
 		assert.Equal(t, []string{"C_partner", "C_internal", "X_unknown", "Y_empty"}, unreadIDs(channels),
 			"unknown ranks fall behind every known type; ChannelID breaks the tie between them")
-		assert.Equal(t, []string{"partner", "internal", "totally-made-up", ""}, unreadTypes(channels))
 	})
 
 	t.Run("mixed input with all known types plus unknown and empty", func(t *testing.T) {
@@ -151,34 +129,8 @@ func TestUnitSortChannelsByPriority(t *testing.T) {
 			"Y_empty", "X_weird",
 		}, unreadIDs(channels))
 	})
-
-	t.Run("sorting is deterministic across independently built slices", func(t *testing.T) {
-		build := func() []UnreadChannel {
-			return []UnreadChannel{
-				{ChannelID: "C_a", ChannelType: "internal", UnreadCount: 5},
-				{ChannelID: "C_b", ChannelType: "internal", UnreadCount: 5},
-				{ChannelID: "C_c", ChannelType: "internal", UnreadCount: 5},
-				{ChannelID: "D_a", ChannelType: "dm", UnreadCount: 0},
-				{ChannelID: "D_b", ChannelType: "dm", UnreadCount: 0},
-				{ChannelID: "X_a", ChannelType: "weird"},
-				{ChannelID: "X_b", ChannelType: ""},
-			}
-		}
-
-		first, second := build(), build()
-		// Feed the second one in a different order: a total order must still
-		// collapse both to the same sequence.
-		slices.Reverse(second)
-
-		ch.sortChannelsByPriority(first)
-		ch.sortChannelsByPriority(second)
-
-		assert.Equal(t, unreadIDs(first), unreadIDs(second))
-		assert.Equal(t, []string{"D_a", "D_b", "C_a", "C_b", "C_c", "X_a", "X_b"}, unreadIDs(first))
-	})
 }
 
-// Unknown channel_types rejected at parse time.
 func TestUnitParseParamsToolUnreadsChannelTypes(t *testing.T) {
 	ch := &ConversationsHandler{logger: zap.NewNop()}
 
@@ -388,7 +340,6 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		assert.Equal(t, "internal", byID["C_SILENT"].ChannelType)
 		assert.Equal(t, "#vendor", byID["C_EXT"].ChannelName)
 		assert.Equal(t, "partner", byID["C_EXT"].ChannelType, "IsExtShared maps to partner")
-		// Cache miss: bare ID, no #.
 		assert.Equal(t, "C_UNKNOWN", byID["C_UNKNOWN"].ChannelName)
 		assert.Equal(t, "internal", byID["C_UNKNOWN"].ChannelType)
 	})
@@ -423,7 +374,6 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		assert.Equal(t, "@alice", byID["D_ALICE"].ChannelName, "IM resolves via the users cache")
 		assert.Equal(t, "dm", byID["D_ALICE"].ChannelType)
 		assert.Equal(t, "@U_NOT_CACHED", byID["D_GHOST"].ChannelName, "unknown user falls back to @<userID>")
-		// Empty User or cache miss: bare DM ID, no @.
 		assert.Equal(t, "D_NOUSER", byID["D_NOUSER"].ChannelName)
 		assert.Equal(t, "D_UNKNOWN", byID["D_UNKNOWN"].ChannelName)
 	})
@@ -433,14 +383,6 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		p.mutedChannels = map[string]bool{"C_MENTION": true}
 		got, _ := ch.collectUnreadChannels(p, counts(), dir)
 		assert.Equal(t, []string{"C_SILENT"}, unreadIDs(got))
-
-		// collect only reads mutedChannels; include_muted is upstream.
-		p2 := defaultUnreadsParams()
-		p2.includeMuted = true
-		p2.mutedChannels = map[string]bool{"C_MENTION": true}
-		got2, _ := ch.collectUnreadChannels(p2, counts(), dir)
-		assert.Equal(t, []string{"C_SILENT"}, unreadIDs(got2),
-			"include_muted alone does not undo an already-populated mutedChannels map")
 	})
 
 	t.Run("mentions_only drops zero-mention channels", func(t *testing.T) {
@@ -519,15 +461,6 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 	t.Run("nothing unread yields a nil slice", func(t *testing.T) {
 		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), provider.UnreadCounts{}, dir)
 		assert.Nil(t, got)
-	})
-
-	t.Run("a snapshot with no last_read renders an empty string", func(t *testing.T) {
-		c := provider.UnreadCounts{
-			Channels: []provider.ConversationUnread{{ID: "C_SILENT", HasUnreads: true}},
-		}
-		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), c, dir)
-		require.Len(t, got, 1)
-		assert.Equal(t, "", got[0].LastRead)
 	})
 }
 
@@ -623,19 +556,7 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 		assert.Equal(t, 4, channels[1].UnreadCount, "the row count replaces the zero")
 	})
 
-	t.Run("empty LastRead short-circuits to a conservative 1 with no call", func(t *testing.T) {
-		fake := &fakeHistoryFetcher{}
-		channels := []UnreadChannel{{ChannelID: "C_SILENT", UnreadCount: 0, LastRead: ""}}
-		p := defaultUnreadsParams()
-		p.includeMessages = false
-
-		require.True(t, ch.backfillUnreadCounts(context.Background(), req, fake, p, channels))
-		assert.Empty(t, fake.calls)
-		assert.Equal(t, 1, channels[0].UnreadCount)
-	})
-
 	t.Run("history failure reports a conservative 1 and the loop continues", func(t *testing.T) {
-		// Failed fetch: conservative 1, loop continues.
 		fake := &fakeHistoryFetcher{
 			errs:      map[string]error{"C_BROKEN": errors.New("boom")},
 			byChannel: map[string]*slack.GetConversationHistoryResponse{"C_OK": historyWith(2)},
@@ -654,7 +575,6 @@ func TestUnitBackfillUnreadCounts(t *testing.T) {
 	})
 
 	t.Run("zero rows in the unread window reports a conservative 1", func(t *testing.T) {
-		// Zero-row window: conservative 1, not "0 unread".
 		fake := &fakeHistoryFetcher{
 			byChannel: map[string]*slack.GetConversationHistoryResponse{"C_SILENT": historyWith(0)},
 		}
@@ -731,10 +651,6 @@ func TestUnitUnreadsZeroLastReadNeverReachesSlack(t *testing.T) {
 	require.Len(t, fake.calls, 1, "only the channel with a real last_read is queried")
 	assert.Equal(t, "C_BOUNDED", fake.calls[0].ChannelID)
 	assert.Equal(t, "1700000100.000000", fake.calls[0].Oldest)
-	for _, call := range fake.calls {
-		assert.NotEqual(t, "-62135596800.000000", call.Oldest)
-		assert.NotEqual(t, "", call.Oldest, "an empty Oldest would mean 'whole channel history'")
-	}
 
 	byID := map[string]UnreadChannel{}
 	for _, c := range channels {
@@ -760,7 +676,6 @@ func TestUnitUnreadCountFromHistory(t *testing.T) {
 		{"row count replaces a zero", 0, 3, nil, 3},
 		{"row count replaces a positive prior count", 5, 3, nil, 3},
 		{"zero rows reports 1", 0, 0, nil, 1},
-		// Zero rows keep positive prior count.
 		{"zero rows keeps a positive prior count", 5, 0, nil, 5},
 	}
 

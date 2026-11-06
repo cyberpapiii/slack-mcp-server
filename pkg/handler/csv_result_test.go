@@ -46,6 +46,7 @@ func TestUnitCSVResultSections(t *testing.T) {
 
 func TestUnitTimeText(t *testing.T) {
 	assert.Equal(t, "", unixTimeText(0))
+	assert.Equal(t, "", unixTimeText(-1), "negative means unset")
 	assert.Equal(t, "2023-11-14T22:13:20Z", unixTimeText(1700000000))
 	assert.Equal(t, "2023-11-14T22:13:20Z", slackTsText("1700000000.000100"))
 	assert.Equal(t, "not-a-ts", slackTsText("not-a-ts"))

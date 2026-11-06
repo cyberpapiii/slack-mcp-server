@@ -98,20 +98,26 @@ func TestUnitUploadExternalBytesPostsMultipartFileOnce(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
-func TestUnitGetMessageFindsThreadReplyWhenHistoryOmitsIt(t *testing.T) {
-	reply := slack.Message{}
-	reply.Timestamp = "1710000000.000200"
-	reply.ThreadTimestamp = "1710000000.000100"
-	reply.Text = "thread reply"
-	reply.User = "U1"
+// GetMessage reads through conversations.replies, which answers for a thread
+// reply that conversations.history omits as well as for a channel message.
+func TestUnitGetMessageFindsThreadRepliesAndChannelMessages(t *testing.T) {
+	for name, threadTs := range map[string]string{"thread reply": "1710000000.000100", "channel message": ""} {
+		t.Run(name, func(t *testing.T) {
+			msg := slack.Message{}
+			msg.Timestamp = "1710000000.000200"
+			msg.ThreadTimestamp = threadTs
+			msg.Text = name
+			msg.User = "U1"
 
-	client := &fakeMessageFilesClient{replies: []slack.Message{reply}}
-	got, err := NewMessageFilesProvider(client).GetMessage(context.Background(), "C1", reply.Timestamp)
-	require.NoError(t, err)
-	assert.Equal(t, reply.Timestamp, got.Timestamp)
-	assert.Equal(t, "thread reply", got.Text)
-	assert.Equal(t, "U1", got.User)
-	assert.Equal(t, []string{"replies"}, client.calls)
+			client := &fakeMessageFilesClient{replies: []slack.Message{msg}}
+			got, err := NewMessageFilesProvider(client).GetMessage(context.Background(), "C1", msg.Timestamp)
+			require.NoError(t, err)
+			assert.Equal(t, msg.Timestamp, got.Timestamp)
+			assert.Equal(t, name, got.Text)
+			assert.Equal(t, "U1", got.User)
+			assert.Equal(t, []string{"replies"}, client.calls)
+		})
+	}
 }
 
 func TestUnitGetMessageRequiresTheAskedTimestamp(t *testing.T) {
@@ -130,18 +136,4 @@ func TestUnitGetMessageRequiresTheAskedTimestamp(t *testing.T) {
 	got, err = fetchMessage(context.Background(), &fakeMessageFilesClient{}, "C1", "1712345678.000100")
 	require.NoError(t, err)
 	assert.Nil(t, got, "no message at all")
-}
-
-func TestUnitGetMessageStillFindsChannelMessage(t *testing.T) {
-	msg := slack.Message{}
-	msg.Timestamp = "1710000000.000100"
-	msg.Text = "top level"
-	msg.User = "U2"
-
-	client := &fakeMessageFilesClient{replies: []slack.Message{msg}}
-	got, err := NewMessageFilesProvider(client).GetMessage(context.Background(), "C1", msg.Timestamp)
-	require.NoError(t, err)
-	assert.Equal(t, msg.Timestamp, got.Timestamp)
-	assert.Equal(t, "top level", got.Text)
-	assert.Equal(t, []string{"replies"}, client.calls)
 }

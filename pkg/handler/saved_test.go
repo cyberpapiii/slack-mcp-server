@@ -55,14 +55,6 @@ func TestUnitRenderSavedItems(t *testing.T) {
 		assert.Equal(t, "D0AGSQXLJHG,1771941381.234049,2026-02-25 08:30,2026-03-01 15:00,in_progress,,,,", lines[4])
 	})
 
-	t.Run("last page has no cursor line", func(t *testing.T) {
-		res, err := renderSavedItems(savedFixtureItems(), savedFixtureChannelName, SlackResultMeta("", false, ""))
-		require.NoError(t, err)
-		body := csvResultBody(t, res)
-		assert.NotContains(t, body, "#next_cursor:")
-		assert.True(t, strings.HasPrefix(body, "#channels: "), body)
-	})
-
 	t.Run("no items is a header-only CSV", func(t *testing.T) {
 		res, err := renderSavedItems(nil, savedFixtureChannelName, SlackResultMeta("", false, ""))
 		require.NoError(t, err)
@@ -70,20 +62,35 @@ func TestUnitRenderSavedItems(t *testing.T) {
 	})
 }
 
-func TestUnitSavedMessagesTrailer(t *testing.T) {
-	messages := compactCSVFixtureMessagesN(1)
-	items := savedFixtureItems()
-	res, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, meta: SlackResultMeta("next-page", false, ""), sections: []csvSection{{name: "saved_items", rows: &items}}})
-	require.NoError(t, err)
-	assert.Nil(t, res.StructuredContent)
+// saved_list and activity_unreads append their item table after the messages.
+func TestUnitMessagesTrailerSection(t *testing.T) {
+	savedItems := savedFixtureItems()
+	activityItems := activityFixtureItems()
+	tests := []struct {
+		name     string
+		meta     ResultMeta
+		metaLine string
+		section  csvSection
+		header   string
+	}{
+		{"saved_items", SlackResultMeta("next-page", false, ""), "#next_cursor: next-page", csvSection{name: "saved_items", rows: &savedItems}, savedItemsHeader},
+		{"activity_items", SlackResultMeta("", true, "1 activity threads could not be fetched"), "#partial: 1 activity threads could not be fetched", csvSection{name: "activity_items", rows: &activityItems}, activityItemsHeader},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := marshalMessagesToCSV(compactCSVFixtureMessagesN(1), renderOptions{mode: text.ModeStandard, meta: tt.meta, sections: []csvSection{tt.section}})
+			require.NoError(t, err)
+			assert.Nil(t, res.StructuredContent)
 
-	lines := strings.Split(csvResultBody(t, res), "\n")
-	assert.True(t, strings.HasPrefix(lines[0], "#attachments: "), "the fixture message carries a file: %s", lines[0])
-	assert.Equal(t, "#next_cursor: next-page", lines[1])
-	assert.True(t, strings.HasPrefix(lines[2], "User,Channel,"), lines[2])
-	assert.Equal(t, "#saved_items:", lines[4])
-	assert.Equal(t, savedItemsHeader, lines[5])
-	assert.Len(t, lines, 9, "two item rows follow the section header; body ends with a newline")
+			lines := strings.Split(csvResultBody(t, res), "\n")
+			assert.True(t, strings.HasPrefix(lines[0], "#attachments: "), "the fixture message carries a file: %s", lines[0])
+			assert.Equal(t, tt.metaLine, lines[1])
+			assert.True(t, strings.HasPrefix(lines[2], "User,Channel,"), lines[2])
+			assert.Equal(t, "#"+tt.name+":", lines[4])
+			assert.Equal(t, tt.header, lines[5])
+			assert.Len(t, lines, 9, "two item rows follow the section header; body ends with a newline")
+		})
+	}
 }
 
 func TestUnitUnavailablePlaceholderNamesTheFailure(t *testing.T) {
@@ -91,37 +98,6 @@ func TestUnitUnavailablePlaceholderNamesTheFailure(t *testing.T) {
 	assert.Equal(t, "[message content unavailable: channel access denied]", unavailablePlaceholder(slack.SlackErrorResponse{Err: "missing_scope"}))
 	assert.Equal(t, "[message content unavailable: rate_limited]", unavailablePlaceholder(&slack.RateLimitedError{}))
 	assert.Equal(t, "[message content unavailable: tool_error]", unavailablePlaceholder(errors.New("boom")))
-}
-
-func TestUnitUnixTimeText(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    int64
-		expected string
-	}{
-		{
-			name:     "zero returns empty string",
-			input:    0,
-			expected: "",
-		},
-		{
-			name:     "valid timestamp formats correctly",
-			input:    1772720838,
-			expected: "2026-03-05T14:27:18Z",
-		},
-		{
-			name:     "negative means unset",
-			input:    -1,
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := unixTimeText(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
 }
 
 // Schema documents date_due: 0 to clear a due date; explicit zero must differ from absent key.

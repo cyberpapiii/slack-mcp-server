@@ -76,19 +76,19 @@ func TestUnitUnfurls(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "enable for all - YOLO mode",
+			name: "yes allows every domain",
 			opt:  "yes",
 			text: "YOLO mode, any link works http://anydomain.com",
 			want: true,
 		},
 		{
-			name: "enable for all - YOLO mode",
+			name: "1 allows every domain",
 			opt:  "1",
 			text: "YOLO mode, any link works http://anydomain.com",
 			want: true,
 		},
 		{
-			name: "enable for all - YOLO mode",
+			name: "true allows every domain",
 			opt:  "true",
 			text: "YOLO mode, any link works http://anydomain.com",
 			want: true,

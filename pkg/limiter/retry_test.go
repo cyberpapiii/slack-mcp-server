@@ -48,20 +48,19 @@ func TestCallWithRetry_RetryOnRateLimit(t *testing.T) {
 	assert.Equal(t, 3, callCount, "should count initial call + 2 retries")
 }
 
-func TestCallWithRetry_ExhaustedRetries(t *testing.T) {
-	rl := rate.NewLimiter(rate.Inf, 1)
-	ctx := context.Background()
+func TestCallWithRetry_ExhaustedRetriesReturnTheRateLimit(t *testing.T) {
+	for _, retries := range []int{0, 2} {
+		rl := rate.NewLimiter(rate.Inf, 1)
+		callCount := 0
+		_, err := CallWithRetry(context.Background(), rl, retries, func() (string, error) {
+			callCount++
+			return "", rateLimited(10 * time.Millisecond)
+		})
 
-	callCount := 0
-	_, err := CallWithRetry(ctx, rl, 2, func() (string, error) {
-		callCount++
-		return "", rateLimited(10 * time.Millisecond)
-	})
-
-	require.Error(t, err)
-	var re *slack.RateLimitedError
-	assert.ErrorAs(t, err, &re, "should return retryable error after exhausting retries")
-	assert.Equal(t, 3, callCount, "should count initial call + 2 retries")
+		var re *slack.RateLimitedError
+		assert.ErrorAs(t, err, &re, "retries=%d", retries)
+		assert.Equal(t, retries+1, callCount, "initial call + %d retries", retries)
+	}
 }
 
 func TestCallWithRetry_NonRetryableError(t *testing.T) {
@@ -94,40 +93,19 @@ func TestCallWithRetry_ContextCancelled(t *testing.T) {
 	assert.Equal(t, 1, callCount, "should stop after context cancellation")
 }
 
-func TestCallWithRetry_RateLimiterThrottles(t *testing.T) {
-	// Slow rate limiter: 1 request per 100ms
+func TestCallWithRetry_WaitsOnTheLimiterBeforeEachCall(t *testing.T) {
 	rl := rate.NewLimiter(rate.Every(100*time.Millisecond), 1)
 	ctx := context.Background()
+	call := func() (string, error) { return "ok", nil }
 
 	start := time.Now()
-	callCount := 0
-	result, err := CallWithRetry(ctx, rl, 0, func() (string, error) {
-		callCount++
-		return "ok", nil
-	})
-	elapsed := time.Since(start)
-
+	_, err := CallWithRetry(ctx, rl, 0, call)
 	require.NoError(t, err)
-	assert.Equal(t, "ok", result)
-	assert.Equal(t, 1, callCount)
-	// The rate limiter should have let the first call through quickly (burst=1)
-	assert.Less(t, elapsed, 50*time.Millisecond, "first call should use burst token")
-}
+	assert.Less(t, time.Since(start), 50*time.Millisecond, "first call uses the burst token")
 
-func TestCallWithRetry_ZeroRetries(t *testing.T) {
-	rl := rate.NewLimiter(rate.Inf, 1)
-	ctx := context.Background()
-
-	callCount := 0
-	_, err := CallWithRetry(ctx, rl, 0, func() (string, error) {
-		callCount++
-		return "", rateLimited(10 * time.Millisecond)
-	})
-
-	require.Error(t, err)
-	var re *slack.RateLimitedError
-	assert.ErrorAs(t, err, &re)
-	assert.Equal(t, 1, callCount, "should make exactly 1 call with 0 retries")
+	_, err = CallWithRetry(ctx, rl, 0, call)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, time.Since(start), 80*time.Millisecond, "second call waits for the next token")
 }
 
 func TestCallWithRetry_RetryThenSuccess(t *testing.T) {

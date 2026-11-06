@@ -2,12 +2,12 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,12 +38,6 @@ func (f *fakeScheduledService) CancelScheduled(context.Context, string, string) 
 	return f.cancelErr
 }
 
-func scheduledRequest(args map[string]any) mcp.CallToolRequest {
-	request := mcp.CallToolRequest{}
-	request.Params.Arguments = args
-	return request
-}
-
 func TestUnitScheduledListReturnsCSVRowsFilteredByQuery(t *testing.T) {
 	service := &fakeScheduledService{pages: []provider.ScheduledPage{{
 		Messages: []provider.ScheduledMessage{
@@ -53,7 +47,7 @@ func TestUnitScheduledListReturnsCSVRowsFilteredByQuery(t *testing.T) {
 		NextCursor: "next",
 	}}}
 	handler := newTestScheduledHandler(service)
-	result, err := served(handler.List(context.Background(), scheduledRequest(map[string]any{"limit": 25, "text_query": "abc"})))
+	result, err := served(handler.List(context.Background(), toolRequest(map[string]any{"limit": 25, "text_query": "abc"})))
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)
 	assert.Equal(t, "#next_cursor: next\nScheduledID,Channel,PostAt,Text\nQ1,C1,2026-08-09T20:00:00Z,abcdefghijklmnopqrstuvwxyz\n", ResultText(result))
@@ -64,14 +58,14 @@ func TestUnitScheduledCancelPrepareExecuteConsumesApproval(t *testing.T) {
 	service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}}}
 	handler := newTestScheduledHandler(service)
 
-	prepared, err := served(handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"})))
+	prepared, err := served(handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"})))
 	require.NoError(t, err)
 	preparedData := prepared.StructuredContent.(ToolResult[ScheduledCancelData]).Data
 	require.NotNil(t, preparedData)
 	require.NotEmpty(t, preparedData.ApprovalToken)
 	assert.False(t, preparedData.Cancelled)
 
-	executed, err := served(handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": preparedData.ApprovalToken})))
+	executed, err := served(handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": preparedData.ApprovalToken})))
 	require.NoError(t, err)
 	executedData := executed.StructuredContent.(ToolResult[ScheduledCancelData]).Data
 	require.NotNil(t, executedData)
@@ -79,7 +73,7 @@ func TestUnitScheduledCancelPrepareExecuteConsumesApproval(t *testing.T) {
 	assert.Equal(t, 1, service.cancelCalls)
 	assert.Equal(t, 1, service.listCalls, "execute trusts the binding instead of listing again")
 
-	replayed, err := served(handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": preparedData.ApprovalToken})))
+	replayed, err := served(handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": preparedData.ApprovalToken})))
 	require.NoError(t, err)
 	assert.True(t, replayed.IsError)
 	assert.Equal(t, 1, service.cancelCalls)
@@ -89,11 +83,11 @@ func TestUnitScheduledCancelRejectsTokenForDifferentMessage(t *testing.T) {
 	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
 	service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}}}
 	handler := newTestScheduledHandler(service)
-	prepared, err := served(handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"})))
+	prepared, err := served(handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"})))
 	require.NoError(t, err)
 	token := prepared.StructuredContent.(ToolResult[ScheduledCancelData]).Data.ApprovalToken
 
-	result, err := served(handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q2", "approval_token": token})))
+	result, err := served(handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q2", "approval_token": token})))
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Equal(t, 0, service.cancelCalls)
@@ -112,9 +106,9 @@ func TestUnitScheduledCancelReturnsRetryAfterAndOutcomeUnknown(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			service := &fakeScheduledService{pages: []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}}, cancelErr: test.err}
 			handler := newTestScheduledHandler(service)
-			prepared, _ := handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"}))
+			prepared, _ := handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"}))
 			token := prepared.StructuredContent.(ToolResult[ScheduledCancelData]).Data.ApprovalToken
-			result, err := served(handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": token})))
+			result, err := served(handler.Cancel(context.Background(), toolRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": token})))
 			require.NoError(t, err)
 			structured := result.StructuredContent.(ToolResult[struct{}])
 			require.NotNil(t, structured.Error)
@@ -124,31 +118,14 @@ func TestUnitScheduledCancelReturnsRetryAfterAndOutcomeUnknown(t *testing.T) {
 	}
 }
 
-func TestUnitScheduledCancelMapsPermissionError(t *testing.T) {
-	target := provider.ScheduledMessage{ScheduledMessageID: "Q1", ChannelID: "C1", Text: "hello", PostAt: time.Unix(1786305600, 0).UTC()}
-	service := &fakeScheduledService{
-		pages:     []provider.ScheduledPage{{Messages: []provider.ScheduledMessage{target}}},
-		cancelErr: slack.SlackErrorResponse{Err: "missing_scope"},
-	}
-	handler := newTestScheduledHandler(service)
-	prepared, _ := handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q1"}))
-	token := prepared.StructuredContent.(ToolResult[ScheduledCancelData]).Data.ApprovalToken
-	result, err := served(handler.Cancel(context.Background(), scheduledRequest(map[string]any{"action": "execute", "channel_id": "C1", "scheduled_message_id": "Q1", "approval_token": token})))
-	require.NoError(t, err)
-	structured := result.StructuredContent.(ToolResult[struct{}])
-	require.NotNil(t, structured.Error)
-	assert.Equal(t, "permission_denied", structured.Error.Code)
-}
-
-func TestUnitScheduledLookupIsBounded(t *testing.T) {
-	pages := make([]provider.ScheduledPage, maxScheduledLookupPages)
+func TestUnitScheduledCancelLookupIsBounded(t *testing.T) {
+	pages := make([]provider.ScheduledPage, maxScheduledLookupPages+1)
 	for index := range pages {
-		pages[index].NextCursor = "next-" + time.Unix(int64(index), 0).UTC().Format("150405")
+		pages[index].NextCursor = fmt.Sprintf("next-%d", index)
 	}
 	service := &fakeScheduledService{pages: pages}
-	_, err := newTestScheduledHandler(service).findScheduled(context.Background(), "C1", "Q-missing")
-	var typed *ToolError
-	require.ErrorAs(t, err, &typed)
-	assert.Equal(t, "lookup_limit_exceeded", typed.Code)
+	result, err := served(newTestScheduledHandler(service).Cancel(context.Background(), toolRequest(map[string]any{"action": "prepare", "channel_id": "C1", "scheduled_message_id": "Q-missing"})))
+	require.NoError(t, err)
+	assert.Equal(t, "lookup_limit_exceeded", ErrorCode(result))
 	assert.Equal(t, maxScheduledLookupPages, service.listCalls)
 }

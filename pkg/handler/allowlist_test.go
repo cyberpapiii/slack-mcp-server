@@ -61,7 +61,7 @@ func TestUnitEveryAllowlistedToolRefusesADeniedChannel(t *testing.T) {
 			}
 			require.NotNil(t, run, "build the handler serving %s in this test", spec.Name)
 
-			_, err = run.Run(context.Background(), mutationRequest(args))
+			_, err = run.Run(context.Background(), toolRequest(args))
 			var typed *ToolError
 			require.ErrorAs(t, err, &typed)
 			assert.Equal(t, "permission_denied", typed.Code)

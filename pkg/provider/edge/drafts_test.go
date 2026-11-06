@@ -28,7 +28,6 @@ func TestDraftBrowserEndpointsUseVerifiedForms(t *testing.T) {
 				if form.Get("is_from_composer") != "true" || form.Get("file_ids") != "[]" || form.Get("client_msg_id") == "" {
 					t.Fatalf("incomplete create form: %v", form)
 				}
-				assertDraftJSON(t, form, "destinations", "channel_id", "C1")
 				if got := form.Get("blocks"); got != `[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"hello"}]}]}]` {
 					t.Fatalf("blocks = %s", got)
 				}

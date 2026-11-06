@@ -503,7 +503,6 @@ func TestUnitBuildQueryEmitsHas(t *testing.T) {
 }
 
 func TestUnitBuildQueryUnknownKeyStillDropped(t *testing.T) {
-	// documents the invariant: keys outside the ordered list don't survive buildQuery
 	q := buildQuery(nil, map[string][]string{"bogus": {"x"}})
 	assert.Equal(t, "", q)
 }
@@ -604,20 +603,12 @@ func TestUnitCompactCSVLegendHeader(t *testing.T) {
 	messages := compactCSVFixtureMessagesN(4)
 	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
 	require.NoError(t, err)
-	require.NotNil(t, result)
 
-	body := csvResultBody(t, result)
-
-	require.True(t, strings.HasPrefix(body, "#users:"), "body should start with #users: legend, got: %s", body)
-	assert.Contains(t, body, "U03BMAR2R50=robdezendorf|rob dezendorf")
-	assert.Contains(t, body, "U04CNAS3S61=alicew|Alice Wonderland")
-	assert.Contains(t, body, "#link_template: https://loop.slack.com/archives/")
-
-	lines := strings.Split(body, "\n")
-	require.True(t, len(lines) >= 3)
-	assert.True(t, strings.HasPrefix(lines[0], "#users:"))
-	assert.NotContains(t, lines[0], "GitHub", "bot rows must be excluded from the #users: legend")
-	assert.True(t, strings.HasPrefix(lines[1], "#link_template:"))
+	lines := strings.Split(csvResultBody(t, result), "\n")
+	require.True(t, len(lines) >= 4)
+	assert.Equal(t, "#users: U03BMAR2R50=robdezendorf|rob dezendorf, U04CNAS3S61=alicew|Alice Wonderland", lines[0],
+		"bot rows are left out, and the order is fixed, not map order")
+	assert.Equal(t, `#link_template: https://loop.slack.com/archives/{Channel}/p{MsgID with "." removed}`, lines[1])
 	assert.True(t, strings.HasPrefix(lines[2], "#attachments: "), "the fixture messages carry files: %s", lines[2])
 	assert.Equal(t, "User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files", lines[3])
 }
@@ -664,6 +655,7 @@ func TestUnitCompactCSVLegendSkippedForSmallResults(t *testing.T) {
 	assert.NotContains(t, body, "#users:")
 	assert.NotContains(t, body, "#link_template:")
 	assert.True(t, strings.HasPrefix(body, "#attachments: "), "files still need their recovery route on a small result: %s", body)
+	assert.Contains(t, strings.SplitN(body, "\n", 2)[0], "attachment_get_data", "the legend names the tool that reads the files")
 
 	noFiles := compactCSVFixtureMessagesN(2)
 	for i := range noFiles {
@@ -684,20 +676,6 @@ func TestUnitCompactCSVLegendNoWorkspace(t *testing.T) {
 
 	assert.Contains(t, body, "#users:")
 	assert.NotContains(t, body, "#link_template:")
-}
-
-func TestUnitCompactCSVLegendDeterministic(t *testing.T) {
-	messages := compactCSVFixtureMessagesN(6)
-
-	result1, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
-	require.NoError(t, err)
-	body1 := csvResultBody(t, result1)
-
-	result2, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
-	require.NoError(t, err)
-	body2 := csvResultBody(t, result2)
-
-	assert.Equal(t, body1, body2)
 }
 
 func TestUnitConversationFilter(t *testing.T) {

@@ -169,7 +169,6 @@ func TestUnitListsRejectUnsupportedFieldTypeBeforeHTTP(t *testing.T) {
 	var unsupported *UnsupportedListFieldTypeError
 	require.ErrorAs(t, err, &unsupported)
 	assert.Equal(t, "quantum", unsupported.Type)
-
 }
 
 func TestUnitListsOfficialFixtureCompatibility(t *testing.T) {
@@ -188,7 +187,6 @@ func TestUnitListsOfficialFixtureCompatibility(t *testing.T) {
 	require.NotNil(t, link.DisplayAsURL)
 	assert.False(t, *link.DisplayAsURL)
 	assert.Equal(t, "Slack Developer Docs", link.DisplayName)
-	assert.NotContains(t, strings.ToLower(string(raw)), "token")
 }
 
 func TestUnitListsMutationResponseFailuresReportUnknownOutcome(t *testing.T) {

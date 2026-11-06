@@ -65,19 +65,10 @@ func TestUnitDNDMutationsRejectBotIdentity(t *testing.T) {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "bot"}
 	})
 	_, err := handler.EndSnooze(context.Background(), mcp.CallToolRequest{})
-	require.Error(t, err)
-	assert.False(t, api.ended)
-}
-
-// dnd_get is read-only, so its Slack error goes out raw and the server's
-// error middleware types it as a read.
-func TestUnitDNDErrorsAreTyped(t *testing.T) {
-	api := &fakeDNDAPI{status: &slack.DNDStatus{}, err: slack.SlackErrorResponse{Err: "missing_scope"}}
-	handler := NewDNDHandler(api, userIdentity)
-	_, err := handler.Get(context.Background(), mcp.CallToolRequest{})
 	var typed *ToolError
-	require.ErrorAs(t, TypeError(err, false), &typed)
-	assert.Equal(t, "permission_denied", typed.Code)
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "user_oauth_required", typed.Code)
+	assert.False(t, api.ended)
 }
 
 func TestUnitDNDMutationTimeoutIsOutcomeUnknown(t *testing.T) {
