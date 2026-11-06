@@ -83,30 +83,34 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		return itemRows(items, h.messages.channelLabel, slackMeta())
 	}
 
-	type threadKey struct {
+	// Each item fetches its unread messages: a thread's replies from the first
+	// unread one, or the single message a top-level mention points at.
+	type fetchKey struct {
+		ChannelID string
+		Ts        string
+	}
+	type fetch struct {
 		ChannelID string
 		ThreadTs  string
+		Oldest    string
+		Limit     int
 	}
-	seen := make(map[threadKey]bool)
-	var threads []struct {
-		ChannelID   string
-		ThreadTs    string
-		MinUnreadTs string
-	}
+	seen := make(map[fetchKey]bool)
+	var threads []fetch
 	for _, ai := range items {
+		f := fetch{ChannelID: ai.ChannelID, ThreadTs: ai.ThreadTs, Oldest: ai.MinUnreadTs, Limit: maxMsgsPerThread}
 		if ai.ThreadTs == "" {
+			if ai.MinUnreadTs == "" {
+				continue
+			}
+			f.ThreadTs, f.Limit = ai.MinUnreadTs, 1
+		}
+		key := fetchKey{f.ChannelID, f.ThreadTs}
+		if seen[key] {
 			continue
 		}
-		tk := threadKey{ai.ChannelID, ai.ThreadTs}
-		if seen[tk] {
-			continue
-		}
-		seen[tk] = true
-		threads = append(threads, struct {
-			ChannelID   string
-			ThreadTs    string
-			MinUnreadTs string
-		}{ai.ChannelID, ai.ThreadTs, ai.MinUnreadTs})
+		seen[key] = true
+		threads = append(threads, f)
 	}
 
 	replies, errs := fetchInOrder(ctx, len(threads), fanOutWorkers, func(ctx context.Context, i int) ([]slack.Message, error) {
@@ -114,10 +118,13 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		msgs, _, _, err := h.api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 			ChannelID: t.ChannelID,
 			Timestamp: t.ThreadTs,
-			Oldest:    t.MinUnreadTs,
-			Limit:     maxMsgsPerThread,
+			Oldest:    t.Oldest,
+			Limit:     t.Limit,
 			Inclusive: true,
 		})
+		if len(msgs) > t.Limit {
+			msgs = msgs[:t.Limit]
+		}
 		return msgs, err
 	}, nil)
 

@@ -230,5 +230,7 @@ Review rounds 3–5 (fixed directly on `refactor/untangle`):
 - Search queries never reach logs; failed requests log at Debug.
 - `auth.test` takes a context (browser re-probe cancels on shutdown).
 
-Still open (product decisions for Rob): `activity_unreads` skips top-level mentions; `reactions_add` returns text
-while its siblings return structured content.
+Product decisions (Rob deferred to judgment, 2026-11-06):
+- `activity_unreads` now returns the message row for a top-level @mention (one message, not its replies); before,
+  only thread items got rows and a mention showed up only in the item table.
+- `reactions_add` returns structured content (`add_reaction`/`added`) like `reactions_remove`, with the same text.

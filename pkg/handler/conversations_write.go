@@ -126,7 +126,8 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 		return nil, err
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully added :%s: reaction to message %s in channel %s", params.emoji, params.timestamp, params.channel)), nil
+	fallback := fmt.Sprintf("Successfully added :%s: reaction to message %s in channel %s", params.emoji, params.timestamp, params.channel)
+	return NewStructuredResult(ActionData{Action: "add_reaction", Status: "added", ChannelID: params.channel, MessageID: params.timestamp}, slackMeta(), fallback), nil
 }
 
 func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
