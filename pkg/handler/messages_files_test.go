@@ -9,6 +9,7 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ type fakeMessageFilesService struct {
 	deleteCalls   int
 	lookupCalls   int
 	updateErr     error
-	snapshot      provider.MessageSnapshot
+	message       slack.Message
 }
 
 func (f *fakeMessageFilesService) Upload(_ context.Context, request provider.FileUploadRequest) (provider.UploadedFile, error) {
@@ -42,9 +43,9 @@ func (f *fakeMessageFilesService) Delete(_ context.Context, channelID, timestamp
 	f.deleteCalls++
 	return provider.MessageMutation{ChannelID: channelID, Timestamp: timestamp}, nil
 }
-func (f *fakeMessageFilesService) GetMessage(context.Context, string, string) (provider.MessageSnapshot, error) {
+func (f *fakeMessageFilesService) GetMessage(context.Context, string, string) (slack.Message, error) {
 	f.lookupCalls++
-	return f.snapshot, nil
+	return f.message, nil
 }
 
 func messageFilesRequest(args map[string]any) mcp.CallToolRequest {
@@ -86,7 +87,7 @@ func TestUnitMessagesScheduleValidatesThenReturnsTypedResult(t *testing.T) {
 }
 
 func TestUnitMessagesDeletePrepareExecuteRevalidatesAndConsumesToken(t *testing.T) {
-	service := &fakeMessageFilesService{snapshot: provider.MessageSnapshot{ChannelID: "C1", Timestamp: "1.000001", Text: "remove", UserID: "U1"}}
+	service := &fakeMessageFilesService{message: slack.Message{Msg: slack.Msg{Timestamp: "1.000001", Text: "remove", User: "U1"}}}
 	handler := newTestMessageFilesHandler(service)
 	prepared, err := served(handler.MessagesDelete(context.Background(), messageFilesRequest(map[string]any{
 		"action": "prepare", "channel_id": "C1", "timestamp": "1.000001",

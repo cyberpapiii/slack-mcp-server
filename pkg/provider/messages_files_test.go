@@ -108,11 +108,28 @@ func TestUnitGetMessageFindsThreadReplyWhenHistoryOmitsIt(t *testing.T) {
 	client := &fakeMessageFilesClient{replies: []slack.Message{reply}}
 	got, err := NewMessageFilesProvider(client).GetMessage(context.Background(), "C1", reply.Timestamp)
 	require.NoError(t, err)
-	assert.Equal(t, "C1", got.ChannelID)
 	assert.Equal(t, reply.Timestamp, got.Timestamp)
 	assert.Equal(t, "thread reply", got.Text)
-	assert.Equal(t, "U1", got.UserID)
+	assert.Equal(t, "U1", got.User)
 	assert.Equal(t, []string{"replies"}, client.calls)
+}
+
+func TestUnitGetMessageRequiresTheAskedTimestamp(t *testing.T) {
+	parent := slack.Message{Msg: slack.Msg{Timestamp: "1712345678.000100"}}
+	client := &fakeMessageFilesClient{replies: []slack.Message{parent}}
+
+	got, err := fetchMessage(context.Background(), client, "C1", "1712345678.000200")
+	require.NoError(t, err)
+	assert.Nil(t, got, "Slack answered with another message")
+
+	_, err = NewMessageFilesProvider(client).GetMessage(context.Background(), "C1", "1712345678.000200")
+	var slackErr slack.SlackErrorResponse
+	require.ErrorAs(t, err, &slackErr)
+	assert.Equal(t, "message_not_found", slackErr.Err)
+
+	got, err = fetchMessage(context.Background(), &fakeMessageFilesClient{}, "C1", "1712345678.000100")
+	require.NoError(t, err)
+	assert.Nil(t, got, "no message at all")
 }
 
 func TestUnitGetMessageStillFindsChannelMessage(t *testing.T) {
