@@ -193,6 +193,11 @@ func hasImageBlocks(blocks slack.Blocks) bool {
 // conversations.replies, which answers for top-level messages, thread parents
 // and thread replies alike and needs only channels:history. nil means Slack
 // has no message at that timestamp.
+//
+// Slack can answer with a different message than the one asked for (the
+// thread parent, or the next message after a timestamp that matches
+// nothing), so the first message counts only when its timestamp matches,
+// as MessageFilesProvider.GetMessage checks.
 func (p messagePipeline) message(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
 	msgs, _, _, err := p.api.WebAPI().GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 		ChannelID: channel,
@@ -204,10 +209,14 @@ func (p messagePipeline) message(ctx context.Context, channel, timestamp string)
 		p.logger.Debug("Failed to fetch message", zap.Error(err))
 		return nil, fmt.Errorf("failed to fetch message: %w", err)
 	}
-	if len(msgs) == 0 {
-		return nil, nil
+	return messageAt(msgs, timestamp), nil
+}
+
+func messageAt(msgs []slack.Message, timestamp string) *slack.Message {
+	if len(msgs) == 0 || msgs[0].Timestamp != timestamp {
+		return nil
 	}
-	return &msgs[0], nil
+	return &msgs[0]
 }
 
 // channelID resolves a channel reference to an ID. A "#name" or "@user" the
