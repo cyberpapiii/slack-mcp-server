@@ -88,7 +88,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	h.logger.Debug("Filtered unread activity items", zap.Int("count", len(items)))
 
 	if !includeMessages {
-		return renderActivityItems(items, h.messages.channelLabel, SlackResultMeta("", false, ""))
+		return renderActivityItems(items, h.messages.channelLabel, slackMeta())
 	}
 
 	type threadKey struct {
@@ -189,7 +189,7 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 	}
 
 	fallback := fmt.Sprintf("Successfully marked activity item as read (key=%s)", key)
-	return NewStructuredResult(ActionData{Action: "mark_activity_read", Status: "marked", ActivityKey: key, MessageID: feedTs}, SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(ActionData{Action: "mark_activity_read", Status: "marked", ActivityKey: key, MessageID: feedTs}, slackMeta(), fallback), nil
 }
 
 func (h *ActivityHandler) Tools() []ToolDef {

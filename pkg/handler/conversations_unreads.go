@@ -324,7 +324,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		if len(history.Messages) > 0 {
 			ts = history.Messages[0].Timestamp
 		} else {
-			return NewStructuredResult(ActionData{Action: "mark_read", Status: "no_messages", ChannelID: channel}, SlackResultMeta("", false, ""), "No messages to mark as read"), nil
+			return NewStructuredResult(ActionData{Action: "mark_read", Status: "no_messages", ChannelID: channel}, slackMeta(), "No messages to mark as read"), nil
 		}
 	}
 
@@ -339,7 +339,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		zap.String("ts", ts))
 
 	fallback := fmt.Sprintf("Marked %s as read up to %s", channel, ts)
-	return NewStructuredResult(ActionData{Action: "mark_read", Status: "marked", ChannelID: channel, MessageID: ts}, SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(ActionData{Action: "mark_read", Status: "marked", ChannelID: channel, MessageID: ts}, slackMeta(), fallback), nil
 }
 
 func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

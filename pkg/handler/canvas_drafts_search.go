@@ -39,7 +39,7 @@ func (h *CanvasHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 		return nil, err
 	}
 	data := CanvasMutationData{CanvasID: id, Status: "created"}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *CanvasHandler) Read(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -95,7 +95,7 @@ func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 		return nil, err
 	}
 	data := CanvasMutationData{CanvasID: input.CanvasID, Status: "updated"}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 // drafts_list limit bounds.
@@ -190,7 +190,7 @@ func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	return NewStructuredResult(draft, SlackResultMeta("", false, ""), fallbackJSON(draft)), nil
+	return NewStructuredResult(draft, slackMeta(), fallbackJSON(draft)), nil
 }
 
 func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -203,7 +203,7 @@ func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: ApprovalPhase{Phase: "executed"}, Status: "created", Draft: &created}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -216,7 +216,7 @@ func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: ApprovalPhase{Phase: "executed"}, Status: "updated", Draft: &updated}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -241,13 +241,13 @@ func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest)
 	}
 	if phase.Prepared() {
 		data := DraftMutationData{ApprovalPhase: phase, Status: "awaiting_confirmation", Draft: &current}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+		return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 	}
 	if err := h.api.DeleteDraft(ctx, id, current.UpdatedTS); err != nil {
 		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: phase, Status: "deleted", Draft: &current}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func decodeDraft(request mcp.CallToolRequest, requireID bool) (provider.Draft, error) {

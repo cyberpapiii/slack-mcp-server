@@ -159,7 +159,7 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 	}
 
 	fallback := fmt.Sprintf("Successfully removed :%s: reaction from message %s in channel %s", params.emoji, params.timestamp, params.channel)
-	return NewStructuredResult(ActionData{Action: "remove_reaction", Status: "removed", ChannelID: params.channel, MessageID: params.timestamp}, SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(ActionData{Action: "remove_reaction", Status: "removed", ChannelID: params.channel, MessageID: params.timestamp}, slackMeta(), fallback), nil
 }
 
 // ReactionsGetHandler returns detailed reaction data (including user IDs) for a specific message.
@@ -201,7 +201,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		})
 	}
 
-	return csvResult("", SlackResultMeta("", false, ""), &rows)
+	return csvResult("", slackMeta(), &rows)
 }
 
 // messageBody is how a message's text goes to Slack, and how the draft

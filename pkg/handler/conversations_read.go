@@ -39,7 +39,7 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 	}
 
 	messages := ch.messages.rows(ctx, []slack.Message{*msg}, channel, true, mode)
-	return marshalMessagesToCSV(messages, ch.messages.render(mode, SlackResultMeta("", false, "")))
+	return marshalMessagesToCSV(messages, ch.messages.render(mode, slackMeta()))
 }
 
 func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

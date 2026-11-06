@@ -117,14 +117,14 @@ func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolReque
 	if phase.Prepared() {
 		preview := scheduledResultMessage(target)
 		data := ScheduledCancelData{ApprovalPhase: phase, Target: &preview, Outcome: "awaiting_confirmation"}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+		return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 	}
 	if err := h.service.CancelScheduled(ctx, channelID, scheduledMessageID); err != nil {
 		return nil, scheduledError(err, true)
 	}
 	resultTarget := ScheduledMessage{ScheduledMessageID: scheduledMessageID, ChannelID: channelID}
 	data := ScheduledCancelData{ApprovalPhase: phase, Target: &resultTarget, Cancelled: true, Outcome: "cancelled"}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, scheduledMessageID string) (provider.ScheduledMessage, error) {

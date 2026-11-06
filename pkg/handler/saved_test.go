@@ -56,7 +56,7 @@ func TestUnitRenderSavedItems(t *testing.T) {
 	})
 
 	t.Run("no items is a header-only CSV", func(t *testing.T) {
-		res, err := renderSavedItems(nil, savedFixtureChannelName, SlackResultMeta("", false, ""))
+		res, err := renderSavedItems(nil, savedFixtureChannelName, slackMeta())
 		require.NoError(t, err)
 		assert.Equal(t, savedItemsHeader+"\n", csvResultBody(t, res))
 	})

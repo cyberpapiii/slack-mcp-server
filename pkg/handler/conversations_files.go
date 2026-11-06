@@ -402,7 +402,7 @@ func downloadResult(f *slack.File, path, outcome string) *mcp.CallToolResult {
 		Path:     path,
 		Outcome:  outcome,
 	}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data))
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data))
 }
 
 // fileInfo reads a file's metadata and refuses one larger than limit;

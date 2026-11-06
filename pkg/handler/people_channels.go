@@ -108,7 +108,7 @@ func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.
 		return nil, err
 	}
 	data := ProfileData{Profile: profile}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -125,7 +125,7 @@ func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.
 		return nil, err
 	}
 	data := ProfileData{Profile: profile}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -157,7 +157,7 @@ func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.C
 		return nil, err
 	}
 	data := ProfileData{Profile: profile}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -187,7 +187,7 @@ func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.C
 		return nil, err
 	}
 	data := ChannelData{Channel: state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -237,7 +237,7 @@ func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, reques
 		return nil, err
 	}
 	data := ChannelData{Channel: state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func parseProfileUpdate(request mcp.CallToolRequest) (provider.UserProfileUpdate, error) {

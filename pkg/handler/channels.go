@@ -234,7 +234,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	ch.logger.Debug("Returning starred channels", zap.Int("count", len(result)))
 
-	rendered, err := csvResult("", SlackResultMeta("", false, ""), &result)
+	rendered, err := csvResult("", slackMeta(), &result)
 	if err != nil {
 		ch.logger.Error("Failed to marshal starred channels to CSV", zap.Error(err))
 		return nil, err

@@ -283,7 +283,7 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 	}
 
 	fallback := fmt.Sprintf("Successfully updated saved item (item_id=%s, ts=%s)", params.ID, params.Ts)
-	return NewStructuredResult(savedActionData("update_saved_item", "updated", params.SavedRef), SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(savedActionData("update_saved_item", "updated", params.SavedRef), slackMeta(), fallback), nil
 }
 
 // parseSavedAddParams builds saved.add arguments from exactly one of text, a
@@ -325,7 +325,7 @@ func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallTool
 	}
 
 	fallback := fmt.Sprintf("Successfully added saved item (item_id=%s, ts=%s)", item.ID, item.Ts)
-	return NewStructuredResult(savedActionData("add_saved_item", "added", provider.SavedRef{Type: params.Type, ID: item.ID, Ts: params.Ts}), SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(savedActionData("add_saved_item", "added", provider.SavedRef{Type: params.Type, ID: item.ID, Ts: params.Ts}), slackMeta(), fallback), nil
 }
 
 func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -340,7 +340,7 @@ func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallT
 	}
 
 	fallback := fmt.Sprintf("Successfully removed saved item (item_id=%s, ts=%s)", target.ID, target.Ts)
-	return NewStructuredResult(savedActionData("delete_saved_item", "deleted", target), SlackResultMeta("", false, ""), fallback), nil
+	return NewStructuredResult(savedActionData("delete_saved_item", "deleted", target), slackMeta(), fallback), nil
 }
 
 func savedActionData(action, status string, ref provider.SavedRef) ActionData {
@@ -354,7 +354,7 @@ func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request m
 		return nil, fmt.Errorf("failed to clear completed saved items: %w", err)
 	}
 
-	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, SlackResultMeta("", false, ""), "Successfully cleared all completed saved items"), nil
+	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, slackMeta(), "Successfully cleared all completed saved items"), nil
 }
 
 func (h *SavedHandler) Tools() []ToolDef {

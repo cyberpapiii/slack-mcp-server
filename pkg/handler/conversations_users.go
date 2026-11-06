@@ -87,7 +87,7 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 		})
 	}
 
-	return csvResult("", SlackResultMeta("", false, ""), &results)
+	return csvResult("", slackMeta(), &results)
 }
 
 func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolRequest) (*usersSearchParams, error) {

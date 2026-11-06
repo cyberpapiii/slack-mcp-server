@@ -43,7 +43,7 @@ func activityFixtureChannelName(id string) string {
 
 func TestUnitRenderActivityItems(t *testing.T) {
 	t.Run("rows carry the bare channel ID and the legend names what the cache knows", func(t *testing.T) {
-		res, err := renderActivityItems(activityFixtureItems(), activityFixtureChannelName, SlackResultMeta("", false, ""))
+		res, err := renderActivityItems(activityFixtureItems(), activityFixtureChannelName, slackMeta())
 		require.NoError(t, err)
 		assert.Nil(t, res.StructuredContent)
 
@@ -64,7 +64,7 @@ func TestUnitRenderActivityItems(t *testing.T) {
 	})
 
 	t.Run("no items is a header-only CSV with no legend", func(t *testing.T) {
-		res, err := renderActivityItems(nil, activityFixtureChannelName, SlackResultMeta("", false, ""))
+		res, err := renderActivityItems(nil, activityFixtureChannelName, slackMeta())
 		require.NoError(t, err)
 		assert.Equal(t, activityItemsHeader+"\n", csvResultBody(t, res))
 	})

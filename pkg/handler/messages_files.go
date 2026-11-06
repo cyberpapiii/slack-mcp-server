@@ -109,7 +109,7 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 		return nil, err
 	}
 	result := FileUploadData{FileID: uploaded.FileID, Filename: uploaded.Filename, Title: uploaded.Title, ChannelID: uploaded.ChannelID, Outcome: "uploaded"}
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+	return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 }
 
 func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -134,7 +134,7 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 		return nil, err
 	}
 	result := MessageMutationData{Action: "schedule", ApprovalPhase: ApprovalPhase{Phase: "executed"}, ChannelID: mutation.ChannelID, ScheduledMessageID: mutation.ScheduledMessageID, PostAt: postAt.UTC().Format(time.RFC3339), Outcome: "scheduled"}
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+	return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 }
 
 func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -154,7 +154,7 @@ func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.Ca
 		return nil, err
 	}
 	result := MessageMutationData{Action: "update", ApprovalPhase: ApprovalPhase{Phase: "executed"}, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Outcome: "updated"}
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+	return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 }
 
 // MessageSnapshot is the message a delete would remove, as its approval shows
@@ -194,14 +194,14 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	}
 	if phase.Prepared() {
 		result := MessageMutationData{Action: "delete", ApprovalPhase: phase, ChannelID: channelID, Timestamp: timestamp, Target: &target, Outcome: "awaiting_confirmation"}
-		return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+		return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 	}
 	mutation, err := h.service.Delete(ctx, channelID, timestamp)
 	if err != nil {
 		return nil, err
 	}
 	result := MessageMutationData{Action: "delete", ApprovalPhase: phase, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Target: &target, Outcome: "deleted"}
-	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
+	return NewStructuredResult(result, slackMeta(), fallbackJSON(result)), nil
 }
 
 func readUploadData(request mcp.CallToolRequest) ([]byte, error) {

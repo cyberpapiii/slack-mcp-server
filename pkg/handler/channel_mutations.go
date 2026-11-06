@@ -112,9 +112,6 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	if _, err := requireUserActor(h.approvals.identity()); err != nil {
-		return nil, err
-	}
 	preparation, err := h.service.PrepareArchive(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -128,14 +125,14 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	}
 	if phase.Prepared() {
 		data := ChannelMutationData{Action: "archive", ApprovalPhase: phase, Channel: &preparation.Expected}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+		return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 	}
 	state, err := h.service.ArchivePrepared(ctx, preparation)
 	if err != nil {
 		return nil, err
 	}
 	data := ChannelMutationData{Action: "archive", ApprovalPhase: phase, Channel: &state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func mutationResult(action string, state provider.ChannelMutationState, err error) (*mcp.CallToolResult, error) {
@@ -143,7 +140,7 @@ func mutationResult(action string, state provider.ChannelMutationState, err erro
 		return nil, err
 	}
 	data := ChannelMutationData{Action: action, ApprovalPhase: ApprovalPhase{Phase: "executed"}, Channel: &state}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
+	return NewStructuredResult(data, slackMeta(), fallbackJSON(data)), nil
 }
 
 func (h *ChannelMutationHandler) Tools() []ToolDef {

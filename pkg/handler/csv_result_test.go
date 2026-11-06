@@ -31,7 +31,7 @@ func TestNewCSVResultOmitsEmptyMeta(t *testing.T) {
 
 func TestUnitCSVResultEmptyListIsHeaderOnly(t *testing.T) {
 	var rows []reactionRow
-	result, err := csvResult("", SlackResultMeta("", false, ""), &rows)
+	result, err := csvResult("", slackMeta(), &rows)
 	assert.NoError(t, err)
 	assert.Equal(t, "Emoji,Count,Users\n", ResultText(result))
 }

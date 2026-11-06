@@ -74,6 +74,11 @@ func SlackResultMeta(nextCursor string, partial bool, partialReason string) Resu
 	}
 }
 
+// slackMeta is the meta of a complete, single-page Slack result.
+func slackMeta() ResultMeta {
+	return SlackResultMeta("", false, "")
+}
+
 func SystemResultMeta() ResultMeta {
 	return ResultMeta{Provenance: Provenance{Source: "slack-mcp-server", Trust: TrustSystem}}
 }

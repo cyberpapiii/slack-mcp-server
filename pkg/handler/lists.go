@@ -65,7 +65,7 @@ func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolReque
 	if err != nil {
 		return nil, err
 	}
-	return NewStructuredResult(ListCreateData{ListID: listID, Metadata: metadata}, SlackResultMeta("", false, ""), "Created Slack List "+listID), nil
+	return NewStructuredResult(ListCreateData{ListID: listID, Metadata: metadata}, slackMeta(), "Created Slack List "+listID), nil
 }
 
 func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -79,7 +79,7 @@ func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolReque
 	if err := h.api.UpdateList(ctx, input); err != nil {
 		return nil, err
 	}
-	return NewStructuredResult(ListMutationData{ListID: input.ID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List "+input.ID), nil
+	return NewStructuredResult(ListMutationData{ListID: input.ID, Status: "updated"}, slackMeta(), "Updated Slack List "+input.ID), nil
 }
 
 func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -112,7 +112,7 @@ func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolReque
 	if err != nil {
 		return nil, err
 	}
-	return NewStructuredResult(item, SlackResultMeta("", false, ""), "Created Slack List item "+item.ID), nil
+	return NewStructuredResult(item, slackMeta(), "Created Slack List item "+item.ID), nil
 }
 
 func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -126,7 +126,7 @@ func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequ
 	if err := h.api.UpdateItems(ctx, input); err != nil {
 		return nil, err
 	}
-	return NewStructuredResult(ListItemMutationData{ListID: input.ListID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List items"), nil
+	return NewStructuredResult(ListItemMutationData{ListID: input.ListID, Status: "updated"}, slackMeta(), "Updated Slack List items"), nil
 }
 
 func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -153,13 +153,13 @@ func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolReque
 	}
 	if phase.Prepared() {
 		data := ListItemDeleteData{ApprovalPhase: phase, ListID: listID, ItemID: itemID, Item: &item, Status: "awaiting_confirmation"}
-		return NewStructuredResult(data, SlackResultMeta("", false, ""), "Prepared deletion of Slack List item "+itemID), nil
+		return NewStructuredResult(data, slackMeta(), "Prepared deletion of Slack List item "+itemID), nil
 	}
 	if err := h.api.DeleteItem(ctx, listID, itemID); err != nil {
 		return nil, err
 	}
 	data := ListItemDeleteData{ApprovalPhase: phase, ListID: listID, ItemID: itemID, Status: "deleted"}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Deleted Slack List item "+itemID), nil
+	return NewStructuredResult(data, slackMeta(), "Deleted Slack List item "+itemID), nil
 }
 
 func (h *ListsHandler) Tools() []ToolDef {
