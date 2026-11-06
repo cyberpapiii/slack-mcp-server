@@ -345,7 +345,13 @@ func (c *MCPSlackClient) ActivityMarkRead(ctx context.Context, itemType, feedTs,
 	return err
 }
 
+// GetMutedChannels reads mute state, which only the browser session's
+// users.prefs.get has. Without a preferred browser session it reports nothing
+// muted rather than an error, so OAuth reads go on without mute info.
 func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool, error) {
+	if !c.prefersBrowser() {
+		return map[string]bool{}, nil
+	}
 	return browserCall(c, "users.prefs.get", func() (map[string]bool, error) { return c.edgeClient.Load().GetMutedChannels(ctx) })
 }
 

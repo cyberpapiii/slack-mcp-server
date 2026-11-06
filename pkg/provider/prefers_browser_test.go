@@ -68,3 +68,18 @@ func TestUnitPrefersBrowserByMode(t *testing.T) {
 	degraded.browserState.Store(int32(browserStateDegraded))
 	assert.False(t, degraded.prefersBrowser())
 }
+
+// Mute state is browser-only. Without a preferred session the read answers
+// nothing muted and never reaches the browser session.
+func TestUnitMutedChannelsNeedAPreferredBrowserSession(t *testing.T) {
+	c := oauthWithBrowser(t, `{"ok":true}`)
+	c.degradeBrowserSession(errors.New("invalid_auth"))
+	muted, err := c.GetMutedChannels(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, muted)
+
+	oauthOnly := &MCPSlackClient{mode: ModeUserOAuth, logger: zap.NewNop()}
+	muted, err = oauthOnly.GetMutedChannels(context.Background())
+	require.NoError(t, err, "no edge client is consulted")
+	assert.Empty(t, muted)
+}

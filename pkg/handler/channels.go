@@ -264,14 +264,10 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	ch.logger.Debug("Got starred channel IDs", zap.Int("count", len(starredIDs)))
 
-	mutedChannels := make(map[string]bool)
-	if ch.apiProvider.PrefersBrowser() {
-		mc, err := ch.apiProvider.Slack().GetMutedChannels(ctx)
-		if err != nil {
-			ch.logger.Warn("Failed to fetch muted channels, proceeding without mute info", zap.Error(err))
-		} else {
-			mutedChannels = mc
-		}
+	mutedChannels, err := ch.apiProvider.Slack().GetMutedChannels(ctx)
+	if err != nil {
+		ch.logger.Warn("Failed to fetch muted channels, proceeding without mute info", zap.Error(err))
+		mutedChannels = map[string]bool{}
 	}
 
 	dir := ch.apiProvider.Directory()
