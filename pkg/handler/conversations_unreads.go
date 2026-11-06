@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
@@ -509,11 +508,7 @@ func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel)
 // marshalUnreadChannelsToCSV renders the include_messages=false summary. Rows
 // carry their own Name column, so no "#channels:" legend is needed.
 func marshalUnreadChannelsToCSV(channels []UnreadChannel, meta ResultMeta) (*mcp.CallToolResult, error) {
-	csvBytes, err := gocsv.MarshalBytes(&channels)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult("", meta, string(csvBytes)), nil
+	return csvResult("", meta, &channels)
 }
 
 func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Context, request mcp.CallToolRequest) ([]string, error) {

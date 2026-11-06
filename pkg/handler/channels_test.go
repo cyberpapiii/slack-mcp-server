@@ -176,7 +176,7 @@ func TestUnitChannelsCSVCursorLineAndHeader(t *testing.T) {
 		{ID: "C02", Name: "#random", MemberCount: 3},
 	}
 
-	result, err := marshalRowsToCSV("", &rows, "page-2")
+	result, err := csvResult("", SlackResultMeta("page-2", false, ""), &rows)
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)
 	lines := strings.Split(ResultText(result), "\n")
@@ -184,7 +184,7 @@ func TestUnitChannelsCSVCursorLineAndHeader(t *testing.T) {
 	assert.Equal(t, "ID,Name,Topic,Purpose,MemberCount", lines[1])
 	assert.Equal(t, "C01,#general,t,p,12", lines[2])
 
-	last, err := marshalRowsToCSV("", &rows, "")
+	last, err := csvResult("", SlackResultMeta("", false, ""), &rows)
 	require.NoError(t, err)
 	assert.Nil(t, last.StructuredContent)
 	body := ResultText(last)
@@ -196,7 +196,7 @@ func TestUnitChannelsCSVCursorLineAndHeader(t *testing.T) {
 func TestUnitStarredChannelsCSVHeader(t *testing.T) {
 	rows := []StarredChannel{{ID: "D01", Name: "@bob", ChannelType: "dm", IsMuted: true, MemberCount: 2}}
 
-	result, err := marshalRowsToCSV("", &rows, "")
+	result, err := csvResult("", SlackResultMeta("", false, ""), &rows)
 	require.NoError(t, err)
 	assert.Nil(t, result.StructuredContent)
 	assert.Equal(t, "ID,Name,ChannelType,IsMuted,MemberCount\nD01,@bob,dm,true,2\n", ResultText(result))

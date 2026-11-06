@@ -73,9 +73,7 @@ func TestUnitRenderSavedItems(t *testing.T) {
 func TestUnitSavedMessagesTrailer(t *testing.T) {
 	messages := compactCSVFixtureMessagesN(1)
 	items := savedFixtureItems()
-	trailer, err := csvSection("saved_items", &items)
-	require.NoError(t, err)
-	res, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, meta: SlackResultMeta("next-page", false, ""), trailer: trailer})
+	res, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, meta: SlackResultMeta("next-page", false, ""), sections: []csvSection{{name: "saved_items", rows: &items}}})
 	require.NoError(t, err)
 	assert.Nil(t, res.StructuredContent)
 
@@ -88,7 +86,7 @@ func TestUnitSavedMessagesTrailer(t *testing.T) {
 	assert.Len(t, lines, 9, "two item rows follow the section header; body ends with a newline")
 }
 
-func TestUnitFormatUnixTs(t *testing.T) {
+func TestUnitUnixTimeText(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    int64
@@ -102,18 +100,18 @@ func TestUnitFormatUnixTs(t *testing.T) {
 		{
 			name:     "valid timestamp formats correctly",
 			input:    1772720838,
-			expected: "2026-03-05 14:27",
+			expected: "2026-03-05T14:27:18Z",
 		},
 		{
-			name:     "another valid timestamp",
-			input:    1772521200,
-			expected: "2026-03-03 07:00",
+			name:     "negative means unset",
+			input:    -1,
+			expected: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatUnixTs(tt.input)
+			result := unixTimeText(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

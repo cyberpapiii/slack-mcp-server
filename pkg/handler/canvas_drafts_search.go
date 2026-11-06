@@ -2,16 +2,13 @@ package handler
 
 import (
 	"context"
-	"encoding/csv"
 	"fmt"
 	"slices"
 	"strings"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
 )
@@ -141,23 +138,10 @@ func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (
 	rows := make([]DraftRow, len(page.Drafts))
 	channelIDs := make([]string, len(page.Drafts))
 	for i, draft := range page.Drafts {
-		rows[i] = DraftRow{DraftID: draft.ID, Channel: draft.ChannelID, ThreadTs: draft.ThreadTS, Updated: slackTsTime(draft.UpdatedTS), Text: draft.Text}
+		rows[i] = DraftRow{DraftID: draft.ID, Channel: draft.ChannelID, ThreadTs: draft.ThreadTS, Updated: slackTsText(draft.UpdatedTS), Text: draft.Text}
 		channelIDs[i] = draft.ChannelID
 	}
-	csvBytes, err := gocsv.MarshalBytes(&rows)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult(channelsLegend(channelIDs, h.labels.ChannelLabel), SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
-}
-
-// slackTsTime renders a Slack "seconds.micros" timestamp as RFC3339 and
-// passes anything else through unchanged.
-func slackTsTime(ts string) string {
-	if rendered, err := text.TimestampToIsoRFC3339(ts); err == nil {
-		return rendered
-	}
-	return ts
+	return csvResult(channelsLegend(channelIDs, h.labels.ChannelLabel), SlackResultMeta(page.NextCursor, false, ""), &rows)
 }
 
 func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -256,39 +240,50 @@ func NewSemanticSearchHandler(api provider.SemanticSearchAPI, labels Labels, log
 	return &SemanticSearchHandler{api: api, labels: labels, logger: logger}
 }
 
-// semanticMessageColumns mirror the history row shape so message hits read
-// like conversations_history output. Slack returns author IDs only, hence
-// UserID rather than a resolved User column. semanticFileColumns extend them
-// when the page can contain file hits; FileID feeds attachment_get_data.
-var (
-	semanticMessageColumns = []string{"UserID", "Channel", "Text", "Time", "MsgID"}
-	semanticFileColumns    = []string{"Type", "UserID", "Channel", "Text", "Time", "MsgID", "FileID", "Title", "FileType"}
-)
+// semanticMessageRow mirrors the history row shape so message hits read like
+// conversations_history output. Slack returns author IDs only, hence UserID
+// rather than a resolved User column. semanticFileRow extends it when the
+// page can contain file hits; FileID feeds attachment_get_data.
+type semanticMessageRow struct {
+	UserID  string `csv:"UserID"`
+	Channel string `csv:"Channel"`
+	Text    string `csv:"Text"`
+	Time    string `csv:"Time"`
+	MsgID   string `csv:"MsgID"`
+}
 
-func semanticSearchCSV(items []provider.SemanticSearchItem, includeFiles bool) (string, error) {
-	for _, item := range items {
+type semanticFileRow struct {
+	Type     string `csv:"Type"`
+	UserID   string `csv:"UserID"`
+	Channel  string `csv:"Channel"`
+	Text     string `csv:"Text"`
+	Time     string `csv:"Time"`
+	MsgID    string `csv:"MsgID"`
+	FileID   string `csv:"FileID"`
+	Title    string `csv:"Title"`
+	FileType string `csv:"FileType"`
+}
+
+func semanticSearchResult(page provider.SemanticSearchPage, includeFiles bool, channelName func(string) string) (*mcp.CallToolResult, error) {
+	channelIDs := make([]string, len(page.Items))
+	for i, item := range page.Items {
+		channelIDs[i] = item.ChannelID
 		includeFiles = includeFiles || item.Kind == "file"
 	}
-	header := semanticMessageColumns
-	if includeFiles {
-		header = semanticFileColumns
-	}
-	var sb strings.Builder
-	w := csv.NewWriter(&sb)
-	_ = w.Write(header)
-	for _, item := range items {
-		row := []string{item.AuthorUserID, item.ChannelID, item.Content, "", item.MessageTS}
-		if item.MessageTS != "" {
-			row[3] = slackTsTime(item.MessageTS)
+	legend := channelsLegend(channelIDs, channelName)
+	meta := SlackResultMeta(page.NextCursor, false, "")
+	if !includeFiles {
+		rows := make([]semanticMessageRow, len(page.Items))
+		for i, item := range page.Items {
+			rows[i] = semanticMessageRow{UserID: item.AuthorUserID, Channel: item.ChannelID, Text: item.Content, Time: slackTsText(item.MessageTS), MsgID: item.MessageTS}
 		}
-		if includeFiles {
-			row = append([]string{item.Kind}, row...)
-			row = append(row, item.FileID, item.Title, item.FileType)
-		}
-		_ = w.Write(row)
+		return csvResult(legend, meta, &rows)
 	}
-	w.Flush()
-	return sb.String(), w.Error()
+	rows := make([]semanticFileRow, len(page.Items))
+	for i, item := range page.Items {
+		rows[i] = semanticFileRow{Type: item.Kind, UserID: item.AuthorUserID, Channel: item.ChannelID, Text: item.Content, Time: slackTsText(item.MessageTS), MsgID: item.MessageTS, FileID: item.FileID, Title: item.Title, FileType: item.FileType}
+	}
+	return csvResult(legend, meta, &rows)
 }
 
 func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -315,15 +310,7 @@ func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallTool
 	if err != nil {
 		return nil, TypeError(err, false)
 	}
-	csvText, err := semanticSearchCSV(page.Items, slices.Contains(input.ContentTypes, "files"))
-	if err != nil {
-		return nil, err
-	}
-	channelIDs := make([]string, len(page.Items))
-	for i, item := range page.Items {
-		channelIDs[i] = item.ChannelID
-	}
-	return NewCSVResult(channelsLegend(channelIDs, h.labels.ChannelLabel), SlackResultMeta(page.NextCursor, false, ""), csvText), nil
+	return semanticSearchResult(page, slices.Contains(input.ContentTypes, "files"), h.labels.ChannelLabel)
 }
 
 // Tools lists the MCP tools this handler serves.

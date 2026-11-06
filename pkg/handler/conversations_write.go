@@ -1,13 +1,11 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -221,11 +219,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		return mcp.NewToolResultText("No message found at the specified timestamp"), nil
 	}
 
-	if len(msg.Reactions) == 0 {
-		return mcp.NewToolResultText("No reactions on this message"), nil
-	}
-
-	var rows []reactionRow
+	rows := make([]reactionRow, 0, len(msg.Reactions))
 	for _, r := range msg.Reactions {
 		rows = append(rows, reactionRow{
 			Emoji: r.Name,
@@ -234,12 +228,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		})
 	}
 
-	var buf bytes.Buffer
-	if err := gocsv.Marshal(rows, &buf); err != nil {
-		return nil, fmt.Errorf("failed to marshal reactions: %w", err)
-	}
-
-	return mcp.NewToolResultText(buf.String()), nil
+	return csvResult("", SlackResultMeta("", false, ""), &rows)
 }
 
 // messageBody is how a message's text goes to Slack, and how the draft

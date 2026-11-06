@@ -2,10 +2,8 @@ package handler
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
@@ -169,7 +167,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	messages := ch.messages.searchRows(ctx, messagesRes.Matches, mode)
 	nextCursor := ""
 	if messagesRes.Pagination.Page < messagesRes.Pagination.PageCount {
-		nextCursor = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("page:%d", messagesRes.Pagination.Page+1)))
+		nextCursor = encodePageCursor(messagesRes.Pagination.Page + 1)
 	}
 	return marshalMessagesToCSV(messages, ch.messages.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
@@ -315,35 +313,15 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 
 	finalQuery := buildQuery(freeText, filters)
 	limit := pageLimit(req, defaultSearchMessagesLimit, maxSearchMessagesLimit)
-	cursor := req.GetString("cursor", "")
 
 	sort := req.GetString("sort", "score")
 	if sort != "score" && sort != "timestamp" {
 		return nil, invalidArguments(fmt.Sprintf("invalid sort: %q (must be 'score' or 'timestamp')", sort))
 	}
 
-	var (
-		page          int
-		decodedCursor []byte
-	)
-	if cursor != "" {
-		decodedCursor, err = base64.StdEncoding.DecodeString(cursor)
-		if err != nil {
-			ch.logger.Debug("Invalid cursor decoding", zap.String("cursor", cursor), zap.Error(err))
-			return nil, fmt.Errorf("invalid cursor: %w", err)
-		}
-		parts := strings.Split(string(decodedCursor), ":")
-		if len(parts) != 2 {
-			ch.logger.Debug("Invalid cursor format", zap.String("cursor", cursor))
-			return nil, invalidArguments(fmt.Sprintf("invalid cursor: %v", cursor))
-		}
-		page, err = strconv.Atoi(parts[1])
-		if err != nil || page < 1 {
-			ch.logger.Debug("Invalid cursor page", zap.String("cursor", cursor), zap.Error(err))
-			return nil, fmt.Errorf("invalid cursor page: %w", err)
-		}
-	} else {
-		page = 1
+	page, err := decodePageCursor(req.GetString("cursor", ""))
+	if err != nil {
+		return nil, err
 	}
 
 	ch.logger.Debug("Search parameters built",

@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -148,11 +147,7 @@ func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallT
 	for i, e := range page.Emoji {
 		rows[i] = EmojiRow{Name: e.Name, URL: e.URL, Alias: e.AliasFor}
 	}
-	csvBytes, err := gocsv.MarshalBytes(&rows)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult("", SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
+	return csvResult("", SlackResultMeta(page.NextCursor, false, ""), &rows)
 }
 
 func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -186,11 +181,7 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 	for i, id := range page.UserIDs {
 		rows[i] = ChannelMemberRow{UserID: id, Name: h.labels.UserLabel(id)}
 	}
-	csvBytes, err := gocsv.MarshalBytes(&rows)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult("", SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
+	return csvResult("", SlackResultMeta(page.NextCursor, false, ""), &rows)
 }
 
 func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

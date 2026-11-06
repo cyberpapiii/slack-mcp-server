@@ -85,17 +85,18 @@ func TestUnitChannelsLegend(t *testing.T) {
 
 func TestUnitActivityMessagesTrailer(t *testing.T) {
 	messages := compactCSVFixtureMessagesN(1)
-	rendered, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard})
-	require.NoError(t, err)
 	items := activityFixtureItems()
-	trailer, err := csvSection("activity_items", &items)
+	res, err := marshalMessagesToCSV(messages, renderOptions{
+		mode:     text.ModeStandard,
+		meta:     SlackResultMeta("", true, "1 activity threads could not be fetched"),
+		sections: []csvSection{{name: "activity_items", rows: &items}},
+	})
 	require.NoError(t, err)
-	res := NewCSVResult("", SlackResultMeta("", true, "1 activity threads could not be fetched"), ResultText(rendered)+trailer)
 	assert.Nil(t, res.StructuredContent)
 
 	lines := strings.Split(csvResultBody(t, res), "\n")
-	assert.Equal(t, "#partial: 1 activity threads could not be fetched", lines[0])
-	assert.True(t, strings.HasPrefix(lines[1], "#attachments: "), "the fixture message carries a file: %s", lines[1])
+	assert.True(t, strings.HasPrefix(lines[0], "#attachments: "), "the fixture message carries a file: %s", lines[0])
+	assert.Equal(t, "#partial: 1 activity threads could not be fetched", lines[1])
 	assert.True(t, strings.HasPrefix(lines[2], "User,Channel,"), lines[2])
 	assert.Equal(t, "#activity_items:", lines[4])
 	assert.Equal(t, activityItemsHeader, lines[5])

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -82,15 +81,11 @@ func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest
 		rows = append(rows, ScheduledRow{
 			ScheduledID: message.ScheduledMessageID,
 			Channel:     message.ChannelID,
-			PostAt:      message.PostAt.UTC().Format(time.RFC3339),
+			PostAt:      timeText(message.PostAt),
 			Text:        message.Text,
 		})
 	}
-	csvBytes, err := gocsv.MarshalBytes(&rows)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult("", SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
+	return csvResult("", SlackResultMeta(page.NextCursor, false, ""), &rows)
 }
 
 func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

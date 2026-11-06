@@ -99,17 +99,7 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 		})
 	}
 
-	if len(results) == 0 {
-		return mcp.NewToolResultText("No users found matching the query."), nil
-	}
-
-	csvBytes, err := gocsv.MarshalBytes(&results)
-	if err != nil {
-		ch.logger.Error("Failed to marshal users to CSV", zap.Error(err))
-		return nil, err
-	}
-
-	return mcp.NewToolResultText(string(csvBytes)), nil
+	return csvResult("", SlackResultMeta("", false, ""), &results)
 }
 
 func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolRequest) (*usersSearchParams, error) {

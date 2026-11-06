@@ -178,17 +178,17 @@ func TestUnitFileResultShapes(t *testing.T) {
 	})
 }
 
-func TestUnitFilesPageCursorRoundTrip(t *testing.T) {
-	page, err := filesPage("")
+func TestUnitPageCursorRoundTrip(t *testing.T) {
+	page, err := decodePageCursor("")
 	require.NoError(t, err)
 	assert.Equal(t, 1, page, "no cursor starts at page 1")
 
-	page, err = filesPage("3")
+	page, err = decodePageCursor(encodePageCursor(3))
 	require.NoError(t, err)
 	assert.Equal(t, 3, page)
 
-	for _, bad := range []string{"0", "-1", "abc", "dXNlcjpV"} {
-		_, err := filesPage(bad)
+	for _, bad := range []string{"3", "abc", "dXNlcjpV", encodePageCursor(0), encodeCursor("page:x")} {
+		_, err := decodePageCursor(bad)
 		var toolErr *ToolError
 		require.ErrorAs(t, err, &toolErr, bad)
 		assert.Equal(t, "invalid_arguments", toolErr.Code, bad)
@@ -197,7 +197,7 @@ func TestUnitFilesPageCursorRoundTrip(t *testing.T) {
 	assert.Equal(t, "", nextFilesCursor(nil))
 	assert.Equal(t, "", nextFilesCursor(&slack.Paging{Page: 2, Pages: 2}), "last page emits no cursor")
 	assert.Equal(t, "", nextFilesCursor(&slack.Paging{Page: 1, Pages: 0}), "empty result set emits no cursor")
-	assert.Equal(t, "2", nextFilesCursor(&slack.Paging{Page: 1, Pages: 5}))
+	assert.Equal(t, encodePageCursor(2), nextFilesCursor(&slack.Paging{Page: 1, Pages: 5}))
 }
 
 func TestUnitAttachmentRefDescribesKindAndSize(t *testing.T) {

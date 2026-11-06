@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"sort"
 	"strings"
@@ -22,17 +21,6 @@ type Channel struct {
 	Topic       string `csv:"Topic" json:"topic,omitempty" jsonschema:"Channel topic"`
 	Purpose     string `csv:"Purpose" json:"purpose,omitempty" jsonschema:"Channel purpose"`
 	MemberCount int    `csv:"MemberCount" json:"member_count" jsonschema:"Number of members"`
-}
-
-// marshalRowsToCSV renders one page of tabular rows as CSV text. rows is a
-// pointer to a slice of csv-tagged structs; nextCursor becomes the
-// "#next_cursor:" comment line when more pages exist.
-func marshalRowsToCSV(legend string, rows any, nextCursor string) (*mcp.CallToolResult, error) {
-	csvBytes, err := gocsv.MarshalBytes(rows)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult(legend, SlackResultMeta(nextCursor, false, ""), string(csvBytes)), nil
 }
 
 type ChannelsHandler struct {
@@ -185,7 +173,7 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 		}
 	}
 
-	result, err := marshalRowsToCSV("", &channelList, nextcur)
+	result, err := csvResult("", SlackResultMeta(nextcur, false, ""), &channelList)
 	if err != nil {
 		ch.logger.Error("Failed to marshal channels to CSV", zap.Error(err))
 		return nil, err
@@ -282,7 +270,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 		})
 	}
 
-	return marshalRowsToCSV("", &channelList, slackNextCursor)
+	return csvResult("", SlackResultMeta(slackNextCursor, false, ""), &channelList)
 }
 
 func filterChannelsByTypes(channels map[string]provider.Channel, types []string) []provider.Channel {
@@ -395,7 +383,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	ch.logger.Debug("Returning starred channels", zap.Int("count", len(result)))
 
-	rendered, err := marshalRowsToCSV("", &result, "")
+	rendered, err := csvResult("", SlackResultMeta("", false, ""), &result)
 	if err != nil {
 		ch.logger.Error("Failed to marshal starred channels to CSV", zap.Error(err))
 		return nil, err
@@ -448,11 +436,10 @@ func sortChannels(channels []provider.Channel, sortType string) {
 func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]provider.Channel, string, error) {
 	startIndex := 0
 	if cursor != "" {
-		decoded, err := base64.StdEncoding.DecodeString(cursor)
+		lastID, err := decodeCursor(cursor)
 		if err != nil {
-			return nil, "", invalidArguments(fmt.Sprintf("invalid cursor: %q", cursor))
+			return nil, "", err
 		}
-		lastID := string(decoded)
 		startIndex = len(channels)
 		for i, ch := range channels {
 			if ch.ID == lastID {
@@ -474,7 +461,7 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 	paged := channels[startIndex:endIndex]
 	var nextCursor string
 	if endIndex > 0 && endIndex < len(channels) {
-		nextCursor = base64.StdEncoding.EncodeToString([]byte(channels[endIndex-1].ID))
+		nextCursor = encodeCursor(channels[endIndex-1].ID)
 	}
 	return paged, nextCursor, nil
 }

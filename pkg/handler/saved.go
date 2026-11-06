@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -38,8 +36,8 @@ type SavedItemRow struct {
 func newSavedItemRow(item edge.SavedItem) SavedItemRow {
 	row := SavedItemRow{
 		Ts:          item.Ts,
-		DateCreated: formatUnixTs(item.DateCreated),
-		DateDue:     formatUnixTs(item.DateDue),
+		DateCreated: unixTimeText(item.DateCreated),
+		DateDue:     unixTimeText(item.DateDue),
 		State:       item.State,
 		Type:        item.ItemType,
 		TodoState:   item.TodoState,
@@ -71,15 +69,11 @@ func savedItemText(description json.RawMessage) string {
 // renderSavedItems is the include_messages=false output: rows keyed by the
 // bare channel ID with a "#channels:" legend.
 func renderSavedItems(items []SavedItemRow, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
-	csvBytes, err := gocsv.MarshalBytes(&items)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal saved items: %w", err)
-	}
 	ids := make([]string, len(items))
 	for i, item := range items {
 		ids[i] = item.ChannelID
 	}
-	return NewCSVResult(channelsLegend(ids, channelName), meta, string(csvBytes)), nil
+	return csvResult(channelsLegend(ids, channelName), meta, &items)
 }
 
 type SavedHandler struct {
@@ -204,11 +198,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 
 	if includeMessages && len(allMessages) > 0 {
 		opts := h.messages.render(mode, meta)
-		trailer, err := csvSection("saved_items", &allItems)
-		if err != nil {
-			return nil, err
-		}
-		opts.trailer = trailer
+		opts.sections = []csvSection{{name: "saved_items", rows: &allItems}}
 		return marshalMessagesToCSV(allMessages, opts)
 	}
 
@@ -224,7 +214,7 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item edge.SavedIte
 		return nil, ctx.Err()
 	}
 	placeholder := func(text string) []Message {
-		return []Message{{MsgID: item.Ts, Channel: item.ItemID, Text: text, Time: formatUnixTs(item.DateCreated)}}
+		return []Message{{MsgID: item.Ts, Channel: item.ItemID, Text: text, Time: unixTimeText(item.DateCreated)}}
 	}
 	if err != nil {
 		h.logger.Warn("Failed to fetch saved message",
@@ -418,13 +408,6 @@ func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request m
 	}
 
 	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, SlackResultMeta("", false, ""), "Successfully cleared all completed saved items"), nil
-}
-
-func formatUnixTs(ts int64) string {
-	if ts == 0 {
-		return ""
-	}
-	return time.Unix(ts, 0).UTC().Format("2006-01-02 15:04")
 }
 
 // Tools lists the MCP tools this handler serves.

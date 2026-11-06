@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -95,7 +93,7 @@ type fileResultPayload struct {
 }
 
 func (ch *ConversationsHandler) parseParamsToolFilesList(ctx context.Context, request mcp.CallToolRequest) (*filesListParams, error) {
-	page, err := filesPage(request.GetString("cursor", ""))
+	page, err := decodePageCursor(request.GetString("cursor", ""))
 	if err != nil {
 		return nil, err
 	}
@@ -115,24 +113,13 @@ func (ch *ConversationsHandler) parseParamsToolFilesList(ctx context.Context, re
 }
 
 // files.list paginates by count/page, not by cursor (Slack ignores `limit`
-// and never returns response_metadata). The cursor this tool hands out is the
-// next page number, so `cursor` round-trips through the shared CSV contract.
-func filesPage(cursor string) (int, error) {
-	if cursor == "" {
-		return 1, nil
-	}
-	page, err := strconv.Atoi(cursor)
-	if err != nil || page < 1 {
-		return 0, invalidArguments("cursor must be a #next_cursor value from a previous files_list call")
-	}
-	return page, nil
-}
-
+// and never returns response_metadata), so the cursor this tool hands out
+// carries the next page number.
 func nextFilesCursor(paging *slack.Paging) string {
 	if paging == nil || paging.Page >= paging.Pages {
 		return ""
 	}
-	return strconv.Itoa(paging.Page + 1)
+	return encodePageCursor(paging.Page + 1)
 }
 
 func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -200,7 +187,7 @@ func fileRowFromSlack(f slack.File, preferredChannel string, userName func(strin
 		Name:     f.Name,
 		Filetype: f.Filetype,
 		Size:     f.Size,
-		Created:  f.Created.Time().Format(time.RFC3339),
+		Created:  unixTimeText(int64(f.Created)),
 		User:     userName(f.User),
 		Channel:  channel,
 		MsgID:    msgID,
@@ -238,7 +225,7 @@ func marshalFilesToCSV(rows []fileRow, nextCursor string, channelName func(strin
 	for _, r := range rows {
 		ids = append(ids, r.Channel)
 	}
-	return marshalRowsToCSV(channelsLegend(ids, channelName), &rows, nextCursor)
+	return csvResult(channelsLegend(ids, channelName), SlackResultMeta(nextCursor, false, ""), &rows)
 }
 
 // attachmentRef describes a file well enough for a reader to decide whether

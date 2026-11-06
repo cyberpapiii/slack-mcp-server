@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -246,16 +245,14 @@ func (p messagePipeline) channelID(ctx context.Context, ref string) (string, err
 }
 
 // renderOptions carries the per-call rendering context through
-// marshalMessagesToCSV: output mode, the legend inputs, and the cursor for
-// the next page.
+// marshalMessagesToCSV: output mode, the legend inputs, the result meta and
+// any companion tables.
 type renderOptions struct {
 	mode         text.OutputMode
 	workspaceURL string
 	channelName  func(channelID string) string
 	meta         ResultMeta
-	// trailer is appended after the message rows: a companion CSV table
-	// (saved state, activity feed keys) under its own "#<name>:" line.
-	trailer string
+	sections     []csvSection
 }
 
 func (p messagePipeline) render(mode text.OutputMode, meta ResultMeta) renderOptions {
@@ -271,11 +268,7 @@ func marshalMessagesToCSV(messages []Message, opts renderOptions) (*mcp.CallTool
 	if opts.mode != text.ModeFull {
 		return marshalMessagesToCompactCSV(messages, opts)
 	}
-	csvBytes, err := gocsv.MarshalBytes(&messages)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult(buildChannelsLegend(messages, opts.channelName), opts.meta, string(csvBytes)+opts.trailer), nil
+	return csvResult(buildChannelsLegend(messages, opts.channelName), opts.meta, &messages, opts.sections...)
 }
 
 // marshalMessagesToCompactCSV converts messages to the default agent CSV format.
@@ -311,13 +304,7 @@ func marshalMessagesToCompactCSV(messages []Message, opts renderOptions) (*mcp.C
 		}
 	}
 
-	csvBytes, err := gocsv.MarshalBytes(&compact)
-	if err != nil {
-		return nil, err
-	}
-
-	legend := buildLegendHeader(messages, opts)
-	return NewCSVResult(legend, opts.meta, string(csvBytes)+opts.trailer), nil
+	return csvResult(buildLegendHeader(messages, opts), opts.meta, &compact, opts.sections...)
 }
 
 // buildChannelsLegend emits "#channels: C1=#general, D2=@bob" for every
