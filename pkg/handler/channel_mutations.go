@@ -2,9 +2,7 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"os"
 	"regexp"
 	"strings"
@@ -12,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
@@ -61,10 +60,10 @@ func (h *ChannelMutationHandler) ConversationsRenameHandler(ctx context.Context,
 	}
 	name := strings.TrimSpace(request.GetString("name", ""))
 	if name == "" {
-		return nil, errors.New("name is required and must not be empty")
+		return nil, invalidArguments("name is required and must not be empty")
 	}
 	if !channelNamePattern.MatchString(name) {
-		return nil, errors.New("name must be 1-80 lowercase letters, numbers, hyphens, or underscores")
+		return nil, invalidArguments("name must be 1-80 lowercase letters, numbers, hyphens, or underscores")
 	}
 	state, err := h.service.Rename(ctx, channelID, name)
 	return mutationResult("rename", state, err)
@@ -84,7 +83,7 @@ func (h *ChannelMutationHandler) ConversationsSetTopicHandler(ctx context.Contex
 		return nil, err
 	}
 	if utf8.RuneCountInString(topic) > 250 {
-		return nil, errors.New("topic must be at most 250 characters")
+		return nil, invalidArguments("topic must be at most 250 characters")
 	}
 	state, err := h.service.SetTopic(ctx, channelID, topic)
 	return mutationResult("set_topic", state, err)
@@ -104,7 +103,7 @@ func (h *ChannelMutationHandler) ConversationsSetPurposeHandler(ctx context.Cont
 		return nil, err
 	}
 	if utf8.RuneCountInString(purpose) > 250 {
-		return nil, errors.New("purpose must be at most 250 characters")
+		return nil, invalidArguments("purpose must be at most 250 characters")
 	}
 	state, err := h.service.SetPurpose(ctx, channelID, purpose)
 	return mutationResult("set_purpose", state, err)
@@ -121,7 +120,7 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	}
 	action := strings.TrimSpace(request.GetString("action", "prepare"))
 	if action != "prepare" && action != "execute" {
-		return nil, errors.New("action must be prepare or execute")
+		return nil, invalidArguments("action must be prepare or execute")
 	}
 	identity := h.identity()
 	if identity.TeamID == "" || identity.UserID == "" || identity.ActorType != "user" {
@@ -145,10 +144,7 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	}
 	state, err := h.service.ArchivePrepared(ctx, preparation)
 	if err != nil {
-		if isAmbiguousMutationError(err) {
-			return nil, &ToolError{Code: "outcome_unknown", Message: "Slack may have archived the channel; read current channel state before another attempt", Cause: err}
-		}
-		return nil, err
+		return nil, TypeError(err, true)
 	}
 	data := ChannelMutationData{Action: "archive", Phase: "executed", Channel: &state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil

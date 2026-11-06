@@ -3,10 +3,6 @@ package handler
 import (
 	"context"
 	"encoding/base64"
-	"errors"
-	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,9 +12,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
 
@@ -82,27 +78,27 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 	logToolCall(h.logger, "FilesUploadHandler called", request)
 	filename := strings.TrimSpace(request.GetString("filename", ""))
 	if filename == "" || filename != filepath.Base(filename) || strings.ContainsAny(filename, "\x00\r\n") {
-		return messageFilesInvalid("filename must be a non-empty base filename"), nil
+		return nil, invalidArguments("filename must be a non-empty base filename")
 	}
 	data, err := readUploadData(request)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	threadTS := strings.TrimSpace(request.GetString("thread_ts", ""))
 	if threadTS != "" && (channelID == "" || !validSlackTimestamp(threadTS)) {
-		return messageFilesInvalid("thread_ts requires channel_id and must be a Slack timestamp"), nil
+		return nil, invalidArguments("thread_ts requires channel_id and must be a Slack timestamp")
 	}
 	// Sharing into a channel posts a message, so it answers to the same
 	// allowlist as the message lifecycle tools.
 	if channelID != "" {
 		if err := requireMessageLifecycleTool("files_upload", channelID); err != nil {
-			return NewTypedErrorResult(err), nil
+			return nil, err
 		}
 	}
 	comment := request.GetString("initial_comment", "")
 	if !validMessageText(comment, true) {
-		return messageFilesInvalid("initial_comment must be valid UTF-8 and at most 40000 characters"), nil
+		return nil, invalidArguments("initial_comment must be valid UTF-8 and at most 40000 characters")
 	}
 	uploaded, err := h.service.Upload(ctx, provider.FileUploadRequest{
 		Filename: filename, Title: strings.TrimSpace(request.GetString("title", "")), Data: data,
@@ -110,7 +106,7 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 		AltText: strings.TrimSpace(request.GetString("alt_text", "")), SnippetType: strings.TrimSpace(request.GetString("snippet_type", "")),
 	})
 	if err != nil {
-		return NewTypedErrorResult(messageFilesError(err, true, "file upload")), nil
+		return nil, TypeError(err, true)
 	}
 	result := FileUploadData{FileID: uploaded.FileID, Filename: uploaded.Filename, Title: uploaded.Title, ChannelID: uploaded.ChannelID, Outcome: "uploaded"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
@@ -120,23 +116,23 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 	logToolCall(h.logger, "MessagesScheduleHandler called", request)
 	channelID, text, _, err := validateMessageMutation(request, false)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if err := requireMessageLifecycleTool("messages_schedule", channelID); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	postAt, err := parsePostAt(request.GetString("post_at", ""))
 	now := h.now()
 	if err != nil || !postAt.After(now.Add(5*time.Second)) || postAt.After(now.Add(120*24*time.Hour)) {
-		return messageFilesInvalid("post_at must be a Unix timestamp or RFC3339 time between 5 seconds and 120 days in the future"), nil
+		return nil, invalidArguments("post_at must be a Unix timestamp or RFC3339 time between 5 seconds and 120 days in the future")
 	}
 	threadTS := strings.TrimSpace(request.GetString("thread_ts", ""))
 	if threadTS != "" && !validSlackTimestamp(threadTS) {
-		return messageFilesInvalid("thread_ts must be a Slack timestamp"), nil
+		return nil, invalidArguments("thread_ts must be a Slack timestamp")
 	}
 	mutation, err := h.service.Schedule(ctx, channelID, text, postAt, threadTS)
 	if err != nil {
-		return NewTypedErrorResult(messageFilesError(err, true, "message scheduling")), nil
+		return nil, TypeError(err, true)
 	}
 	result := MessageMutationData{Action: "schedule", Phase: "executed", ChannelID: mutation.ChannelID, ScheduledMessageID: mutation.ScheduledMessageID, PostAt: postAt.UTC().Format(time.RFC3339), Outcome: "scheduled"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
@@ -146,14 +142,14 @@ func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.Ca
 	logToolCall(h.logger, "MessagesUpdateHandler called", request)
 	channelID, text, timestamp, err := validateMessageMutation(request, true)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if err := requireMessageLifecycleTool("messages_update", channelID); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	mutation, err := h.service.Update(ctx, channelID, timestamp, text)
 	if err != nil {
-		return NewTypedErrorResult(messageFilesError(err, true, "message update")), nil
+		return nil, TypeError(err, true)
 	}
 	result := MessageMutationData{Action: "update", Phase: "executed", ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Outcome: "updated"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
@@ -165,22 +161,22 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
 	if (action != "prepare" && action != "execute") || channelID == "" || !validSlackTimestamp(timestamp) {
-		return messageFilesInvalid("action must be prepare or execute; channel_id and valid timestamp are required"), nil
+		return nil, invalidArguments("action must be prepare or execute; channel_id and valid timestamp are required")
 	}
 	if err := requireMessageLifecycleTool("messages_delete", channelID); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	target, err := h.service.GetMessage(ctx, channelID, timestamp)
 	if err != nil {
-		return NewTypedErrorResult(messageFilesError(err, false, "message lookup")), nil
+		return nil, TypeError(err, false)
 	}
 	binding, err := deleteMessageBinding(h.identity(), target)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if !execute {
 		result := MessageMutationData{Action: "delete", Phase: "prepared", ChannelID: channelID, Timestamp: timestamp, Target: &target, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339), Outcome: "awaiting_confirmation"}
@@ -188,7 +184,7 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	}
 	mutation, err := h.service.Delete(ctx, channelID, timestamp)
 	if err != nil {
-		return NewTypedErrorResult(messageFilesError(err, true, "message deletion")), nil
+		return nil, TypeError(err, true)
 	}
 	result := MessageMutationData{Action: "delete", Phase: "executed", ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Target: &target, Outcome: "deleted"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
@@ -212,7 +208,7 @@ func readUploadData(request mcp.CallToolRequest) ([]byte, error) {
 		count++
 	}
 	if count != 1 {
-		return nil, &ToolError{Code: "invalid_arguments", Message: "exactly one of content_base64 or content is required"}
+		return nil, invalidArguments("exactly one of content_base64 or content is required")
 	}
 	var data []byte
 	var err error
@@ -226,7 +222,7 @@ func readUploadData(request mcp.CallToolRequest) ([]byte, error) {
 		return nil, &ToolError{Code: "invalid_arguments", Message: "content_base64 could not be decoded", Cause: err}
 	}
 	if len(data) == 0 || len(data) > maxUploadBytes {
-		return nil, &ToolError{Code: "invalid_arguments", Message: "file must contain 1 byte to 50 MiB"}
+		return nil, invalidArguments("file must contain 1 byte to 50 MiB")
 	}
 	return data, nil
 }
@@ -236,10 +232,10 @@ func validateMessageMutation(request mcp.CallToolRequest, requireTimestamp bool)
 	text := request.GetString("text", "")
 	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
 	if channelID == "" || !validMessageText(text, false) {
-		return "", "", "", &ToolError{Code: "invalid_arguments", Message: "channel_id and valid non-empty text up to 40000 characters are required"}
+		return "", "", "", invalidArguments("channel_id and valid non-empty text up to 40000 characters are required")
 	}
 	if requireTimestamp && !validSlackTimestamp(timestamp) {
-		return "", "", "", &ToolError{Code: "invalid_arguments", Message: "timestamp must be a Slack timestamp"}
+		return "", "", "", invalidArguments("timestamp must be a Slack timestamp")
 	}
 	return channelID, text, timestamp, nil
 }
@@ -274,43 +270,6 @@ func deleteMessageBinding(identity provider.ProviderIdentity, target provider.Me
 		return approval.Binding{}, err
 	}
 	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "messages_delete", Arguments: arguments, ObservedState: observed}, nil
-}
-
-func messageFilesInvalid(message string) *mcp.CallToolResult {
-	return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: message})
-}
-
-func messageFilesError(err error, mutationAttempted bool, operation string) error {
-	var typed *ToolError
-	if errors.As(err, &typed) {
-		return typed
-	}
-	var rateLimited *slack.RateLimitedError
-	if errors.As(err, &rateLimited) {
-		return &ToolError{Code: "rate_limited", Message: err.Error(), Retryable: !mutationAttempted, RetryAfter: rateLimited.RetryAfter, Cause: err}
-	}
-	if mutationAttempted && isAmbiguousMutationError(err) {
-		return &ToolError{Code: "outcome_unknown", Message: fmt.Sprintf("Slack may have accepted %s; observe Slack state before another attempt", operation), Cause: err}
-	}
-	var networkError net.Error
-	if errors.As(err, &networkError) {
-		return &ToolError{Code: "network_error", Message: err.Error(), Retryable: !mutationAttempted, Cause: err}
-	}
-	var slackError slack.SlackErrorResponse
-	if errors.As(err, &slackError) {
-		switch slackError.Err {
-		case "missing_scope", "not_authed", "invalid_auth", "not_allowed_token_type", "restricted_action", "cant_update_message", "cant_delete_message":
-			return &ToolError{Code: "permission_denied", Message: slackError.Err, Cause: err}
-		case "message_not_found", "channel_not_found":
-			return &ToolError{Code: "not_found", Message: slackError.Err, Cause: err}
-		case "time_in_past", "time_too_far":
-			return &ToolError{Code: "invalid_arguments", Message: slackError.Err, Cause: err}
-		}
-	}
-	if strings.Contains(err.Error(), "message_not_found") {
-		return &ToolError{Code: "not_found", Message: "message was not found", Cause: err}
-	}
-	return &ToolError{Code: "slack_error", Message: err.Error(), Cause: err}
 }
 
 // Tools lists the MCP tools this handler serves.

@@ -255,7 +255,7 @@ func TestUnitListSavedShowsCustomToDosWithoutFetchingMessages(t *testing.T) {
 	}}
 	h := newStubSavedHandler([]edge.SavedListResponse{page}, nil, func(item edge.SavedItem) { fetched = append(fetched, item.ItemID) })
 
-	res, err := h.listSaved(context.Background(), "todo", 50, "", true, 5, text.ModeStandard)
+	res, err := served(h.listSaved(context.Background(), "todo", 50, "", true, 5, text.ModeStandard))
 	require.NoError(t, err)
 	assert.Empty(t, fetched, "only a message has history to fetch")
 
@@ -327,7 +327,7 @@ func TestUnitSavedListKeepsRowsWhenStoppedBetweenPages(t *testing.T) {
 	defer cancel()
 	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0", "2.0")}, func(int) { cancel() }, nil)
 
-	res, err := h.listSaved(ctx, "saved", 50, "", false, 5, text.ModeStandard)
+	res, err := served(h.listSaved(ctx, "saved", 50, "", false, 5, text.ModeStandard))
 	require.NoError(t, err)
 	require.False(t, res.IsError, "the first page was listed; a stop before page two must not discard it")
 	out := ResultText(res)
@@ -342,7 +342,7 @@ func TestUnitSavedListListsTheRestOfThePageWhenStoppedMidPage(t *testing.T) {
 	defer cancel()
 	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0", "2.0", "3.0")}, nil, func(edge.SavedItem) { cancel() })
 
-	res, err := h.listSaved(ctx, "saved", 50, "", true, 5, text.ModeStandard)
+	res, err := served(h.listSaved(ctx, "saved", 50, "", true, 5, text.ModeStandard))
 	require.NoError(t, err)
 	require.False(t, res.IsError)
 	out := ResultText(res)
@@ -360,7 +360,7 @@ func TestUnitSavedListStoppedBeforeAnyRowIsCancelled(t *testing.T) {
 	cancel()
 	h := newStubSavedHandler(nil, nil, nil)
 
-	res, err := h.listSaved(ctx, "saved", 50, "c1", false, 5, text.ModeStandard)
+	res, err := served(h.listSaved(ctx, "saved", 50, "c1", false, 5, text.ModeStandard))
 	require.NoError(t, err)
 	assert.True(t, res.IsError)
 	assert.Contains(t, ResultText(res), "cancelled")
@@ -369,7 +369,7 @@ func TestUnitSavedListStoppedBeforeAnyRowIsCancelled(t *testing.T) {
 func TestUnitSavedListCompleteWalkIsNotPartial(t *testing.T) {
 	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0"), savedPage("", "2.0")}, nil, nil)
 
-	res, err := h.listSaved(context.Background(), "saved", 50, "", true, 5, text.ModeStandard)
+	res, err := served(h.listSaved(context.Background(), "saved", 50, "", true, 5, text.ModeStandard))
 	require.NoError(t, err)
 	out := ResultText(res)
 	assert.NotContains(t, out, "#partial:")

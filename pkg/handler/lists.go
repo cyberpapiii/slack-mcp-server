@@ -2,12 +2,11 @@ package handler
 
 import (
 	"context"
-	"errors"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"strings"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
@@ -66,14 +65,14 @@ func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolReque
 	logToolCall(h.logger, "ListsCreateList called", request)
 	var input provider.CreateListRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if input.Name == "" {
-		return NewTypedErrorResult(errors.New("name is required")), nil
+		return nil, invalidArguments("name is required")
 	}
 	listID, metadata, err := h.api.CreateList(ctx, input)
 	if err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
+		return nil, TypeError(err, true)
 	}
 	return NewStructuredResult(ListCreateData{ListID: listID, Metadata: metadata}, SlackResultMeta("", false, ""), "Created Slack List "+listID), nil
 }
@@ -82,13 +81,13 @@ func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolReque
 	logToolCall(h.logger, "ListsUpdateList called", request)
 	var input provider.UpdateListRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if input.ID == "" {
-		return NewTypedErrorResult(errors.New("id is required")), nil
+		return nil, invalidArguments("id is required")
 	}
 	if err := h.api.UpdateList(ctx, input); err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
+		return nil, TypeError(err, true)
 	}
 	return NewStructuredResult(ListMutationData{ListID: input.ID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List "+input.ID), nil
 }
@@ -97,17 +96,17 @@ func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolReques
 	logToolCall(h.logger, "ListsListItems called", request)
 	var input provider.ListItemsRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if input.ListID == "" {
-		return NewTypedErrorResult(errors.New("list_id is required")), nil
+		return nil, invalidArguments("list_id is required")
 	}
 	if input.Limit < 0 || input.Limit > 200 {
-		return NewTypedErrorResult(errors.New("limit must be between 0 and 200")), nil
+		return nil, invalidArguments("limit must be between 0 and 200")
 	}
 	page, err := h.api.ListItems(ctx, input)
 	if err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
+		return nil, TypeError(err, false)
 	}
 	return NewStructuredResult(page, SlackResultMeta(page.NextCursor, false, ""), fallbackJSON(page)), nil
 }
@@ -116,14 +115,14 @@ func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolReque
 	logToolCall(h.logger, "ListsCreateItem called", request)
 	var input provider.CreateListItemRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if input.ListID == "" {
-		return NewTypedErrorResult(errors.New("list_id is required")), nil
+		return nil, invalidArguments("list_id is required")
 	}
 	item, err := h.api.CreateItem(ctx, input)
 	if err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
+		return nil, TypeError(err, true)
 	}
 	return NewStructuredResult(item, SlackResultMeta("", false, ""), "Created Slack List item "+item.ID), nil
 }
@@ -132,13 +131,13 @@ func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequ
 	logToolCall(h.logger, "ListsUpdateItems called", request)
 	var input provider.UpdateListItemsRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if input.ListID == "" || len(input.Cells) == 0 {
-		return NewTypedErrorResult(errors.New("list_id and at least one cell are required")), nil
+		return nil, invalidArguments("list_id and at least one cell are required")
 	}
 	if err := h.api.UpdateItems(ctx, input); err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
+		return nil, TypeError(err, true)
 	}
 	return NewStructuredResult(ListItemMutationData{ListID: input.ListID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List items"), nil
 }
@@ -148,11 +147,11 @@ func (h *ListsHandler) PrepareDeleteItem(ctx context.Context, request mcp.CallTo
 	listID := request.GetString("list_id", "")
 	itemID := request.GetString("item_id", "")
 	if listID == "" || itemID == "" {
-		return NewTypedErrorResult(errors.New("list_id and item_id are required")), nil
+		return nil, invalidArguments("list_id and item_id are required")
 	}
 	item, err := h.api.GetItem(ctx, listID, itemID)
 	if err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
+		return nil, TypeError(err, false)
 	}
 	binding, err := listDeleteBinding(h.identity(), listID, itemID, item)
 	if err != nil {
@@ -175,21 +174,21 @@ func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolReque
 	listID := strings.TrimSpace(request.GetString("list_id", ""))
 	itemID := strings.TrimSpace(request.GetString("item_id", ""))
 	if token == "" || listID == "" || itemID == "" {
-		return NewTypedErrorResult(&ToolError{Code: "approval_required", Message: "approval_token, list_id, and item_id are required"}), nil
+		return nil, &ToolError{Code: "approval_required", Message: "approval_token, list_id, and item_id are required"}
 	}
 	current, err := h.api.GetItem(ctx, listID, itemID)
 	if err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
+		return nil, TypeError(err, false)
 	}
 	binding, err := listDeleteBinding(h.identity(), listID, itemID, current)
 	if err != nil {
 		return nil, err
 	}
 	if _, _, err := prepareOrExecute(h.approvals, "execute", token, binding); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if err := h.api.DeleteItem(ctx, listID, itemID); err != nil {
-		return NewTypedErrorResult(listToolError(err)), nil
+		return nil, TypeError(err, true)
 	}
 	data := ListItemDeleteData{Phase: "executed", ListID: listID, ItemID: itemID, Status: "deleted"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Deleted Slack List item "+itemID), nil
@@ -211,20 +210,6 @@ func listDeleteBinding(identity provider.ProviderIdentity, listID, itemID string
 		return approval.Binding{}, err
 	}
 	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "lists_item_delete", Arguments: arguments, ObservedState: observed}, nil
-}
-
-func listToolError(err error) error {
-	var apiError *provider.ListsAPIError
-	if !errors.As(err, &apiError) {
-		return err
-	}
-	if apiError.MayHaveMutated {
-		return &ToolError{Code: "outcome_unknown", Message: "Slack may have applied the List mutation; read current List state before another attempt", Cause: err}
-	}
-	return &ToolError{
-		Code: string(apiError.Kind), Message: apiError.Error(), Retryable: apiError.Retryable(),
-		RetryAfter: apiError.RetryAfter, Cause: err,
-	}
 }
 
 // Tools lists the MCP tools this handler serves.
@@ -283,7 +268,7 @@ func (h *ListsHandler) deleteItemAction(ctx context.Context, request mcp.CallToo
 	case "execute":
 		return h.DeleteItem(ctx, request)
 	default:
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "action must be prepare or execute"}), nil
+		return nil, invalidArguments("action must be prepare or execute")
 	}
 }
 

@@ -3,9 +3,9 @@ package handler
 import (
 	"context"
 	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
@@ -225,7 +225,7 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 	itemType := request.GetString("type", "")
 
 	if key == "" || feedTs == "" || itemType == "" {
-		return nil, fmt.Errorf("key, feed_ts, and type are all required parameters")
+		return nil, invalidArguments("key, feed_ts, and type are all required parameters")
 	}
 
 	err := h.apiProvider.Slack().ActivityMarkRead(ctx, itemType, feedTs, key)

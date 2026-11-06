@@ -3,13 +3,12 @@ package handler
 import (
 	"context"
 	"errors"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"net"
 	"strings"
 	"time"
 
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -76,7 +75,7 @@ func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest
 		Latest:    strings.TrimSpace(request.GetString("latest", "")),
 	})
 	if err != nil {
-		return NewTypedErrorResult(scheduledError(err, false)), nil
+		return nil, scheduledError(err, false)
 	}
 	query := strings.ToLower(strings.TrimSpace(request.GetString("text_query", "")))
 	rows := make([]ScheduledRow, 0, len(page.Messages))
@@ -104,12 +103,12 @@ func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolReque
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	scheduledMessageID := strings.TrimSpace(request.GetString("scheduled_message_id", ""))
 	if channelID == "" || scheduledMessageID == "" || (action != "prepare" && action != "execute") {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "action, channel_id, and scheduled_message_id are required"}), nil
+		return nil, invalidArguments("action, channel_id, and scheduled_message_id are required")
 	}
 
 	binding, err := scheduledBinding(h.identity(), channelID, scheduledMessageID)
 	if err != nil {
-		return NewTypedErrorResult(scheduledError(err, false)), nil
+		return nil, scheduledError(err, false)
 	}
 	// The token binds team, user, channel and message ID, and Slack's own
 	// not-found answer covers a message that was posted or cancelled in between,
@@ -117,12 +116,12 @@ func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolReque
 	var target provider.ScheduledMessage
 	if action == "prepare" {
 		if target, err = h.findScheduled(ctx, channelID, scheduledMessageID); err != nil {
-			return NewTypedErrorResult(scheduledError(err, false)), nil
+			return nil, scheduledError(err, false)
 		}
 	}
 	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if !execute {
 		preview := scheduledResultMessage(target)
@@ -130,7 +129,7 @@ func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolReque
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 	}
 	if err := h.service.CancelScheduled(ctx, channelID, scheduledMessageID); err != nil {
-		return NewTypedErrorResult(scheduledError(err, true)), nil
+		return nil, scheduledError(err, true)
 	}
 	resultTarget := ScheduledMessage{ScheduledMessageID: scheduledMessageID, ChannelID: channelID}
 	data := ScheduledCancelData{Phase: "executed", Target: &resultTarget, Cancelled: true, Outcome: "cancelled"}
@@ -188,29 +187,14 @@ func excerpt(text string, limit int) string {
 	return string(runes[:limit]) + "…"
 }
 
+// scheduledError reads a missing scheduled message as a conflict: the message
+// was pending when listed and has since posted or been cancelled.
 func scheduledError(err error, mutationAttempted bool) error {
-	var typed *ToolError
-	if errors.As(err, &typed) {
-		return typed
-	}
-	var rateLimited *slack.RateLimitedError
-	if errors.As(err, &rateLimited) {
-		return &ToolError{Code: "rate_limited", Message: err.Error(), Retryable: !mutationAttempted, RetryAfter: rateLimited.RetryAfter, Cause: err}
-	}
-	var networkError net.Error
-	if mutationAttempted && (errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &networkError) && networkError.Timeout())) {
-		return &ToolError{Code: "outcome_unknown", Message: "Slack may have accepted the cancellation; observe scheduled messages before another attempt", Cause: err}
-	}
 	var slackError slack.SlackErrorResponse
-	if errors.As(err, &slackError) {
-		switch slackError.Err {
-		case "missing_scope", "not_authed", "invalid_auth", "not_allowed_token_type", "restricted_action":
-			return &ToolError{Code: "permission_denied", Message: slackError.Err, Cause: err}
-		case "invalid_scheduled_message_id", "message_not_found":
-			return &ToolError{Code: "conflict", Message: "scheduled message is no longer pending", Cause: err}
-		}
+	if errors.As(err, &slackError) && (slackError.Err == "invalid_scheduled_message_id" || slackError.Err == "message_not_found") {
+		return &ToolError{Code: "conflict", Message: "scheduled message is no longer pending", Cause: err}
 	}
-	return &ToolError{Code: "slack_error", Message: err.Error(), Cause: err}
+	return TypeError(err, mutationAttempted)
 }
 
 // Tools lists the MCP tools this handler serves.

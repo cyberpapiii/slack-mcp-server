@@ -144,7 +144,7 @@ func (p *MessageFilesProvider) GetMessage(ctx context.Context, channelID, timest
 		return MessageSnapshot{}, err
 	}
 	if len(msgs) == 0 || msgs[0].Timestamp != timestamp {
-		return MessageSnapshot{}, errors.New("message_not_found")
+		return MessageSnapshot{}, slack.SlackErrorResponse{Err: "message_not_found"}
 	}
 	message := msgs[0]
 	return MessageSnapshot{ChannelID: channelID, Timestamp: message.Timestamp, Text: message.Text, UserID: message.User}, nil

@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"net"
 	"net/mail"
 	"regexp"
 	"sort"
@@ -16,9 +13,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
 
@@ -85,11 +82,11 @@ func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.
 		userID = h.identity().UserID
 	}
 	if err := validateUserID(userID); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	profile, err := h.service.GetProfile(ctx, userID, request.GetBool("include_labels", true))
 	if err != nil {
-		return NewTypedErrorResult(peopleChannelsError(err, false)), nil
+		return nil, TypeError(err, false)
 	}
 	data := ProfileData{Profile: profile}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -99,15 +96,15 @@ func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.
 	logToolCall(h.logger, "UsersSetProfileHandler called", request)
 	identity, err := h.requireUserIdentity()
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	update, err := parseProfileUpdate(request)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	profile, err := h.service.UpdateProfile(ctx, identity.UserID, update)
 	if err != nil {
-		return NewTypedErrorResult(peopleChannelsError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := ProfileData{Profile: profile}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -117,30 +114,30 @@ func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.C
 	logToolCall(h.logger, "UsersSetStatusHandler called", request)
 	identity, err := h.requireUserIdentity()
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	text, err := presentString(request, "status_text")
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if utf8.RuneCountInString(text) > 100 {
-		return NewTypedErrorResult(invalidArguments("status_text must be at most 100 characters")), nil
+		return nil, invalidArguments("status_text must be at most 100 characters")
 	}
 	emoji, err := presentString(request, "status_emoji")
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	emoji, err = normalizeEmoji(emoji)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	expiration := int64(request.GetInt("status_expiration", 0))
 	if expiration < 0 {
-		return NewTypedErrorResult(invalidArguments("status_expiration must be 0 or a Unix timestamp")), nil
+		return nil, invalidArguments("status_expiration must be 0 or a Unix timestamp")
 	}
 	profile, err := h.service.SetStatus(ctx, identity.UserID, text, emoji, expiration)
 	if err != nil {
-		return NewTypedErrorResult(peopleChannelsError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := ProfileData{Profile: profile}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -151,7 +148,7 @@ func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallT
 	limit := pageLimit(request, 100, maxEmojiPageSize)
 	page, err := h.service.ListEmoji(ctx, strings.TrimSpace(request.GetString("query", "")), strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
-		return NewTypedErrorResult(peopleChannelsError(err, false)), nil
+		return nil, TypeError(err, false)
 	}
 	rows := make([]EmojiRow, len(page.Emoji))
 	for i, e := range page.Emoji {
@@ -168,7 +165,7 @@ func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.C
 	logToolCall(h.logger, "ChannelsCreateHandler called", request)
 	name := strings.TrimSpace(request.GetString("name", ""))
 	if !channelNamePattern.MatchString(name) {
-		return NewTypedErrorResult(invalidArguments("name must be 1-80 lowercase letters, numbers, hyphens, or underscores")), nil
+		return nil, invalidArguments("name must be 1-80 lowercase letters, numbers, hyphens, or underscores")
 	}
 	teamID := strings.TrimSpace(request.GetString("team_id", ""))
 	if teamID == "" {
@@ -176,7 +173,7 @@ func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.C
 	}
 	state, err := h.service.CreateChannel(ctx, name, request.GetBool("is_private", false), teamID)
 	if err != nil {
-		return NewTypedErrorResult(peopleChannelsError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := ChannelData{Channel: state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -186,12 +183,12 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 	logToolCall(h.logger, "ChannelsMembersHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	limit := pageLimit(request, 100, maxPeoplePageSize)
 	page, err := h.service.ListChannelMembers(ctx, channelID, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
-		return NewTypedErrorResult(peopleChannelsError(err, false)), nil
+		return nil, TypeError(err, false)
 	}
 	rows := make([]ChannelMemberRow, len(page.UserIDs))
 	for i, id := range page.UserIDs {
@@ -211,20 +208,20 @@ func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, reques
 	logToolCall(h.logger, "ChannelsInviteHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	userIDs, err := request.RequireStringSlice("user_ids")
 	if err != nil || len(userIDs) == 0 {
-		return NewTypedErrorResult(invalidArguments("user_ids must contain at least one user ID")), nil
+		return nil, invalidArguments("user_ids must contain at least one user ID")
 	}
 	if len(userIDs) > 1000 {
-		return NewTypedErrorResult(invalidArguments("user_ids must contain at most 1000 user IDs")), nil
+		return nil, invalidArguments("user_ids must contain at most 1000 user IDs")
 	}
 	unique := make(map[string]struct{}, len(userIDs))
 	for i, userID := range userIDs {
 		userID = strings.TrimSpace(userID)
 		if err := validateUserID(userID); err != nil {
-			return NewTypedErrorResult(invalidArguments(fmt.Sprintf("user_ids[%d] is invalid", i))), nil
+			return nil, invalidArguments(fmt.Sprintf("user_ids[%d] is invalid", i))
 		}
 		unique[userID] = struct{}{}
 	}
@@ -235,7 +232,7 @@ func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, reques
 	sort.Strings(userIDs)
 	state, err := h.service.InviteChannelMembers(ctx, channelID, userIDs)
 	if err != nil {
-		return NewTypedErrorResult(peopleChannelsError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := ChannelData{Channel: state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -331,41 +328,6 @@ func validateUserID(userID string) error {
 		return invalidArguments("user_id must be a Slack user ID starting with U or W")
 	}
 	return nil
-}
-
-func peopleChannelsError(err error, mutationAttempted bool) error {
-	var typed *ToolError
-	if errors.As(err, &typed) {
-		return typed
-	}
-	if errors.Is(err, provider.ErrUserOAuthRequired) {
-		return &ToolError{Code: "user_oauth_required", Message: err.Error(), Cause: err}
-	}
-	if errors.Is(err, provider.ErrInvalidPaginationCursor) {
-		return &ToolError{Code: "invalid_cursor", Message: err.Error(), Cause: err}
-	}
-	var rateLimited *slack.RateLimitedError
-	if errors.As(err, &rateLimited) {
-		return &ToolError{Code: "rate_limited", Message: err.Error(), Retryable: !mutationAttempted, RetryAfter: rateLimited.RetryAfter, Cause: err}
-	}
-	var networkError net.Error
-	if mutationAttempted && (errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &networkError) && networkError.Timeout())) {
-		return &ToolError{Code: "outcome_unknown", Message: "Slack may have accepted the change; observe current Slack state before another attempt", Cause: err}
-	}
-	var slackError slack.SlackErrorResponse
-	if errors.As(err, &slackError) {
-		switch slackError.Err {
-		case "missing_scope", "not_authed", "invalid_auth", "not_allowed_token_type", "restricted_action", "not_allowed":
-			return &ToolError{Code: "permission_denied", Message: slackError.Err, Cause: err}
-		case "user_not_found", "channel_not_found":
-			return &ToolError{Code: "not_found", Message: slackError.Err, Cause: err}
-		case "name_taken", "already_in_channel", "cant_invite_self":
-			return &ToolError{Code: "conflict", Message: slackError.Err, Cause: err}
-		case "invalid_cursor":
-			return &ToolError{Code: "invalid_cursor", Message: slackError.Err, Cause: err}
-		}
-	}
-	return &ToolError{Code: "slack_error", Message: err.Error(), Retryable: !mutationAttempted, Cause: err}
 }
 
 // Tools lists the MCP tools this handler serves.

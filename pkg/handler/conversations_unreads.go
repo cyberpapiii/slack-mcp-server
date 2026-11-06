@@ -99,7 +99,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
 
 	if !ch.backfillUnreadCounts(ctx, request, ch.apiProvider.WebAPI(), params, unreadChannels) {
-		return cancelledToolResult(), nil
+		return nil, ctx.Err()
 	}
 
 	coverage := unreadsCoverage{mutedUnavailable: params.mutedUnavailable, maxChannels: params.maxChannels, dropped: dropped}
@@ -114,7 +114,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 			sendProgress(ctx, request, finished, len(unreadChannels), fmt.Sprintf("Fetching messages: %d of %d channels", finished, len(unreadChannels)))
 		})
 	if ctx.Err() != nil {
-		return cancelledToolResult(), nil
+		return nil, ctx.Err()
 	}
 
 	var allMessages []Message
@@ -465,7 +465,7 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		return nil, fmt.Errorf("channel_id is required")
+		return nil, invalidArguments("channel_id is required")
 	}
 
 	channel, err := ch.resolveChannelID(ctx, channel)
@@ -493,7 +493,7 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		return nil, fmt.Errorf("channel_id is required")
+		return nil, invalidArguments("channel_id is required")
 	}
 
 	channel, err := ch.resolveChannelID(ctx, channel)
@@ -567,7 +567,7 @@ func marshalUnreadChannelsToCSV(channels []UnreadChannel, meta ResultMeta) (*mcp
 func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Context, request mcp.CallToolRequest) ([]string, error) {
 	usersStr := request.GetString("users", "")
 	if usersStr == "" {
-		return nil, errors.New("users must be a comma-separated string of user IDs or @usernames")
+		return nil, invalidArguments("users must be a comma-separated string of user IDs or @usernames")
 	}
 
 	var userIDs []string
@@ -585,7 +585,7 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 				userIDs = append(userIDs, id)
 			} else {
 				ch.logger.Debug("User not found", zap.String("username", username))
-				return nil, fmt.Errorf("user %q not found. Please provide a valid @username or User ID (e.g. U12345678)", user)
+				return nil, userNotFound(user)
 			}
 		} else {
 			// Assume it's a User ID
@@ -594,7 +594,7 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 	}
 
 	if len(userIDs) == 0 {
-		return nil, errors.New("no valid users provided")
+		return nil, invalidArguments("no valid users provided")
 	}
 
 	return userIDs, nil
@@ -649,8 +649,8 @@ func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolReque
 		channelTypes = "all"
 	}
 	if !slices.Contains(validUnreadsChannelTypes, channelTypes) {
-		return nil, fmt.Errorf("unsupported channel_types %q: must be one of %s",
-			channelTypes, strings.Join(validUnreadsChannelTypes, ", "))
+		return nil, invalidArguments(fmt.Sprintf("unsupported channel_types %q: must be one of %s",
+			channelTypes, strings.Join(validUnreadsChannelTypes, ", ")))
 	}
 
 	return &unreadsParams{
@@ -668,7 +668,7 @@ func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest)
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
 		ch.logger.Debug("channel_id missing in mark params")
-		return nil, errors.New("channel_id is required")
+		return nil, invalidArguments("channel_id is required")
 	}
 
 	if strings.HasPrefix(channel, "#") || strings.HasPrefix(channel, "@") {
@@ -676,7 +676,7 @@ func (ch *ConversationsHandler) parseParamsToolMark(request mcp.CallToolRequest)
 		chn, ok := channelsMaps.ChannelsInv[channel]
 		if !ok {
 			ch.logger.Debug("Channel not found", zap.String("channel", channel))
-			return nil, fmt.Errorf("channel %q not found", channel)
+			return nil, channelNotFound(channel)
 		}
 		channel = channelsMaps.Channels[chn].ID
 	}

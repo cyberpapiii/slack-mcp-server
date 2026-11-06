@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -135,7 +134,7 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 func (ch *ConversationsHandler) parseParamsToolUsersSearch(request mcp.CallToolRequest) (*usersSearchParams, error) {
 	query := strings.TrimSpace(request.GetString("query", ""))
 	if query == "" {
-		return nil, errors.New("query is required")
+		return nil, invalidArguments("query is required")
 	}
 
 	limit := pageLimit(request, 10, 100)

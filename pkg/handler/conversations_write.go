@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -58,7 +57,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 				options = append(options, slack.MsgOptionBlocks(blocks...))
 			}
 		default:
-			return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
+			return nil, invalidArguments("content_type must be either 'text/plain' or 'text/markdown'")
 		}
 	}
 
@@ -126,7 +125,7 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 			formatStatus = fmt.Sprintf("markdown (%d block(s))", len(blocks))
 		}
 	default:
-		return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
+		return nil, invalidArguments("content_type must be either 'text/plain' or 'text/markdown'")
 	}
 
 	sendability := ch.sendStatus(params.channel)
@@ -235,7 +234,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 
 	rawChannel := request.GetString("channel_id", "")
 	if rawChannel == "" {
-		return nil, errors.New("channel_id is required")
+		return nil, invalidArguments("channel_id is required")
 	}
 	channel, err := ch.resolveChannelID(ctx, rawChannel)
 	if err != nil {
@@ -245,7 +244,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 
 	timestamp := request.GetString("timestamp", "")
 	if timestamp == "" {
-		return nil, errors.New("timestamp is required")
+		return nil, invalidArguments("timestamp is required")
 	}
 
 	ch.logger.Debug("Fetching reactions for message",
@@ -311,7 +310,7 @@ func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context,
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
 		ch.logger.Debug("channel_id missing in draft-message params")
-		return nil, errors.New("channel_id must be a string")
+		return nil, invalidArguments("channel_id must be a string")
 	}
 	channel, err := ch.resolveChannelID(ctx, channel)
 	if err != nil {
@@ -322,19 +321,19 @@ func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context,
 	threadTs := request.GetString("thread_ts", "")
 	if threadTs != "" && !strings.Contains(threadTs, ".") {
 		ch.logger.Debug("Invalid thread_ts format", zap.String("thread_ts", threadTs))
-		return nil, errors.New("thread_ts must be a valid timestamp in format 1234567890.123456")
+		return nil, invalidArguments("thread_ts must be a valid timestamp in format 1234567890.123456")
 	}
 
 	msgText := request.GetString("text", "")
 	if msgText == "" {
 		ch.logger.Debug("Message text missing")
-		return nil, errors.New("text is required and must not be empty")
+		return nil, invalidArguments("text is required and must not be empty")
 	}
 
 	contentType := request.GetString("content_type", "text/markdown")
 	if contentType != "text/plain" && contentType != "text/markdown" {
 		ch.logger.Debug("Invalid content_type", zap.String("content_type", contentType))
-		return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
+		return nil, invalidArguments("content_type must be either 'text/plain' or 'text/markdown'")
 	}
 
 	return &addMessageParams{
@@ -355,7 +354,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
 		ch.logger.Debug("channel_id missing in add-message params")
-		return nil, errors.New("channel_id must be a string")
+		return nil, invalidArguments("channel_id must be a string")
 	}
 	channel, err := ch.resolveChannelID(ctx, channel)
 	if err != nil {
@@ -370,7 +369,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	threadTs := request.GetString("thread_ts", "")
 	if threadTs != "" && !strings.Contains(threadTs, ".") {
 		ch.logger.Debug("Invalid thread_ts format", zap.String("thread_ts", threadTs))
-		return nil, errors.New("thread_ts must be a valid timestamp in format 1234567890.123456")
+		return nil, invalidArguments("thread_ts must be a valid timestamp in format 1234567890.123456")
 	}
 
 	msgText := request.GetString("text", "")
@@ -382,7 +381,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	contentType := request.GetString("content_type", "text/markdown")
 	if contentType != "text/plain" && contentType != "text/markdown" {
 		ch.logger.Debug("Invalid content_type", zap.String("content_type", contentType))
-		return nil, errors.New("content_type must be either 'text/plain' or 'text/markdown'")
+		return nil, invalidArguments("content_type must be either 'text/plain' or 'text/markdown'")
 	}
 
 	// Parse optional raw blocks JSON. Accepts blocks as either:
@@ -418,7 +417,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 
 	if msgText == "" && blocks == nil {
 		ch.logger.Debug("Message text and blocks both missing")
-		return nil, errors.New("either text or blocks must be provided")
+		return nil, invalidArguments("either text or blocks must be provided")
 	}
 
 	return &addMessageParams{
@@ -435,7 +434,7 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		return nil, errors.New("channel_id is required")
+		return nil, invalidArguments("channel_id is required")
 	}
 	channel, err := ch.resolveChannelID(ctx, channel)
 	if err != nil {
@@ -449,12 +448,12 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 
 	timestamp := request.GetString("timestamp", "")
 	if timestamp == "" {
-		return nil, errors.New("timestamp is required")
+		return nil, invalidArguments("timestamp is required")
 	}
 
 	emoji := strings.Trim(request.GetString("emoji", ""), ":")
 	if emoji == "" {
-		return nil, errors.New("emoji is required")
+		return nil, invalidArguments("emoji is required")
 	}
 
 	return &addReactionParams{

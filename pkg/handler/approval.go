@@ -38,6 +38,6 @@ func prepareOrExecute(store *approval.Store, action, token string, binding appro
 		}
 		return nil, true, nil
 	default:
-		return nil, false, &ToolError{Code: "invalid_arguments", Message: "action must be prepare or execute"}
+		return nil, false, invalidArguments("action must be prepare or execute")
 	}
 }

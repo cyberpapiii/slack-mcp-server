@@ -58,7 +58,7 @@ func TestUnitListsHandlerReturnsTypedPagination(t *testing.T) {
 		NextCursor: "next",
 	}}
 	handler := newTestListsHandler(api)
-	result, err := handler.ListItems(context.Background(), listRequest(map[string]any{"list_id": "F1", "limit": 25}))
+	result, err := served(handler.ListItems(context.Background(), listRequest(map[string]any{"list_id": "F1", "limit": 25})))
 	require.NoError(t, err)
 	structured, ok := result.StructuredContent.(ToolResult[provider.ListItemsPage])
 	require.True(t, ok)
@@ -79,18 +79,18 @@ func TestUnitListsDeleteRequiresFreshExactPreview(t *testing.T) {
 	api := &fakeListsAPI{item: item}
 	handler := newTestListsHandler(api)
 
-	prepared, err := handler.PrepareDeleteItem(context.Background(), listRequest(map[string]any{"list_id": "F1", "item_id": "Rec1"}))
+	prepared, err := served(handler.PrepareDeleteItem(context.Background(), listRequest(map[string]any{"list_id": "F1", "item_id": "Rec1"})))
 	require.NoError(t, err)
 	preparedResult := prepared.StructuredContent.(ToolResult[ListItemDeleteData])
 	require.NotNil(t, preparedResult.Data)
 	assert.Equal(t, "Before", preparedResult.Data.Item.Fields[0].Text)
 
-	executed, err := handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": preparedResult.Data.ApprovalToken, "list_id": "F1", "item_id": "Rec1"}))
+	executed, err := served(handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": preparedResult.Data.ApprovalToken, "list_id": "F1", "item_id": "Rec1"})))
 	require.NoError(t, err)
 	assert.False(t, executed.IsError)
 	assert.Equal(t, 1, api.deleteCalls)
 
-	replayed, err := handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": preparedResult.Data.ApprovalToken, "list_id": "F1", "item_id": "Rec1"}))
+	replayed, err := served(handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": preparedResult.Data.ApprovalToken, "list_id": "F1", "item_id": "Rec1"})))
 	require.NoError(t, err)
 	assert.True(t, replayed.IsError)
 	assert.Equal(t, 1, api.deleteCalls)
@@ -106,7 +106,7 @@ func TestUnitListsDeleteRejectsChangedOrExpiredStateWithoutMutation(t *testing.T
 	prepared, _ := handler.PrepareDeleteItem(context.Background(), listRequest(map[string]any{"list_id": "F1", "item_id": "Rec1"}))
 	token := prepared.StructuredContent.(ToolResult[ListItemDeleteData]).Data.ApprovalToken
 	api.item.Fields[0].Text = "Changed"
-	conflict, err := handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": token, "list_id": "F1", "item_id": "Rec1"}))
+	conflict, err := served(handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": token, "list_id": "F1", "item_id": "Rec1"})))
 	require.NoError(t, err)
 	assert.True(t, conflict.IsError)
 	assert.Contains(t, ResultText(conflict), "does not match")
@@ -116,7 +116,7 @@ func TestUnitListsDeleteRejectsChangedOrExpiredStateWithoutMutation(t *testing.T
 	prepared, _ = handler.PrepareDeleteItem(context.Background(), listRequest(map[string]any{"list_id": "F1", "item_id": "Rec1"}))
 	token = prepared.StructuredContent.(ToolResult[ListItemDeleteData]).Data.ApprovalToken
 	clock = now.Add(6 * time.Minute)
-	expired, err := handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": token, "list_id": "F1", "item_id": "Rec1"}))
+	expired, err := served(handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": token, "list_id": "F1", "item_id": "Rec1"})))
 	require.NoError(t, err)
 	assert.True(t, expired.IsError)
 	assert.Zero(t, api.deleteCalls)
@@ -131,7 +131,7 @@ func TestUnitListsDeleteDoesNotRetryMutation(t *testing.T) {
 	prepared, _ := handler.PrepareDeleteItem(context.Background(), listRequest(map[string]any{"list_id": "F1", "item_id": "Rec1"}))
 	token := prepared.StructuredContent.(ToolResult[ListItemDeleteData]).Data.ApprovalToken
 
-	result, err := handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": token, "list_id": "F1", "item_id": "Rec1"}))
+	result, err := served(handler.DeleteItem(context.Background(), listRequest(map[string]any{"approval_token": token, "list_id": "F1", "item_id": "Rec1"})))
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Equal(t, 1, api.deleteCalls)
@@ -142,7 +142,7 @@ func TestUnitListsHandlerMapsPlanScopeAndPermissionErrors(t *testing.T) {
 	for _, kind := range []provider.ListsErrorKind{provider.ListsErrorUnavailable, provider.ListsErrorScope, provider.ListsErrorPermission} {
 		api := &fakeListsAPI{getItemErr: &provider.ListsAPIError{Kind: kind, SlackCode: string(kind)}}
 		handler := newTestListsHandler(api)
-		result, err := handler.PrepareDeleteItem(context.Background(), listRequest(map[string]any{"list_id": "F1", "item_id": "Rec1"}))
+		result, err := served(handler.PrepareDeleteItem(context.Background(), listRequest(map[string]any{"list_id": "F1", "item_id": "Rec1"})))
 		require.NoError(t, err)
 		assert.True(t, result.IsError)
 		assert.Contains(t, ResultText(result), string(kind))
@@ -151,7 +151,7 @@ func TestUnitListsHandlerMapsPlanScopeAndPermissionErrors(t *testing.T) {
 
 func TestUnitListsHandlerRejectsInvalidArgumentsBeforeAPI(t *testing.T) {
 	handler := newTestListsHandler(&fakeListsAPI{})
-	result, err := handler.CreateList(context.Background(), listRequest(map[string]any{"name": "", "schema": "bad"}))
+	result, err := served(handler.CreateList(context.Background(), listRequest(map[string]any{"name": "", "schema": "bad"})))
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }

@@ -3,15 +3,14 @@ package handler
 import (
 	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -36,15 +35,15 @@ func (h *CanvasHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 	logToolCall(h.logger, "CanvasCreate called", request)
 	var input provider.CanvasCreateRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	input.Title = strings.TrimSpace(input.Title)
 	if input.Title == "" && strings.TrimSpace(input.Markdown) == "" {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "title or markdown is required"}), nil
+		return nil, invalidArguments("title or markdown is required")
 	}
 	id, err := h.api.CreateCanvas(ctx, input)
 	if err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := CanvasMutationData{CanvasID: id, Status: "created"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -54,21 +53,21 @@ func (h *CanvasHandler) Read(ctx context.Context, request mcp.CallToolRequest) (
 	logToolCall(h.logger, "CanvasRead called", request)
 	var input provider.CanvasReadRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	input.CanvasID = strings.TrimSpace(input.CanvasID)
 	input.ContainsText = strings.TrimSpace(input.ContainsText)
 	if input.CanvasID == "" {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "canvas_id is required"}), nil
+		return nil, invalidArguments("canvas_id is required")
 	}
 	switch input.ContentFormat {
 	case "", "markdown", "html", "none":
 	default:
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "content_format must be markdown, html, or none"}), nil
+		return nil, invalidArguments("content_format must be markdown, html, or none")
 	}
 	document, err := h.api.ReadCanvas(ctx, input)
 	if err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
+		return nil, TypeError(err, false)
 	}
 	return NewStructuredResult(document, SlackResultMeta("", document.Limitation != "", document.Limitation), fallbackJSON(document)), nil
 }
@@ -81,28 +80,28 @@ func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 	logToolCall(h.logger, "CanvasUpdate called", request)
 	var input provider.CanvasUpdateRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	input.CanvasID = strings.TrimSpace(input.CanvasID)
 	if input.CanvasID == "" || len(input.Changes) != 1 {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "canvas_id and exactly one change are required; Slack accepts one canvas edit per call"}), nil
+		return nil, invalidArguments("canvas_id and exactly one change are required; Slack accepts one canvas edit per call")
 	}
 	for i := range input.Changes {
 		change := &input.Changes[i]
 		change.Operation = strings.TrimSpace(change.Operation)
 		change.SectionID = strings.TrimSpace(change.SectionID)
 		if !slices.Contains(canvasOperations, change.Operation) {
-			return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: fmt.Sprintf("changes[%d].operation is unsupported", i)}), nil
+			return nil, invalidArguments(fmt.Sprintf("changes[%d].operation is unsupported", i))
 		}
 		if (change.Operation == "insert_before" || change.Operation == "insert_after") && change.SectionID == "" {
-			return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: fmt.Sprintf("changes[%d].section_id is required for %s", i, change.Operation)}), nil
+			return nil, invalidArguments(fmt.Sprintf("changes[%d].section_id is required for %s", i, change.Operation))
 		}
 		if strings.TrimSpace(change.Markdown) == "" {
-			return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: fmt.Sprintf("changes[%d].markdown is required for %s", i, change.Operation)}), nil
+			return nil, invalidArguments(fmt.Sprintf("changes[%d].markdown is required for %s", i, change.Operation))
 		}
 	}
 	if err := h.api.UpdateCanvas(ctx, input); err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := CanvasMutationData{CanvasID: input.CanvasID, Status: "updated"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -147,7 +146,7 @@ func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (
 	limit := pageLimit(request, 50, 100)
 	page, err := h.api.ListDrafts(ctx, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
+		return nil, TypeError(err, false)
 	}
 	rows := make([]DraftRow, len(page.Drafts))
 	channelIDs := make([]string, len(page.Drafts))
@@ -175,11 +174,11 @@ func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*
 	logToolCall(h.logger, "DraftsGet called", request)
 	id := strings.TrimSpace(request.GetString("draft_id", ""))
 	if id == "" {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "draft_id is required"}), nil
+		return nil, invalidArguments("draft_id is required")
 	}
 	draft, err := h.api.GetDraft(ctx, id)
 	if err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
+		return nil, TypeError(err, false)
 	}
 	return NewStructuredResult(draft, SlackResultMeta("", false, ""), fallbackJSON(draft)), nil
 }
@@ -188,11 +187,11 @@ func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 	logToolCall(h.logger, "DraftsCreate called", request)
 	draft, err := decodeDraft(request, false)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	created, err := h.api.CreateDraft(ctx, draft)
 	if err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := DraftMutationData{Phase: "executed", Status: "created", Draft: &created}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -202,11 +201,11 @@ func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 	logToolCall(h.logger, "DraftsUpdate called", request)
 	draft, err := decodeDraft(request, true)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	updated, err := h.api.UpdateDraft(ctx, draft)
 	if err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := DraftMutationData{Phase: "executed", Status: "updated", Draft: &updated}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -217,26 +216,26 @@ func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest)
 	action := strings.TrimSpace(request.GetString("action", "prepare"))
 	id := strings.TrimSpace(request.GetString("draft_id", ""))
 	if id == "" || (action != "prepare" && action != "execute") {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "draft_id is required and action must be prepare or execute"}), nil
+		return nil, invalidArguments("draft_id is required and action must be prepare or execute")
 	}
 	current, err := h.api.GetDraft(ctx, id)
 	if err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
+		return nil, TypeError(err, false)
 	}
 	binding, err := draftDeleteBinding(h.identity(), current)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	if !execute {
 		data := DraftMutationData{Phase: "prepared", Status: "awaiting_confirmation", Draft: &current, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339)}
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 	}
 	if err := h.api.DeleteDraft(ctx, id, current.UpdatedTS); err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, true)), nil
+		return nil, TypeError(err, true)
 	}
 	data := DraftMutationData{Phase: "executed", Status: "deleted", Draft: &current}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -251,10 +250,10 @@ func decodeDraft(request mcp.CallToolRequest, requireID bool) (provider.Draft, e
 	draft.ChannelID = strings.TrimSpace(draft.ChannelID)
 	draft.ThreadTS = strings.TrimSpace(draft.ThreadTS)
 	if requireID && draft.ID == "" {
-		return provider.Draft{}, &ToolError{Code: "invalid_arguments", Message: "id is required"}
+		return provider.Draft{}, invalidArguments("id is required")
 	}
 	if draft.ChannelID == "" || strings.TrimSpace(draft.Text) == "" {
-		return provider.Draft{}, &ToolError{Code: "invalid_arguments", Message: "channel_id and text are required"}
+		return provider.Draft{}, invalidArguments("channel_id and text are required")
 	}
 	return draft, nil
 }
@@ -327,26 +326,26 @@ func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallTool
 	logToolCall(h.logger, "SemanticSearch called", request)
 	var input provider.SemanticSearchRequest
 	if err := decodeArguments(request, &input); err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 	input.Query = strings.TrimSpace(input.Query)
 	if input.Query == "" {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "query is required"}), nil
+		return nil, invalidArguments("query is required")
 	}
 	if input.Limit == 0 {
 		input.Limit = maxSemanticResults
 	}
 	if input.Limit < 1 || input.Limit > maxSemanticResults {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: fmt.Sprintf("limit must be between 1 and %d", maxSemanticResults)}), nil
+		return nil, invalidArguments(fmt.Sprintf("limit must be between 1 and %d", maxSemanticResults))
 	}
 	for _, contentType := range input.ContentTypes {
 		if contentType != "messages" && contentType != "files" {
-			return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "content_types supports only messages and files"}), nil
+			return nil, invalidArguments("content_types supports only messages and files")
 		}
 	}
 	page, err := h.api.SearchSemantic(ctx, input)
 	if err != nil {
-		return NewTypedErrorResult(canvasDraftSearchError(err, false)), nil
+		return nil, TypeError(err, false)
 	}
 	csvText, err := semanticSearchCSV(page.Items, slices.Contains(input.ContentTypes, "files"))
 	if err != nil {
@@ -357,24 +356,6 @@ func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallTool
 		channelIDs[i] = item.ChannelID
 	}
 	return NewCSVResult(channelsLegend(channelIDs, h.ChannelName), SlackResultMeta(page.NextCursor, false, ""), csvText), nil
-}
-
-func canvasDraftSearchError(err error, mutation bool) error {
-	if errors.Is(err, provider.ErrPersistedDraftsUnsupported) {
-		return &ToolError{Code: "unsupported", Message: provider.ErrPersistedDraftsUnsupported.Error(), Cause: err}
-	}
-	var apiError *provider.CapabilityAPIError
-	if !errors.As(err, &apiError) {
-		return err
-	}
-	if mutation && apiError.MayHaveMutated {
-		return &ToolError{Code: "outcome_unknown", Message: "Slack may have applied the mutation; read current state before another attempt", Cause: err}
-	}
-	code := apiError.Code
-	if code == "" {
-		code = "slack_api_error"
-	}
-	return &ToolError{Code: code, Message: "Slack request failed: " + code, Retryable: apiError.Retryable(), RetryAfter: apiError.RetryAfter, Cause: err}
 }
 
 // Tools lists the MCP tools this handler serves.

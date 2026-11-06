@@ -62,9 +62,9 @@ func newTestMessageFilesHandler(service MessageFilesService) *MessageFilesHandle
 
 func TestUnitFilesUploadRejectsMultipleSourcesWithoutMutation(t *testing.T) {
 	service := &fakeMessageFilesService{}
-	result, err := newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
+	result, err := served(newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
 		"filename": "a.txt", "content": "hello", "content_base64": "aGVsbG8=",
-	}))
+	})))
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Equal(t, 0, service.uploadCalls)
@@ -74,9 +74,9 @@ func TestUnitMessagesScheduleValidatesThenReturnsTypedResult(t *testing.T) {
 	service := &fakeMessageFilesService{}
 	handler := newTestMessageFilesHandler(service)
 	handler.now = func() time.Time { return time.Unix(1_800_000_000, 0).UTC() }
-	result, err := handler.MessagesSchedule(context.Background(), messageFilesRequest(map[string]any{
+	result, err := served(handler.MessagesSchedule(context.Background(), messageFilesRequest(map[string]any{
 		"channel_id": "C1", "text": "later", "post_at": "1800000060",
-	}))
+	})))
 	require.NoError(t, err)
 	require.False(t, result.IsError)
 	structured := result.StructuredContent.(ToolResult[MessageMutationData])
@@ -89,23 +89,23 @@ func TestUnitMessagesScheduleValidatesThenReturnsTypedResult(t *testing.T) {
 func TestUnitMessagesDeletePrepareExecuteRevalidatesAndConsumesToken(t *testing.T) {
 	service := &fakeMessageFilesService{snapshot: provider.MessageSnapshot{ChannelID: "C1", Timestamp: "1.000001", Text: "remove", UserID: "U1"}}
 	handler := newTestMessageFilesHandler(service)
-	prepared, err := handler.MessagesDelete(context.Background(), messageFilesRequest(map[string]any{
+	prepared, err := served(handler.MessagesDelete(context.Background(), messageFilesRequest(map[string]any{
 		"action": "prepare", "channel_id": "C1", "timestamp": "1.000001",
-	}))
+	})))
 	require.NoError(t, err)
 	token := prepared.StructuredContent.(ToolResult[MessageMutationData]).Data.ApprovalToken
 
-	executed, err := handler.MessagesDelete(context.Background(), messageFilesRequest(map[string]any{
+	executed, err := served(handler.MessagesDelete(context.Background(), messageFilesRequest(map[string]any{
 		"action": "execute", "channel_id": "C1", "timestamp": "1.000001", "approval_token": token,
-	}))
+	})))
 	require.NoError(t, err)
 	assert.False(t, executed.IsError)
 	assert.Equal(t, 2, service.lookupCalls)
 	assert.Equal(t, 1, service.deleteCalls)
 
-	replayed, err := handler.MessagesDelete(context.Background(), messageFilesRequest(map[string]any{
+	replayed, err := served(handler.MessagesDelete(context.Background(), messageFilesRequest(map[string]any{
 		"action": "execute", "channel_id": "C1", "timestamp": "1.000001", "approval_token": token,
-	}))
+	})))
 	require.NoError(t, err)
 	assert.True(t, replayed.IsError)
 	assert.Equal(t, 1, service.deleteCalls)
@@ -113,9 +113,9 @@ func TestUnitMessagesDeletePrepareExecuteRevalidatesAndConsumesToken(t *testing.
 
 func TestUnitMessagesUpdateTimeoutIsOutcomeUnknownAndNeverRetried(t *testing.T) {
 	service := &fakeMessageFilesService{updateErr: context.DeadlineExceeded}
-	result, err := newTestMessageFilesHandler(service).MessagesUpdate(context.Background(), messageFilesRequest(map[string]any{
+	result, err := served(newTestMessageFilesHandler(service).MessagesUpdate(context.Background(), messageFilesRequest(map[string]any{
 		"channel_id": "C1", "timestamp": "1.000001", "text": "changed",
-	}))
+	})))
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	structured := result.StructuredContent.(ToolResult[struct{}])
@@ -126,9 +126,9 @@ func TestUnitMessagesUpdateTimeoutIsOutcomeUnknownAndNeverRetried(t *testing.T) 
 
 func TestUnitMessagesUpdateRejectsInvalidTimestamp(t *testing.T) {
 	service := &fakeMessageFilesService{updateErr: errors.New("must not run")}
-	result, err := newTestMessageFilesHandler(service).MessagesUpdate(context.Background(), messageFilesRequest(map[string]any{
+	result, err := served(newTestMessageFilesHandler(service).MessagesUpdate(context.Background(), messageFilesRequest(map[string]any{
 		"channel_id": "C1", "timestamp": "bad", "text": "changed",
-	}))
+	})))
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Equal(t, 0, service.updateCalls)
@@ -154,16 +154,16 @@ func TestUnitMessagesScheduleHonorsAddMessageAllowlist(t *testing.T) {
 	handler := newTestMessageFilesHandler(service)
 	handler.now = func() time.Time { return time.Unix(1_800_000_000, 0).UTC() }
 
-	ok, err := handler.MessagesSchedule(context.Background(), messageFilesRequest(map[string]any{
+	ok, err := served(handler.MessagesSchedule(context.Background(), messageFilesRequest(map[string]any{
 		"channel_id": "C1", "text": "later", "post_at": "1800000060",
-	}))
+	})))
 	require.NoError(t, err)
 	require.False(t, ok.IsError)
 	assert.Equal(t, 1, service.scheduleCalls)
 
-	denied, err := handler.MessagesSchedule(context.Background(), messageFilesRequest(map[string]any{
+	denied, err := served(handler.MessagesSchedule(context.Background(), messageFilesRequest(map[string]any{
 		"channel_id": "C9", "text": "later", "post_at": "1800000060",
-	}))
+	})))
 	require.NoError(t, err)
 	require.True(t, denied.IsError)
 	assert.Equal(t, 1, service.scheduleCalls)
@@ -173,17 +173,17 @@ func TestUnitFilesUploadHonorsChannelAllowlist(t *testing.T) {
 	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1")
 
 	service := &fakeMessageFilesService{}
-	blocked, err := newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
+	blocked, err := served(newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
 		"filename": "a.txt", "content": "hello", "channel_id": "C9", "initial_comment": "here",
-	}))
+	})))
 	require.NoError(t, err)
 	assert.True(t, blocked.IsError, "sharing into a blocked channel posts a message and must be denied")
 	assert.Contains(t, ResultText(blocked), "SLACK_MCP_ADD_MESSAGE_TOOL", "the denial must name the variable that caused it")
 	assert.Equal(t, 0, service.uploadCalls)
 
-	allowed, err := newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
+	allowed, err := served(newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
 		"filename": "a.txt", "content": "hello", "channel_id": "C1",
-	}))
+	})))
 	require.NoError(t, err)
 	require.False(t, allowed.IsError)
 	assert.Equal(t, 1, service.uploadCalls)
@@ -193,9 +193,9 @@ func TestUnitFilesUploadWithoutChannelSkipsAllowlist(t *testing.T) {
 	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1")
 
 	service := &fakeMessageFilesService{}
-	result, err := newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
+	result, err := served(newTestMessageFilesHandler(service).FilesUpload(context.Background(), messageFilesRequest(map[string]any{
 		"filename": "a.txt", "content": "hello",
-	}))
+	})))
 	require.NoError(t, err)
 	require.False(t, result.IsError, "an unshared upload posts nothing, so the message allowlist does not apply")
 	assert.Equal(t, 1, service.uploadCalls)

@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,11 +79,55 @@ func TestResultTextSkipsNonTextContent(t *testing.T) {
 	assert.Empty(t, ResultText(result))
 }
 
-func TestCancelledToolResultUsesTypedErrorContract(t *testing.T) {
-	result := cancelledToolResult()
-	require.True(t, result.IsError)
-	structured, ok := result.StructuredContent.(ToolResult[struct{}])
-	require.True(t, ok)
-	require.NotNil(t, structured.Error)
-	assert.Equal(t, "cancelled", structured.Error.Code)
+// served turns a handler's return into what the caller sees, the way the
+// server's error middleware does.
+func served(result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) {
+	if err != nil {
+		return NewTypedErrorResult(TypeError(err, false)), nil
+	}
+	return result, nil
+}
+
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }
+
+func TestTypeErrorCodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		mutation  bool
+		code      string
+		retryable bool
+	}{
+		{"cancelled", context.Canceled, false, "cancelled", false},
+		{"rate limit on a read", &slack.RateLimitedError{RetryAfter: time.Second}, false, "rate_limited", true},
+		{"rate limit on a write", &slack.RateLimitedError{RetryAfter: time.Second}, true, "rate_limited", false},
+		{"timeout on a write", timeoutErr{}, true, "outcome_unknown", false},
+		{"timeout on a read", timeoutErr{}, false, "network_error", true},
+		{"deadline on a write", context.DeadlineExceeded, true, "outcome_unknown", false},
+		{"scope", slack.SlackErrorResponse{Err: "missing_scope"}, false, "permission_denied", false},
+		{"missing message", slack.SlackErrorResponse{Err: "message_not_found"}, false, "not_found", false},
+		{"unknown Slack error", slack.SlackErrorResponse{Err: "weird"}, false, "slack_error", false},
+		{"user OAuth", provider.ErrUserOAuthRequired, false, "user_oauth_required", false},
+		{"wrapped sentinel", fmt.Errorf("x: %w", provider.ErrBrowserSessionUnavailable), false, "browser_session_required", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var typed *ToolError
+			require.ErrorAs(t, TypeError(tt.err, tt.mutation), &typed)
+			assert.Equal(t, tt.code, typed.Code)
+			assert.Equal(t, tt.retryable, typed.Retryable)
+		})
+	}
+}
+
+func TestTypeErrorKeepsTypedAndPlainErrors(t *testing.T) {
+	typed := invalidArguments("bad")
+	assert.Same(t, typed, TypeError(typed, true))
+	plain := errors.New("bug")
+	assert.Same(t, plain, TypeError(plain, true))
+	assert.NoError(t, TypeError(nil, true))
 }

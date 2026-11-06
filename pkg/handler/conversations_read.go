@@ -23,11 +23,11 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 
 	rawChannel := request.GetString("channel_id", "")
 	if rawChannel == "" {
-		return nil, errors.New("channel_id is required")
+		return nil, invalidArguments("channel_id is required")
 	}
 	timestamp := request.GetString("timestamp", "")
 	if timestamp == "" {
-		return nil, errors.New("timestamp is required")
+		return nil, invalidArguments("timestamp is required")
 	}
 	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
 	if err != nil {
@@ -112,7 +112,7 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	threadTs := request.GetString("thread_ts", "")
 	if threadTs == "" {
 		ch.logger.Debug("thread_ts not provided for replies", zap.String("thread_ts", threadTs))
-		return nil, errors.New("thread_ts must be a string")
+		return nil, invalidArguments("thread_ts must be a string")
 	}
 
 	repliesParams := slack.GetConversationRepliesParameters{
@@ -183,7 +183,7 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
 		ch.logger.Debug("channel_id missing in conversations params")
-		return nil, errors.New("channel_id must be a string")
+		return nil, invalidArguments("channel_id must be a string")
 	}
 
 	limit := request.GetString("limit", "")
@@ -325,7 +325,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 
 	sort := req.GetString("sort", "score")
 	if sort != "score" && sort != "timestamp" {
-		return nil, fmt.Errorf("invalid sort: %q (must be 'score' or 'timestamp')", sort)
+		return nil, invalidArguments(fmt.Sprintf("invalid sort: %q (must be 'score' or 'timestamp')", sort))
 	}
 
 	var (
@@ -341,7 +341,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		parts := strings.Split(string(decodedCursor), ":")
 		if len(parts) != 2 {
 			ch.logger.Debug("Invalid cursor format", zap.String("cursor", cursor))
-			return nil, fmt.Errorf("invalid cursor: %v", cursor)
+			return nil, invalidArguments(fmt.Sprintf("invalid cursor: %v", cursor))
 		}
 		page, err = strconv.Atoi(parts[1])
 		if err != nil || page < 1 {

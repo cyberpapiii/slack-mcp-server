@@ -19,7 +19,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/version"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
 
@@ -216,14 +215,17 @@ func buildErrorRecoveryMiddleware(logger *zap.Logger) server.ToolHandlerMiddlewa
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			res, err := next(ctx, req)
 			if err != nil {
-				err = typeRateLimit(req.Params.Name, err)
+				// A read-only tool cannot have changed Slack state, so its
+				// failures are safe to retry; a write's may not be.
+				meta, _ := capability.Lookup(req.Params.Name)
+				err = handler.TypeError(err, !meta.ReadOnly)
 				// A *handler.ToolError is an expected, typed outcome (bad
-				// arguments, permission, rate limit), and a cancelled call
-				// is the client's choice; everything else is a defect worth
-				// a warning. "Request finished" carries the code either way.
+				// arguments, permission, rate limit, cancellation); anything
+				// else is a defect worth a warning. "Request finished" carries
+				// the code either way.
 				var typed *handler.ToolError
 				level := logger.Warn
-				if errors.As(err, &typed) || errors.Is(err, context.Canceled) {
+				if errors.As(err, &typed) {
 					level = logger.Debug
 				}
 				level("Tool call returned error, converting to isError tool result",
@@ -234,26 +236,6 @@ func buildErrorRecoveryMiddleware(logger *zap.Logger) server.ToolHandlerMiddlewa
 			}
 			return res, nil
 		}
-	}
-}
-
-// typeRateLimit gives a raw Slack 429 its rate_limited code and delay. Only
-// read-only tools promise a retry: a mutating handler that returns a raw 429
-// may already have applied an earlier step, and the ones that know better
-// type the error themselves.
-func typeRateLimit(tool string, err error) error {
-	var typed *handler.ToolError
-	var limited *slack.RateLimitedError
-	if errors.As(err, &typed) || !errors.As(err, &limited) {
-		return err
-	}
-	meta, _ := capability.Lookup(tool)
-	return &handler.ToolError{
-		Code:       "rate_limited",
-		Message:    err.Error(),
-		Retryable:  meta.ReadOnly,
-		RetryAfter: limited.RetryAfter,
-		Cause:      err,
 	}
 }
 

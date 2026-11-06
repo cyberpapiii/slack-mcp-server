@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -72,12 +71,12 @@ func TestUnitDNDMutationsRejectBotIdentity(t *testing.T) {
 }
 
 func TestUnitDNDErrorsAreTyped(t *testing.T) {
-	api := &fakeDNDAPI{status: &slack.DNDStatus{}, err: errors.New("missing_scope")}
+	api := &fakeDNDAPI{status: &slack.DNDStatus{}, err: slack.SlackErrorResponse{Err: "missing_scope"}}
 	handler := NewDNDHandler(api, userIdentity, zap.NewNop())
 	_, err := handler.Get(context.Background(), mcp.CallToolRequest{})
 	var typed *ToolError
 	require.ErrorAs(t, err, &typed)
-	assert.Equal(t, "read_dnd_failed", typed.Code)
+	assert.Equal(t, "permission_denied", typed.Code)
 }
 
 func TestUnitDNDMutationTimeoutIsOutcomeUnknown(t *testing.T) {

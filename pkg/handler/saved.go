@@ -3,14 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
@@ -191,7 +190,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 	}
 
 	if stopErr != nil && len(allItems) == 0 {
-		return cancelledToolResult(), nil
+		return nil, stopErr
 	}
 	partialReason := ""
 	if stopErr != nil {
@@ -299,15 +298,15 @@ func parseSavedTarget(request mcp.CallToolRequest) (savedTarget, error) {
 	itemID := request.GetString("item_id", "")
 	switch {
 	case itemID != "" && (channelID != "" || ts != ""):
-		return savedTarget{}, errors.New("pass either channel_id and timestamp, or item_id, not both")
+		return savedTarget{}, invalidArguments("pass either channel_id and timestamp, or item_id, not both")
 	case itemID != "" && strings.HasPrefix(itemID, "Sa"):
 		return savedTarget{edge.SavedItemReminder, itemID, ""}, nil
 	case itemID != "" && strings.HasPrefix(itemID, "F"):
 		return savedTarget{edge.SavedItemFile, itemID, ""}, nil
 	case itemID != "":
-		return savedTarget{}, fmt.Errorf("item_id %q is not a custom to-do (Sa...) or a file (F...)", itemID)
+		return savedTarget{}, invalidArguments(fmt.Sprintf("item_id %q is not a custom to-do (Sa...) or a file (F...)", itemID))
 	case channelID == "" || ts == "":
-		return savedTarget{}, errors.New("channel_id and timestamp are required for a message; use item_id for a custom to-do or a file")
+		return savedTarget{}, invalidArguments("channel_id and timestamp are required for a message; use item_id for a custom to-do or a file")
 	}
 	return savedTarget{edge.SavedItemMessage, channelID, ts}, nil
 }
@@ -339,13 +338,13 @@ func parseSavedUpdateParams(request mcp.CallToolRequest) (edge.SavedUpdateParams
 		DateDue:   savedDateDue(request),
 	}
 	if params.Mark != "" && params.Mark != "completed" && params.Mark != "uncompleted" {
-		return edge.SavedUpdateParams{}, fmt.Errorf("mark must be completed or uncompleted, got %q", params.Mark)
+		return edge.SavedUpdateParams{}, invalidArguments(fmt.Sprintf("mark must be completed or uncompleted, got %q", params.Mark))
 	}
 	if !validSavedTodoState(params.TodoState) {
-		return edge.SavedUpdateParams{}, fmt.Errorf("todo_state must be to_do or saved, got %q", params.TodoState)
+		return edge.SavedUpdateParams{}, invalidArguments(fmt.Sprintf("todo_state must be to_do or saved, got %q", params.TodoState))
 	}
 	if params.Mark == "" && params.TodoState == "" && params.DateDue == "" {
-		return edge.SavedUpdateParams{}, errors.New("at least one of mark, todo_state or date_due must be provided")
+		return edge.SavedUpdateParams{}, invalidArguments("at least one of mark, todo_state or date_due must be provided")
 	}
 	// Without a state, Slack files a reopened item under Saved. It was completed
 	// from To-dos, so that is where it goes back to.
@@ -386,7 +385,7 @@ func parseSavedAddParams(request mcp.CallToolRequest) (edge.SavedAddParams, erro
 
 	params := edge.SavedAddParams{TodoState: request.GetString("todo_state", "to_do"), DateDue: savedDateDue(request)}
 	if !validSavedTodoState(params.TodoState) {
-		return edge.SavedAddParams{}, fmt.Errorf("todo_state must be to_do or saved, got %q", params.TodoState)
+		return edge.SavedAddParams{}, invalidArguments(fmt.Sprintf("todo_state must be to_do or saved, got %q", params.TodoState))
 	}
 	switch {
 	case body != "" && channelID == "" && ts == "" && fileID == "":
@@ -406,7 +405,7 @@ func parseSavedAddParams(request mcp.CallToolRequest) (edge.SavedAddParams, erro
 	case body == "" && channelID == "" && ts == "" && fileID != "":
 		params.ItemType, params.ItemID = edge.SavedItemFile, fileID
 	default:
-		return edge.SavedAddParams{}, errors.New("pass exactly one of: text, channel_id with timestamp, or file_id")
+		return edge.SavedAddParams{}, invalidArguments("pass exactly one of: text, channel_id with timestamp, or file_id")
 	}
 	return params, nil
 }

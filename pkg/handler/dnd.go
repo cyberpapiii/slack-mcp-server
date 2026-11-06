@@ -3,11 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -50,7 +49,7 @@ func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	}
 	status, err := h.api.GetDNDInfoContext(ctx, nil)
 	if err != nil {
-		return nil, dndError("read_dnd_failed", err)
+		return nil, TypeError(err, false)
 	}
 	return dndResult(identity.UserID, status)
 }
@@ -67,7 +66,7 @@ func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest)
 	}
 	status, err := h.api.SetSnoozeContext(ctx, minutes)
 	if err != nil {
-		return nil, dndError("set_dnd_failed", err)
+		return nil, TypeError(err, true)
 	}
 	return dndResult(identity.UserID, status)
 }
@@ -80,7 +79,7 @@ func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest)
 	}
 	status, err := h.api.EndSnoozeContext(ctx)
 	if err != nil {
-		return nil, dndError("end_dnd_failed", err)
+		return nil, TypeError(err, true)
 	}
 	return dndResult(identity.UserID, status)
 }
@@ -115,16 +114,6 @@ func unixTime(value int) string {
 		return ""
 	}
 	return time.Unix(int64(value), 0).UTC().Format(time.RFC3339)
-}
-
-func dndError(code string, err error) error {
-	if errors.Is(err, provider.ErrUserOAuthRequired) {
-		return &ToolError{Code: "user_oauth_required", Message: err.Error(), Cause: err}
-	}
-	if isAmbiguousMutationError(err) {
-		return &ToolError{Code: "outcome_unknown", Message: "Slack may have changed DND state; read current DND state before another attempt", Cause: err}
-	}
-	return &ToolError{Code: code, Message: err.Error(), Cause: err}
 }
 
 // Tools lists the MCP tools this handler serves.

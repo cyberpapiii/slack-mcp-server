@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,7 +37,7 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 	}
 
 	if fileInfo.Size > maxFileSizeBytes {
-		return nil, fmt.Errorf("file size %d bytes exceeds maximum allowed size of %d bytes", fileInfo.Size, maxFileSizeBytes)
+		return nil, invalidArguments(fmt.Sprintf("file size %d bytes exceeds maximum allowed size of %d bytes", fileInfo.Size, maxFileSizeBytes))
 	}
 
 	var buf bytes.Buffer
@@ -47,7 +46,7 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 		downloadURL = fileInfo.URLPrivate
 	}
 	if downloadURL == "" {
-		return nil, errors.New("file has no downloadable URL")
+		return nil, invalidArguments("file has no downloadable URL")
 	}
 
 	err = ch.apiProvider.WebAPI().GetFileContext(ctx, downloadURL, &buf)
@@ -56,7 +55,7 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 		return nil, err
 	}
 	if buf.Len() > maxFileSizeBytes {
-		return nil, fmt.Errorf("downloaded %d bytes, exceeds maximum allowed size of %d bytes", buf.Len(), maxFileSizeBytes)
+		return nil, invalidArguments(fmt.Sprintf("downloaded %d bytes, exceeds maximum allowed size of %d bytes", buf.Len(), maxFileSizeBytes))
 	}
 
 	content := buf.Bytes()
@@ -323,7 +322,7 @@ func (ch *ConversationsHandler) parseParamsToolFilesGet(request mcp.CallToolRequ
 
 	fileID := request.GetString("file_id", "")
 	if fileID == "" {
-		return nil, errors.New("file_id is required")
+		return nil, invalidArguments("file_id is required")
 	}
 
 	return &filesGetParams{
@@ -395,12 +394,12 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 
 	root, err := downloadRoot()
 	if err != nil {
-		return NewTypedErrorResult(err), nil
+		return nil, err
 	}
 
 	fileID := strings.TrimSpace(request.GetString("file_id", ""))
 	if fileID == "" {
-		return NewTypedErrorResult(invalidArguments("file_id is required")), nil
+		return nil, invalidArguments("file_id is required")
 	}
 
 	fileInfo, _, _, err := ch.apiProvider.WebAPI().GetFileInfoContext(ctx, fileID, 0, 0)
@@ -409,9 +408,9 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 		return nil, err
 	}
 	if fileInfo.Size > maxDownloadBytes {
-		return NewTypedErrorResult(invalidArguments(fmt.Sprintf(
+		return nil, invalidArguments(fmt.Sprintf(
 			"file size %d bytes exceeds the %d byte download limit", fileInfo.Size, maxDownloadBytes,
-		))), nil
+		))
 	}
 
 	dest := downloadPath(root, fileInfo)
@@ -431,7 +430,7 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 		downloadURL = fileInfo.URLPrivate
 	}
 	if downloadURL == "" {
-		return NewTypedErrorResult(invalidArguments("file has no downloadable URL")), nil
+		return nil, invalidArguments("file has no downloadable URL")
 	}
 
 	var buf bytes.Buffer
@@ -440,9 +439,9 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 		return nil, err
 	}
 	if buf.Len() > maxDownloadBytes {
-		return NewTypedErrorResult(invalidArguments(fmt.Sprintf(
+		return nil, invalidArguments(fmt.Sprintf(
 			"downloaded %d bytes, exceeds the %d byte download limit", buf.Len(), maxDownloadBytes,
-		))), nil
+		))
 	}
 	if err := os.WriteFile(dest, buf.Bytes(), 0o644); err != nil {
 		ch.logger.Error("Failed to write downloaded file", zap.Error(err))

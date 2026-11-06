@@ -3,12 +3,12 @@ package handler
 import (
 	"context"
 	"errors"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -131,7 +131,7 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 
 	name := request.GetString("name", "")
 	if name == "" {
-		return nil, errors.New("name is required")
+		return nil, invalidArguments("name is required")
 	}
 
 	handle := request.GetString("handle", "")
@@ -166,7 +166,7 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 
 	usergroupID := request.GetString("usergroup_id", "")
 	if usergroupID == "" {
-		return nil, errors.New("usergroup_id is required")
+		return nil, invalidArguments("usergroup_id is required")
 	}
 
 	name := request.GetString("name", "")
@@ -191,7 +191,7 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 	}
 
 	if len(options) == 0 {
-		return nil, errors.New("at least one update field (name, handle, description, or channels) is required")
+		return nil, invalidArguments("at least one update field (name, handle, description, or channels) is required")
 	}
 
 	updated, err := h.api.UpdateUserGroupContext(ctx, usergroupID, options...)
@@ -211,12 +211,12 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 
 	usergroupID := request.GetString("usergroup_id", "")
 	if usergroupID == "" {
-		return nil, errors.New("usergroup_id is required")
+		return nil, invalidArguments("usergroup_id is required")
 	}
 
 	usersStr := request.GetString("users", "")
 	if usersStr == "" {
-		return nil, errors.New("users is required")
+		return nil, invalidArguments("users is required")
 	}
 
 	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, usersStr)
@@ -283,7 +283,7 @@ func (h *UsergroupsHandler) currentUserID() (string, error) {
 func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, currentUserID, usergroupID string, action membershipAction) (*mcp.CallToolResult, error) {
 
 	if usergroupID == "" {
-		return nil, errors.New("usergroup_id is required")
+		return nil, invalidArguments("usergroup_id is required")
 	}
 
 	members, err := h.api.GetUserGroupMembersContext(ctx, usergroupID)

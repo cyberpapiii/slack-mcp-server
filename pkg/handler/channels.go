@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"sort"
 	"strings"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
@@ -358,13 +358,6 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 		return nil, err
 	}
 
-	if ch.apiProvider.IsBotToken() {
-		return nil, fmt.Errorf(
-			"channels_starred requires a user token (xoxp) or browser session tokens (xoxc/xoxd); " +
-				"bot tokens (xoxb) do not support starred items",
-		)
-	}
-
 	channelTypesFilter := request.GetString("channel_types", "all")
 	limit := pageLimit(request, 100, 1000)
 
@@ -471,7 +464,7 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 	if cursor != "" {
 		decoded, err := base64.StdEncoding.DecodeString(cursor)
 		if err != nil {
-			return nil, "", fmt.Errorf("invalid cursor: %q", cursor)
+			return nil, "", invalidArguments(fmt.Sprintf("invalid cursor: %q", cursor))
 		}
 		lastID := string(decoded)
 		startIndex = len(channels)

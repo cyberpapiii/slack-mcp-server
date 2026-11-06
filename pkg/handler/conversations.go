@@ -444,7 +444,7 @@ func formatConversationFilter(cms *provider.ChannelsCache, raw string) (string, 
 			}
 		}
 	}
-	return "", fmt.Errorf("conversation %q not found in cache; pass the '@username' form instead", raw)
+	return "", invalidArguments(fmt.Sprintf("conversation %q not found in cache; pass the '@username' form instead", raw))
 }
 
 func (ch *ConversationsHandler) paramFormatUser(ctx context.Context, raw string) (string, error) {
@@ -733,7 +733,7 @@ func limitByNumeric(limit string, defaultLimit int) (int, error) {
 	}
 	n, err := strconv.Atoi(limit)
 	if err != nil {
-		return 0, fmt.Errorf("invalid limit %q: use a number of messages (e.g. 50) or a time range such as 6h, 1d, 1w, or 1m", limit)
+		return 0, invalidArguments(fmt.Sprintf("invalid limit %q: use a number of messages (e.g. 50) or a time range such as 6h, 1d, 1w, or 1m", limit))
 	}
 	return n, nil
 }
@@ -743,13 +743,13 @@ func limitByExpression(limit, defaultLimit string) (slackLimit int, oldest, late
 		limit = defaultLimit
 	}
 	if len(limit) < 2 {
-		return 0, "", "", fmt.Errorf("invalid duration limit %q: too short", limit)
+		return 0, "", "", invalidArguments(fmt.Sprintf("invalid duration limit %q: too short", limit))
 	}
 	suffix := limit[len(limit)-1]
 	numStr := limit[:len(limit)-1]
 	n, err := strconv.Atoi(numStr)
 	if err != nil || n <= 0 {
-		return 0, "", "", fmt.Errorf("invalid duration limit %q: must be a positive integer followed by 'h', 'd', 'w', or 'm'", limit)
+		return 0, "", "", invalidArguments(fmt.Sprintf("invalid duration limit %q: must be a positive integer followed by 'h', 'd', 'w', or 'm'", limit))
 	}
 	now := time.Now()
 	loc := now.Location()
@@ -767,7 +767,7 @@ func limitByExpression(limit, defaultLimit string) (slackLimit int, oldest, late
 	case 'm':
 		oldestTime = startOfToday.AddDate(0, -n, 0)
 	default:
-		return 0, "", "", fmt.Errorf("invalid duration limit %q: must end in 'h', 'd', 'w', or 'm'", limit)
+		return 0, "", "", invalidArguments(fmt.Sprintf("invalid duration limit %q: must end in 'h', 'd', 'w', or 'm'", limit))
 	}
 	latest = fmt.Sprintf("%d.000000", now.Unix())
 	oldest = fmt.Sprintf("%d.000000", oldestTime.Unix())
@@ -871,7 +871,7 @@ func parseFlexibleDate(dateStr string) (time.Time, string, error) {
 		}
 	}
 
-	return time.Time{}, "", fmt.Errorf("unable to parse date: %s", dateStr)
+	return time.Time{}, "", invalidArguments(fmt.Sprintf("unable to parse date: %s", dateStr))
 }
 
 func parseStandardDate(dateStr string) (time.Time, string, bool) {
@@ -887,7 +887,7 @@ func buildDateFilters(before, after, on, during string) (map[string]string, erro
 	out := make(map[string]string)
 	if on != "" {
 		if during != "" || before != "" || after != "" {
-			return nil, fmt.Errorf("'on' cannot be combined with other date filters")
+			return nil, invalidArguments("'on' cannot be combined with other date filters")
 		}
 		_, normalized, err := parseFlexibleDate(on)
 		if err != nil {
@@ -898,7 +898,7 @@ func buildDateFilters(before, after, on, during string) (map[string]string, erro
 	}
 	if during != "" {
 		if before != "" || after != "" {
-			return nil, fmt.Errorf("'during' cannot be combined with 'before' or 'after'")
+			return nil, invalidArguments("'during' cannot be combined with 'before' or 'after'")
 		}
 		_, normalized, err := parseFlexibleDate(during)
 		if err != nil {
@@ -925,7 +925,7 @@ func buildDateFilters(before, after, on, during string) (map[string]string, erro
 		a, _, _ := parseFlexibleDate(after)
 		b, _, _ := parseFlexibleDate(before)
 		if a.After(b) {
-			return nil, fmt.Errorf("'after' date is after 'before' date")
+			return nil, invalidArguments("'after' date is after 'before' date")
 		}
 	}
 	return out, nil
