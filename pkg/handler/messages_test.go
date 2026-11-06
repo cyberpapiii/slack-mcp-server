@@ -51,5 +51,6 @@ func TestUnitSearchMatchMessage(t *testing.T) {
 	assert.True(t, rendersInHistory(msg, false))
 
 	bot := searchMatchMessage(slack.SearchMessage{Username: "deploybot", Timestamp: "1712345678.000300"})
-	assert.Equal(t, "bot_message", bot.SubType, "a match with a username and no user is a bot post, as history marks it")
+	assert.Equal(t, "", bot.SubType, "no subtype is invented for a bot match")
+	assert.Equal(t, "deploybot", bot.Username)
 }

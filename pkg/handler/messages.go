@@ -76,11 +76,10 @@ func (p messagePipeline) rows(ctx context.Context, slackMessages []slack.Message
 		}
 
 		userName, realName, ok := resolver.resolve(msg.User)
-
-		if !ok && msg.SubType == "bot_message" {
+		if !ok && msg.Username != "" {
+			// Bot and app posts carry a display name instead of a user.
 			userName, realName, ok = msg.Username, msg.Username, true
 		}
-
 		if !ok {
 			warn = true
 		}
@@ -151,7 +150,6 @@ func (p messagePipeline) searchRows(ctx context.Context, matches []slack.SearchM
 }
 
 // searchMatchMessage carries a search match into the history message shape.
-// A match has no subtype; one with a username and no user is a bot post.
 func searchMatchMessage(m slack.SearchMessage) slack.Message {
 	var msg slack.Message
 	msg.Type = m.Type
@@ -164,9 +162,6 @@ func searchMatchMessage(m slack.SearchMessage) slack.Message {
 	msg.Permalink = m.Permalink
 	msg.Attachments = m.Attachments
 	msg.ThreadTimestamp, _ = extractThreadTS(m.Permalink)
-	if m.User == "" && m.Username != "" {
-		msg.SubType = "bot_message"
-	}
 	return msg
 }
 
@@ -388,19 +383,21 @@ func buildLegendHeader(messages []Message, opts renderOptions) string {
 // than once per message.
 type userResolver struct {
 	api          *provider.ApiProvider
+	logger       *zap.Logger
 	ctx          context.Context
 	attemptedIDs map[string]bool
 }
 
 func (p messagePipeline) newUserResolver(ctx context.Context) *userResolver {
-	return &userResolver{api: p.api, ctx: ctx, attemptedIDs: make(map[string]bool)}
+	return &userResolver{api: p.api, logger: p.logger, ctx: ctx, attemptedIDs: make(map[string]bool)}
 }
 
 // prefetch resolves every uncached author on the page in one users.info call.
 // Without it a page whose authors are outside the users cache — Slack Connect
 // guests, members who joined since the last sync — costs one sequential round
-// trip and one full snapshot rebuild each. A batch that fails or comes back
-// short changes nothing: resolve still falls back to the per-user patch.
+// trip and one full snapshot rebuild each. After a batch that worked, a user
+// it did not return is not asked for again; after a failed batch resolve
+// falls back to the per-user patch.
 func (r *userResolver) prefetch(userIDs []string) {
 	dir := r.api.Directory()
 	var missing []string
@@ -414,10 +411,16 @@ func (r *userResolver) prefetch(userIDs []string) {
 			missing = append(missing, id)
 		}
 	}
-	if len(missing) < 2 {
-		return // one miss is exactly what resolve already does in one call
+	if len(missing) == 0 {
+		return
 	}
-	_ = r.api.PatchUsers(r.ctx, missing)
+	if err := r.api.PatchUsers(r.ctx, missing); err != nil {
+		r.logger.Debug("Batched users.info failed; resolving authors one by one", zap.Int("users", len(missing)), zap.Error(err))
+		return
+	}
+	for _, id := range missing {
+		r.attemptedIDs[id] = true
+	}
 }
 
 func (r *userResolver) resolve(userID string) (userName, realName string, ok bool) {
@@ -430,6 +433,7 @@ func (r *userResolver) resolve(userID string) (userName, realName string, ok boo
 	r.attemptedIDs[userID] = true
 	patched, err := r.api.PatchUser(r.ctx, userID)
 	if err != nil {
+		r.logger.Debug("users.info failed; showing the user ID", zap.String("user_id", userID), zap.Error(err))
 		return userID, userID, false
 	}
 	return patched.Name, patched.RealName, true
