@@ -122,6 +122,7 @@ func TestTypeErrorCodes(t *testing.T) {
 		{"timeout on a write", timeoutErr{}, true, "outcome_unknown", false},
 		{"timeout on a read", timeoutErr{}, false, "network_error", true},
 		{"deadline on a write", context.DeadlineExceeded, true, "outcome_unknown", false},
+		{"deadline on a read", fmt.Errorf("fetch: %w", context.DeadlineExceeded), false, "network_error", true},
 		{"scope", slack.SlackErrorResponse{Err: "missing_scope"}, false, "permission_denied", false},
 		{"missing message", slack.SlackErrorResponse{Err: "message_not_found"}, false, "not_found", false},
 		{"unknown Slack error", slack.SlackErrorResponse{Err: "weird"}, false, "slack_error", false},

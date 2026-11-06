@@ -163,11 +163,12 @@ func TypeError(err error, mutationAttempted bool) error {
 		return &ToolError{Code: codeRateLimited, Message: err.Error(), Retryable: !mutationAttempted, RetryAfter: rateLimited.RetryAfter, Cause: err}
 	}
 	var networkError net.Error
-	timedOut := errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &networkError) && networkError.Timeout())
+	isNetwork := errors.As(err, &networkError)
+	timedOut := errors.Is(err, context.DeadlineExceeded) || (isNetwork && networkError.Timeout())
 	if mutationAttempted && timedOut {
 		return outcomeUnknown(err)
 	}
-	if networkError != nil {
+	if isNetwork || timedOut {
 		return &ToolError{Code: codeNetworkError, Message: err.Error(), Retryable: !mutationAttempted, Cause: err}
 	}
 	var slackError slack.SlackErrorResponse
