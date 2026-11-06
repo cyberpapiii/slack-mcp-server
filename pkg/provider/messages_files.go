@@ -91,8 +91,8 @@ func (p *MessageFilesProvider) Upload(ctx context.Context, request FileUploadReq
 	return UploadedFile{FileID: completed.Files[0].ID, Filename: request.Filename, Title: completed.Files[0].Title, ChannelID: request.ChannelID}, nil
 }
 
-func (p *MessageFilesProvider) Schedule(ctx context.Context, channelID, text string, postAt time.Time, threadTS string) (MessageMutation, error) {
-	options := []slack.MsgOption{slack.MsgOptionText(text, false)}
+func (p *MessageFilesProvider) Schedule(ctx context.Context, channelID, text string, postAt time.Time, threadTS string, extra ...slack.MsgOption) (MessageMutation, error) {
+	options := append([]slack.MsgOption{slack.MsgOptionText(text, false)}, extra...)
 	if threadTS != "" {
 		options = append(options, slack.MsgOptionTS(threadTS))
 	}

@@ -26,10 +26,8 @@ import (
 const accountUsage = "macOS Keychain account; defaults to $" + oauthcred.EnvKeychainAccount + ", else " + defaultAccount + ", which only this tool falls back to: the server uses the account $" + oauthcred.EnvKeychainAccount + " names"
 
 const (
-	presetUsage       = "request the scopes of this tool preset when no enabled-tools list is given: " + capability.PresetDailyPower + " (default) or " + capability.PresetLegacyFull + "; defaults to $" + envToolPreset
-	enabledToolsUsage = "request the scopes these comma-separated tools need, as the server's SLACK_MCP_ENABLED_TOOLS serves them; defaults to $" + envEnabledTools + " unless --preset is given"
-	envEnabledTools   = "SLACK_MCP_ENABLED_TOOLS"
-	envToolPreset     = "SLACK_MCP_TOOL_PRESET"
+	presetUsage       = "request the scopes of this tool preset when no enabled-tools list is given: " + capability.PresetDailyPower + " (default) or " + capability.PresetLegacyFull + "; defaults to $" + capability.EnvToolPreset
+	enabledToolsUsage = "request the scopes these comma-separated tools need, as the server's SLACK_MCP_ENABLED_TOOLS serves them; defaults to $" + capability.EnvEnabledTools + " unless --preset is given"
 )
 
 const (
@@ -202,12 +200,11 @@ func parseLoginOptions(args []string) (loginOptions, error) {
 	if err := flags.Parse(args); err != nil {
 		return loginOptions{}, err
 	}
-	options.tools.parsed(flags)
 	return options, nil
 }
 
 // toolSelection is the tool list a login requests scopes for, resolved the
-// way the server resolves the tools it serves (capability.Resolve), so the
+// way the server resolves the tools it serves (capability.Select), so the
 // login grants what the server's tools need.
 type toolSelection struct {
 	enabledTools string
@@ -215,22 +212,12 @@ type toolSelection struct {
 }
 
 func (t *toolSelection) register(flags *flag.FlagSet) {
-	flags.StringVar(&t.enabledTools, "enabled-tools", os.Getenv(envEnabledTools), enabledToolsUsage)
-	flags.StringVar(&t.preset, "preset", os.Getenv(envToolPreset), presetUsage)
-}
-
-// parsed drops the inherited $SLACK_MCP_ENABLED_TOOLS when --preset is given
-// on the command line without --enabled-tools: the flag is the request.
-func (t *toolSelection) parsed(flags *flag.FlagSet) {
-	set := map[string]bool{}
-	flags.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	if set["preset"] && !set["enabled-tools"] {
-		t.enabledTools = ""
-	}
+	flags.StringVar(&t.enabledTools, "enabled-tools", "", enabledToolsUsage)
+	flags.StringVar(&t.preset, "preset", "", presetUsage)
 }
 
 func (t toolSelection) scopes() ([]string, error) {
-	tools, err := capability.Resolve(t.enabledTools, t.preset)
+	tools, err := capability.Select(t.enabledTools, t.preset, os.Getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +392,6 @@ func runManifest(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	tools.parsed(flags)
 	scopes, err := tools.scopes()
 	if err != nil {
 		return err

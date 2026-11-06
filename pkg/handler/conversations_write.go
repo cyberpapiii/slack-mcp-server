@@ -35,12 +35,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		options = append(options, ch.messageBody(params).options...)
 	}
 
-	if ch.settings.unfurls(params.text, ch.logger) {
-		options = append(options, slack.MsgOptionEnableLinkUnfurl())
-	} else {
-		options = append(options, slack.MsgOptionDisableLinkUnfurl())
-		options = append(options, slack.MsgOptionDisableMediaUnfurl())
-	}
+	options = append(options, ch.settings.unfurlOptions(params.text, params.blocks, ch.logger)...)
 
 	ch.logger.Debug("Posting Slack message",
 		zap.String("channel", params.channel),

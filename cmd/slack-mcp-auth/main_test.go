@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/stretchr/testify/assert"
@@ -72,8 +73,8 @@ func TestDailyPowerOAuthScopesExcludeHiddenWrites(t *testing.T) {
 }
 
 func TestLoginScopesFollowTheEnabledTools(t *testing.T) {
-	t.Setenv(envEnabledTools, "dnd_set_snooze")
-	t.Setenv(envToolPreset, "")
+	t.Setenv(capability.EnvEnabledTools, "dnd_set_snooze")
+	t.Setenv(capability.EnvToolPreset, "")
 	parse := func(args ...string) []string {
 		options, err := parseLoginOptions(args)
 		require.NoError(t, err)

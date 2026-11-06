@@ -142,7 +142,7 @@ func TestUnitPageCursorRoundTrip(t *testing.T) {
 		_, err := decodePageCursor(bad)
 		var toolErr *ToolError
 		require.ErrorAs(t, err, &toolErr, bad)
-		assert.Equal(t, "invalid_arguments", toolErr.Code, bad)
+		assert.Equal(t, "invalid_cursor", toolErr.Code, bad)
 	}
 
 	assert.Equal(t, "", nextFilesCursor(nil))

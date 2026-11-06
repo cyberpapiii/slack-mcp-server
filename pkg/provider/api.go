@@ -151,6 +151,7 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
+		ap.oauthLoadErr = oauthLoadErr
 		ap.startUserOAuth(managedManager, managedRecord, browser)
 		if xoxbToken != "" {
 			logger.Warn("Both SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXB_TOKEN are set; using user OAuth token")
@@ -173,6 +174,7 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
+		ap.oauthLoadErr = oauthLoadErr
 		return ap, nil
 	}
 

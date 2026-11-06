@@ -221,7 +221,7 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 
 	list := users
 
-	if !ap.PrefersBrowser() {
+	if !ap.prefersBrowser() {
 		ap.logger.Debug("Skipping Slack Connect enrichment: no healthy browser session")
 	} else {
 		connectUsers, err := ap.slackConnectUsers(ctx, users)

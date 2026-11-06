@@ -46,7 +46,7 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, availability h
 		handler.NewChannelMutationHandler(api.ChannelMutations(), api.Identity, settings).Tools(),
 		handler.NewListsHandler(api.Lists(), api.Identity).Tools(),
 		handler.NewDNDHandler(api.WebAPI(), api.Identity).Tools(),
-		handler.NewMessageFilesHandler(api.MessageFiles(), api.Identity, settings).Tools(),
+		handler.NewMessageFilesHandler(api.MessageFiles(), api.Identity, settings, logger).Tools(),
 		handler.NewPeopleChannelsHandler(api.PeopleChannels(), api, api.Identity).Tools(),
 		handler.NewCanvasHandler(api.Canvases()).Tools(),
 		handler.NewDraftsHandler(api.Drafts(), api, api.Identity).Tools(),

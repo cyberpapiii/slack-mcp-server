@@ -15,6 +15,7 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
+	"go.uber.org/zap"
 )
 
 const (
@@ -37,7 +38,7 @@ var slackTimestampPattern = regexp.MustCompile(`^[0-9]+\.[0-9]{6}$`)
 
 type MessageFilesService interface {
 	Upload(context.Context, provider.FileUploadRequest) (provider.UploadedFile, error)
-	Schedule(context.Context, string, string, time.Time, string) (provider.MessageMutation, error)
+	Schedule(context.Context, string, string, time.Time, string, ...slack.MsgOption) (provider.MessageMutation, error)
 	Update(context.Context, string, string, string) (provider.MessageMutation, error)
 	Delete(context.Context, string, string) (provider.MessageMutation, error)
 	GetMessage(context.Context, string, string) (slack.Message, error)
@@ -68,11 +69,12 @@ type MessageFilesHandler struct {
 	service   MessageFilesService
 	approvals approvalGate
 	settings  Settings
+	logger    *zap.Logger
 	now       func() time.Time
 }
 
-func NewMessageFilesHandler(service MessageFilesService, identity func() provider.ProviderIdentity, settings Settings) *MessageFilesHandler {
-	return &MessageFilesHandler{service: service, approvals: newApprovalGate(identity), settings: settings, now: time.Now}
+func NewMessageFilesHandler(service MessageFilesService, identity func() provider.ProviderIdentity, settings Settings, logger *zap.Logger) *MessageFilesHandler {
+	return &MessageFilesHandler{service: service, approvals: newApprovalGate(identity), settings: settings, logger: logger, now: time.Now}
 }
 
 func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -129,7 +131,7 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 	if threadTS != "" && !validSlackTimestamp(threadTS) {
 		return nil, invalidArguments("thread_ts must be a Slack timestamp")
 	}
-	mutation, err := h.service.Schedule(ctx, channelID, text, postAt, threadTS)
+	mutation, err := h.service.Schedule(ctx, channelID, text, postAt, threadTS, h.settings.unfurlOptions(text, nil, h.logger)...)
 	if err != nil {
 		return nil, err
 	}

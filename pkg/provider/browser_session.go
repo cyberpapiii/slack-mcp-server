@@ -428,7 +428,7 @@ func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
 	return err
 }
 
-func (ap *ApiProvider) PrefersBrowser() bool {
+func (ap *ApiProvider) prefersBrowser() bool {
 	return ap.client.prefersBrowser()
 }
 

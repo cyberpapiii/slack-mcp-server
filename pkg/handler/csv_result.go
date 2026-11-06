@@ -105,7 +105,7 @@ func decodePageCursor(cursor string) (int, error) {
 }
 
 func invalidCursor(cursor string) error {
-	return invalidArguments(fmt.Sprintf("invalid cursor %q: pass the #next_cursor value from the previous call", cursor))
+	return &ToolError{Code: codeInvalidCursor, Message: fmt.Sprintf("invalid cursor %q: pass the #next_cursor value from the previous call", cursor)}
 }
 
 // timeText is how every tool renders an instant: RFC 3339 in UTC, "" for

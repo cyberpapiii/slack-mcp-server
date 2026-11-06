@@ -10,6 +10,7 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 type fakeMessageFilesService struct {
@@ -26,7 +27,7 @@ func (f *fakeMessageFilesService) Upload(_ context.Context, request provider.Fil
 	f.uploadCalls++
 	return provider.UploadedFile{FileID: "F1", Filename: request.Filename, Title: request.Title, ChannelID: request.ChannelID}, nil
 }
-func (f *fakeMessageFilesService) Schedule(_ context.Context, channelID, _ string, _ time.Time, _ string) (provider.MessageMutation, error) {
+func (f *fakeMessageFilesService) Schedule(_ context.Context, channelID, _ string, _ time.Time, _ string, _ ...slack.MsgOption) (provider.MessageMutation, error) {
 	f.scheduleCalls++
 	return provider.MessageMutation{ChannelID: channelID, ScheduledMessageID: "Q1"}, nil
 }
@@ -49,7 +50,7 @@ func (f *fakeMessageFilesService) GetMessage(context.Context, string, string) (s
 func newTestMessageFilesHandler(service MessageFilesService) *MessageFilesHandler {
 	return NewMessageFilesHandler(service, func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user", TokenMode: "oauth"}
-	}, envSettings())
+	}, envSettings(), zap.NewNop())
 }
 
 func TestUnitFilesUploadRejectsMultipleSourcesWithoutMutation(t *testing.T) {

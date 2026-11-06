@@ -46,12 +46,6 @@ func main() {
 		os.Exit(runKeychainCheck())
 	}
 
-	if enabledToolsFlag == "" {
-		enabledToolsFlag = os.Getenv("SLACK_MCP_ENABLED_TOOLS")
-	}
-	if toolPreset == "" {
-		toolPreset = os.Getenv("SLACK_MCP_TOOL_PRESET")
-	}
 	logger, err := newLogger(transport)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to build logger: %v\n", err)
@@ -59,7 +53,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	enabledTools, err := capability.Resolve(enabledToolsFlag, toolPreset)
+	enabledTools, err := capability.Select(enabledToolsFlag, toolPreset, os.Getenv)
 	if err != nil {
 		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS / SLACK_MCP_TOOL_PRESET", err)
 	}

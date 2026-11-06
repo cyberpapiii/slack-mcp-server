@@ -3,6 +3,8 @@ package handler
 import (
 	"testing"
 
+	"github.com/slack-go/slack"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
@@ -108,4 +110,13 @@ func TestUnitUnfurls(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A domain allowlist also covers links that only appear in blocks.
+func TestUnitUnfurlOptionsCheckBlockLinks(t *testing.T) {
+	settings := Settings{unfurling: parseUnfurling("example.com")}
+	blocks := []slack.Block{slack.NewSectionBlock(slack.NewTextBlockObject(slack.MarkdownType, "<https://evil.test/x|look>", false, false), nil, nil)}
+
+	assert.Len(t, settings.unfurlOptions("", blocks, zap.NewNop()), 2, "a non-allowlisted block link disables unfurling")
+	assert.Len(t, settings.unfurlOptions("see https://example.com/a", nil, zap.NewNop()), 1, "an allowlisted text link enables it")
 }

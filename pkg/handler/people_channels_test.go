@@ -175,6 +175,6 @@ func TestUnitEmojiCursorRoundTrips(t *testing.T) {
 		_, err := emojiOffset(bad)
 		var typed *ToolError
 		require.ErrorAs(t, err, &typed, bad)
-		assert.Equal(t, "invalid_arguments", typed.Code, bad)
+		assert.Equal(t, "invalid_cursor", typed.Code, bad)
 	}
 }

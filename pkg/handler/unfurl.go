@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/url"
 	"regexp"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
+	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 	"golang.org/x/net/publicsuffix"
 )
@@ -44,6 +46,21 @@ func parseUnfurling(value string) unfurlPolicy {
 
 // unfurls reports whether a posted message may unfurl its links: with a
 // domain allowlist, only when every URL and bare domain in the text is on it.
+// unfurlOptions turns links on or off for a message under the unfurling
+// policy. Block content is checked along with the text, since links in blocks
+// unfurl too.
+func (s Settings) unfurlOptions(text string, blocks []slack.Block, logger *zap.Logger) []slack.MsgOption {
+	if len(blocks) > 0 {
+		if encoded, err := json.Marshal(blocks); err == nil {
+			text += " " + string(encoded)
+		}
+	}
+	if s.unfurls(text, logger) {
+		return []slack.MsgOption{slack.MsgOptionEnableLinkUnfurl()}
+	}
+	return []slack.MsgOption{slack.MsgOptionDisableLinkUnfurl(), slack.MsgOptionDisableMediaUnfurl()}
+}
+
 func (s Settings) unfurls(text string, logger *zap.Logger) bool {
 	if s.unfurling.all {
 		return true

@@ -329,10 +329,7 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) (*http.Client
 
 	transport = newUserAgentTransport(transport, userAgent, cookies, logger)
 
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   30 * time.Second,
-	}
+	client := &http.Client{Transport: stallTransport{next: transport, stall: stallTimeout}}
 
 	return client, nil
 }

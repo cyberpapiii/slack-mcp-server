@@ -57,7 +57,6 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 	}
 
 	ch.logger.Debug("Searching for users",
-		zap.String("query", params.query),
 		zap.Int("limit", params.limit),
 	)
 

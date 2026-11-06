@@ -141,10 +141,6 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 		return nil, err
 	}
 
-	if len(files) == 0 {
-		return mcp.NewToolResultText("No files found."), nil
-	}
-
 	nextCursor := nextFilesCursor(paging)
 
 	resolver := ch.messages.newUserResolver(ctx)

@@ -159,14 +159,6 @@ func (ap *ApiProvider) Directory() *Directory {
 	return d
 }
 
-func (ap *ApiProvider) ChannelByRef(ref string) (Channel, error) {
-	return ap.Directory().ChannelByRef(ref)
-}
-
-func (ap *ApiProvider) UserByRef(ref string) (slack.User, error) {
-	return ap.Directory().UserByRef(ref)
-}
-
 func (ap *ApiProvider) ChannelLabel(id string) string { return ap.Directory().ChannelLabel(id) }
 
 func (ap *ApiProvider) UserLabel(id string) string { return ap.Directory().UserLabel(id) }

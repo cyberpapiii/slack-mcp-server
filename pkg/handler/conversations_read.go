@@ -137,7 +137,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	ch.logger.Debug("Search params parsed", zap.String("query", params.query), zap.Int("limit", params.limit), zap.Int("page", params.page))
+	ch.logger.Debug("Search params parsed", zap.Int("limit", params.limit), zap.Int("page", params.page))
 
 	searchParams := slack.SearchParameters{
 		Sort:          params.sort,
@@ -296,7 +296,6 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 	}
 
 	ch.logger.Debug("Search parameters built",
-		zap.String("query", finalQuery),
 		zap.Int("limit", limit),
 		zap.Int("page", page),
 	)
