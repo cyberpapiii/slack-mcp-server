@@ -43,15 +43,7 @@ func NewActivityHandler(api ActivityAPI, messages MessagePipeline, logger *zap.L
 	return &ActivityHandler{api: api, messages: messages, logger: logger, settings: settings}
 }
 
-// renderActivityItems is the include_messages=false output: rows keyed by the
-// bare channel ID with a "#channels:" legend.
-func renderActivityItems(items []ActivityItem, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
-	ids := make([]string, len(items))
-	for i, item := range items {
-		ids[i] = item.ChannelID
-	}
-	return csvResult(channelsLegend(ids, channelName), meta, &items)
-}
+func (item ActivityItem) channel() string { return item.ChannelID }
 
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	includeMessages := request.GetBool("include_messages", true)
@@ -88,7 +80,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	h.logger.Debug("Filtered unread activity items", zap.Int("count", len(items)))
 
 	if !includeMessages {
-		return renderActivityItems(items, h.messages.channelLabel, slackMeta())
+		return itemRows(items, h.messages.channelLabel, slackMeta())
 	}
 
 	type threadKey struct {
@@ -161,7 +153,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	meta := SlackResultMeta("", partialReason != "", partialReason)
 
 	if len(allMessages) == 0 {
-		return renderActivityItems(items, h.messages.channelLabel, meta)
+		return itemRows(items, h.messages.channelLabel, meta)
 	}
 
 	opts := h.messages.render(mode, meta)

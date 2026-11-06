@@ -43,7 +43,7 @@ func activityFixtureChannelName(id string) string {
 
 func TestUnitRenderActivityItems(t *testing.T) {
 	t.Run("rows carry the bare channel ID and the legend names what the cache knows", func(t *testing.T) {
-		res, err := renderActivityItems(activityFixtureItems(), activityFixtureChannelName, slackMeta())
+		res, err := itemRows(activityFixtureItems(), activityFixtureChannelName, slackMeta())
 		require.NoError(t, err)
 		assert.Nil(t, res.StructuredContent)
 
@@ -55,7 +55,7 @@ func TestUnitRenderActivityItems(t *testing.T) {
 	})
 
 	t.Run("partial meta lands between legend and header", func(t *testing.T) {
-		res, err := renderActivityItems(activityFixtureItems(), activityFixtureChannelName, SlackResultMeta("", true, "2 activity threads could not be fetched"))
+		res, err := itemRows(activityFixtureItems(), activityFixtureChannelName, SlackResultMeta("", true, "2 activity threads could not be fetched"))
 		require.NoError(t, err)
 		lines := strings.Split(csvResultBody(t, res), "\n")
 		assert.Equal(t, "#channels: C092WJP9Z38=#wg-maas-internal", lines[0])
@@ -64,7 +64,7 @@ func TestUnitRenderActivityItems(t *testing.T) {
 	})
 
 	t.Run("no items is a header-only CSV with no legend", func(t *testing.T) {
-		res, err := renderActivityItems(nil, activityFixtureChannelName, slackMeta())
+		res, err := itemRows([]ActivityItem(nil), activityFixtureChannelName, slackMeta())
 		require.NoError(t, err)
 		assert.Equal(t, activityItemsHeader+"\n", csvResultBody(t, res))
 	})

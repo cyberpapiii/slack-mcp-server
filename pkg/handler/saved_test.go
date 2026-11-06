@@ -43,7 +43,7 @@ func savedFixtureChannelName(id string) string {
 
 func TestUnitRenderSavedItems(t *testing.T) {
 	t.Run("rows carry the bare channel ID, names go in the legend, cursor in meta", func(t *testing.T) {
-		res, err := renderSavedItems(savedFixtureItems(), savedFixtureChannelName, SlackResultMeta("next-page", false, ""))
+		res, err := itemRows(savedFixtureItems(), savedFixtureChannelName, SlackResultMeta("next-page", false, ""))
 		require.NoError(t, err)
 		assert.Nil(t, res.StructuredContent)
 
@@ -56,7 +56,7 @@ func TestUnitRenderSavedItems(t *testing.T) {
 	})
 
 	t.Run("no items is a header-only CSV", func(t *testing.T) {
-		res, err := renderSavedItems(nil, savedFixtureChannelName, slackMeta())
+		res, err := itemRows([]SavedItemRow(nil), savedFixtureChannelName, slackMeta())
 		require.NoError(t, err)
 		assert.Equal(t, savedItemsHeader+"\n", csvResultBody(t, res))
 	})

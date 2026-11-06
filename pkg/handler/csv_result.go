@@ -57,6 +57,17 @@ func csvResult(legend string, meta ResultMeta, rows any, sections ...csvSection)
 	return NewCSVResult(legend, meta, body), nil
 }
 
+// itemRows is the include_messages=false output of saved_list and
+// activity_unreads: item rows keyed by the bare channel ID, with a
+// "#channels:" legend naming them.
+func itemRows[T interface{ channel() string }](items []T, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
+	ids := make([]string, len(items))
+	for i, item := range items {
+		ids[i] = item.channel()
+	}
+	return csvResult(channelsLegend(ids, channelName), meta, &items)
+}
+
 // encodeCursor and decodeCursor are the one cursor encoding this server
 // hands out for paging it does itself: base64 of whatever the tool needs to
 // resume. Cursors from Slack pass through untouched.

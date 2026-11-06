@@ -47,15 +47,7 @@ func newSavedItemRow(item provider.SavedItem) SavedItemRow {
 	return row
 }
 
-// renderSavedItems is the include_messages=false output: rows keyed by the
-// bare channel ID with a "#channels:" legend.
-func renderSavedItems(items []SavedItemRow, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
-	ids := make([]string, len(items))
-	for i, item := range items {
-		ids[i] = item.ChannelID
-	}
-	return csvResult(channelsLegend(ids, channelName), meta, &items)
-}
+func (item SavedItemRow) channel() string { return item.ChannelID }
 
 const (
 	defaultSavedLimit = 50
@@ -167,7 +159,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 		return marshalMessagesToCSV(allMessages, opts)
 	}
 
-	return renderSavedItems(allItems, h.messages.channelLabel, meta)
+	return itemRows(allItems, h.messages.channelLabel, meta)
 }
 
 // savedItemMessages fetches one saved message. A Slack failure is logged and
