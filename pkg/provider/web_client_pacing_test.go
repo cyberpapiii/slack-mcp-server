@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/slack-go/slack"
@@ -96,4 +97,33 @@ func TestUnitSlackPacingCoversEveryPacedRead(t *testing.T) {
 		assert.NotNil(t, pacing[method], method)
 	}
 	assert.Nil(t, pacing["conversations.history"], "history is retried, not paced")
+}
+
+// The Enterprise merge walks every conversations.list page in one call; each
+// page waits on the bucket, not just the first, and carries the caller's
+// params.
+func TestUnitEnterpriseMergePacesEveryPage(t *testing.T) {
+	var calls atomic.Int32
+	var types []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		require.NoError(t, r.ParseForm())
+		types = append(types, r.Form.Get("types"))
+		_, _ = w.Write([]byte(`{"ok":true,"channels":[{"id":"C1"}],"response_metadata":{"next_cursor":"more"}}`))
+	}))
+	t.Cleanup(server.Close)
+	client := &MCPSlackClient{
+		slackClient: slack.New("xoxc-test", slack.OptionAPIURL(server.URL+"/")),
+		pacing:      limiter.Pacing{"conversations.list": rate.NewLimiter(0, 1)},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	params := &slack.GetConversationsParameters{Types: []string{"im"}}
+	_, _, err := mergeStandardConversationPages(nil, params, func(p *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+		return client.conversationsPage(ctx, p)
+	})
+	require.ErrorContains(t, err, "rate limiter", "the second page waits on the spent bucket")
+	assert.Equal(t, int32(1), calls.Load())
+	assert.Equal(t, []string{"im"}, types)
 }
