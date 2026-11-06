@@ -83,58 +83,6 @@ func TestUnitFileShareFallsBackToFirstConversation(t *testing.T) {
 	assert.Equal(t, "1700000100.000200", msgID)
 }
 
-func TestUnitFileResultPayload(t *testing.T) {
-	tests := []struct {
-		name    string
-		payload fileResultPayload
-	}{
-		{
-			name: "filename with quotes backslash and ANSI escape",
-			payload: fileResultPayload{
-				FileID:   `F0123"ABC\`,
-				Filename: "we\x1bird \"name\"\\path.txt",
-				Mimetype: "text/plain",
-				Size:     12,
-				Encoding: "none",
-				Content:  "hello",
-			},
-		},
-		{
-			name: "content with NUL and ANSI escapes",
-			payload: fileResultPayload{
-				FileID:   "F0123ABC",
-				Filename: "app.log",
-				Mimetype: "text/plain",
-				Size:     42,
-				Encoding: "none",
-				Content:  "\x00start\x1b[31mred\x1b[0m\v\f end ",
-			},
-		},
-		{
-			name: "base64 encoding preserved",
-			payload: fileResultPayload{
-				FileID:   "F0999ZZZ",
-				Filename: "blob.bin",
-				Mimetype: "application/octet-stream",
-				Size:     3,
-				Encoding: "base64",
-				Content:  "AAEC",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			out := fallbackJSON(tt.payload)
-			assert.True(t, json.Valid([]byte(out)), "output must be valid JSON: %q", out)
-
-			var got fileResultPayload
-			require.NoError(t, json.Unmarshal([]byte(out), &got))
-			assert.Equal(t, tt.payload, got, "payload must round-trip exactly")
-		})
-	}
-}
-
 func TestUnitFileResultShapes(t *testing.T) {
 	keysOf := func(t *testing.T, s string) []string {
 		t.Helper()

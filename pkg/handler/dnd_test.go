@@ -65,7 +65,9 @@ func TestUnitDNDMutationsRejectBotIdentity(t *testing.T) {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "bot"}
 	})
 	_, err := handler.EndSnooze(context.Background(), mcp.CallToolRequest{})
-	require.Error(t, err)
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "user_oauth_required", typed.Code)
 	assert.False(t, api.ended)
 }
 

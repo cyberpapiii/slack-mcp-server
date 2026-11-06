@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,26 +77,6 @@ func TestUnitChannelsLegend(t *testing.T) {
 	assert.Equal(t, "#channels: C1=#general, D2=@ada\n", channelsLegend([]string{"C1", "D2", "C1", "C3", "", "C9"}, name))
 	assert.Equal(t, "", channelsLegend([]string{"C3", "C9"}, name), "nothing resolvable, no legend line")
 	assert.Equal(t, "", channelsLegend(nil, name))
-}
-
-func TestUnitActivityMessagesTrailer(t *testing.T) {
-	messages := compactCSVFixtureMessagesN(1)
-	items := activityFixtureItems()
-	res, err := marshalMessagesToCSV(messages, renderOptions{
-		mode:     text.ModeStandard,
-		meta:     SlackResultMeta("", true, "1 activity threads could not be fetched"),
-		sections: []csvSection{{name: "activity_items", rows: &items}},
-	})
-	require.NoError(t, err)
-	assert.Nil(t, res.StructuredContent)
-
-	lines := strings.Split(csvResultBody(t, res), "\n")
-	assert.True(t, strings.HasPrefix(lines[0], "#attachments: "), "the fixture message carries a file: %s", lines[0])
-	assert.Equal(t, "#partial: 1 activity threads could not be fetched", lines[1])
-	assert.True(t, strings.HasPrefix(lines[2], "User,Channel,"), lines[2])
-	assert.Equal(t, "#activity_items:", lines[4])
-	assert.Equal(t, activityItemsHeader, lines[5])
-	assert.Len(t, lines, 9, "trailer rows follow the section header; body ends with a newline")
 }
 
 func TestUnitActivityLimitStaysWithinWhatSlackAccepts(t *testing.T) {

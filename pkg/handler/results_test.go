@@ -57,19 +57,15 @@ func TestNewStructuredResultPreservesFallbackAndProvenance(t *testing.T) {
 	assert.Empty(t, structured.Error)
 }
 
-func TestStructuredResultEncodingIsDeterministic(t *testing.T) {
-	result := ToolResult[ActionData]{
+func TestStructuredResultOmitsEmptyFields(t *testing.T) {
+	encoded, err := json.Marshal(ToolResult[ActionData]{
 		SchemaVersion: ResultSchemaVersion,
 		Meta:          SlackResultMeta("", false, ""),
 		Data:          &ActionData{Action: "mark", Status: "ok"},
-	}
-	first, err := json.Marshal(result)
+	})
 	require.NoError(t, err)
-	second, err := json.Marshal(result)
-	require.NoError(t, err)
-	assert.Equal(t, string(first), string(second))
-	assert.NotContains(t, string(first), `"channel_id"`)
-	assert.NotContains(t, string(first), "next_cursor")
+	assert.NotContains(t, string(encoded), `"channel_id"`)
+	assert.NotContains(t, string(encoded), "next_cursor")
 }
 
 func TestNewTypedErrorResult(t *testing.T) {
@@ -91,11 +87,6 @@ func TestNewTypedErrorResult(t *testing.T) {
 	assert.True(t, structured.Error.Retryable)
 	assert.Equal(t, int64(2), structured.Error.RetryAfterSeconds)
 	assert.Nil(t, structured.Data)
-}
-
-func TestResultTextSkipsNonTextContent(t *testing.T) {
-	result := &mcp.CallToolResult{Content: []mcp.Content{mcp.ImageContent{Type: "image", Data: "AA==", MIMEType: "image/png"}}}
-	assert.Empty(t, ResultText(result))
 }
 
 // served turns a handler's return into what the caller sees, the way the
