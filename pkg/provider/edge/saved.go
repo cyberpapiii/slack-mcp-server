@@ -10,7 +10,6 @@ import (
 // saved.* API (xoxc/xoxd; replaced stars.* March 2023)
 
 type savedListForm struct {
-	BaseRequest
 	Limit             int    `json:"limit"`
 	Filter            string `json:"filter"`
 	Cursor            string `json:"cursor,omitempty"`
@@ -51,7 +50,6 @@ type SavedCounts struct {
 
 func (cl *Client) SavedList(ctx context.Context, filter string, limit int, cursor string) (SavedListResponse, error) {
 	form := savedListForm{
-		BaseRequest:       BaseRequest{Token: cl.token},
 		Limit:             limit,
 		Filter:            filter,
 		Cursor:            cursor,
@@ -86,7 +84,6 @@ type SavedUpdateParams struct {
 }
 
 type savedUpdateForm struct {
-	BaseRequest
 	ItemType  string `json:"item_type"`
 	ItemID    string `json:"item_id"`
 	Ts        string `json:"ts,omitempty"`
@@ -98,7 +95,6 @@ type savedUpdateForm struct {
 
 func (cl *Client) SavedUpdate(ctx context.Context, params SavedUpdateParams) error {
 	form := savedUpdateForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		ItemType:        params.ItemType,
 		ItemID:          params.ItemID,
 		Ts:              params.Ts,
@@ -123,7 +119,6 @@ type SavedAddParams struct {
 }
 
 type savedAddForm struct {
-	BaseRequest
 	ItemType    string `json:"item_type"`
 	ItemID      string `json:"item_id,omitempty"`
 	Ts          string `json:"ts,omitempty"`
@@ -135,7 +130,6 @@ type savedAddForm struct {
 
 func (cl *Client) SavedAdd(ctx context.Context, params SavedAddParams) (SavedItem, error) {
 	form := savedAddForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		ItemType:        params.ItemType,
 		ItemID:          params.ItemID,
 		Ts:              params.Ts,
@@ -155,7 +149,6 @@ func (cl *Client) SavedAdd(ctx context.Context, params SavedAddParams) (SavedIte
 }
 
 type savedDeleteForm struct {
-	BaseRequest
 	ItemType string `json:"item_type"`
 	ItemID   string `json:"item_id"`
 	Ts       string `json:"ts,omitempty"`
@@ -164,7 +157,6 @@ type savedDeleteForm struct {
 
 func (cl *Client) SavedDelete(ctx context.Context, itemType, itemID, ts string) error {
 	form := savedDeleteForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		ItemType:        itemType,
 		ItemID:          itemID,
 		Ts:              ts,
@@ -175,13 +167,11 @@ func (cl *Client) SavedDelete(ctx context.Context, itemType, itemID, ts string) 
 }
 
 type savedClearCompletedForm struct {
-	BaseRequest
 	WebClientFields
 }
 
 func (cl *Client) SavedClearCompleted(ctx context.Context) error {
 	form := savedClearCompletedForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		WebClientFields: webclientReason("manually_marked_all_completed"),
 	}
 

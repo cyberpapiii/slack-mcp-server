@@ -263,7 +263,7 @@ func TestUnitPostFormDecode(t *testing.T) {
 			var r struct {
 				ResponseMetadata slack.ResponseMetadata `json:"response_metadata"`
 			}
-			err := cl.postForm(context.Background(), "test.endpoint", struct{ BaseRequest }{}, &r)
+			err := cl.postForm(context.Background(), "test.endpoint", struct{}{}, &r)
 
 			if tt.wantErr == "" {
 				if err != nil {

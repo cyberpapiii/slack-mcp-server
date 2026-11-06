@@ -45,30 +45,11 @@ func NewWithInfo(info *slack.AuthTestResponse, token string, httpClient slackhtt
 	}
 }
 
-type BaseRequest struct {
-	Token string `json:"token"`
-}
-
-func (r *BaseRequest) setToken(token string) {
-	r.Token = token
-}
-
-func (r *BaseRequest) isTokenSet() bool {
-	return len(r.Token) > 0
-}
-
-type postRequest interface {
-	setToken(string)
-	isTokenSet() bool
-}
-
 const acceptLanguage = "en-NZ,en-AU;q=0.9,en;q=0.8"
 
 // postJSON posts req as JSON to the edge API and decodes the response into v.
-func (cl *Client) postJSON(ctx context.Context, path string, req postRequest, v any) error {
-	if !req.isTokenSet() {
-		req.setToken(cl.token)
-	}
+// The edge API takes the token in the body, so req carries it.
+func (cl *Client) postJSON(ctx context.Context, path string, req any, v any) error {
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -77,7 +58,7 @@ func (cl *Client) postJSON(ctx context.Context, path string, req postRequest, v 
 }
 
 // postForm posts form, a struct with json tags, to a webclient API method and
-// decodes the response into v.
+// decodes the response into v. The token joins the form there.
 func (cl *Client) postForm(ctx context.Context, method string, form any, v any) error {
 	return cl.call(ctx, method, slackhttp.Request{URL: cl.webclientAPI + method, Token: cl.token, Form: values(form)}, v)
 }

@@ -18,6 +18,7 @@ func (cl *Client) UsersSearch(ctx context.Context, query string, count int) ([]s
 	}
 
 	req := &usersSearchForm{
+		Token: cl.token,
 		Query: query,
 		Count: count,
 	}
@@ -30,7 +31,7 @@ func (cl *Client) UsersSearch(ctx context.Context, query string, count int) ([]s
 }
 
 type usersSearchForm struct {
-	BaseRequest
+	Token string `json:"token"`
 	Query string `json:"query"`
 	Count int    `json:"count,omitempty"`
 }

@@ -39,7 +39,6 @@ type draftsResponse struct {
 const draftsListDefaultLimit = 50
 
 type draftsListForm struct {
-	BaseRequest
 	Limit    int    `json:"limit"`
 	IsActive bool   `json:"is_active,omitempty"`
 	NextTS   string `json:"next_ts,omitempty"`
@@ -51,7 +50,6 @@ func (cl *Client) DraftsList(ctx context.Context, limit int, activeOnly bool, cu
 		limit = draftsListDefaultLimit
 	}
 	form := draftsListForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		Limit:           limit,
 		IsActive:        activeOnly,
 		WebClientFields: webclientReason("drafts/list"),
@@ -76,14 +74,12 @@ type DraftContent struct {
 }
 
 type draftCreateForm struct {
-	BaseRequest
 	DraftContent
 	IsFromComposer bool `json:"is_from_composer"`
 	WebClientFields
 }
 
 type draftUpdateForm struct {
-	BaseRequest
 	DraftContent
 	DraftID             string `json:"draft_id"`
 	ClientLastUpdatedTS string `json:"client_last_updated_ts"`
@@ -91,7 +87,6 @@ type draftUpdateForm struct {
 }
 
 type draftDeleteForm struct {
-	BaseRequest
 	DraftID             string `json:"draft_id"`
 	ClientLastUpdatedTS string `json:"client_last_updated_ts"`
 	WebClientFields
@@ -103,7 +98,6 @@ func (cl *Client) DraftCreate(ctx context.Context, channelID, threadTS, text str
 		return Draft{}, err
 	}
 	form := draftCreateForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		DraftContent:    content,
 		IsFromComposer:  true,
 		WebClientFields: webclientReason("drafts/create"),
@@ -117,7 +111,6 @@ func (cl *Client) DraftUpdate(ctx context.Context, id, lastUpdatedTS, channelID,
 		return Draft{}, err
 	}
 	form := draftUpdateForm{
-		BaseRequest:         BaseRequest{Token: cl.token},
 		DraftContent:        content,
 		DraftID:             id,
 		ClientLastUpdatedTS: padDraftTimestamp(lastUpdatedTS),
@@ -128,7 +121,6 @@ func (cl *Client) DraftUpdate(ctx context.Context, id, lastUpdatedTS, channelID,
 
 func (cl *Client) DraftDelete(ctx context.Context, id, lastUpdatedTS string) error {
 	form := draftDeleteForm{
-		BaseRequest:         BaseRequest{Token: cl.token},
 		DraftID:             id,
 		ClientLastUpdatedTS: padDraftTimestamp(lastUpdatedTS),
 		WebClientFields:     webclientReason("drafts/delete"),

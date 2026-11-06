@@ -7,7 +7,6 @@ import (
 )
 
 type userPrefsGetForm struct {
-	BaseRequest
 	WebClientFields
 }
 
@@ -27,7 +26,6 @@ type channelNotifSettings struct {
 // GetMutedChannels returns muted channel IDs from users.prefs.get.
 func (cl *Client) GetMutedChannels(ctx context.Context) (map[string]bool, error) {
 	form := userPrefsGetForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		WebClientFields: webclientReason("prefs"),
 	}
 

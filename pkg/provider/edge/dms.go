@@ -9,7 +9,6 @@ import (
 // im.* API
 
 type imListForm struct {
-	BaseRequest
 	GetLatest    bool   `json:"get_latest"`
 	GetReadState bool   `json:"get_read_state"`
 	Cursor       string `json:"cursor,omitempty"`
@@ -23,7 +22,6 @@ type imListResponse struct {
 
 func (cl *Client) imList(ctx context.Context) ([]Channel, error) {
 	form := imListForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		GetLatest:       true,
 		GetReadState:    true,
 		WebClientFields: webclientReason("guided-search-people-empty-state"),

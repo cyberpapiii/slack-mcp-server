@@ -22,7 +22,6 @@ type searchChannelsResponse struct {
 }
 
 type searchForm struct {
-	BaseRequest
 	Cursor               string            `json:"cursor,omitempty"`
 	Module               string            `json:"module"`
 	Query                string            `json:"query"`
@@ -74,7 +73,6 @@ func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Cha
 	}
 	query = strings.TrimSpace(query)
 	form := searchForm{
-		BaseRequest:          BaseRequest{Token: cl.token},
 		Module:               "channels",
 		Query:                query,
 		ClientReqID:          clientReq.String(),
