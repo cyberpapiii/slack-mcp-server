@@ -14,9 +14,6 @@ var (
 	ErrChannelAlreadyArchived = errors.New("channel is already archived")
 )
 
-// ChannelMutationClient is intentionally smaller than SlackAPI. Archive uses
-// GetConversationInfoContext both before preparation and immediately before
-// mutation so callers never retry a destructive request blindly.
 var _ ChannelMutationClient = (*WebClient)(nil)
 
 type ChannelMutationClient interface {

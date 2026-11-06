@@ -15,9 +15,9 @@ type Channel struct {
 	IsMpIM      bool     `json:"mpim"`
 	IsIM        bool     `json:"im"`
 	IsPrivate   bool     `json:"private"`
-	IsExtShared bool     `json:"is_ext_shared"`     // Shared with external organizations
-	User        string   `json:"user,omitempty"`    // User ID for IM channels
-	Members     []string `json:"members,omitempty"` // Member IDs for the channel
+	IsExtShared bool     `json:"is_ext_shared"`
+	User        string   `json:"user,omitempty"` // User ID for IM channels
+	Members     []string `json:"members,omitempty"`
 }
 
 type ChannelsCache struct {

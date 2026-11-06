@@ -14,22 +14,15 @@ import (
 //
 // Managed OAuth rotation replaces the underlying client instead of mutating it,
 // so a caller holding a *slack.Client holds the access token that client was
-// built with. A handler that resolved the client inside each request never
-// noticed. A provider constructed once at startup kept the original token until
-// it expired, then failed with token_expired while the credential store was
-// healthy and every read tool worked. That split cost a day of investigation.
-//
-// Every method here resolves the client at call time, so storing a *WebClient
-// for the life of the process is safe by construction. The methods Slack
-// throttles hard (conversations.replies, search.messages) wait on their bucket
-// in limiter.SlackPacing, and the reads retry a 429 under limiter.Retries, so
-// callers just call them. That is the point of the
-// type: the old accessor returned a snapshot that looked like a live handle,
-// and nothing in the type system told the two apart.
+// built with, and fails with token_expired once it expires. Every method here
+// resolves the client at call time, so storing a *WebClient for the life of
+// the process is safe. conversations.history, conversations.replies and
+// search.messages retry a 429 under limiter.Retries; the last two also wait
+// on their bucket in limiter.SlackPacing.
 //
 // The hand-built calls slack-go does not wrap (users.profile.set,
-// canvases.getContent, assistant.search.context, Lists) live here too, reading
-// the current token the same way.
+// canvases.getContent, assistant.search.context) live here too, reading the
+// current token the same way.
 type WebClient struct {
 	client *MCPSlackClient
 }
@@ -38,7 +31,6 @@ func (c *WebClient) resolve() *slack.Client {
 	return c.client.standardSlackClient()
 }
 
-// token is the token the current Web API client carries.
 func (c *WebClient) token() string {
 	token, _ := c.client.token.Load().(string)
 	return token
@@ -161,8 +153,6 @@ func (c *WebClient) CompleteUploadExternalContext(ctx context.Context, params sl
 	return c.resolve().CompleteUploadExternalContext(ctx, params)
 }
 
-// UploadExternalBytes is the one method with a shape of its own rather than a
-// straight forward: MessageFilesClient wants the upload expressed as bytes.
 func (c *WebClient) UploadExternalBytes(ctx context.Context, uploadURL, filename string, data []byte) error {
 	return c.resolve().UploadToURL(ctx, slack.UploadToURLParameters{
 		UploadURL: uploadURL,

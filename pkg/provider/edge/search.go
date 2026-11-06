@@ -10,8 +10,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// search.* API
-
 const perPage = 100
 
 var errPagination = errors.New("pagination fault")

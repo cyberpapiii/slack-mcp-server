@@ -151,7 +151,6 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 	return nil
 }
 
-// runManagedOAuthRefresh polls the token store until ctx ends.
 func (c *MCPSlackClient) runManagedOAuthRefresh(ctx context.Context) {
 	timer := time.NewTimer(time.Minute)
 	defer timer.Stop()
@@ -173,8 +172,6 @@ func (c *MCPSlackClient) runManagedOAuthRefresh(ctx context.Context) {
 // A refresh normally takes well under a second.
 const oauthShutdownGrace = 10 * time.Second
 
-// refreshManagedOAuthTick runs one refresh while holding oauthRefreshMu, so
-// Close can wait for it to finish.
 func (c *MCPSlackClient) refreshManagedOAuthTick(ctx context.Context) error {
 	c.oauthRefreshMu.Lock()
 	defer c.oauthRefreshMu.Unlock()

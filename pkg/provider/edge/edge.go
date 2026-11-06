@@ -118,14 +118,8 @@ func webclientReason(reason string) WebClientFields {
 	}
 }
 
-// pagination contains the pagination information.  It is truly fucked, Slack
-// does not allow to seek past Page 100, when page > 100 requested, Slack
-// returns the first page (Page=1).  Seems to be an internal limitation.  The
-// workaround would be to use the Query parameter, to be more specific about
-// the channel names, but to get all channels, this would require iterating
-// through all 65536 runes of unicode give or take the special characters.
-//
-// For now, this doesn't work as a replacement for conversation.list (202403).
+// Slack does not seek search.modules.channels past page 100: a request for a
+// later page returns page 1.
 type pagination struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 }

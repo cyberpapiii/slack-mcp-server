@@ -75,7 +75,7 @@ type ApiProvider struct {
 	channelsMu                sync.Mutex // lastForcedChannelsRefresh and the load path
 	channelsFlight            refreshFlight
 
-	revalidateOnce sync.Once // startCacheRevalidation
+	revalidateOnce sync.Once
 }
 
 // ProviderIdentity.ActorType values.
@@ -332,9 +332,9 @@ func (ap *ApiProvider) Slack() SlackAPI {
 // Browser-only and enterprise-merge methods stay on Slack().
 //
 // The returned *WebClient resolves the underlying client on every call, so it
-// is safe to hold for the life of the process. It used to return the
-// *slack.Client itself, which OAuth rotation replaces, and long-lived callers
-// silently kept an access token that later expired.
+// is safe to hold for the life of the process. OAuth rotation replaces the
+// *slack.Client, and a caller holding one keeps an access token that later
+// expires.
 func (ap *ApiProvider) WebAPI() *WebClient {
 	return &WebClient{client: &ap.client}
 }
@@ -369,7 +369,6 @@ func (ap *ApiProvider) Identity() ProviderIdentity {
 	return identity
 }
 
-// IsUser reports whether the server acts as a Slack user, not a bot.
 func (i ProviderIdentity) IsUser() bool {
 	return i.ActorType == ActorUser
 }

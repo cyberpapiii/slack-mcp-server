@@ -18,7 +18,6 @@ type DraftDestination struct {
 	Broadcast bool   `json:"broadcast,omitempty"`
 }
 
-// Draft is Slack's browser-session draft representation.
 type Draft struct {
 	ID            string             `json:"id"`
 	Blocks        slack.Blocks       `json:"blocks,omitempty"`

@@ -7,8 +7,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// conversations.* API
-
 type conversationsGenericInfoForm struct {
 	UpdatedChannels string `json:"updated_channels"`
 	WebClientFields

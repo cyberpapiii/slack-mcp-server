@@ -6,8 +6,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge/fasttime"
 )
 
-// client.* API
-
 type clientCountsForm struct {
 	ThreadCountsByChannel bool `json:"thread_counts_by_channel"`
 	OrgWideAware          bool `json:"org_wide_aware"`
@@ -44,8 +42,6 @@ func (cl *Client) ClientCounts(ctx context.Context) (ClientCountsResponse, error
 	}
 	return r, nil
 }
-
-// activity.feed API
 
 type activityFeedForm struct {
 	Limit               int    `json:"limit"`
@@ -110,8 +106,6 @@ func (cl *Client) ActivityFeed(ctx context.Context, limit int) (ActivityFeedResp
 	}
 	return r, nil
 }
-
-// activity.markRead API
 
 type activityMarkReadForm struct {
 	Type   string `json:"type"`

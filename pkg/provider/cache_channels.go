@@ -20,7 +20,6 @@ func (ap *ApiProvider) RefreshChannels(ctx context.Context) error {
 // ForceRefreshChannels bypasses cache; rate-limited by minRefreshInterval (ErrRefreshRateLimited).
 func (ap *ApiProvider) ForceRefreshChannels(ctx context.Context) error {
 	if ap.minRefreshInterval > 0 {
-		// Check-and-stamp under one lock to avoid TOCTOU on concurrent forces.
 		ap.channelsMu.Lock()
 		sinceLast := time.Since(ap.lastForcedChannelsRefresh)
 		if sinceLast < ap.minRefreshInterval {
@@ -135,8 +134,6 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 	return chans, nil
 }
 
-// fetchChannels lists every conversation type and installs the result as the
-// channels snapshot.
 func (ap *ApiProvider) fetchChannels(ctx context.Context) ([]Channel, error) {
 	chans, err := ap.getChannelsMultiType(ctx, AllChanTypes)
 	if err != nil {

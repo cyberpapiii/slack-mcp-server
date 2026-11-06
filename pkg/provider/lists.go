@@ -16,8 +16,8 @@ import (
 // have been applied.
 var ErrOutcomeUnknown = errors.New("Slack may have applied the change")
 
-// ListsClient calls the Slack Lists API on slack.com with the current Web API
-// token.
+// ListsClient calls the Slack Lists API on slack.com (or the GovSlack host),
+// not the workspace host, with the current Web API token.
 type ListsClient struct {
 	httpClient *http.Client
 	token      func() string

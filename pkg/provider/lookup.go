@@ -199,7 +199,6 @@ func (d *Directory) ChannelByRef(ref string) (Channel, error) {
 	return Channel{}, ErrNotCached
 }
 
-// User finds a cached user by exact ID.
 func (d *Directory) User(id string) (slack.User, bool) {
 	u, ok := d.users.Users[id]
 	return u, ok
@@ -267,7 +266,6 @@ func (d *Directory) ChannelLabel(id string) string {
 	return ch.Name
 }
 
-// DMChannelFor finds the cached one-to-one DM with a user.
 func (d *Directory) DMChannelFor(userID string) (Channel, bool) {
 	d.dmOnce.Do(func() {
 		d.dms = make(map[string]string)

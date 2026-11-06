@@ -19,7 +19,6 @@ type Channel struct {
 	MemberCount int `json:"member_count,omitempty"`
 }
 
-// slackChannel is the one mapping from an edge conversation to slack-go's.
 func (c Channel) slackChannel() slack.Channel {
 	ch := c.Channel
 	if ts, err := fasttime.TS2int(ch.LastRead); err == nil {
