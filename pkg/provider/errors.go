@@ -21,7 +21,7 @@ var (
 	ErrOutcomeUnknown = errors.New("Slack may have applied the change")
 
 	// ErrInvalidListInput marks a Slack List request refused before it was
-	// sent; the wrapping error names the field.
+	// sent; the error itself names the field.
 	ErrInvalidListInput = errors.New("invalid Slack List input")
 
 	// The channel-mutation guards: the general channel and shared channels
