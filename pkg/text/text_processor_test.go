@@ -329,37 +329,28 @@ func TestBlocksToText(t *testing.T) {
 
 func TestUnitResolveOutputMode(t *testing.T) {
 	tests := []struct {
-		name    string
-		detail  string
-		env     string // value for SLACK_MCP_COMPACT_OUTPUT; "" leaves it unset/empty
-		want    OutputMode
-		wantErr bool
+		detail   string
+		fallback OutputMode
+		want     OutputMode
+		wantErr  bool
 	}{
-		{name: "empty_detail_env_unset", detail: "", env: "", want: ModeStandard},
-		{name: "empty_detail_env_false", detail: "", env: "false", want: ModeFull},
-		{name: "standard", detail: "standard", env: "", want: ModeStandard},
-		{name: "full", detail: "full", env: "", want: ModeFull},
-		{name: "full_case_insensitive", detail: "FULL", env: "", want: ModeFull},
-		{name: "bogus", detail: "bogus", env: "", wantErr: true},
+		{detail: "", fallback: ModeStandard, want: ModeStandard},
+		{detail: "", fallback: ModeFull, want: ModeFull},
+		{detail: "standard", fallback: ModeFull, want: ModeStandard},
+		{detail: "FULL", fallback: ModeStandard, want: ModeFull},
+		{detail: "bogus", wantErr: true},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("SLACK_MCP_COMPACT_OUTPUT", tt.env)
-			got, err := ResolveOutputMode(tt.detail)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("ResolveOutputMode(%q) expected error, got nil", tt.detail)
-				}
-				return
+		got, err := ResolveOutputMode(tt.detail, tt.fallback)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("ResolveOutputMode(%q) expected error", tt.detail)
 			}
-			if err != nil {
-				t.Fatalf("ResolveOutputMode(%q) unexpected error: %v", tt.detail, err)
-			}
-			if got != tt.want {
-				t.Errorf("ResolveOutputMode(%q) = %v, want %v", tt.detail, got, tt.want)
-			}
-		})
+			continue
+		}
+		if err != nil || got != tt.want {
+			t.Errorf("ResolveOutputMode(%q, %v) = %v, %v; want %v", tt.detail, tt.fallback, got, err, tt.want)
+		}
 	}
 }
 
@@ -561,16 +552,7 @@ func TestAttachmentToText(t *testing.T) {
 }
 
 func TestAttachmentToTextCompact(t *testing.T) {
-	// Env-driven fallback: empty detail param + compact env var resolves to ModeStandard.
-	t.Setenv("SLACK_MCP_COMPACT_OUTPUT", "true")
-	mode, err := ResolveOutputMode("")
-	if err != nil {
-		t.Fatalf("ResolveOutputMode() error = %v", err)
-	}
-	if mode != ModeStandard {
-		t.Fatalf("ResolveOutputMode(\"\") = %v, want ModeStandard", mode)
-	}
-
+	mode := ModeStandard
 	got := AttachmentToText(slack.Attachment{
 		Title:     "Free Ideas",
 		TitleLink: "https://loop.substack.com/",

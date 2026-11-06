@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,12 +35,12 @@ type MCPServer struct {
 // NewMCPServer registers every enabled tool whose credential requirement the
 // provider meets. Tools the capability table marks CacheReady wait for
 // RegisterCacheDependentTools.
-func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledTools []string) *MCPServer {
+func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledTools []string, settings handler.Settings) *MCPServer {
 	opts := append([]server.ServerOption{
 		server.WithLogging(),
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, true),
-	}, toolHandlerOptions(provider.ServerTransport(), logger)...)
+	}, toolHandlerOptions(provider.ServerTransport(), logger, settings.LogParams)...)
 	s := server.NewMCPServer("Slack MCP Server", version.Version, opts...)
 
 	logger.Info("Authenticating with Slack API...",
@@ -74,7 +72,7 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 	}
 
 	ms := &MCPServer{server: s, logger: logger, workspace: ws}
-	families := buildHandlers(provider, logger, enabledTools)
+	families := buildHandlers(provider, logger, enabledTools, settings)
 	for _, def := range families.tools {
 		spec, ok := capability.Lookup(def.Name)
 		if !ok {
@@ -201,10 +199,10 @@ func stdioExitErr(logger *zap.Logger, err error) error {
 // so API-key failures remain protocol errors; WithRecovery sits innermost so a
 // panic becomes an error that errorRecovery turns into an isError tool result
 // instead of a JSON-RPC -32603.
-func toolHandlerOptions(transport string, logger *zap.Logger) []server.ServerOption {
+func toolHandlerOptions(transport string, logger *zap.Logger, logParams bool) []server.ServerOption {
 	return []server.ServerOption{
 		server.WithToolHandlerMiddleware(auth.BuildMiddleware(transport, logger)),
-		server.WithToolHandlerMiddleware(buildLoggerMiddleware(logger)),
+		server.WithToolHandlerMiddleware(buildLoggerMiddleware(logger, logParams)),
 		server.WithToolHandlerMiddleware(buildErrorRecoveryMiddleware(logger)),
 		server.WithRecovery(),
 	}
@@ -239,8 +237,7 @@ func buildErrorRecoveryMiddleware(logger *zap.Logger) server.ToolHandlerMiddlewa
 	}
 }
 
-func buildLoggerMiddleware(logger *zap.Logger) server.ToolHandlerMiddleware {
-	logParams := strings.EqualFold(os.Getenv("SLACK_MCP_LOG_PARAMS"), "debug")
+func buildLoggerMiddleware(logger *zap.Logger, logParams bool) server.ToolHandlerMiddleware {
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			// "Request finished" is the per-call Info line; the entry line only

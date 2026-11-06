@@ -435,7 +435,9 @@ func TestUnitLimitByExpression_Invalid(t *testing.T) {
 
 func TestUnitSendStatus(t *testing.T) {
 	newHandler := func(sendEnabled bool) *ConversationsHandler {
-		return NewConversationsHandler(nil, zap.NewNop(), sendEnabled)
+		settings := envSettings()
+		settings.AddMessageEnabled = sendEnabled
+		return NewConversationsHandler(nil, zap.NewNop(), settings)
 	}
 
 	t.Run("not available when add_message not enabled", func(t *testing.T) {

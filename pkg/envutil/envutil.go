@@ -12,3 +12,14 @@ func IsTruthy(value string) bool {
 		return false
 	}
 }
+
+// IsFalsy reports whether value explicitly turns something off
+// (false/0/no/off), case-insensitive, ignoring surrounding whitespace.
+func IsFalsy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "false", "0", "no", "off":
+		return true
+	default:
+		return false
+	}
+}

@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"encoding/base64"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -57,19 +56,19 @@ type MessageMutationResult = ToolResult[MessageMutationData]
 type MessageFilesHandler struct {
 	service   MessageFilesService
 	approvals approvalGate
+	settings  Settings
 	logger    *zap.Logger
 	now       func() time.Time
 }
 
-func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *MessageFilesHandler {
+func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings, logger *zap.Logger) *MessageFilesHandler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &MessageFilesHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger, now: time.Now}
+	return &MessageFilesHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, settings: settings, logger: logger, now: time.Now}
 }
 
 func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "FilesUploadHandler called", request)
 	filename := strings.TrimSpace(request.GetString("filename", ""))
 	if filename == "" || filename != filepath.Base(filename) || strings.ContainsAny(filename, "\x00\r\n") {
 		return nil, invalidArguments("filename must be a non-empty base filename")
@@ -86,7 +85,7 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 	// Sharing into a channel posts a message, so it answers to the same
 	// allowlist as the message lifecycle tools.
 	if channelID != "" {
-		if err := requireMessageLifecycleTool("files_upload", channelID); err != nil {
+		if err := h.settings.requireChannel(capability.FilesUpload, channelID); err != nil {
 			return nil, err
 		}
 	}
@@ -107,12 +106,11 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 }
 
 func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "MessagesScheduleHandler called", request)
 	channelID, text, _, err := validateMessageMutation(request, false)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireMessageLifecycleTool("messages_schedule", channelID); err != nil {
+	if err := h.settings.requireChannel(capability.MessagesSchedule, channelID); err != nil {
 		return nil, err
 	}
 	postAt, err := parsePostAt(request.GetString("post_at", ""))
@@ -133,12 +131,11 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 }
 
 func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "MessagesUpdateHandler called", request)
 	channelID, text, timestamp, err := validateMessageMutation(request, true)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireMessageLifecycleTool("messages_update", channelID); err != nil {
+	if err := h.settings.requireChannel(capability.MessagesUpdate, channelID); err != nil {
 		return nil, err
 	}
 	mutation, err := h.service.Update(ctx, channelID, timestamp, text)
@@ -150,7 +147,6 @@ func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.Ca
 }
 
 func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "MessagesDeleteHandler called", request)
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
 	if channelID == "" || !validSlackTimestamp(timestamp) {
@@ -160,7 +156,7 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	if err != nil {
 		return nil, err
 	}
-	if err := requireMessageLifecycleTool("messages_delete", channelID); err != nil {
+	if err := h.settings.requireChannel(capability.MessagesDelete, channelID); err != nil {
 		return nil, err
 	}
 	target, err := h.service.GetMessage(ctx, channelID, timestamp)
@@ -185,13 +181,6 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	}
 	result := MessageMutationData{Action: "delete", ApprovalPhase: phase, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Target: &target, Outcome: "deleted"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
-}
-
-func requireMessageLifecycleTool(tool, channelID string) error {
-	if !isChannelAllowedForConfig(channelID, os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")) {
-		return &ToolError{Code: "permission_denied", Message: tool + " is not allowed for this channel by SLACK_MCP_ADD_MESSAGE_TOOL"}
-	}
-	return nil
 }
 
 func readUploadData(request mcp.CallToolRequest) ([]byte, error) {

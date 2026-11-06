@@ -34,7 +34,6 @@ type UnreadChannel struct {
 }
 
 func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsUnreadsHandler called", request)
 
 	params, err := ch.parseParamsToolUnreads(request)
 	if err != nil {
@@ -42,7 +41,7 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 		return nil, err
 	}
 
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	mode, err := ch.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
@@ -417,7 +416,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 
 // ConversationsMarkHandler marks a channel as read up to a specific timestamp
 func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsMarkHandler called", request)
 
 	params, err := ch.parseParamsToolMark(request)
 	if err != nil {
@@ -461,7 +459,6 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 }
 
 func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsLeaveHandler called", request)
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
@@ -489,7 +486,6 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 }
 
 func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsJoinHandler called", request)
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
@@ -602,7 +598,6 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 
 // ConversationsOpenHandler opens a new DM or MPIM
 func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsOpenHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))

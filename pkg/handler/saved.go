@@ -104,7 +104,6 @@ func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, conv
 }
 
 func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "SavedListHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		return nil, browserSessionRequired("saved_list", h.apiProvider.BrowserDegradedReason())
 	}
@@ -117,7 +116,7 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 		maxMsgsPerItem = 5
 	}
 
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	mode, err := h.convHandler.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +354,6 @@ func parseSavedUpdateParams(request mcp.CallToolRequest) (edge.SavedUpdateParams
 }
 
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "SavedUpdateHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		return nil, browserSessionRequired("saved_update", h.apiProvider.BrowserDegradedReason())
 	}
@@ -411,7 +409,6 @@ func parseSavedAddParams(request mcp.CallToolRequest) (edge.SavedAddParams, erro
 }
 
 func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "SavedAddHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		return nil, browserSessionRequired("saved_add", h.apiProvider.BrowserDegradedReason())
 	}
@@ -432,7 +429,6 @@ func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallTool
 }
 
 func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "SavedDeleteHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		return nil, browserSessionRequired("saved_delete", h.apiProvider.BrowserDegradedReason())
 	}
@@ -460,7 +456,6 @@ func savedActionData(action, status, itemType, itemID, ts string) ActionData {
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "SavedClearCompletedHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		return nil, browserSessionRequired("saved_clear_completed", h.apiProvider.BrowserDegradedReason())
 	}

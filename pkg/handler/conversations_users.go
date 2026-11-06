@@ -13,7 +13,7 @@ import (
 )
 
 func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-	logResourceCall(ch.logger, "UsersResource called", request)
+	ch.logger.Debug("UsersResource called")
 
 	if authenticated, err := auth.IsAuthenticated(ctx, ch.apiProvider.ServerTransport(), ch.logger); !authenticated {
 		ch.logger.Error("Authentication failed for users resource", zap.Error(err))
@@ -67,7 +67,6 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 }
 
 func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "UsersSearchHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))

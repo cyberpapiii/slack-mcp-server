@@ -2,53 +2,17 @@ package handler
 
 import (
 	"fmt"
-	"os"
-	"strings"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 )
-
-// isChannelAllowedForConfig applies a channel allowlist such as
-// SLACK_MCP_ADD_MESSAGE_TOOL. Empty or truthy means every channel;
-// "C1,C2" allows only those; "!C1,!C2" allows everything except those.
-func isChannelAllowedForConfig(channel, config string) bool {
-	if config == "" || envutil.IsTruthy(config) {
-		return true
-	}
-	items := strings.Split(config, ",")
-	isNegated := false
-	sawEntry := false
-	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item == "" || item == "!" {
-			continue
-		}
-		if !sawEntry {
-			isNegated = strings.HasPrefix(item, "!")
-			sawEntry = true
-		}
-		if isNegated {
-			if strings.TrimPrefix(item, "!") == channel {
-				return false
-			}
-		} else if item == channel {
-			return true
-		}
-	}
-	// Empty/`!`-only lists are invalid config (startup should reject); fail closed.
-	if !sawEntry {
-		return false
-	}
-	return isNegated
-}
 
 // sendStatus reports whether conversations_add_message would accept a
 // message to the given channel, for the conversations_draft_message preview.
 func (ch *ConversationsHandler) sendStatus(channel string) string {
-	if !ch.sendEnabled {
+	if !ch.settings.AddMessageEnabled {
 		return "not available"
 	}
-	if !isChannelAllowedForConfig(channel, os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")) {
+	if !ch.settings.channelAllowed(capability.ConversationsAddMessage, channel) {
 		return "not available for this channel"
 	}
 	return "available"

@@ -92,7 +92,6 @@ func newUsergroupsHandlerWithAPI(api UsergroupsAPI, logger *zap.Logger) *Usergro
 // No IsReady check: usergroup handlers call the Slack API directly and do not
 // depend on the users/channels cache, so cache readiness is not required.
 func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsergroupsListHandler called", request)
 
 	includeUsers := request.GetBool("include_users", false)
 	includeCount := request.GetBool("include_count", true)
@@ -127,7 +126,6 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 }
 
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsergroupsCreateHandler called", request)
 
 	name := request.GetString("name", "")
 	if name == "" {
@@ -162,7 +160,6 @@ func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request
 }
 
 func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsergroupsUpdateHandler called", request)
 
 	usergroupID := request.GetString("usergroup_id", "")
 	if usergroupID == "" {
@@ -207,7 +204,6 @@ func (h *UsergroupsHandler) UsergroupsUpdateHandler(ctx context.Context, request
 }
 
 func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsergroupsUsersUpdateHandler called", request)
 
 	usergroupID := request.GetString("usergroup_id", "")
 	if usergroupID == "" {
@@ -237,7 +233,6 @@ func (h *UsergroupsHandler) UsergroupsUsersUpdateHandler(ctx context.Context, re
 }
 
 func (h *UsergroupsHandler) UsergroupsMineHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsergroupsMineHandler called", request)
 	currentUserID, err := h.currentUserID()
 	if err != nil {
 		return nil, err
@@ -246,7 +241,6 @@ func (h *UsergroupsHandler) UsergroupsMineHandler(ctx context.Context, request m
 }
 
 func (h *UsergroupsHandler) UsergroupsJoinHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsergroupsJoinHandler called", request)
 	currentUserID, err := h.currentUserID()
 	if err != nil {
 		return nil, err
@@ -255,7 +249,6 @@ func (h *UsergroupsHandler) UsergroupsJoinHandler(ctx context.Context, request m
 }
 
 func (h *UsergroupsHandler) UsergroupsLeaveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsergroupsLeaveHandler called", request)
 	currentUserID, err := h.currentUserID()
 	if err != nil {
 		return nil, err

@@ -8,7 +8,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -56,7 +55,6 @@ func renderActivityItems(items []ActivityItem, channelName func(string) string, 
 }
 
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ActivityUnreadsHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		return nil, browserSessionRequired("activity_unreads", h.apiProvider.BrowserDegradedReason())
 	}
@@ -68,7 +66,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	}
 	limit := pageLimit(request, 30, activityFeedMaxLimit)
 
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	mode, err := h.convHandler.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +213,6 @@ func csvSection(name string, rows any) (string, error) {
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ActivityMarkReadHandler called", request)
 	if !h.apiProvider.BrowserFeaturesAvailable() {
 		return nil, browserSessionRequired("activity_mark_read", h.apiProvider.BrowserDegradedReason())
 	}

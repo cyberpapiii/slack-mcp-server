@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -14,8 +12,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
 )
-
-const channelManagementGate = "SLACK_MCP_CHANNEL_MANAGEMENT_TOOL"
 
 var channelNamePattern = regexp.MustCompile(`^[a-z0-9_-]{1,80}$`)
 
@@ -30,6 +26,7 @@ type ChannelMutationService interface {
 type ChannelMutationHandler struct {
 	service   ChannelMutationService
 	approvals approvalGate
+	settings  Settings
 	logger    *zap.Logger
 }
 
@@ -41,17 +38,16 @@ type ChannelMutationData struct {
 
 type ChannelMutationResult = ToolResult[ChannelMutationData]
 
-func NewChannelMutationHandler(service ChannelMutationService, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ChannelMutationHandler {
-	return &ChannelMutationHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
+func NewChannelMutationHandler(service ChannelMutationService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings, logger *zap.Logger) *ChannelMutationHandler {
+	return &ChannelMutationHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, settings: settings, logger: logger}
 }
 
 func (h *ChannelMutationHandler) ConversationsRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ConversationsRenameHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireChannelMutationAllowed("channels_rename", channelID); err != nil {
+	if err := h.settings.requireChannel(capability.ChannelsRename, channelID); err != nil {
 		return nil, err
 	}
 	name := strings.TrimSpace(request.GetString("name", ""))
@@ -66,12 +62,11 @@ func (h *ChannelMutationHandler) ConversationsRenameHandler(ctx context.Context,
 }
 
 func (h *ChannelMutationHandler) ConversationsSetTopicHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ConversationsSetTopicHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireChannelMutationAllowed("channels_set_topic", channelID); err != nil {
+	if err := h.settings.requireChannel(capability.ChannelsSetTopic, channelID); err != nil {
 		return nil, err
 	}
 	topic, err := presentString(request, "topic")
@@ -86,12 +81,11 @@ func (h *ChannelMutationHandler) ConversationsSetTopicHandler(ctx context.Contex
 }
 
 func (h *ChannelMutationHandler) ConversationsSetPurposeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ConversationsSetPurposeHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireChannelMutationAllowed("channels_set_purpose", channelID); err != nil {
+	if err := h.settings.requireChannel(capability.ChannelsSetPurpose, channelID); err != nil {
 		return nil, err
 	}
 	purpose, err := presentString(request, "purpose")
@@ -106,12 +100,11 @@ func (h *ChannelMutationHandler) ConversationsSetPurposeHandler(ctx context.Cont
 }
 
 func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ConversationsArchiveHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireChannelMutationAllowed("channels_archive", channelID); err != nil {
+	if err := h.settings.requireChannel(capability.ChannelsArchive, channelID); err != nil {
 		return nil, err
 	}
 	prepare, err := approvalAction(request)
@@ -142,13 +135,6 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	}
 	data := ChannelMutationData{Action: "archive", ApprovalPhase: phase, Channel: &state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
-}
-
-func requireChannelMutationAllowed(toolName, channelID string) error {
-	if !isChannelAllowedForConfig(channelID, os.Getenv(channelManagementGate)) {
-		return &ToolError{Code: "permission_denied", Message: fmt.Sprintf("%s is not allowed for channel %q by %s", toolName, channelID, channelManagementGate)}
-	}
-	return nil
 }
 
 func mutationResult(action string, state provider.ChannelMutationState, err error) (*mcp.CallToolResult, error) {

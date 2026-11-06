@@ -76,7 +76,6 @@ func NewPeopleChannelsHandler(service PeopleChannelsService, identity func() pro
 }
 
 func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsersGetProfileHandler called", request)
 	userID := strings.TrimSpace(request.GetString("user_id", ""))
 	if userID == "" {
 		userID = h.identity().UserID
@@ -93,7 +92,6 @@ func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.
 }
 
 func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsersSetProfileHandler called", request)
 	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
@@ -111,7 +109,6 @@ func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.
 }
 
 func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "UsersSetStatusHandler called", request)
 	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
@@ -144,7 +141,6 @@ func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.C
 }
 
 func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "EmojiListHandler called", request)
 	limit := pageLimit(request, 100, maxEmojiPageSize)
 	page, err := h.service.ListEmoji(ctx, strings.TrimSpace(request.GetString("query", "")), strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
@@ -162,7 +158,6 @@ func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallT
 }
 
 func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ChannelsCreateHandler called", request)
 	name := strings.TrimSpace(request.GetString("name", ""))
 	if !channelNamePattern.MatchString(name) {
 		return nil, invalidArguments("name must be 1-80 lowercase letters, numbers, hyphens, or underscores")
@@ -180,7 +175,6 @@ func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.C
 }
 
 func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ChannelsMembersHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
 		return nil, err
@@ -205,7 +199,6 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 }
 
 func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ChannelsInviteHandler called", request)
 	channelID, err := requiredChannelID(request)
 	if err != nil {
 		return nil, err

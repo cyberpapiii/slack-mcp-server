@@ -10,7 +10,6 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -19,7 +18,6 @@ import (
 // ConversationsGetMessageHandler fetches one message by channel + timestamp
 // (MsgID from compact CSV / attachment-truncation receipt; optional detail:full).
 func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsGetMessageHandler called", request)
 
 	rawChannel := request.GetString("channel_id", "")
 	if rawChannel == "" {
@@ -29,7 +27,7 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 	if timestamp == "" {
 		return nil, invalidArguments("timestamp is required")
 	}
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	mode, err := ch.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
@@ -52,14 +50,13 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 }
 
 func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsHistoryHandler called", request)
 
 	params, err := ch.parseParamsToolConversations(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse history params", zap.Error(err))
 		return nil, err
 	}
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	mode, err := ch.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
@@ -98,14 +95,13 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 
 // ConversationsRepliesHandler streams thread replies as CSV
 func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsRepliesHandler called", request)
 
 	params, err := ch.parseParamsToolConversations(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse replies params", zap.Error(err))
 		return nil, err
 	}
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	mode, err := ch.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
@@ -139,14 +135,13 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 }
 
 func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsSearchHandler called", request)
 
 	params, err := ch.parseParamsToolSearch(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse search params", zap.Error(err))
 		return nil, err
 	}
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""))
+	mode, err := ch.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}

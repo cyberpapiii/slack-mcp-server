@@ -84,6 +84,20 @@ const (
 	UsersSetStatus              = "users_set_status"
 )
 
+// The channel allow/block list variables. Each narrows a family of write
+// tools to some channels; whether a tool exists at all is the enabled-tools
+// list's decision.
+const (
+	AddMessageAllowlist        = "SLACK_MCP_ADD_MESSAGE_TOOL"
+	ReactionAllowlist          = "SLACK_MCP_REACTION_TOOL"
+	ChannelManagementAllowlist = "SLACK_MCP_CHANNEL_MANAGEMENT_TOOL"
+)
+
+// ChannelAllowlists lists every channel allow/block list variable.
+func ChannelAllowlists() []string {
+	return []string{AddMessageAllowlist, ReactionAllowlist, ChannelManagementAllowlist}
+}
+
 // Requirement is the credential a tool needs. A tool whose requirement the
 // running credentials cannot meet is not registered.
 type Requirement int
@@ -96,15 +110,18 @@ const (
 )
 
 type Tool struct {
-	Name        string
-	Title       string // MCP title annotation
-	DailyPower  bool   // in the default "daily-power" preset
-	Requires    Requirement
-	CacheReady  bool     // registered after the users/channels cache warms (RegisterCacheDependentTools)
-	ReadOnly    bool     // MCP readOnlyHint; read-only tools are also non-destructive and idempotent
-	Destructive bool     // only meaningful when !ReadOnly
-	Idempotent  bool     // only meaningful when !ReadOnly
-	Scopes      []string // OAuth scopes slack-mcp-auth requests for this tool
+	Name       string
+	Title      string // MCP title annotation
+	DailyPower bool   // in the default "daily-power" preset
+	Requires   Requirement
+	// ChannelAllowlist names the environment variable holding the channel
+	// allow/block list this write tool honors; empty for tools without one.
+	ChannelAllowlist string
+	CacheReady       bool     // registered after the users/channels cache warms (RegisterCacheDependentTools)
+	ReadOnly         bool     // MCP readOnlyHint; read-only tools are also non-destructive and idempotent
+	Destructive      bool     // only meaningful when !ReadOnly
+	Idempotent       bool     // only meaningful when !ReadOnly
+	Scopes           []string // OAuth scopes slack-mcp-auth requests for this tool
 }
 
 var Tools = []Tool{
@@ -112,7 +129,7 @@ var Tools = []Tool{
 	{Name: ConversationsHistory, Title: "Get Conversation History", ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
 	{Name: ConversationsReplies, Title: "Get Thread Replies", ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
 	{Name: ConversationsGetMessage, Title: "Get Single Message", DailyPower: true, ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
-	{Name: ConversationsAddMessage, Title: "Send Message", Scopes: []string{"chat:write"}},
+	{Name: ConversationsAddMessage, ChannelAllowlist: AddMessageAllowlist, Title: "Send Message", Scopes: []string{"chat:write"}},
 	{Name: ConversationsDraftMessage, Title: "Draft Message", ReadOnly: true},
 
 	// Persisted drafts (browser session).
@@ -136,8 +153,8 @@ var Tools = []Tool{
 	{Name: ChannelsMe, Title: "My Channels", CacheReady: true, ReadOnly: true, Scopes: []string{"channels:read", "groups:read", "im:read", "mpim:read"}},
 
 	// Reactions.
-	{Name: ReactionsAdd, Title: "Add Reaction", Scopes: []string{"reactions:write"}},
-	{Name: ReactionsRemove, Title: "Remove Reaction", Destructive: true, Scopes: []string{"reactions:write"}},
+	{Name: ReactionsAdd, ChannelAllowlist: ReactionAllowlist, Title: "Add Reaction", Scopes: []string{"reactions:write"}},
+	{Name: ReactionsRemove, ChannelAllowlist: ReactionAllowlist, Title: "Remove Reaction", Destructive: true, Scopes: []string{"reactions:write"}},
 	{Name: ReactionsGet, Title: "Get Message Reactions", ReadOnly: true, Scopes: []string{"reactions:read"}},
 
 	// Files and users.
@@ -168,10 +185,10 @@ var Tools = []Tool{
 	{Name: SlackAuthStatus, Title: "Auth & Cache Status", DailyPower: true, ReadOnly: true},
 
 	// File and message mutations.
-	{Name: FilesUpload, Title: "Upload File", Scopes: []string{"files:write"}},
-	{Name: MessagesSchedule, Title: "Schedule Message", Scopes: []string{"chat:write"}},
-	{Name: MessagesUpdate, Title: "Update Message", Destructive: true, Scopes: []string{"chat:write"}},
-	{Name: MessagesDelete, Title: "Delete Message", Destructive: true, Scopes: []string{"chat:write"}},
+	{Name: FilesUpload, ChannelAllowlist: AddMessageAllowlist, Title: "Upload File", Scopes: []string{"files:write"}},
+	{Name: MessagesSchedule, ChannelAllowlist: AddMessageAllowlist, Title: "Schedule Message", Scopes: []string{"chat:write"}},
+	{Name: MessagesUpdate, ChannelAllowlist: AddMessageAllowlist, Title: "Update Message", Destructive: true, Scopes: []string{"chat:write"}},
+	{Name: MessagesDelete, ChannelAllowlist: AddMessageAllowlist, Title: "Delete Message", Destructive: true, Scopes: []string{"chat:write"}},
 
 	// Channels, people and profiles.
 	{Name: ChannelsCreate, Title: "Create Channel", Scopes: []string{"channels:write", "groups:write"}},
@@ -193,10 +210,10 @@ var Tools = []Tool{
 	{Name: ScheduledMessageCancel, Title: "Cancel Scheduled Message", Destructive: true, Scopes: []string{"chat:write"}},
 
 	// Channel mutations.
-	{Name: ChannelsRename, Title: "Rename Channel", Scopes: []string{"channels:write", "groups:write"}},
-	{Name: ChannelsSetTopic, Title: "Set Channel Topic", Scopes: []string{"channels:write", "groups:write"}},
-	{Name: ChannelsSetPurpose, Title: "Set Channel Purpose", Scopes: []string{"channels:write", "groups:write"}},
-	{Name: ChannelsArchive, Title: "Archive Channel", Destructive: true, Scopes: []string{"channels:write", "groups:write"}},
+	{Name: ChannelsRename, ChannelAllowlist: ChannelManagementAllowlist, Title: "Rename Channel", Scopes: []string{"channels:write", "groups:write"}},
+	{Name: ChannelsSetTopic, ChannelAllowlist: ChannelManagementAllowlist, Title: "Set Channel Topic", Scopes: []string{"channels:write", "groups:write"}},
+	{Name: ChannelsSetPurpose, ChannelAllowlist: ChannelManagementAllowlist, Title: "Set Channel Purpose", Scopes: []string{"channels:write", "groups:write"}},
+	{Name: ChannelsArchive, ChannelAllowlist: ChannelManagementAllowlist, Title: "Archive Channel", Destructive: true, Scopes: []string{"channels:write", "groups:write"}},
 
 	// Slack Lists.
 	{Name: ListsCreate, Requires: UserOAuth, Title: "Create Slack List", Scopes: []string{"lists:write"}},

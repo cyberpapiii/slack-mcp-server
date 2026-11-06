@@ -18,9 +18,10 @@ type handlerSet struct {
 
 // buildHandlers wires every handler family to the provider and collects the
 // tools they serve. A family whose provider service is unavailable serves none.
-func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools []string) handlerSet {
+func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools []string, settings handler.Settings) handlerSet {
 	approvals := approval.NewStore()
-	conversations := handler.NewConversationsHandler(api, logger, slices.Contains(enabledTools, capability.ConversationsAddMessage))
+	settings.AddMessageEnabled = slices.Contains(enabledTools, capability.ConversationsAddMessage)
+	conversations := handler.NewConversationsHandler(api, logger, settings)
 	channels := handler.NewChannelsHandler(api, logger)
 	set := handlerSet{conversations: conversations, channels: channels}
 	add := func(family string, tools func() ([]handler.ToolDef, error)) {
@@ -67,7 +68,7 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools [
 		if err != nil {
 			return nil, err
 		}
-		return handler.NewChannelMutationHandler(service, approvals, api.Identity, logger).Tools(), nil
+		return handler.NewChannelMutationHandler(service, approvals, api.Identity, settings, logger).Tools(), nil
 	})
 	add("lists", func() ([]handler.ToolDef, error) {
 		service, err := api.Lists()
@@ -88,7 +89,7 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools [
 		if err != nil {
 			return nil, err
 		}
-		return handler.NewMessageFilesHandler(service, approvals, api.Identity, logger).Tools(), nil
+		return handler.NewMessageFilesHandler(service, approvals, api.Identity, settings, logger).Tools(), nil
 	})
 	add("people and channels", func() ([]handler.ToolDef, error) {
 		service, err := api.PeopleChannels()

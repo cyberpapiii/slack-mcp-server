@@ -60,7 +60,7 @@ func newUnreadsTestHandler() *ConversationsHandler {
 }
 
 func TestUnitConversationsUnreadsFailsFastWithoutBrowserSession(t *testing.T) {
-	h := NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop(), false)
+	h := NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop(), Settings{})
 	result, err := h.ConversationsUnreadsHandler(context.Background(), mcp.CallToolRequest{})
 	require.Error(t, err)
 	assert.Nil(t, result)

@@ -135,7 +135,7 @@ func TestErrorRecoveryMiddleware(t *testing.T) {
 
 	t.Run("production stack turns a panic into an isError tool result", func(t *testing.T) {
 		c := setupMCPClientServer(t,
-			toolHandlerOptions("stdio", logger),
+			toolHandlerOptions("stdio", logger, false),
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				panic("nil map write in handler")
 			},
@@ -156,7 +156,7 @@ func TestErrorRecoveryMiddleware(t *testing.T) {
 
 	t.Run("production stack preserves ToolError code and retryable", func(t *testing.T) {
 		c := setupMCPClientServer(t,
-			toolHandlerOptions("stdio", logger),
+			toolHandlerOptions("stdio", logger, false),
 			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return nil, &handler.ToolError{Code: "rate_limited", Message: "slow down", Retryable: true, RetryAfter: 3 * time.Second}
 			},

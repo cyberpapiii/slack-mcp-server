@@ -62,7 +62,6 @@ func NewScheduledHandler(service ScheduledService, approvals *approval.Store, id
 }
 
 func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ScheduledListHandler called", request)
 	limit := pageLimit(request, 50, maxScheduledPageSize)
 	page, err := h.service.ListScheduled(ctx, provider.ScheduledListRequest{
 		ChannelID: strings.TrimSpace(request.GetString("channel_id", "")),
@@ -95,7 +94,6 @@ func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest
 }
 
 func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ScheduledCancelHandler called", request)
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	scheduledMessageID := strings.TrimSpace(request.GetString("scheduled_message_id", ""))
 	if channelID == "" || scheduledMessageID == "" {

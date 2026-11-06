@@ -37,7 +37,6 @@ type AuthStatusData struct {
 }
 
 func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "AuthStatusHandler called", request)
 
 	usersReady := h.apiProvider.UsersCacheReady()
 	channelsReady := h.apiProvider.ChannelsCacheReady()

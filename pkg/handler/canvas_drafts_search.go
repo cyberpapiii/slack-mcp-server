@@ -31,7 +31,6 @@ type CanvasMutationData struct {
 }
 
 func (h *CanvasHandler) Create(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "CanvasCreate called", request)
 	var input provider.CanvasCreateRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err
@@ -49,7 +48,6 @@ func (h *CanvasHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 }
 
 func (h *CanvasHandler) Read(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "CanvasRead called", request)
 	var input provider.CanvasReadRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err
@@ -76,7 +74,6 @@ const maxSemanticResults = 20
 var canvasOperations = []string{"insert_at_start", "insert_at_end", "insert_before", "insert_after", "replace"}
 
 func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "CanvasUpdate called", request)
 	var input provider.CanvasUpdateRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err
@@ -138,7 +135,6 @@ type DraftRow struct {
 }
 
 func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "DraftsList called", request)
 	limit := pageLimit(request, 50, 100)
 	page, err := h.api.ListDrafts(ctx, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
@@ -167,7 +163,6 @@ func slackTsTime(ts string) string {
 }
 
 func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "DraftsGet called", request)
 	id := strings.TrimSpace(request.GetString("draft_id", ""))
 	if id == "" {
 		return nil, invalidArguments("draft_id is required")
@@ -180,7 +175,6 @@ func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*
 }
 
 func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "DraftsCreate called", request)
 	draft, err := decodeDraft(request, false)
 	if err != nil {
 		return nil, err
@@ -194,7 +188,6 @@ func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 }
 
 func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "DraftsUpdate called", request)
 	draft, err := decodeDraft(request, true)
 	if err != nil {
 		return nil, err
@@ -208,7 +201,6 @@ func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 }
 
 func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "DraftsDelete called", request)
 	id := strings.TrimSpace(request.GetString("draft_id", ""))
 	if id == "" {
 		return nil, invalidArguments("draft_id is required")
@@ -304,7 +296,6 @@ func semanticSearchCSV(items []provider.SemanticSearchItem, includeFiles bool) (
 }
 
 func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "SemanticSearch called", request)
 	var input provider.SemanticSearchRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err

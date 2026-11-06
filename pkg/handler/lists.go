@@ -58,7 +58,6 @@ type ListItemDeleteData struct {
 type ListItemDeleteResult = ToolResult[ListItemDeleteData]
 
 func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsCreateList called", request)
 	var input provider.CreateListRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err
@@ -74,7 +73,6 @@ func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolReque
 }
 
 func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsUpdateList called", request)
 	var input provider.UpdateListRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err
@@ -89,7 +87,6 @@ func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolReque
 }
 
 func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsListItems called", request)
 	var input provider.ListItemsRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err
@@ -108,7 +105,6 @@ func (h *ListsHandler) ListItems(ctx context.Context, request mcp.CallToolReques
 }
 
 func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsCreateItem called", request)
 	var input provider.CreateListItemRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err
@@ -124,7 +120,6 @@ func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolReque
 }
 
 func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsUpdateItems called", request)
 	var input provider.UpdateListItemsRequest
 	if err := decodeArguments(request, &input); err != nil {
 		return nil, err
@@ -139,7 +134,6 @@ func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequ
 }
 
 func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsDeleteItem called", request)
 	listID := strings.TrimSpace(request.GetString("list_id", ""))
 	itemID := strings.TrimSpace(request.GetString("item_id", ""))
 	if listID == "" || itemID == "" {

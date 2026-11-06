@@ -14,29 +14,28 @@ import (
 // The allowed path is not covered here: a ready provider with a fake Web API
 // client needs a seam pkg/provider does not expose yet.
 func TestUnitWriteToolsDenyChannelOutsideAllowlist(t *testing.T) {
-	api := &provider.ApiProvider{}
-	api.SkipCache()
-	h := NewConversationsHandler(api, zap.NewNop(), true)
-
+	type call func(*ConversationsHandler, context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
 	tests := []struct {
-		name   string
-		env    string
-		call   func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
-		args   map[string]any
-		detail string
+		tool string
+		env  string
+		call call
+		args map[string]any
 	}{
-		{"add_message", "SLACK_MCP_ADD_MESSAGE_TOOL", h.ConversationsAddMessageHandler, map[string]any{"channel_id": "C123", "text": "hi"}, "conversations_add_message is not allowed"},
-		{"reactions_add", "SLACK_MCP_REACTION_TOOL", h.ReactionsAddHandler, map[string]any{"channel_id": "C123", "timestamp": "1.2", "emoji": "+1"}, "reactions tools are not allowed"},
-		{"reactions_remove", "SLACK_MCP_REACTION_TOOL", h.ReactionsRemoveHandler, map[string]any{"channel_id": "C123", "timestamp": "1.2", "emoji": "+1"}, "reactions tools are not allowed"},
+		{"conversations_add_message", "SLACK_MCP_ADD_MESSAGE_TOOL", (*ConversationsHandler).ConversationsAddMessageHandler, map[string]any{"channel_id": "C123", "text": "hi"}},
+		{"reactions_add", "SLACK_MCP_REACTION_TOOL", (*ConversationsHandler).ReactionsAddHandler, map[string]any{"channel_id": "C123", "timestamp": "1.2", "emoji": "+1"}},
+		{"reactions_remove", "SLACK_MCP_REACTION_TOOL", (*ConversationsHandler).ReactionsRemoveHandler, map[string]any{"channel_id": "C123", "timestamp": "1.2", "emoji": "+1"}},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.tool, func(t *testing.T) {
 			t.Setenv(tt.env, "C456")
-			_, err := tt.call(context.Background(), mutationRequest(tt.args))
+			api := &provider.ApiProvider{}
+			api.SkipCache()
+			h := NewConversationsHandler(api, zap.NewNop(), envSettings())
+			_, err := tt.call(h, context.Background(), mutationRequest(tt.args))
 			var toolErr *ToolError
 			require.ErrorAs(t, err, &toolErr)
 			assert.Equal(t, "permission_denied", toolErr.Code)
-			assert.Contains(t, err.Error(), tt.detail)
+			assert.Contains(t, err.Error(), tt.tool+" is not allowed")
 			assert.Contains(t, err.Error(), tt.env)
 		})
 	}

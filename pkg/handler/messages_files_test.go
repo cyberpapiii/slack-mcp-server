@@ -57,7 +57,7 @@ func messageFilesRequest(args map[string]any) mcp.CallToolRequest {
 func newTestMessageFilesHandler(service MessageFilesService) *MessageFilesHandler {
 	return NewMessageFilesHandler(service, approval.NewStore(), func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user", TokenMode: "oauth"}
-	}, zap.NewNop())
+	}, envSettings(), zap.NewNop())
 }
 
 func TestUnitFilesUploadRejectsMultipleSourcesWithoutMutation(t *testing.T) {
@@ -132,20 +132,6 @@ func TestUnitMessagesUpdateRejectsInvalidTimestamp(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Equal(t, 0, service.updateCalls)
-}
-
-func TestUnitRequireMessageLifecycleToolHonorsChannelAllowlist(t *testing.T) {
-	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "C1,C2")
-
-	require.NoError(t, requireMessageLifecycleTool("messages_schedule", "C1"))
-	err := requireMessageLifecycleTool("messages_delete", "C9")
-	require.Error(t, err)
-	var toolErr *ToolError
-	require.ErrorAs(t, err, &toolErr)
-	assert.Equal(t, "permission_denied", toolErr.Code)
-
-	t.Setenv("SLACK_MCP_ADD_MESSAGE_TOOL", "")
-	require.NoError(t, requireMessageLifecycleTool("messages_update", "C1"))
 }
 
 func TestUnitMessagesScheduleHonorsAddMessageAllowlist(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
+	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server"
 	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
@@ -58,12 +59,12 @@ func main() {
 		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS / SLACK_MCP_TOOL_PRESET", err)
 	}
 
-	for _, name := range channelAllowlistVars {
-		value := os.Getenv(name)
-		if err = validateToolConfig(value); err != nil {
-			fatal(logger, "error in "+name, err)
-		}
-		if isFalsy(value) {
+	settings, err := handler.SettingsFromEnv(os.Getenv)
+	if err != nil {
+		fatal(logger, "error in a channel allowlist", err)
+	}
+	for _, name := range capability.ChannelAllowlists() {
+		if value := os.Getenv(name); envutil.IsFalsy(value) {
 			logger.Warn(name+"="+value+" is treated as a channel allowlist and blocks every channel; unset it, or drop the tool from SLACK_MCP_ENABLED_TOOLS to disable it",
 				zap.String("context", "console"),
 			)
@@ -81,7 +82,7 @@ func main() {
 		fatal(logger, "Failed to initialize Slack provider", err)
 	}
 	defer p.Close()
-	s := server.NewMCPServer(p, logger, enabledTools)
+	s := server.NewMCPServer(p, logger, enabledTools, settings)
 	logStartupAuthStatus(p, logger)
 
 	if noCache {
@@ -167,23 +168,6 @@ func resolveEnabledTools(explicit, preset string) ([]string, error) {
 	return capability.Preset(preset)
 }
 
-// channelAllowlistVars are the only SLACK_MCP_*_TOOL variables still read.
-// Each holds a channel allow/block list for one write tool; whether a tool is
-// registered at all is decided solely by SLACK_MCP_ENABLED_TOOLS / the preset.
-var channelAllowlistVars = []string{
-	"SLACK_MCP_ADD_MESSAGE_TOOL",
-	"SLACK_MCP_REACTION_TOOL",
-	"SLACK_MCP_CHANNEL_MANAGEMENT_TOOL",
-}
-
-func isFalsy(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "0", "false", "no", "off":
-		return true
-	}
-	return false
-}
-
 // warnRemovedGateVars flags SLACK_MCP_*_TOOL variables left over from the
 // per-tool boolean gates, which are ignored now that the enabled-tools list is
 // the single switch.
@@ -193,7 +177,7 @@ func warnRemovedGateVars(logger *zap.Logger) {
 		if !strings.HasPrefix(name, "SLACK_MCP_") || !strings.HasSuffix(name, "_TOOL") {
 			continue
 		}
-		if slices.Contains(channelAllowlistVars, name) {
+		if slices.Contains(capability.ChannelAllowlists(), name) {
 			continue
 		}
 		logger.Warn(name+" is ignored; tools are enabled only via SLACK_MCP_ENABLED_TOOLS or SLACK_MCP_TOOL_PRESET",
@@ -212,31 +196,6 @@ func listenHostPort() (host, port string) {
 		port = strconv.Itoa(defaultSsePort)
 	}
 	return host, port
-}
-
-func validateToolConfig(config string) error {
-	if config == "" || envutil.IsTruthy(config) {
-		return nil
-	}
-
-	hasNegated := false
-	hasPositive := false
-	for _, item := range strings.Split(config, ",") {
-		item = strings.TrimSpace(item)
-		if item == "" || item == "!" {
-			return fmt.Errorf("empty channel entry in allow/block list")
-		}
-		if strings.HasPrefix(item, "!") {
-			hasNegated = true
-		} else {
-			hasPositive = true
-		}
-	}
-	if hasNegated && hasPositive {
-		return fmt.Errorf("cannot mix allowed and disallowed (! prefixed) channels")
-	}
-
-	return nil
 }
 
 func newLogger(transport string) (*zap.Logger, error) {

@@ -222,7 +222,7 @@ func TestUnitAttachmentRefDescribesKindAndSize(t *testing.T) {
 
 func TestUnitDownloadRoot(t *testing.T) {
 	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "")
-	_, err := downloadRoot()
+	_, err := downloadRoot(envSettings().DownloadDir)
 	require.Error(t, err)
 	var toolErr *ToolError
 	require.ErrorAs(t, err, &toolErr)
@@ -230,13 +230,13 @@ func TestUnitDownloadRoot(t *testing.T) {
 	assert.Contains(t, toolErr.Message, "SLACK_MCP_DOWNLOAD_DIR", "the error is the only place an operator learns what to set")
 
 	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "relative/dir")
-	_, err = downloadRoot()
+	_, err = downloadRoot(envSettings().DownloadDir)
 	require.Error(t, err)
 	require.ErrorAs(t, err, &toolErr)
 	assert.Equal(t, "invalid_arguments", toolErr.Code)
 
 	t.Setenv("SLACK_MCP_DOWNLOAD_DIR", "  /tmp/slack-downloads  ")
-	root, err := downloadRoot()
+	root, err := downloadRoot(envSettings().DownloadDir)
 	require.NoError(t, err)
 	assert.Equal(t, "/tmp/slack-downloads", root)
 }

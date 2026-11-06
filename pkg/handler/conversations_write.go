@@ -5,11 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/gocarina/gocsv"
-	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -18,7 +17,6 @@ import (
 )
 
 func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsAddMessageHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))
@@ -61,8 +59,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		}
 	}
 
-	unfurlOpt := os.Getenv("SLACK_MCP_ADD_MESSAGE_UNFURLING")
-	if text.IsUnfurlingEnabled(params.text, unfurlOpt, ch.logger) {
+	if text.IsUnfurlingEnabled(params.text, ch.settings.Unfurling, ch.logger) {
 		options = append(options, slack.MsgOptionEnableLinkUnfurl())
 	} else {
 		options = append(options, slack.MsgOptionDisableLinkUnfurl())
@@ -80,25 +77,24 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		return nil, err
 	}
 
-	toolConfig := os.Getenv("SLACK_MCP_ADD_MESSAGE_MARK")
-	if envutil.IsTruthy(toolConfig) {
-		err := ch.apiProvider.Slack().MarkConversationContext(ctx, params.channel, respTimestamp)
-		if err != nil {
+	posted := fmt.Sprintf("Successfully posted message to channel %s (ts=%s)", respChannel, respTimestamp)
+	if params.threadTs != "" {
+		posted = fmt.Sprintf("Successfully posted message to channel %s in thread %s (ts=%s)", respChannel, params.threadTs, respTimestamp)
+	}
+	// The message is already posted, so a failed mark is reported, not
+	// returned as an error a caller would retry into a duplicate post.
+	if ch.settings.MarkAfterPost {
+		if err := ch.apiProvider.Slack().MarkConversationContext(ctx, params.channel, respTimestamp); err != nil {
 			ch.logger.Debug("Slack MarkConversationContext failed", zap.Error(err))
-			return nil, err
+			posted += fmt.Sprintf(". Warning: marking the channel read failed: %v", err)
 		}
 	}
-
-	if params.threadTs != "" {
-		return mcp.NewToolResultText(fmt.Sprintf("Successfully posted message to channel %s in thread %s (ts=%s)", respChannel, params.threadTs, respTimestamp)), nil
-	}
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully posted message to channel %s (ts=%s)", respChannel, respTimestamp)), nil
+	return mcp.NewToolResultText(posted), nil
 }
 
 // ConversationsDraftMessageHandler validates and formats a message without sending.
 // Preview for review before conversations_add_message.
 func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ConversationsDraftMessageHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))
@@ -152,14 +148,13 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 
 // ReactionsAddHandler adds an emoji reaction to a message
 func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ReactionsAddHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
-	params, err := ch.parseParamsToolReaction(ctx, request)
+	params, err := ch.parseParamsToolReaction(ctx, capability.ReactionsAdd, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse add-reaction params", zap.Error(err))
 		return nil, err
@@ -187,14 +182,13 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 
 // ReactionsRemoveHandler removes an emoji reaction from a message
 func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ReactionsRemoveHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
-	params, err := ch.parseParamsToolReaction(ctx, request)
+	params, err := ch.parseParamsToolReaction(ctx, capability.ReactionsRemove, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse remove-reaction params", zap.Error(err))
 		return nil, err
@@ -225,7 +219,6 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 // Uses conversations.replies which works for top-level messages, thread parents, and thread replies
 // alike. Requires only channels:history scope, no additional reactions:read permission needed.
 func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "ReactionsGetHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))
@@ -345,8 +338,6 @@ func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context,
 }
 
 func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
-	toolConfig := os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")
-
 	if err := signpostFileParam(request); err != nil {
 		return nil, err
 	}
@@ -361,9 +352,8 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err
 	}
-	if !isChannelAllowedForConfig(channel, toolConfig) {
-		ch.logger.Warn("Add-message tool not allowed for channel", zap.String("channel", channel), zap.String("policy", toolConfig))
-		return nil, &ToolError{Code: "permission_denied", Message: fmt.Sprintf("conversations_add_message is not allowed for channel %q by SLACK_MCP_ADD_MESSAGE_TOOL", channel)}
+	if err := ch.settings.requireChannel(capability.ConversationsAddMessage, channel); err != nil {
+		return nil, err
 	}
 
 	threadTs := request.GetString("thread_ts", "")
@@ -429,9 +419,7 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 	}, nil
 }
 
-func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, request mcp.CallToolRequest) (*addReactionParams, error) {
-	toolConfig := os.Getenv("SLACK_MCP_REACTION_TOOL")
-
+func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, tool string, request mcp.CallToolRequest) (*addReactionParams, error) {
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
 		return nil, invalidArguments("channel_id is required")
@@ -441,9 +429,8 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, req
 		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err
 	}
-	if !isChannelAllowedForConfig(channel, toolConfig) {
-		ch.logger.Warn("Reactions tool not allowed for channel", zap.String("channel", channel), zap.String("policy", toolConfig))
-		return nil, &ToolError{Code: "permission_denied", Message: fmt.Sprintf("reactions tools are not allowed for channel %q by SLACK_MCP_REACTION_TOOL", channel)}
+	if err := ch.settings.requireChannel(tool, channel); err != nil {
+		return nil, err
 	}
 
 	timestamp := request.GetString("timestamp", "")

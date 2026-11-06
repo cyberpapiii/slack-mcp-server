@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
+	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ func newDemoServer(t *testing.T, enabled []string) *MCPServer {
 	api, err := provider.New("stdio", zap.NewNop())
 	require.NoError(t, err)
 	t.Cleanup(api.Close)
-	srv := NewMCPServer(api, zap.NewNop(), enabled)
+	srv := NewMCPServer(api, zap.NewNop(), enabled, handler.Settings{})
 	api.SkipCache()
 	return srv
 }

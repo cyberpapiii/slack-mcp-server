@@ -4,7 +4,6 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,9 +15,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// OutputMode selects the render fidelity for tool output. Resolved once per
-// request from the tool's `detail` parameter, falling back to the
-// SLACK_MCP_COMPACT_OUTPUT env var.
+// OutputMode selects the render fidelity for tool output.
 type OutputMode int
 
 const (
@@ -26,15 +23,12 @@ const (
 	ModeFull                       // verbose legacy format, all columns
 )
 
-// ResolveOutputMode maps a tool's `detail` parameter to an OutputMode.
-// Empty string defers to the SLACK_MCP_COMPACT_OUTPUT env var.
-func ResolveOutputMode(detailParam string) (OutputMode, error) {
+// ResolveOutputMode maps a tool's `detail` parameter to an OutputMode; an
+// empty parameter takes the fallback.
+func ResolveOutputMode(detailParam string, fallback OutputMode) (OutputMode, error) {
 	switch strings.ToLower(strings.TrimSpace(detailParam)) {
 	case "":
-		if compactOutput() {
-			return ModeStandard, nil
-		}
-		return ModeFull, nil
+		return fallback, nil
 	case "standard":
 		return ModeStandard, nil
 	case "full":
@@ -196,16 +190,6 @@ func attachmentToFullText(att slack.Attachment) string {
 	result = strings.TrimSpace(result)
 
 	return result
-}
-
-func compactOutput() bool {
-	v := strings.TrimSpace(os.Getenv("SLACK_MCP_COMPACT_OUTPUT"))
-	switch strings.ToLower(v) {
-	case "0", "false", "no":
-		return false
-	default:
-		return true
-	}
 }
 
 // FilesToText extracts text metadata from email file attachments.

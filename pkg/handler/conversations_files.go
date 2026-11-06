@@ -17,7 +17,6 @@ import (
 )
 
 func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "FilesGetHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))
@@ -148,7 +147,6 @@ func nextFilesCursor(paging *slack.Paging) string {
 }
 
 func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "FilesListHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))
@@ -349,8 +347,7 @@ const maxDownloadBytes = 100 * 1024 * 1024
 // downloadRoot resolves the directory files_download writes into. An empty
 // value disables the tool: writing to the local disk is opt-in, and the error
 // names the variable so a caller can tell the operator what to set.
-func downloadRoot() (string, error) {
-	root := strings.TrimSpace(os.Getenv("SLACK_MCP_DOWNLOAD_DIR"))
+func downloadRoot(root string) (string, error) {
 	if root == "" {
 		return "", &ToolError{
 			Code:    "permission_denied",
@@ -385,14 +382,13 @@ func downloadPath(root string, f *slack.File) string {
 }
 
 func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(ch.logger, "FilesDownloadHandler called", request)
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Debug("API provider not ready", zap.Error(err))
 		return nil, err
 	}
 
-	root, err := downloadRoot()
+	root, err := downloadRoot(ch.settings.DownloadDir)
 	if err != nil {
 		return nil, err
 	}

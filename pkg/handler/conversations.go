@@ -188,16 +188,14 @@ type reactionRow struct {
 type ConversationsHandler struct {
 	apiProvider *provider.ApiProvider
 	logger      *zap.Logger
-	// sendEnabled mirrors whether conversations_add_message is registered,
-	// so conversations_draft_message can report send availability.
-	sendEnabled bool
+	settings    Settings
 }
 
-func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, sendEnabled bool) *ConversationsHandler {
+func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *ConversationsHandler {
 	return &ConversationsHandler{
 		apiProvider: apiProvider,
 		logger:      logger,
-		sendEnabled: sendEnabled,
+		settings:    settings,
 	}
 }
 

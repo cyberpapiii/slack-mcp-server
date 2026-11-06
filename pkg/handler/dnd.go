@@ -42,7 +42,6 @@ func NewDNDHandler(api DNDAPI, identity func() provider.ProviderIdentity, logger
 }
 
 func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "DNDGetHandler called", request)
 	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
@@ -55,7 +54,6 @@ func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp
 }
 
 func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "DNDSetSnoozeHandler called", request)
 	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
@@ -72,7 +70,6 @@ func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest)
 }
 
 func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "DNDEndSnoozeHandler called", request)
 	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err

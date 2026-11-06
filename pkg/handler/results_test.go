@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -130,4 +131,13 @@ func TestTypeErrorKeepsTypedAndPlainErrors(t *testing.T) {
 	plain := errors.New("bug")
 	assert.Same(t, plain, TypeError(plain, true))
 	assert.NoError(t, TypeError(nil, true))
+}
+
+// envSettings reads Settings from the test's environment, as main does.
+func envSettings() Settings {
+	settings, err := SettingsFromEnv(os.Getenv)
+	if err != nil {
+		panic(err)
+	}
+	return settings
 }
