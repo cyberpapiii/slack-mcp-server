@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 
@@ -241,7 +240,7 @@ func (h *UsergroupsHandler) currentUserID() (string, error) {
 	if id := h.identity().UserID; id != "" {
 		return id, nil
 	}
-	return "", errors.New("Slack auth response has no user ID")
+	return "", permissionDenied("Slack's auth.test named no user for this token, so there is no user to add to or remove from the group")
 }
 
 func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, currentUserID, usergroupID string, action membershipAction) (*mcp.CallToolResult, error) {

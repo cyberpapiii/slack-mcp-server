@@ -69,3 +69,14 @@ func TestUnitSignpostFileParam(t *testing.T) {
 		})
 	}
 }
+
+func TestUnitDecodeArgumentsRejectsUnknownFieldsAsInvalidArguments(t *testing.T) {
+	var out struct {
+		Name string `json:"name"`
+	}
+	err := decodeArguments(toolRequest(map[string]any{"nmae": "x"}), &out)
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "invalid_arguments", typed.Code)
+	assert.Contains(t, typed.Message, "nmae")
+}

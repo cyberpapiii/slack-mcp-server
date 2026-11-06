@@ -26,6 +26,7 @@ const (
 	codeOutcomeUnknown         = "outcome_unknown"
 	codeCancelled              = "cancelled"
 	codeCacheWarming           = "cache_warming"
+	codeUserTokenRequired      = "user_token_required"
 	codeUserOAuthRequired      = "user_oauth_required"
 	codeBrowserSessionRequired = "browser_session_required"
 	codeApprovalRequired       = "approval_required"
@@ -147,6 +148,10 @@ func TypeError(err error, mutationAttempted bool) error {
 	for sentinel, code := range map[error]string{
 		provider.ErrUserOAuthRequired:       codeUserOAuthRequired,
 		provider.ErrInvalidPaginationCursor: codeInvalidCursor,
+		provider.ErrChannelMutationGeneral:  codePermissionDenied,
+		provider.ErrChannelMutationShared:   codePermissionDenied,
+		provider.ErrChannelArchiveConflict:  codeConflict,
+		provider.ErrChannelAlreadyArchived:  codeConflict,
 	} {
 		if errors.Is(err, sentinel) {
 			return &ToolError{Code: code, Message: err.Error(), Cause: err}

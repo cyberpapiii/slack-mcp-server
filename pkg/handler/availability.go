@@ -58,7 +58,7 @@ func (a Availability) unserved(tool capability.Tool) string {
 }
 
 var requirementMissing = map[capability.Requirement]string{
-	capability.UserToken:      "user_token_required",
-	capability.UserOAuth:      "user_oauth_required",
-	capability.BrowserSession: "browser_session_required",
+	capability.UserToken:      codeUserTokenRequired,
+	capability.UserOAuth:      codeUserOAuthRequired,
+	capability.BrowserSession: codeBrowserSessionRequired,
 }

@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -43,13 +42,13 @@ func signpostFileParam(request mcp.CallToolRequest) *ToolError {
 // fields so a misspelled parameter fails loudly instead of being ignored.
 func decodeArguments(request mcp.CallToolRequest, output any) error {
 	raw, err := json.Marshal(request.GetArguments())
-	if err != nil {
-		return errors.New("invalid tool arguments")
+	if err == nil {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		err = decoder.Decode(output)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(output); err != nil {
-		return fmt.Errorf("invalid tool arguments: %w", err)
+	if err != nil {
+		return &ToolError{Code: codeInvalidArguments, Message: "invalid tool arguments: " + err.Error(), Cause: err}
 	}
 	return nil
 }
