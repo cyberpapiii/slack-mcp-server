@@ -290,16 +290,7 @@ func (ap *ApiProvider) Close() {
 	if ap.cancel != nil {
 		ap.cancel()
 	}
-	ap.client.waitForOAuthRefresh()
-}
-
-// lifetime is the parent context for background work; tests that build an
-// ApiProvider literal without New get context.Background.
-func (ap *ApiProvider) lifetime() context.Context {
-	if ap.ctx == nil {
-		return context.Background()
-	}
-	return ap.ctx
+	ap.client.waitForOAuthRefresh(oauthShutdownGrace)
 }
 
 func (ap *ApiProvider) IsReady() (bool, error) {

@@ -263,7 +263,7 @@ func (ap *ApiProvider) startBrowserReprobe(client *MCPSlackClient, account, xoxc
 		httpClient, identity, err := authTest(browserAuth, client.logger)
 		return browserAuth, identity, httpClient, err
 	}
-	go client.runBrowserReprobe(ap.lifetime(), browserReprobeInterval)
+	go client.runBrowserReprobe(ap.ctx, browserReprobeInterval)
 }
 
 var loadBrowserCredential = func(ctx context.Context, account string) (BrowserTokenRecord, error) {

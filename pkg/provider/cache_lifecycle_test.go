@@ -52,6 +52,7 @@ func newRevalidateProvider(t *testing.T, client SlackAPI) *ApiProvider {
 	ap := &ApiProvider{
 		api:                      client,
 		logger:                   zap.NewNop(),
+		ctx:                      context.Background(),
 		cacheTTL:                 24 * time.Hour,
 		backgroundRefreshTimeout: time.Minute,
 		usersCachePath:           filepath.Join(dir, "users.json"),

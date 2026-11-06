@@ -39,7 +39,7 @@ func (m *perUserSlackClient) GetUsersInfoContext(_ context.Context, users ...str
 }
 
 func newTestApiProvider(client SlackAPI, snapshot *UsersCache) *ApiProvider {
-	ap := &ApiProvider{api: client, logger: zap.NewNop()}
+	ap := &ApiProvider{api: client, logger: zap.NewNop(), ctx: context.Background()}
 	ap.usersSnapshot.Store(snapshot)
 	return ap
 }

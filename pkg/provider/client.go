@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
@@ -70,12 +69,10 @@ type MCPSlackClient struct {
 	oauthGeneration atomic.Uint64
 	// token is the token Web API calls carry: the primary credential's, then
 	// each rotated OAuth access token. On a browser session it is the xoxc.
-	token                atomic.Value
-	oauthRuntimeState    atomic.Value
-	managedClientFactory func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error)
+	token             atomic.Value
+	oauthRuntimeState atomic.Value
 	// oauthRefreshMu is held for one managed OAuth refresh; Close waits on it.
-	oauthRefreshMu     sync.Mutex
-	oauthShutdownGrace time.Duration // test override for oauthShutdownGrace
+	oauthRefreshMu sync.Mutex
 }
 
 func demoAuthResponse() *slack.AuthTestResponse {

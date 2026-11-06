@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
@@ -80,7 +81,7 @@ func TestUnitCloseWaitsForAnInFlightOAuthRefresh(t *testing.T) {
 	manager := oauthcred.NewManager(store, refresher, noLock)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), oauthManager: manager}, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
+	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, httpClient: unreachableSlack()}, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
 	client := &ap.client
 
 	go client.refreshManagedOAuthTick(ctx)
@@ -115,14 +116,22 @@ func TestUnitCloseDoesNotWaitForeverOnAStuckRefresh(t *testing.T) {
 		<-release
 	}}, noLock)
 	ctx, cancel := context.WithCancel(context.Background())
-	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, oauthShutdownGrace: 20 * time.Millisecond}, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
-	client := &ap.client
+	defer cancel()
+	client := &MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, httpClient: unreachableSlack()}
 
 	go client.refreshManagedOAuthTick(ctx)
 	<-entered
 	start := time.Now()
-	ap.Close()
+	client.waitForOAuthRefresh(20 * time.Millisecond)
 	assert.Less(t, time.Since(start), time.Second)
+}
+
+// unreachableSlack fails every request, for refreshes whose auth.test is not
+// what the test is about.
+func unreachableSlack() *http.Client {
+	return &http.Client{Transport: oauthRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("no Slack in this test")
+	})}
 }
 
 // oauthRoundTripFunc stubs an http.Client transport.

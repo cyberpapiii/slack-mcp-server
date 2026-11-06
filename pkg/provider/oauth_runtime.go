@@ -102,24 +102,13 @@ func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oaut
 	client.oauthManager = manager
 	client.oauthGeneration.Store(record.Generation)
 	client.oauthRuntimeState.Store("live")
-	go client.runManagedOAuthRefresh(ap.lifetime())
+	go client.runManagedOAuthRefresh(ap.ctx)
 }
 
 // managedSlackClient builds a Web API client for a rotated token. Rotated
 // tokens carry no cookies, so the primary HTTP client is shared as-is.
 func (c *MCPSlackClient) managedSlackClient(ctx context.Context, token string) (*slack.Client, *slack.AuthTestResponse, error) {
-	if c.managedClientFactory != nil {
-		return c.managedClientFactory(ctx, token)
-	}
-	httpClient := c.httpClient
-	if httpClient == nil {
-		var err error
-		httpClient, err = transportpkg.ProvideHTTPClient(nil, c.logger)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	client := slack.New(token, slack.OptionHTTPClient(httpClient), slack.OptionAPIURL(c.apiBase()))
+	client := slack.New(token, slack.OptionHTTPClient(c.httpClient), slack.OptionAPIURL(c.apiBase()))
 	identity, err := client.AuthTestContext(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -191,11 +180,7 @@ func (c *MCPSlackClient) refreshManagedOAuthTick(ctx context.Context) error {
 // waitForOAuthRefresh blocks until a refresh in flight finishes, or the grace
 // period ends. Exiting between Slack's answer and the Keychain write would
 // lose the rotated refresh token and force a new login.
-func (c *MCPSlackClient) waitForOAuthRefresh() {
-	grace := c.oauthShutdownGrace
-	if grace <= 0 {
-		grace = oauthShutdownGrace
-	}
+func (c *MCPSlackClient) waitForOAuthRefresh(grace time.Duration) {
 	done := make(chan struct{})
 	go func() {
 		c.oauthRefreshMu.Lock()
