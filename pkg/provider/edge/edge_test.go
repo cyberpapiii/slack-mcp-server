@@ -15,12 +15,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// doFunc adapts a plain function to the httpClient interface.
 type doFunc func(*http.Request) (*http.Response, error)
 
 func (f doFunc) Do(r *http.Request) (*http.Response, error) { return f(r) }
 
-// closeRecorder is a ReadCloser that records whether it was closed.
 type closeRecorder struct {
 	io.Reader
 	closed int
@@ -161,21 +159,10 @@ func TestUnitEdgeRetryContextCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Fixture-driven tests for the constructor, response parsing and the three
-// endpoints the fork's tools depend on.
-//
-// These build their clients through NewWithInfo with an *http.Client that
-// carries a fake transport.
-// ---------------------------------------------------------------------------
-
-// roundTripperFunc adapts a plain function to http.RoundTripper so a real
-// *http.Client can be handed to NewWithInfo.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// jsonResponse builds a canned response with the given status and body.
 func jsonResponse(status int, body string) *http.Response {
 	h := make(http.Header)
 	h.Set("Content-Type", "application/json")
@@ -187,52 +174,39 @@ func jsonResponse(status int, body string) *http.Response {
 	}
 }
 
-// newFixtureClient builds a Client whose transport is fake, via NewWithInfo.
 func newFixtureClient(t *testing.T, fake roundTripperFunc) *Client {
 	t.Helper()
 	return NewWithInfo(&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"}, "xoxc-test", &http.Client{Transport: fake}, zap.NewNop(), nil)
 }
 
-// TestUnitNewWithInfo pins the constructor's contract: the API bases derive
-// from the auth response and the HTTP client is used as given.
-func TestUnitNewWithInfo(t *testing.T) {
-	t.Run("derives API bases", func(t *testing.T) {
-		cl := newFixtureClient(t, nil)
-		if cl.webclientAPI != "https://testws.slack.com/api/" {
-			t.Fatalf("unexpected webclientAPI: %q", cl.webclientAPI)
-		}
-		if cl.edgeAPI != "https://edgeapi.slack.com/cache/T123/" {
-			t.Fatalf("unexpected edgeAPI: %q", cl.edgeAPI)
-		}
+// The API bases derive from the auth response: webclient methods go to the
+// workspace host, edge methods to the team's edge cache.
+func TestUnitNewWithInfoDerivesAPIBases(t *testing.T) {
+	var urls []string
+	cl := newFixtureClient(t, func(r *http.Request) (*http.Response, error) {
+		urls = append(urls, r.URL.String())
+		return jsonResponse(http.StatusOK, `{"ok":true}`), nil
 	})
+	_, _ = cl.ClientCounts(context.Background())
+	_, _ = cl.UsersSearch(context.Background(), "q", 1)
 
-	t.Run("uses the given HTTP client", func(t *testing.T) {
-		fn := doFunc(func(*http.Request) (*http.Response, error) {
-			return nil, errors.New("not called")
-		})
-		cl := newTestClient(t, fn)
-		if _, ok := cl.cl.(doFunc); !ok {
-			t.Fatalf("the HTTP client was not used, client is %T", cl.cl)
-		}
-	})
+	want := []string{"https://testws.slack.com/api/client.counts", "https://edgeapi.slack.com/cache/T123/users/search"}
+	if strings.Join(urls, " ") != strings.Join(want, " ") {
+		t.Fatalf("request URLs = %v, want %v", urls, want)
+	}
 }
 
-// TestUnitPostFormDecode tables the decode contract every webclient call
+// TestUnitWebclientDecode tables the decode contract every webclient call
 // shares: "ok":false is a slack.SlackErrorResponse carrying Slack's code and
 // first message, and a non-2xx status is a slack.StatusCodeError.
-func TestUnitPostFormDecode(t *testing.T) {
+func TestUnitWebclientDecode(t *testing.T) {
 	tests := []struct {
 		name     string
 		status   int
 		body     string
-		wantErr  string // substring; empty means no error expected
+		wantErr  string
 		wantCode string
 	}{
-		{
-			name:   "ok true decodes cleanly",
-			status: http.StatusOK,
-			body:   `{"ok":true,"response_metadata":{"next_cursor":"c2"}}`,
-		},
 		{
 			name:     "ok false surfaces the api error",
 			status:   http.StatusOK,
@@ -260,20 +234,7 @@ func TestUnitPostFormDecode(t *testing.T) {
 			cl := newFixtureClient(t, func(*http.Request) (*http.Response, error) {
 				return jsonResponse(tt.status, tt.body), nil
 			})
-			var r struct {
-				ResponseMetadata slack.ResponseMetadata `json:"response_metadata"`
-			}
-			err := cl.postForm(context.Background(), "test.endpoint", struct{}{}, &r)
-
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if r.ResponseMetadata.Cursor != "c2" {
-					t.Fatalf("next_cursor = %q, want %q", r.ResponseMetadata.Cursor, "c2")
-				}
-				return
-			}
+			_, err := cl.ClientCounts(context.Background())
 			if err == nil {
 				t.Fatalf("expected an error containing %q, got nil", tt.wantErr)
 			}
@@ -372,20 +333,6 @@ func TestUnitClientCounts(t *testing.T) {
 	}
 	if resp.IMs[0].MentionCount != 3 {
 		t.Errorf("ims[0].mention_count = %d, want 3", resp.IMs[0].MentionCount)
-	}
-}
-
-// TestUnitClientCountsAPIError checks that a well-formed 200 carrying
-// `"ok":false` is reported as an error rather than an empty result.
-func TestUnitClientCountsAPIError(t *testing.T) {
-	cl := newFixtureClient(t, func(*http.Request) (*http.Response, error) {
-		return jsonResponse(http.StatusOK, `{"ok":false,"error":"not_allowed_token_type"}`), nil
-	})
-
-	if _, err := cl.ClientCounts(context.Background()); err == nil {
-		t.Fatal("expected an error for ok:false, got nil")
-	} else if !strings.Contains(err.Error(), "not_allowed_token_type") {
-		t.Fatalf("error %q does not mention the API error", err)
 	}
 }
 
