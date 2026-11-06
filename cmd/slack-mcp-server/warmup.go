@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server"
 	"go.uber.org/zap"
@@ -95,21 +96,15 @@ func warm(logger *zap.Logger, what string, refresh func(context.Context) error) 
 	}
 }
 
+// logStartupAuthStatus warns when the browser session failed at startup. Only a
+// session beside OAuth can start degraded, and its re-probe recovers it
+// without a restart.
 func logStartupAuthStatus(p *provider.ApiProvider, logger *zap.Logger) {
-	if p.BrowserFeaturesAvailable() {
-		return
-	}
-	reason := p.BrowserDegradedReason()
-	if reason != "" {
-		logger.Warn("Browser session auth degraded: activity and saved tools may fail until Slack is refreshed in the browser and Plug is restarted",
+	if reason := p.BrowserDegradedReason(); reason != "" && !p.BrowserFeaturesAvailable() {
+		logger.Warn("Browser session auth degraded: browser-session tools fail until the browser credential works again; the server retries every 5 minutes",
 			zap.String("context", "console"),
+			zap.Strings("tools", capability.BrowserNames()),
 			zap.String("reason", reason),
-		)
-		return
-	}
-	if !p.IsOAuth() && !p.IsBotToken() {
-		logger.Info("Browser-only tools (activity_*, saved_*) require xoxc/xoxd browser session tokens; use slack_auth_status for details",
-			zap.String("context", "console"),
 		)
 	}
 }

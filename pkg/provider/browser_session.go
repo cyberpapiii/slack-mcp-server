@@ -96,7 +96,7 @@ func (c *MCPSlackClient) browserDegradedReason() string {
 }
 
 func (c *MCPSlackClient) initBrowserState() {
-	if c.isOAuth && !c.browserConfigured {
+	if !c.mode.BrowserSession() {
 		c.browserState.Store(int32(browserStateOAuthOnly))
 		return
 	}
@@ -104,7 +104,7 @@ func (c *MCPSlackClient) initBrowserState() {
 }
 
 func (c *MCPSlackClient) degradeBrowserSession(reason error) {
-	if c.isOAuth && !c.browserConfigured {
+	if !c.mode.BrowserSession() {
 		return
 	}
 	if browserRuntimeState(c.browserState.Load()) == browserStateDegraded {
@@ -116,7 +116,7 @@ func (c *MCPSlackClient) degradeBrowserSession(reason error) {
 	}
 	c.browserReason.Store(reasonText)
 	c.browserState.Store(int32(browserStateDegraded))
-	c.logger.Warn("Browser-session Slack auth degraded", zap.String("reason", reasonText), zap.Bool("standard_oauth", c.isOAuth))
+	c.logger.Warn("Browser-session Slack auth degraded", zap.String("reason", reasonText), zap.Bool("standard_oauth", c.mode.OAuth()))
 	if c.browserNotified.CompareAndSwap(false, true) {
 		browserDegradationNotifier(reasonText, c.logger)
 	}
@@ -133,14 +133,6 @@ func (c *MCPSlackClient) ensureBrowserFeature(feature string) error {
 	return fmt.Errorf("%w: %s (%s)", ErrBrowserSessionUnavailable, reason, feature)
 }
 
-// ConfiguredWithBrowserSession reports construction-time xoxc/xoxd (or similar
-// session) auth — not runtime OAuth after browser degrade.
-// Use this for registering browser-only tools so mid-warmup degradation cannot
-// hide activity/saved tools that still need session credentials when healthy.
-func (c *MCPSlackClient) ConfiguredWithBrowserSession() bool {
-	return c.browserConfigured || (!c.isOAuth && !c.isBotToken)
-}
-
 // attachBrowserSession adds browser-only Slack surfaces to an OAuth-primary
 // client. Standard Web API calls continue to use the OAuth client.
 func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, browserIdentity *slack.AuthTestResponse, httpClient *http.Client) error {
@@ -148,7 +140,6 @@ func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, brow
 		return fmt.Errorf("browser provider %w", err)
 	}
 	browserEdge := edge.NewWithInfo(browserIdentity, browserAuth.SlackToken(), httpClient, edge.OptionLogger(c.logger))
-	c.browserConfigured = true
 	c.useBrowserEdge(browserEdge)
 	return nil
 }
@@ -214,11 +205,7 @@ func (c *MCPSlackClient) runBrowserReprobe(ctx context.Context, every time.Durat
 // startBrowserReprobe lets a browser session attached to OAuth recover from
 // degradation without a restart. It reloads the credential from the Keychain
 // when account is set, else reuses the xoxc/xoxd values from the environment.
-func (ap *ApiProvider) startBrowserReprobe(account, xoxc, xoxd string) {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil || !client.isOAuth || !client.browserConfigured {
-		return
-	}
+func (ap *ApiProvider) startBrowserReprobe(client *MCPSlackClient, account, xoxc, xoxd string) {
 	client.browserProbe = func(ctx context.Context) (slackcreds.Value, *slack.AuthTestResponse, *http.Client, error) {
 		token, cookie := xoxc, xoxd
 		if account != "" {
@@ -232,7 +219,7 @@ func (ap *ApiProvider) startBrowserReprobe(account, xoxc, xoxd string) {
 		if err != nil {
 			return slackcreds.Value{}, nil, nil, err
 		}
-		httpClient, identity, err := authTest(browserAuth, client.demo, client.logger)
+		httpClient, identity, err := authTest(browserAuth, false, client.logger)
 		return browserAuth, identity, httpClient, err
 	}
 	go client.runBrowserReprobe(ap.lifetime(), browserReprobeInterval)
@@ -266,41 +253,24 @@ func resolveBrowserStartupCredentials(ctx context.Context, account, oauthToken, 
 	return browserStartupCredentials{degraded: err}, nil
 }
 
-// attachBrowserToOAuth verifies the browser session belongs to the same
-// workspace user as the OAuth token, then attaches it. Any failure leaves the
-// client degraded rather than failing startup: OAuth tools still work.
-func attachBrowserToOAuth(ap *ApiProvider, xoxcToken, xoxdToken string, logger *zap.Logger) {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return
-	}
+// attachBrowser verifies the browser session belongs to the same workspace
+// user as the OAuth token, then attaches it. Any failure leaves the session
+// degraded rather than failing startup: OAuth tools still work.
+func (c *MCPSlackClient) attachBrowser(xoxcToken, xoxdToken string) {
 	browserAuth, err := slackcreds.New(xoxcToken, xoxdToken)
 	if err == nil {
 		var (
 			httpClient      *http.Client
 			browserIdentity *slack.AuthTestResponse
 		)
-		httpClient, browserIdentity, err = authTest(browserAuth, client.demo, logger)
+		httpClient, browserIdentity, err = authTest(browserAuth, false, c.logger)
 		if err == nil {
-			err = client.attachBrowserSession(browserAuth, browserIdentity, httpClient)
+			err = c.attachBrowserSession(browserAuth, browserIdentity, httpClient)
 		}
 	}
 	if err != nil {
-		client.browserConfigured = true
-		client.degradeBrowserSession(fmt.Errorf("attach browser session: %w", err))
+		c.degradeBrowserSession(fmt.Errorf("attach browser session: %w", err))
 	}
-}
-
-// markBrowserUnavailable records a browser credential that is configured but
-// could not be loaded at startup. The browser tools still register and say
-// why they fail, and the re-probe attaches the session once it loads.
-func markBrowserUnavailable(ap *ApiProvider, reason error) {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return
-	}
-	client.browserConfigured = true
-	client.degradeBrowserSession(reason)
 }
 
 func (c *MCPSlackClient) ClientUserBoot(ctx context.Context) (*edge.ClientUserBootResponse, error) {
@@ -331,7 +301,7 @@ func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool,
 }
 
 func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error) {
-	if c.isOAuth {
+	if c.mode.OAuth() {
 		// v0.29 of slack-go replaced the Count/Page pair with cursor
 		// pagination; an empty cursor is still the first page.
 		params := slack.StarsParameters{
@@ -395,11 +365,6 @@ func (c *MCPSlackClient) SavedDelete(ctx context.Context, itemType, itemID, ts s
 func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
 	_, err := browserCall(c, "saved.clearCompleted", func() (struct{}, error) { return struct{}{}, c.edgeClient.Load().SavedClearCompleted(ctx) })
 	return err
-}
-
-func (ap *ApiProvider) ConfiguredWithBrowserSession() bool {
-	client, ok := ap.client.(*MCPSlackClient)
-	return ok && client != nil && client.ConfiguredWithBrowserSession()
 }
 
 func (ap *ApiProvider) BrowserFeaturesAvailable() bool {

@@ -146,21 +146,15 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXP token: %w", err)
 		}
-		ap, err := newProvider(transport, authProvider, creds, logger)
+		browser := oauthBrowser{
+			xoxc: xoxcToken, xoxd: xoxdToken, loadErr: browserLoadErr,
+			account: browserAccount, envXoxc: envXoxc, envXoxd: envXoxd,
+		}
+		ap, err := newProvider(transport, authProvider, creds, browser.configured(), logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
-		if managedManager != nil {
-			ap.startManagedOAuth(managedManager, managedRecord)
-		}
-		if !ap.IsBotToken() {
-			if xoxcToken != "" && xoxdToken != "" {
-				attachBrowserToOAuth(ap, xoxcToken, xoxdToken, logger)
-			} else if browserLoadErr != nil {
-				markBrowserUnavailable(ap, fmt.Errorf("load browser credential: %w", browserLoadErr))
-			}
-			ap.startBrowserReprobe(browserAccount, envXoxc, envXoxd)
-		}
+		ap.startUserOAuth(managedManager, managedRecord, browser)
 		if xoxbToken != "" {
 			logger.Warn("Both SLACK_MCP_XOXP_TOKEN and SLACK_MCP_XOXB_TOKEN are set; using user OAuth token")
 		}
@@ -178,7 +172,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 			zap.String("token_type", "xoxb"),
 		)
 
-		ap, err := newProvider(transport, authProvider, creds, logger)
+		ap, err := newProvider(transport, authProvider, creds, false, logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -190,7 +184,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXC/XOXD tokens: %w", err)
 		}
-		ap, err := newProvider(transport, authProvider, creds, logger)
+		ap, err := newProvider(transport, authProvider, creds, true, logger)
 		if err != nil {
 			if oauthLoadErr != nil {
 				err = errors.Join(err, oauthLoadErr)
@@ -221,8 +215,46 @@ func authFailure(rejected string, err error) error {
 	return fmt.Errorf("authentication failed: %s: %w", rejected, err)
 }
 
-func newProvider(transport string, authProvider slackcreds.Credentials, creds CredentialConfig, logger *zap.Logger) (*ApiProvider, error) {
-	client, err := newMCPSlackClient(authProvider, creds.Demo(), logger)
+// oauthBrowser is the browser session configured beside a user OAuth token:
+// the loaded tokens, or why they failed to load, and where the re-probe
+// reloads them from.
+type oauthBrowser struct {
+	xoxc, xoxd       string
+	loadErr          error
+	account          string
+	envXoxc, envXoxd string
+}
+
+func (b oauthBrowser) configured() bool {
+	return (b.xoxc != "" && b.xoxd != "") || b.loadErr != nil
+}
+
+// startUserOAuth starts what runs beside a user OAuth client. The browser
+// re-probe starts last because it only acts on a session the attach step left
+// degraded.
+func (ap *ApiProvider) startUserOAuth(managed *oauthcred.Manager, record oauthcred.Record, browser oauthBrowser) {
+	client, ok := ap.client.(*MCPSlackClient)
+	if !ok || client == nil {
+		return
+	}
+	if managed != nil {
+		ap.startManagedOAuth(managed, record)
+	}
+	if client.mode != ModeUserOAuthBrowser {
+		return
+	}
+	if browser.loadErr != nil {
+		// The browser tools still register and say why they fail, and the
+		// re-probe attaches the session once the credential loads.
+		client.degradeBrowserSession(fmt.Errorf("load browser credential: %w", browser.loadErr))
+	} else {
+		client.attachBrowser(browser.xoxc, browser.xoxd)
+	}
+	ap.startBrowserReprobe(client, browser.account, browser.envXoxc, browser.envXoxd)
+}
+
+func newProvider(transport string, authProvider slackcreds.Credentials, creds CredentialConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
+	client, err := newMCPSlackClient(authProvider, creds.Demo(), browserConfigured, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -334,14 +366,14 @@ func (ap *ApiProvider) WebAPI() *WebClient {
 	return &WebClient{resolve: client.standardSlackClient}
 }
 
-func (ap *ApiProvider) IsBotToken() bool {
+// Mode is the credential mode New chose; zero for a provider without a Slack
+// client.
+func (ap *ApiProvider) Mode() CredentialMode {
 	client, ok := ap.client.(*MCPSlackClient)
-	return ok && client != nil && client.IsBotToken()
-}
-
-func (ap *ApiProvider) IsOAuth() bool {
-	client, ok := ap.client.(*MCPSlackClient)
-	return ok && client != nil && client.IsOAuth()
+	if !ok || client == nil {
+		return 0
+	}
+	return client.mode
 }
 
 func (ap *ApiProvider) Identity() ProviderIdentity {
@@ -356,10 +388,10 @@ func (ap *ApiProvider) Identity() ProviderIdentity {
 		identity.EnterpriseID = authResponse.EnterpriseID
 	}
 	switch {
-	case client.IsBotToken():
+	case client.mode == ModeBot:
 		identity.ActorType = "bot"
 		identity.TokenMode = "bot-oauth"
-	case client.IsOAuth():
+	case client.mode.OAuth():
 		identity.ActorType = "user"
 		identity.TokenMode = "user-oauth"
 	default:
@@ -380,15 +412,8 @@ func (ap *ApiProvider) WorkspaceURL() string {
 }
 
 // Satisfies reports whether the running credentials meet a tool's requirement.
+// A configured browser session satisfies BrowserSession even while degraded:
+// its tools stay registered and say why they fail until the session recovers.
 func (ap *ApiProvider) Satisfies(requirement capability.Requirement) bool {
-	switch requirement {
-	case capability.UserToken:
-		return !ap.IsBotToken()
-	case capability.UserOAuth:
-		return ap.IsOAuth() && !ap.IsBotToken()
-	case capability.BrowserSession:
-		return ap.ConfiguredWithBrowserSession()
-	default:
-		return true
-	}
+	return ap.Mode().satisfies(requirement)
 }

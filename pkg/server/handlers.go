@@ -70,20 +70,8 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools [
 		}
 		return handler.NewChannelMutationHandler(service, approvals, api.Identity, settings, logger).Tools(), nil
 	})
-	add("lists", func() ([]handler.ToolDef, error) {
-		service, err := api.Lists()
-		if err != nil {
-			return nil, err
-		}
-		return handler.NewListsHandler(service, approvals, api.Identity, logger).Tools(), nil
-	})
-	add("dnd", func() ([]handler.ToolDef, error) {
-		service, err := api.DND()
-		if err != nil {
-			return nil, err
-		}
-		return handler.NewDNDHandler(service, api.Identity, logger).Tools(), nil
-	})
+	set.tools = append(set.tools, handler.NewListsHandler(api.Lists(), approvals, api.Identity, logger).Tools()...)
+	set.tools = append(set.tools, handler.NewDNDHandler(api.DND(), api.Identity, logger).Tools()...)
 	add("message and file mutations", func() ([]handler.ToolDef, error) {
 		service, err := api.MessageFiles()
 		if err != nil {

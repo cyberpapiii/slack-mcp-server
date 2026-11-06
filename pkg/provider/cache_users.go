@@ -259,7 +259,7 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 
 	list := users
 
-	if ap.IsOAuth() {
+	if ap.Mode().OAuth() {
 		ap.logger.Debug("Skipping Slack Connect enrichment (OAuth token, browser features unavailable)")
 	} else {
 		connectUsers, err := ap.GetSlackConnect(ctx)
@@ -336,7 +336,7 @@ func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int)
 		return nil, nil
 	}
 
-	if ap.IsOAuth() {
+	if ap.Mode().OAuth() {
 		return ap.searchUsersInCache(query, limit)
 	}
 

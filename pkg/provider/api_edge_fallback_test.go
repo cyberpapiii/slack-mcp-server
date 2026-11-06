@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
@@ -102,15 +103,13 @@ func TestBrowserDegradationState(t *testing.T) {
 		notifies++
 	}
 
-	c := &MCPSlackClient{}
+	c := &MCPSlackClient{mode: ModeBrowser}
 	c.logger = zap.NewNop()
 	c.initBrowserState()
 	assert.True(t, c.browserFeaturesAvailable())
-	assert.False(t, c.IsOAuth())
 
 	c.degradeBrowserSession(errors.New("invalid_auth"))
 	assert.False(t, c.browserFeaturesAvailable())
-	assert.False(t, c.IsOAuth())
 	assert.Equal(t, "invalid_auth", c.browserDegradedReason())
 
 	c.degradeBrowserSession(errors.New("invalid_auth"))
@@ -120,15 +119,13 @@ func TestBrowserDegradationState(t *testing.T) {
 func TestStandardSlackClientUsesOAuthClientWhenBrowserIsAttached(t *testing.T) {
 	oauthClient := slack.New("xoxp-oauth")
 	c := &MCPSlackClient{
-		slackClient:       oauthClient,
-		isOAuth:           true,
-		browserConfigured: true,
+		slackClient: oauthClient,
+		mode:        ModeUserOAuthBrowser,
 	}
 	c.browserState.Store(int32(browserStateActive))
 
 	assert.Same(t, oauthClient, c.standardSlackClient())
-	assert.True(t, c.IsOAuth())
-	assert.True(t, c.ConfiguredWithBrowserSession())
+	assert.True(t, (&ApiProvider{client: c}).Satisfies(capability.BrowserSession))
 }
 
 func TestAttachBrowserRejectsProviderIdentityMismatch(t *testing.T) {
@@ -193,7 +190,7 @@ func TestBrowserKeychainFailureDegradesWhenOAuthExists(t *testing.T) {
 }
 
 func TestPersonalReadProgressRejectsBotOAuth(t *testing.T) {
-	c := &MCPSlackClient{isOAuth: true, isBotToken: true}
+	c := &MCPSlackClient{mode: ModeBot}
 	err := c.MarkConversationContext(context.Background(), "C1", "123.456")
 	assert.ErrorIs(t, err, ErrUserOAuthRequired)
 }

@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,16 +51,13 @@ type MCPSlackClient struct {
 	authProvider slackcreds.Credentials
 	logger       *zap.Logger
 
-	demo         bool
+	mode         CredentialMode
 	isEnterprise bool
-	isOAuth      bool
-	isBotToken   bool
 
 	browserState         atomic.Int32
 	browserReason        atomic.Value
 	browserNotified      atomic.Bool
 	browserProbe         browserProbeFunc
-	browserConfigured    bool
 	oauthClientMu        sync.RWMutex
 	oauthManager         *oauthcred.Manager
 	oauthGeneration      atomic.Uint64
@@ -110,7 +106,7 @@ func authTest(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger
 	return httpClient, authResp, nil
 }
 
-func newMCPSlackClient(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger) (*MCPSlackClient, error) {
+func newMCPSlackClient(authProvider slackcreds.Credentials, demo, browserConfigured bool, logger *zap.Logger) (*MCPSlackClient, error) {
 	httpClient, authResp, err := authTest(authProvider, demo, logger)
 	if err != nil {
 		return nil, err
@@ -127,26 +123,14 @@ func newMCPSlackClient(authProvider slackcreds.Credentials, demo bool, logger *z
 	)
 
 	token := authProvider.SlackToken()
-
-	// xoxe.* are rotation variants of xoxp/xoxb (same scopes, ~12h expiry).
-	isOAuth := strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxp-") || strings.HasPrefix(token, "xoxe.xoxb-")
-	isBotToken := strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxb-")
-	if demo {
-		isOAuth = true
-	}
-
 	client := &MCPSlackClient{
 		slackClient:  slackClient,
 		httpClient:   httpClient,
 		authResponse: authResp,
 		authProvider: authProvider,
 		logger:       logger,
-		demo:         demo,
+		mode:         credentialModeFor(token, demo, browserConfigured),
 		isEnterprise: authResp.EnterpriseID != "",
-		isOAuth:      isOAuth,
-		isBotToken:   isBotToken,
-		// Demo advertises the full tool surface, OAuth-gated and browser-gated alike.
-		browserConfigured: demo,
 	}
 	client.edgeClient.Store(edgeClient)
 	client.oauthAccessToken.Store(token)
@@ -177,7 +161,7 @@ func (c *MCPSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
 }
 
 func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, ts string) error {
-	if c.IsBotToken() {
+	if c.mode == ModeBot {
 		return ErrUserOAuthRequired
 	}
 	return c.standardSlackClient().MarkConversationContext(ctx, channel, ts)
@@ -185,12 +169,4 @@ func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, t
 
 func (c *MCPSlackClient) AuthResponse() *slack.AuthTestResponse {
 	return c.authResponse
-}
-
-func (c *MCPSlackClient) IsBotToken() bool {
-	return c.isBotToken
-}
-
-func (c *MCPSlackClient) IsOAuth() bool {
-	return c.isOAuth
 }

@@ -198,7 +198,7 @@ func TestUnitManagedOAuthRefreshLoopStopsOnCancel(t *testing.T) {
 }
 
 func TestUnitBrowserCallWithoutBrowserSession(t *testing.T) {
-	c := &MCPSlackClient{logger: zap.NewNop(), isOAuth: true}
+	c := &MCPSlackClient{logger: zap.NewNop(), mode: ModeUserOAuth}
 	c.initBrowserState()
 	require.False(t, c.browserFeaturesAvailable())
 

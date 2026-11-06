@@ -314,9 +314,6 @@ func (c *MCPSlackClient) GetUserProfileContext(ctx context.Context, params *slac
 }
 
 func (c *MCPSlackClient) SetUserCustomStatusContext(ctx context.Context, text, emoji string, expiration int64) error {
-	if c.IsBotToken() {
-		return ErrUserOAuthRequired
-	}
 	return c.standardSlackClient().SetUserCustomStatusContext(ctx, text, emoji, expiration)
 }
 
@@ -337,9 +334,6 @@ func (c *MCPSlackClient) InviteUsersToConversationContext(ctx context.Context, c
 }
 
 func (c *MCPSlackClient) UpdateUserProfileContext(ctx context.Context, update UserProfileUpdate) (*slack.UserProfile, error) {
-	if c.IsBotToken() {
-		return nil, ErrUserOAuthRequired
-	}
 	profileJSON, err := json.Marshal(update)
 	if err != nil {
 		return nil, err
