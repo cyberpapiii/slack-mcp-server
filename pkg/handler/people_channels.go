@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"net"
 	"net/mail"
 	"regexp"
@@ -365,4 +366,58 @@ func peopleChannelsError(err error, mutationAttempted bool) error {
 		}
 	}
 	return &ToolError{Code: "slack_error", Message: err.Error(), Retryable: !mutationAttempted, Cause: err}
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *PeopleChannelsHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.UsersGetProfile, Run: h.GetUserProfile, Options: []mcp.ToolOption{
+			mcp.WithDescription("Read a full Slack user profile."),
+			mcp.WithString("user_id", mcp.Description("User ID starting with U or W; defaults to the authenticated user.")),
+			mcp.WithBoolean("include_labels", mcp.Description("Include the display labels of custom profile fields; defaults to true.")),
+		}},
+		{Name: capability.UsersSetProfile, Run: h.SetUserProfile, Options: []mcp.ToolOption{
+			mcp.WithDescription("Update the authenticated user's Slack profile."),
+			mcp.WithString("first_name", mcp.Description("First name, up to 80 characters; empty string clears it.")),
+			mcp.WithString("last_name", mcp.Description("Last name, up to 80 characters; empty string clears it.")),
+			mcp.WithString("real_name", mcp.Description("Full name, up to 80 characters; empty string clears it.")),
+			mcp.WithString("display_name", mcp.Description("Display name shown in Slack, up to 80 characters; empty string clears it.")),
+			mcp.WithString("pronouns", mcp.Description("Pronouns, up to 100 characters; empty string clears them.")),
+			mcp.WithString("email", mcp.Description("Email address, up to 320 characters; empty string clears it.")),
+			mcp.WithString("phone", mcp.Description("Phone number, up to 100 characters; empty string clears it.")),
+			mcp.WithString("skype", mcp.Description("Skype handle, up to 100 characters; empty string clears it.")),
+			mcp.WithString("title", mcp.Description("Job title, up to 100 characters; empty string clears it.")),
+			mcp.WithString("start_date", mcp.Description("Start date in YYYY-MM-DD format; empty string clears it.")),
+			mcp.WithObject("custom_fields", mcp.Description("Map of custom field ID (Xf...) to {value, alt} objects; at most 50 fields.")),
+		}},
+		{Name: capability.UsersSetStatus, Run: h.SetUserStatus, Options: []mcp.ToolOption{
+			mcp.WithDescription("Set or clear the authenticated user's Slack status."),
+			mcp.WithString("status_text", mcp.Required(), mcp.Description("Status text, up to 100 characters; empty string clears the status.")),
+			mcp.WithString("status_emoji", mcp.Required(), mcp.Description("Emoji name such as :palm_tree: (colons optional); empty string clears it.")),
+			mcp.WithNumber("status_expiration", mcp.Description("Unix seconds when the status clears; 0 keeps it until changed.")),
+		}},
+		{Name: capability.EmojiList, Run: h.ListEmoji, Options: []mcp.ToolOption{
+			mcp.WithDescription("List and search workspace custom emoji."),
+			mcp.WithString("query", mcp.Description("Case-insensitive substring to match against emoji names.")),
+			mcp.WithString("cursor", mcp.Description(descCursor)),
+			mcp.WithNumber("limit", mcp.Description("Maximum emoji per page, 1 to 200; defaults to 100.")),
+		}},
+		{Name: capability.ChannelsCreate, Run: h.CreateChannel, Options: []mcp.ToolOption{
+			mcp.WithDescription("Create a public or private Slack channel."),
+			mcp.WithString("name", mcp.Required(), mcp.Description("Channel name, 1 to 80 lowercase letters, numbers, hyphens, or underscores.")),
+			mcp.WithBoolean("is_private", mcp.Description("Create a private channel; defaults to false (public).")),
+			mcp.WithString("team_id", mcp.Description("Workspace (team) ID for Enterprise Grid orgs; defaults to the authenticated user's team.")),
+		}},
+		{Name: capability.ChannelsMembers, Run: h.ListChannelMembers, Options: []mcp.ToolOption{
+			mcp.WithDescription("List channel members. Returns CSV with UserID and Name (empty when the user is not in the cache)."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
+			mcp.WithString("cursor", mcp.Description(descCursor)),
+			mcp.WithNumber("limit", mcp.Description("Maximum members per page, 1 to 200; defaults to 100.")),
+		}},
+		{Name: capability.ChannelsInvite, Run: h.InviteChannelMembers, Options: []mcp.ToolOption{
+			mcp.WithDescription("Invite users to a Slack channel."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
+			mcp.WithArray("user_ids", mcp.Required(), mcp.Items(map[string]any{"type": "string"}), mcp.Description("User IDs starting with U or W to invite; 1 to 1000 entries, duplicates ignored.")),
+		}},
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"sort"
 	"strings"
 
@@ -497,4 +498,57 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 		nextCursor = base64.StdEncoding.EncodeToString([]byte(channels[endIndex-1].ID))
 	}
 	return paged, nextCursor, nil
+}
+
+// Tools lists the MCP tools this handler serves.
+func (ch *ChannelsHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.ChannelsList, Run: ch.ChannelsHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("List channels in the workspace, filtered by channel_types. Returns CSV."),
+			mcp.WithString("channel_types",
+				mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Default: 'public_channel,private_channel'."),
+			),
+			mcp.WithString("sort",
+				mcp.Description("Sort order. Allowed value: 'popularity' sorts by number of members in each channel."),
+			),
+			mcp.WithNumber("limit",
+				mcp.DefaultNumber(100),
+				mcp.Description("Maximum number of items to return, an integer between 1 and 999. Default is 100."),
+			),
+			mcp.WithString("cursor",
+				mcp.Description(descCursor),
+			),
+			mcp.WithString("query",
+				mcp.Description("Optional keyword to filter channels. Case-insensitive substring match against the fields specified by query_targets. Example: 'marketing' returns channels like #marketing, #marketing-ops."),
+			),
+			mcp.WithString("query_targets",
+				mcp.DefaultString("name"),
+				mcp.Description("Comma-separated list of fields to match the query against. Allowed values: 'name', 'topic', 'purpose'. Example: 'name,topic,purpose' to search all fields. Default is 'name'."),
+			),
+		}},
+		{Name: capability.ChannelsMe, Run: ch.ChannelsMeHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("List only the channels you have joined, unlike channels_list which returns all workspace channels. Useful on large workspaces where channels_list returns thousands of results."),
+			mcp.WithString("channel_types",
+				mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Default: 'public_channel,private_channel'."),
+			),
+			mcp.WithNumber("limit",
+				mcp.DefaultNumber(100),
+				mcp.Description("Maximum number of items to return (1-999)."),
+			),
+			mcp.WithString("cursor",
+				mcp.Description(descCursor),
+			),
+		}},
+		{Name: capability.ChannelsStarred, Run: ch.ChannelsStarredHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("List channels and DMs the user has starred (bookmarked). Returns only that subset, not the full channel list."),
+			mcp.WithString("channel_types",
+				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-shared channels), 'internal' (regular workspace channels)."),
+				mcp.DefaultString("all"),
+			),
+			mcp.WithNumber("limit",
+				mcp.DefaultNumber(100),
+				mcp.Description("Maximum number of starred channels to return (1-1000). Default is 100."),
+			),
+		}},
+	}
 }

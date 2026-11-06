@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"net"
 	"os"
 	"path/filepath"
@@ -310,4 +311,43 @@ func messageFilesError(err error, mutationAttempted bool, operation string) erro
 		return &ToolError{Code: "not_found", Message: "message was not found", Cause: err}
 	}
 	return &ToolError{Code: "slack_error", Message: err.Error(), Cause: err}
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *MessageFilesHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.FilesUpload, Run: h.FilesUpload, Options: []mcp.ToolOption{
+			mcp.WithDescription("Upload a file to Slack, and post it as a message when shared into a channel. This is also how you send a message with an attachment: pass channel_id plus initial_comment and the file and text post together as one message. Uses Slack's supported external-upload flow."),
+			mcp.WithString("filename", mcp.Required(), mcp.Description("File name including extension, e.g. report.csv; no directory path.")),
+			mcp.WithString("content_base64", mcp.Description("Base64-encoded file bytes; use this or content, not both. Max 50 MiB decoded.")),
+			mcp.WithString("content", mcp.Description("Plain-text file contents; use this or content_base64, not both. Max 50 MiB.")),
+			mcp.WithString("title", mcp.Description("Title shown in Slack; defaults to filename.")),
+			mcp.WithString("channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) to share the file into; omit to upload without sharing.")),
+			mcp.WithString("initial_comment", mcp.Description("Message text posted with the file when sharing; up to 40000 characters.")),
+			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to share into a thread; needs channel_id.")),
+			mcp.WithString("alt_text", mcp.Description("Screen-reader description for image files; up to 1000 characters.")),
+			mcp.WithString("snippet_type", mcp.Description("Syntax type for text snippets, e.g. python or javascript; unsupported types fail.")),
+		}},
+		{Name: capability.MessagesSchedule, Run: h.MessagesSchedule, Options: []mcp.ToolOption{
+			mcp.WithDescription("Schedule a Slack message for a future time."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) to post into; names are not resolved.")),
+			mcp.WithString("text", mcp.Required(), mcp.Description("Message text, non-empty and up to 40000 characters.")),
+			mcp.WithString("post_at", mcp.Required(), mcp.Description("Unix seconds or RFC 3339 time between 5 seconds and 120 days in the future.")),
+			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to schedule a thread reply.")),
+		}},
+		{Name: capability.MessagesUpdate, Run: h.MessagesUpdate, Options: []mcp.ToolOption{
+			mcp.WithDescription("Edit a Slack message that the authenticated user owns."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) containing the message; names are not resolved.")),
+			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to edit, e.g. 1712345678.123456.")),
+			mcp.WithString("text", mcp.Required(), mcp.Description("Replacement message text, non-empty and up to 40000 characters.")),
+		}},
+		{Name: capability.MessagesDelete, Run: h.MessagesDelete, Options: []mcp.ToolOption{
+			mcp.WithOutputSchema[MessageMutationResult](),
+			mcp.WithDescription("Preview or delete a Slack message. Prepare first, then execute with the approval token."),
+			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) containing the message; names are not resolved.")),
+			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to delete, e.g. 1712345678.123456.")),
+			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
+		}},
+	}
 }

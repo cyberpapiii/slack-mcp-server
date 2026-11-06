@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/server"
@@ -70,7 +71,7 @@ func main() {
 	}
 	warnRemovedGateVars(logger)
 
-	err = server.ValidateEnabledTools(enabledTools)
+	err = capability.Validate(enabledTools)
 	if err != nil {
 		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS", err)
 	}
@@ -163,7 +164,7 @@ func resolveEnabledTools(explicit, preset string) ([]string, error) {
 	if preset == "" {
 		preset = "daily-power"
 	}
-	return server.ResolveToolPreset(preset)
+	return capability.Preset(preset)
 }
 
 // channelAllowlistVars are the only SLACK_MCP_*_TOOL variables still read.

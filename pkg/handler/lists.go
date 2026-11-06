@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"strings"
 	"time"
 
@@ -224,4 +225,136 @@ func listToolError(err error) error {
 		Code: string(apiError.Kind), Message: apiError.Error(), Retryable: apiError.Retryable(),
 		RetryAfter: apiError.RetryAfter, Cause: err,
 	}
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *ListsHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.ListsItemsList, Run: h.ListItems, Options: []mcp.ToolOption{
+			mcp.WithDescription("List items for a known Slack List ID."),
+			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID (starts with F, e.g. F1234567890).")),
+			mcp.WithNumber("limit", mcp.Description("Maximum items per page, 0 to 200; 0 lets Slack choose the default.")),
+			mcp.WithString("cursor", mcp.Description(descCursor)),
+			mcp.WithBoolean("archived", mcp.Description("true returns archived items only; false or omitted returns normal items.")),
+		}},
+		{Name: capability.ListsCreate, Run: h.CreateList, Options: []mcp.ToolOption{
+			mcp.WithDescription("Create a Slack List."),
+			mcp.WithString("name", mcp.Required(), mcp.Description("Display name of the new Slack List, shown in its header.")),
+			mcp.WithArray("description_blocks", mcp.Items(openObjectSchema()), mcp.Description("Block Kit rich_text blocks for the List description; array of block objects.")),
+			mcp.WithArray("schema", mcp.Items(listColumnItemSchema()), mcp.Description("Column definitions; each needs key, name, and type (text, number, select, date, user, etc.).")),
+			mcp.WithString("copy_from_list_id", mcp.Description("ID of an existing Slack List (Fxxxxxxxxxx) to copy columns from.")),
+			mcp.WithBoolean("include_copied_list_records", mcp.Description("When copying a List, also copy its items, not only the column schema.")),
+			mcp.WithBoolean("todo_mode", mcp.Description("Create the List in Slack's to-do mode for tracking tasks.")),
+		}},
+		{Name: capability.ListsUpdate, Run: h.UpdateList, Options: []mcp.ToolOption{
+			mcp.WithDescription("Update Slack List metadata."),
+			mcp.WithString("id", mcp.Required(), mcp.Description("Slack List ID to update (starts with F, e.g. F1234567890).")),
+			mcp.WithString("name", mcp.Description("New display name for the List; omit to leave unchanged.")),
+			mcp.WithArray("description_blocks", mcp.Items(openObjectSchema()), mcp.Description("Block Kit rich_text blocks replacing the List description; omit to leave unchanged.")),
+			mcp.WithBoolean("todo_mode", mcp.Description("Turn Slack's to-do mode on or off; omit to leave unchanged.")),
+		}},
+		{Name: capability.ListsItemsCreate, Run: h.CreateItem, Options: []mcp.ToolOption{
+			mcp.WithDescription("Create one Slack List item."),
+			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID to add the item to (starts with F, e.g. F1234567890).")),
+			mcp.WithString("duplicated_item_id", mcp.Description("ID of an existing item in the List to copy as the new item.")),
+			mcp.WithString("parent_item_id", mcp.Description("ID of the parent item; makes the new item a subtask of it.")),
+			mcp.WithArray("initial_fields", mcp.Items(listFieldItemSchema(false)), mcp.Description("Initial cell values; each has column_id plus one typed value key such as rich_text, date, select, or user.")),
+		}},
+		{Name: capability.ListsItemsUpdate, Run: h.UpdateItems, Options: []mcp.ToolOption{
+			mcp.WithDescription("Update typed cells on Slack List items."),
+			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID containing the items (starts with F, e.g. F1234567890).")),
+			mcp.WithArray("cells", mcp.Required(), mcp.MinItems(1), mcp.Items(listFieldItemSchema(true)), mcp.Description("Cells to set; each has column_id, row_id (the item ID), and one typed value key such as rich_text or select.")),
+		}},
+		{Name: capability.ListsItemDelete, Run: h.deleteItemAction, Options: []mcp.ToolOption{
+			mcp.WithOutputSchema[ListItemDeleteResult](),
+			mcp.WithDescription("Preview or delete one Slack List item. Prepare first, then confirm the exact item before execute."),
+			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID containing the item (starts with F, e.g. F1234567890).")),
+			mcp.WithString("item_id", mcp.Required(), mcp.Description("ID of the List item to delete, from lists_items_list or lists_items_create.")),
+			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
+		}},
+	}
+}
+
+func (h *ListsHandler) deleteItemAction(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	switch request.GetString("action", "") {
+	case "prepare":
+		return h.PrepareDeleteItem(ctx, request)
+	case "execute":
+		return h.DeleteItem(ctx, request)
+	default:
+		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "action must be prepare or execute"}), nil
+	}
+}
+
+func openObjectSchema() map[string]any {
+	return map[string]any{"type": "object", "additionalProperties": true}
+}
+
+func listColumnItemSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"key":               map[string]any{"type": "string"},
+			"name":              map[string]any{"type": "string"},
+			"type":              map[string]any{"type": "string", "enum": provider.ListColumnTypes},
+			"is_primary_column": map[string]any{"type": "boolean"},
+			"options": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"choices": map[string]any{"type": "array", "items": map[string]any{
+						"type": "object", "required": []string{"value", "label"},
+						"properties":           map[string]any{"value": map[string]any{"type": "string"}, "label": map[string]any{"type": "string"}, "color": map[string]any{"type": "string"}},
+						"additionalProperties": false,
+					}},
+					"format": map[string]any{"type": "string"}, "precision": map[string]any{"type": "integer"},
+					"date_format": map[string]any{"type": "string"}, "emoji": map[string]any{"type": "string"},
+					"emoji_team_id": map[string]any{"type": "string"}, "max": map[string]any{"type": "integer"},
+					"show_member_name": map[string]any{"type": "boolean"}, "notify_users": map[string]any{"type": "boolean"},
+				},
+				"additionalProperties": false,
+			},
+		},
+		"required":             []string{"key", "name", "type"},
+		"additionalProperties": false,
+	}
+}
+
+func listFieldItemSchema(requireRowID bool) map[string]any {
+	typedValueProperties := map[string]any{
+		"rich_text": map[string]any{"type": "array", "items": openObjectSchema()},
+		"date":      stringArraySchema(), "select": stringArraySchema(), "user": stringArraySchema(),
+		"channel": stringArraySchema(), "number": numberArraySchema(), "checkbox": booleanArraySchema(),
+		"email": stringArraySchema(), "phone": stringArraySchema(),
+		"link": map[string]any{"type": "array", "items": map[string]any{
+			"type": "object", "required": []string{"original_url"},
+			"properties":           map[string]any{"original_url": map[string]any{"type": "string"}, "display_as_url": map[string]any{"type": "boolean"}, "display_name": map[string]any{"type": "string"}},
+			"additionalProperties": false,
+		}},
+	}
+	properties := map[string]any{"column_id": map[string]any{"type": "string"}, "row_id": map[string]any{"type": "string"}}
+	typedValueNames := []string{"rich_text", "date", "select", "user", "channel", "number", "checkbox", "email", "phone", "link"}
+	oneOf := make([]map[string]any, 0, len(typedValueNames))
+	for _, name := range typedValueNames {
+		schema := typedValueProperties[name]
+		properties[name] = schema
+		oneOf = append(oneOf, map[string]any{"required": []string{name}})
+	}
+	required := []string{"column_id"}
+	if requireRowID {
+		required = append(required, "row_id")
+	}
+	return map[string]any{"type": "object", "properties": properties, "required": required, "oneOf": oneOf, "additionalProperties": false}
+}
+
+func stringArraySchema() map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+}
+
+func numberArraySchema() map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "number"}}
+}
+
+func booleanArraySchema() map[string]any {
+	return map[string]any{"type": "array", "items": map[string]any{"type": "boolean"}}
 }

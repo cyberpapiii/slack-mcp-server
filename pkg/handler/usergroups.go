@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"slices"
 	"strings"
 	"time"
@@ -403,4 +404,82 @@ func parseCommaSeparatedList(s string) []string {
 		}
 	}
 	return result
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *UsergroupsHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.UsergroupsList, Run: h.UsergroupsListHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("List all user groups (subteams) in the workspace. User groups are mention handles like @engineering that notify all members. Use this to find a group's ID before joining or updating it. Returns CSV with columns ID, Name, Handle, Description, UserCount, IsExternal, DateCreate, DateUpdate, Users (semicolon-separated user IDs, filled when include_users=true)."),
+			mcp.WithBoolean("include_users",
+				mcp.Description("Include semicolon-separated user IDs in the users CSV column. Default is false."),
+				mcp.DefaultBool(false),
+			),
+			mcp.WithBoolean("include_count",
+				mcp.Description("Include user count for each group. Default is true."),
+				mcp.DefaultBool(true),
+			),
+			mcp.WithBoolean("include_disabled",
+				mcp.Description("Include disabled/archived groups. Default is false."),
+				mcp.DefaultBool(false),
+			),
+		}},
+		{Name: capability.UsergroupsMine, Run: h.UsergroupsMineHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("List the user groups the authenticated Slack user belongs to."),
+		}},
+		{Name: capability.UsergroupsJoin, Run: h.UsergroupsJoinHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Add the authenticated Slack user to one user group."),
+			mcp.WithString("usergroup_id", mcp.Required(), mcp.Description("User group ID beginning with S.")),
+		}},
+		{Name: capability.UsergroupsLeave, Run: h.UsergroupsLeaveHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Remove the authenticated Slack user from one user group."),
+			mcp.WithString("usergroup_id", mcp.Required(), mcp.Description("User group ID beginning with S.")),
+		}},
+		{Name: capability.UsergroupsCreate, Run: h.UsergroupsCreateHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Create a new user group (mention group) in the Slack workspace. After creation, use usergroups_users_update to add members, or users can join themselves with usergroups_join. The handle becomes the @mention (e.g., handle='engineering' creates @engineering)."),
+			mcp.WithString("name",
+				mcp.Required(),
+				mcp.Description("Display name of the user group (e.g., 'Engineering Team', 'Design Squad')."),
+			),
+			mcp.WithString("handle",
+				mcp.Description("The @mention handle without the @ symbol (e.g., 'engineering' for @engineering). Keep it short and lowercase. If omitted, Slack auto-generates one from the name."),
+			),
+			mcp.WithString("description",
+				mcp.Description("Purpose or description shown in group details (e.g., 'Backend and frontend engineers')."),
+			),
+			mcp.WithString("channels",
+				mcp.Description("Comma-separated channel IDs where this group is commonly mentioned. Members get suggestions to join these channels."),
+			),
+		}},
+		{Name: capability.UsergroupsUpdate, Run: h.UsergroupsUpdateHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Update a user group's metadata: name, handle (@mention), description, or default channels. Does NOT change members, use usergroups_users_update for that. At least one field must be provided."),
+			mcp.WithString("usergroup_id",
+				mcp.Required(),
+				mcp.Description("ID of the user group to update (starts with 'S', e.g., 'S0123456789'). Get IDs from usergroups_list."),
+			),
+			mcp.WithString("name",
+				mcp.Description("New display name for the group."),
+			),
+			mcp.WithString("handle",
+				mcp.Description("New @mention handle (without @). Changing this changes how users mention the group."),
+			),
+			mcp.WithString("description",
+				mcp.Description("New description for the group."),
+			),
+			mcp.WithString("channels",
+				mcp.Description("New default channel IDs (comma-separated). Replaces existing default channels."),
+			),
+		}},
+		{Name: capability.UsergroupsUsersUpdate, Run: h.UsergroupsUsersUpdateHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Replace all members of a user group with a new list. WARNING: any user not in the 'users' parameter is removed. To add or remove only yourself, use usergroups_join or usergroups_leave. To add one user without removing others, first get current members from usergroups_list with include_users=true, then call this with the combined list."),
+			mcp.WithString("usergroup_id",
+				mcp.Required(),
+				mcp.Description("ID of the user group (starts with 'S', e.g., 'S0123456789'). Get IDs from usergroups_list."),
+			),
+			mcp.WithString("users",
+				mcp.Required(),
+				mcp.Description("Comma-separated user IDs forming the COMPLETE new member list (e.g., 'U0123456789,U9876543210'). Current members not in this list are removed."),
+			),
+		}},
+	}
 }

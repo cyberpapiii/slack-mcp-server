@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -26,11 +25,8 @@ var fileParamHints = []string{"file", "attach", "upload", "image", "photo", "scr
 // list to consult, so this error text is the only place it can learn that the
 // capability exists at all; without it the caller concludes Slack cannot attach
 // files and reaches for something outside the server entirely.
-func signpostFileParam(request mcp.CallToolRequest, known ...string) *ToolError {
+func signpostFileParam(request mcp.CallToolRequest) *ToolError {
 	for key := range request.GetArguments() {
-		if slices.Contains(known, key) {
-			continue
-		}
 		lower := strings.ToLower(key)
 		for _, hint := range fileParamHints {
 			if !strings.Contains(lower, hint) {

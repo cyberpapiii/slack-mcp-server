@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -25,168 +24,20 @@ import (
 )
 
 type MCPServer struct {
-	server         *server.MCPServer
-	logger         *zap.Logger
-	workspace      string
-	provider       *provider.ApiProvider
-	enabledTools   []string
+	server    *server.MCPServer
+	logger    *zap.Logger
+	workspace string
+
+	// cacheTools register once the users and channels caches are warm, with
+	// the directory resources that read the same caches.
+	cacheTools     []server.ServerTool
+	resources      []server.ServerResource
 	cacheToolsOnce sync.Once
 }
 
-const (
-	ToolConversationsHistory        = "conversations_history"
-	ToolConversationsReplies        = "conversations_replies"
-	ToolConversationsAddMessage     = "conversations_add_message"
-	ToolConversationsDraftMessage   = "conversations_draft_message"
-	ToolReactionsAdd                = "reactions_add"
-	ToolReactionsRemove             = "reactions_remove"
-	ToolReactionsGet                = "reactions_get"
-	ToolConversationsGetMessage     = "conversations_get_message"
-	ToolAttachmentGetData           = "attachment_get_data"
-	ToolConversationsSearchMessages = "conversations_search_messages"
-	ToolConversationsUnreads        = "conversations_unreads"
-	ToolConversationsMark           = "conversations_mark"
-	ToolConversationsOpen           = "conversations_open"
-	ToolConversationsLeave          = "conversations_leave"
-	ToolConversationsJoin           = "conversations_join"
-	ToolChannelsList                = "channels_list"
-	ToolChannelsStarred             = "channels_starred"
-	ToolChannelsMe                  = "channels_me"
-	ToolUsergroupsList              = "usergroups_list"
-	ToolUsergroupsMine              = "usergroups_mine"
-	ToolUsergroupsJoin              = "usergroups_join"
-	ToolUsergroupsLeave             = "usergroups_leave"
-	ToolUsergroupsCreate            = "usergroups_create"
-	ToolUsergroupsUpdate            = "usergroups_update"
-	ToolUsergroupsUsersUpdate       = "usergroups_users_update"
-	ToolUsersSearch                 = "users_search"
-	ToolActivityUnreads             = "activity_unreads"
-	ToolActivityMarkRead            = "activity_mark_read"
-	ToolSavedList                   = "saved_list"
-	ToolSavedAdd                    = "saved_add"
-	ToolSavedUpdate                 = "saved_update"
-	ToolSavedDelete                 = "saved_delete"
-	ToolSavedClearCompleted         = "saved_clear_completed"
-	ToolFilesList                   = "files_list"
-	ToolSlackAuthStatus             = "slack_auth_status"
-	ToolScheduledMessagesList       = "scheduled_messages_list"
-	ToolScheduledMessageCancel      = "scheduled_message_cancel"
-	ToolChannelsRename              = "channels_rename"
-	ToolChannelsSetTopic            = "channels_set_topic"
-	ToolChannelsSetPurpose          = "channels_set_purpose"
-	ToolChannelsArchive             = "channels_archive"
-	ToolListsCreate                 = "lists_create"
-	ToolListsUpdate                 = "lists_update"
-	ToolListsItemsList              = "lists_items_list"
-	ToolListsItemsCreate            = "lists_items_create"
-	ToolListsItemsUpdate            = "lists_items_update"
-	ToolListsItemDelete             = "lists_item_delete"
-	ToolDNDGet                      = "dnd_get"
-	ToolDNDSetSnooze                = "dnd_set_snooze"
-	ToolDNDEndSnooze                = "dnd_end_snooze"
-	ToolFilesDownload               = "files_download"
-	ToolFilesUpload                 = "files_upload"
-	ToolMessagesSchedule            = "messages_schedule"
-	ToolMessagesUpdate              = "messages_update"
-	ToolMessagesDelete              = "messages_delete"
-	ToolChannelsCreate              = "channels_create"
-	ToolChannelsMembers             = "channels_members"
-	ToolChannelsInvite              = "channels_invite"
-	ToolEmojiList                   = "emoji_list"
-	ToolUsersGetProfile             = "users_get_profile"
-	ToolUsersSetProfile             = "users_set_profile"
-	ToolUsersSetStatus              = "users_set_status"
-	ToolCanvasesCreate              = "canvases_create"
-	ToolCanvasesRead                = "canvases_read"
-	ToolCanvasesUpdate              = "canvases_update"
-	ToolDraftsList                  = "drafts_list"
-	ToolDraftsGet                   = "drafts_get"
-	ToolDraftsCreate                = "drafts_create"
-	ToolDraftsUpdate                = "drafts_update"
-	ToolDraftsDelete                = "drafts_delete"
-	ToolSearchSemantic              = "search_semantic"
-
-	descChannelID = "Channel ID (Cxxxxxxxxxx) or a channel/DM name starting with # or @, e.g. #general or @username."
-	descCursor    = "Pagination cursor from the #next_cursor line of the previous response."
-	// descChannelIDRaw is for tools whose handler passes the ID straight to Slack
-	// without resolving #name or @name.
-	descChannelIDRaw      = "Channel ID starting with C or G (Cxxxxxxxxxx); names are not resolved."
-	descPrepareAction     = "prepare returns data.approval_token and a preview; execute performs the change."
-	descApprovalToken     = "Token from the prepare call; required for execute."
-	toolDetailDescription = "'standard' (compact CSV) or 'full' (adds UserID and Permalink columns); omit for the server default, normally standard. Comment lines may precede the CSV header: `#channels:` (ID=name), `#users:` (UserID=name), `#link_template:`, `#attachments:` (rows carry files; fetch them with attachment_get_data), `#partial:`, `#next_cursor:`."
-)
-
-var ValidToolNames = capability.Names()
-
-func ResolveToolPreset(name string) ([]string, error) {
-	switch name {
-	case "daily-power":
-		return capability.DailyPowerNames(), nil
-	case "legacy-full":
-		return capability.Names(), nil
-	default:
-		return nil, fmt.Errorf("unknown tool preset %q (valid: daily-power, legacy-full)", name)
-	}
-}
-
-func ValidateEnabledTools(tools []string) error {
-	validToolSet := make(map[string]bool, len(ValidToolNames))
-	for _, name := range ValidToolNames {
-		validToolSet[name] = true
-	}
-
-	var invalidTools []string
-	for _, tool := range tools {
-		if !validToolSet[tool] {
-			invalidTools = append(invalidTools, tool)
-		}
-	}
-	if len(invalidTools) > 0 {
-		return fmt.Errorf("invalid tool name(s): %s. Valid tools are: %s",
-			strings.Join(invalidTools, ", "),
-			strings.Join(ValidToolNames, ", "))
-	}
-	return nil
-}
-
-// Tools exist iff SLACK_MCP_ENABLED_TOOLS (or the preset that fills it) names
-// them. Naming a write tool is the consent; SLACK_MCP_ADD_MESSAGE_TOOL,
-// SLACK_MCP_REACTION_TOOL and SLACK_MCP_CHANNEL_MANAGEMENT_TOOL only narrow
-// those tools to channel allowlists inside the handlers.
-//
-// Registration phase is enforced by construction: a tool the capability table
-// marks CacheReady may only go through addCacheDependentTool, every other tool
-// only through addEnabledTool.
-func addEnabledTool(s *server.MCPServer, enabledTools []string, tool mcp.Tool, fn server.ToolHandlerFunc) {
-	if spec, _ := capability.Lookup(tool.Name); spec.CacheReady {
-		panic(fmt.Sprintf("tool %q is cache-dependent; register it in registerCacheDependentTools", tool.Name))
-	}
-	if slices.Contains(enabledTools, tool.Name) {
-		s.AddTool(tool, fn)
-	}
-}
-
-func addCacheDependentTool(ms *MCPServer, enabledTools []string, tool mcp.Tool, fn server.ToolHandlerFunc) {
-	if spec, _ := capability.Lookup(tool.Name); !spec.CacheReady {
-		panic(fmt.Sprintf("tool %q is not cache-dependent; register it in NewMCPServer", tool.Name))
-	}
-	if slices.Contains(enabledTools, tool.Name) {
-		ms.server.AddTool(tool, fn)
-	}
-}
-
-// normalizeAnnotations keeps the hint set coherent: a read-only tool is never
-// destructive and always idempotent, whatever the per-tool options said or
-// left at the mcp-go defaults. Clients that prompt on destructiveHint then
-// stay quiet for reads.
-func normalizeAnnotations(tool mcp.Tool) mcp.Tool {
-	if tool.Annotations.ReadOnlyHint != nil && *tool.Annotations.ReadOnlyHint {
-		tool.Annotations.DestructiveHint = mcp.ToBoolPtr(false)
-		tool.Annotations.IdempotentHint = mcp.ToBoolPtr(true)
-	}
-	return tool
-}
-
+// NewMCPServer registers every enabled tool whose credential requirement the
+// provider meets. Tools the capability table marks CacheReady wait for
+// RegisterCacheDependentTools.
 func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledTools []string) *MCPServer {
 	opts := append([]server.ServerOption{
 		server.WithLogging(),
@@ -194,8 +45,6 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		server.WithResourceCapabilities(true, true),
 	}, toolHandlerOptions(provider.ServerTransport(), logger)...)
 	s := server.NewMCPServer("Slack MCP Server", version.Version, opts...)
-
-	registerCoreTools(s, provider, logger, enabledTools)
 
 	logger.Info("Authenticating with Slack API...",
 		zap.String("context", "console"),
@@ -225,177 +74,64 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 		)
 	}
 
-	approvals := approval.NewStore(5 * time.Minute)
-	registerDailyPowerLifecycleTools(s, provider, logger, enabledTools, approvals)
-	registerCustomPowerTools(s, provider, logger, enabledTools, approvals)
-
-	return &MCPServer{
-		server:       s,
-		logger:       logger,
-		workspace:    ws,
-		provider:     provider,
-		enabledTools: enabledTools,
+	ms := &MCPServer{server: s, logger: logger, workspace: ws}
+	families := buildHandlers(provider, logger, enabledTools)
+	for _, def := range families.tools {
+		spec, ok := capability.Lookup(def.Name)
+		if !ok {
+			panic(fmt.Sprintf("tool %q is not in the capability table", def.Name))
+		}
+		if !slices.Contains(enabledTools, def.Name) || !provider.Satisfies(spec.Requires) {
+			continue
+		}
+		tool := mcpTool(spec, def.Options)
+		if spec.CacheReady {
+			ms.cacheTools = append(ms.cacheTools, server.ServerTool{Tool: tool, Handler: def.Run})
+			continue
+		}
+		s.AddTool(tool, def.Run)
 	}
+	ms.resources = []server.ServerResource{
+		{Resource: mcp.NewResource(
+			"slack://"+ws+"/channels",
+			"Directory of Slack channels",
+			mcp.WithResourceDescription("CSV directory of Slack channels."),
+			mcp.WithMIMEType("text/csv"),
+		), Handler: families.channels.ChannelsResource},
+		{Resource: mcp.NewResource(
+			"slack://"+ws+"/users",
+			"Directory of Slack users",
+			mcp.WithResourceDescription("CSV directory of Slack users."),
+			mcp.WithMIMEType("text/csv"),
+		), Handler: families.conversations.UsersResource},
+	}
+	return ms
 }
 
-// RegisterCacheDependentTools registers tools and resources that require the cache to be ready.
-// Called after cache warm-up completes. The mcp-go server automatically sends
-// notifications/tools/list_changed to connected clients when AddTool is called.
-func (s *MCPServer) RegisterCacheDependentTools() {
-	s.cacheToolsOnce.Do(s.registerCacheDependentTools)
-}
-
-func (s *MCPServer) registerCacheDependentTools() {
-	provider := s.provider
-	logger := s.logger
-	enabledTools := s.enabledTools
-	browserSession := provider.ConfiguredWithBrowserSession()
-
-	conversationsHandler := handler.NewConversationsHandler(provider, logger, slices.Contains(enabledTools, ToolConversationsAddMessage))
-	channelsHandler := handler.NewChannelsHandler(provider, logger)
-
-	addCacheDependentTool(s, enabledTools, newTool(ToolChannelsList,
-		mcp.WithDescription("List channels in the workspace, filtered by channel_types. Returns CSV."),
-		mcp.WithString("channel_types",
-			mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Default: 'public_channel,private_channel'."),
-		),
-		mcp.WithString("sort",
-			mcp.Description("Sort order. Allowed value: 'popularity' sorts by number of members in each channel."),
-		),
-		mcp.WithNumber("limit",
-			mcp.DefaultNumber(100),
-			mcp.Description("Maximum number of items to return, an integer between 1 and 999. Default is 100."),
-		),
-		mcp.WithString("cursor",
-			mcp.Description(descCursor),
-		),
-		mcp.WithString("query",
-			mcp.Description("Optional keyword to filter channels. Case-insensitive substring match against the fields specified by query_targets. Example: 'marketing' returns channels like #marketing, #marketing-ops."),
-		),
-		mcp.WithString("query_targets",
-			mcp.DefaultString("name"),
-			mcp.Description("Comma-separated list of fields to match the query against. Allowed values: 'name', 'topic', 'purpose'. Example: 'name,topic,purpose' to search all fields. Default is 'name'."),
-		),
-	), channelsHandler.ChannelsHandler)
-
-	addCacheDependentTool(s, enabledTools, newTool(ToolChannelsMe,
-		mcp.WithDescription("List only the channels you have joined, unlike channels_list which returns all workspace channels. Useful on large workspaces where channels_list returns thousands of results."),
-		mcp.WithString("channel_types",
-			mcp.Description("Comma-separated channel types. Allowed values: 'mpim', 'im', 'public_channel', 'private_channel'. Default: 'public_channel,private_channel'."),
-		),
-		mcp.WithNumber("limit",
-			mcp.DefaultNumber(100),
-			mcp.Description("Maximum number of items to return (1-999)."),
-		),
-		mcp.WithString("cursor",
-			mcp.Description(descCursor),
-		),
-	), channelsHandler.ChannelsMeHandler)
-
-	if !provider.IsBotToken() {
-		addCacheDependentTool(s, enabledTools, newTool(ToolChannelsStarred,
-			mcp.WithDescription("List channels and DMs the user has starred (bookmarked). Returns only that subset, not the full channel list."),
-			mcp.WithString("channel_types",
-				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-shared channels), 'internal' (regular workspace channels)."),
-				mcp.DefaultString("all"),
-			),
-			mcp.WithNumber("limit",
-				mcp.DefaultNumber(100),
-				mcp.Description("Maximum number of starred channels to return (1-1000). Default is 100."),
-			),
-		), channelsHandler.ChannelsStarredHandler)
-	}
-
-	if browserSession {
-		addCacheDependentTool(s, enabledTools, newTool(ToolConversationsUnreads,
-			mcp.WithDescription("Get unread messages per channel and DM, prioritized DMs, group DMs, partner channels, then internal channels. For thread replies and @mentions use activity_unreads. Needs a Slack browser session (xoxc/xoxd)."),
-			mcp.WithBoolean("include_messages",
-				mcp.Description("If true (default), returns the actual unread messages. If false, returns only a summary of channels with unreads."),
-				mcp.DefaultBool(true),
-			),
-			mcp.WithString("channel_types",
-				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-* channels), 'internal' (other channels)."),
-				mcp.DefaultString("all"),
-			),
-			mcp.WithNumber("max_channels",
-				mcp.Description("Maximum number of channels to fetch unreads from. Default is 50."),
-				mcp.DefaultNumber(50),
-			),
-			mcp.WithNumber("max_messages_per_channel",
-				mcp.Description("Maximum messages to fetch per channel. Default is 10."),
-				mcp.DefaultNumber(10),
-			),
-			mcp.WithBoolean("mentions_only",
-				mcp.Description("If true, only returns channels where you have @mentions. Default is false."),
-				mcp.DefaultBool(false),
-			),
-			mcp.WithBoolean("include_muted",
-				mcp.Description("If true, includes muted channels in results. Default is false (muted channels are excluded, matching Slack app behavior)."),
-				mcp.DefaultBool(false),
-			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
-		), conversationsHandler.ConversationsUnreadsHandler)
-	}
-
-	if browserSession {
-		activityHandler := handler.NewActivityHandler(provider, logger, conversationsHandler)
-		addCacheDependentTool(s, enabledTools, newTool(ToolActivityUnreads,
-			mcp.WithDescription("Get unread Activity items (thread replies and @mentions), as in Slack's Activity panel Unreads tab. Returns CSV: with include_messages=true the message rows come first, then an `#activity_items:` line and an item table (Type,Channel,MsgID,ThreadTs,UnreadCount,FeedTs,Key) whose Key, FeedTs and Type feed activity_mark_read. For unread channel messages use conversations_unreads. Needs a Slack browser session (xoxc/xoxd)."),
-			mcp.WithBoolean("include_messages",
-				mcp.Description("If true (default), fetches unread reply messages per thread. If false, returns summary only."),
-				mcp.DefaultBool(true),
-			),
-			mcp.WithNumber("max_messages_per_thread",
-				mcp.Description("Max messages to fetch per thread when include_messages is true. Default is 10."),
-				mcp.DefaultNumber(10),
-			),
-			mcp.WithNumber("limit",
-				mcp.Description("Max Activity items to return, 1 to 50; larger values return 50. Default is 30."),
-				mcp.DefaultNumber(30),
-			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
-		), activityHandler.ActivityUnreadsHandler)
-
-		addCacheDependentTool(s, enabledTools, newTool(ToolActivityMarkRead,
-			mcp.WithDescription("Mark an Activity item as read. Use the Key, FeedTs and Type values from the activity_unreads item table."),
-			mcp.WithString("key",
-				mcp.Description("Key column from activity_unreads, e.g. 'thread_v2-C092WJP9Z38-1772545632.256259'."),
-				mcp.Required(),
-			),
-			mcp.WithString("feed_ts",
-				mcp.Description("FeedTs column from activity_unreads."),
-				mcp.Required(),
-			),
-			mcp.WithString("type",
-				mcp.Description("Type column from activity_unreads: thread_v2, at_user, at_user_group, at_channel, at_everyone."),
-				mcp.Required(),
-			),
-		), activityHandler.ActivityMarkReadHandler)
-	}
-
-	s.server.AddResource(mcp.NewResource(
-		"slack://"+s.workspace+"/channels",
-		"Directory of Slack channels",
-		mcp.WithResourceDescription("CSV directory of Slack channels."),
-		mcp.WithMIMEType("text/csv"),
-	), channelsHandler.ChannelsResource)
-
-	s.server.AddResource(mcp.NewResource(
-		"slack://"+s.workspace+"/users",
-		"Directory of Slack users",
-		mcp.WithResourceDescription("CSV directory of Slack users."),
-		mcp.WithMIMEType("text/csv"),
-	), conversationsHandler.UsersResource)
-
-	logger.Info("Cache-dependent tools and resources registered",
-		zap.String("context", "console"),
+// mcpTool builds the advertised tool from its capability row. A read-only
+// tool is never destructive and always idempotent.
+func mcpTool(spec capability.Tool, options []mcp.ToolOption) mcp.Tool {
+	options = append(options,
+		mcp.WithTitleAnnotation(spec.Title),
+		mcp.WithReadOnlyHintAnnotation(spec.ReadOnly),
+		mcp.WithDestructiveHintAnnotation(spec.Destructive && !spec.ReadOnly),
+		mcp.WithIdempotentHintAnnotation(spec.Idempotent || spec.ReadOnly),
+		mcp.WithOpenWorldHintAnnotation(true),
 	)
+	return mcp.NewTool(spec.Name, options...)
+}
+
+// RegisterCacheDependentTools registers the tools and resources that read the
+// users and channels caches. Called after cache warm-up completes; mcp-go
+// sends notifications/tools/list_changed to connected clients.
+func (s *MCPServer) RegisterCacheDependentTools() {
+	s.cacheToolsOnce.Do(func() {
+		s.server.AddTools(s.cacheTools...)
+		s.server.AddResources(s.resources...)
+		s.logger.Info("Cache-dependent tools and resources registered",
+			zap.String("context", "console"),
+		)
+	})
 }
 
 func (s *MCPServer) ServeSSE(addr string) *server.SSEServer {

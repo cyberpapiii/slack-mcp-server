@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"os"
 	"regexp"
 	"strings"
@@ -180,4 +181,32 @@ func archiveBinding(identity provider.ProviderIdentity, preparation provider.Arc
 		return approval.Binding{}, err
 	}
 	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "channels_archive", Arguments: arguments, ObservedState: observed}, nil
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *ChannelMutationHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.ChannelsRename, Run: h.ConversationsRenameHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Rename one ordinary channel."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
+			mcp.WithString("name", mcp.Required(), mcp.Description("New channel name, 1 to 80 lowercase letters, numbers, hyphens, or underscores.")),
+		}},
+		{Name: capability.ChannelsSetTopic, Run: h.ConversationsSetTopicHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Set or clear one ordinary channel topic."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
+			mcp.WithString("topic", mcp.Required(), mcp.Description("New topic, up to 250 characters; pass an empty string to clear it.")),
+		}},
+		{Name: capability.ChannelsSetPurpose, Run: h.ConversationsSetPurposeHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Set or clear one ordinary channel purpose."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
+			mcp.WithString("purpose", mcp.Required(), mcp.Description("New purpose, up to 250 characters; pass an empty string to clear it.")),
+		}},
+		{Name: capability.ChannelsArchive, Run: h.ConversationsArchiveHandler, Options: []mcp.ToolOption{
+			mcp.WithOutputSchema[ChannelMutationResult](),
+			mcp.WithDescription("Preview or archive one ordinary channel. Prepare first, then confirm the exact observed channel before execute."),
+			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
+			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
+		}},
+	}
 }

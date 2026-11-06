@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"net"
 	"strings"
 	"time"
@@ -210,4 +211,27 @@ func scheduledError(err error, mutationAttempted bool) error {
 		}
 	}
 	return &ToolError{Code: "slack_error", Message: err.Error(), Cause: err}
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *ScheduledHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.ScheduledMessagesList, Run: h.List, Options: []mcp.ToolOption{
+			mcp.WithDescription("List pending scheduled Slack messages with stable IDs and UTC post times."),
+			mcp.WithString("channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) to filter by; omit for all channels. Names are not resolved.")),
+			mcp.WithString("cursor", mcp.Description(descCursor)),
+			mcp.WithString("oldest", mcp.Description("Unix seconds; only messages scheduled to post at or after this time.")),
+			mcp.WithString("latest", mcp.Description("Unix seconds; only messages scheduled to post at or before this time.")),
+			mcp.WithString("text_query", mcp.Description("Case-insensitive substring filter applied to message text after fetching the page.")),
+			mcp.WithNumber("limit", mcp.DefaultNumber(50), mcp.Description("Maximum messages per page, 1 to 100; defaults to 50.")),
+		}},
+		{Name: capability.ScheduledMessageCancel, Run: h.Cancel, Options: []mcp.ToolOption{
+			mcp.WithOutputSchema[ScheduledCancelResult](),
+			mcp.WithDescription("Preview or execute cancellation of one pending scheduled message. Prepare first, then confirm the exact target before execute."),
+			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) of the scheduled message; names are not resolved.")),
+			mcp.WithString("scheduled_message_id", mcp.Required(), mcp.Description("Scheduled message ID from scheduled_messages_list, e.g. Q1234ABCD.")),
+			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
+		}},
+	}
 }

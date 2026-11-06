@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"slices"
 	"strings"
 	"time"
@@ -72,9 +73,9 @@ func (h *CanvasHandler) Read(ctx context.Context, request mcp.CallToolRequest) (
 	return NewStructuredResult(document, SlackResultMeta("", document.Limitation != "", document.Limitation), fallbackJSON(document)), nil
 }
 
-var canvasOperations = map[string]struct{}{
-	"insert_at_start": {}, "insert_at_end": {}, "insert_before": {}, "insert_after": {}, "replace": {},
-}
+const maxSemanticResults = 20
+
+var canvasOperations = []string{"insert_at_start", "insert_at_end", "insert_before", "insert_after", "replace"}
 
 func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "CanvasUpdate called", request)
@@ -90,7 +91,7 @@ func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 		change := &input.Changes[i]
 		change.Operation = strings.TrimSpace(change.Operation)
 		change.SectionID = strings.TrimSpace(change.SectionID)
-		if _, ok := canvasOperations[change.Operation]; !ok {
+		if !slices.Contains(canvasOperations, change.Operation) {
 			return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: fmt.Sprintf("changes[%d].operation is unsupported", i)}), nil
 		}
 		if (change.Operation == "insert_before" || change.Operation == "insert_after") && change.SectionID == "" {
@@ -333,10 +334,10 @@ func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallTool
 		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "query is required"}), nil
 	}
 	if input.Limit == 0 {
-		input.Limit = 20
+		input.Limit = maxSemanticResults
 	}
-	if input.Limit < 1 || input.Limit > 20 {
-		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: "limit must be between 1 and 20"}), nil
+	if input.Limit < 1 || input.Limit > maxSemanticResults {
+		return NewTypedErrorResult(&ToolError{Code: "invalid_arguments", Message: fmt.Sprintf("limit must be between 1 and %d", maxSemanticResults)}), nil
 	}
 	for _, contentType := range input.ContentTypes {
 		if contentType != "messages" && contentType != "files" {
@@ -374,4 +375,79 @@ func canvasDraftSearchError(err error, mutation bool) error {
 		code = "slack_api_error"
 	}
 	return &ToolError{Code: code, Message: "Slack request failed: " + code, Retryable: apiError.Retryable(), RetryAfter: apiError.RetryAfter, Cause: err}
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *DraftsHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.DraftsList, Run: h.List, Options: []mcp.ToolOption{
+			mcp.WithDescription("List persisted Slack drafts from the authenticated browser session."),
+			mcp.WithString("cursor", mcp.Description(descCursor)),
+			mcp.WithNumber("limit", mcp.Description("Maximum drafts per page, 1 to 100; defaults to 50.")),
+		}},
+		{Name: capability.DraftsGet, Run: h.Get, Options: []mcp.ToolOption{
+			mcp.WithDescription("Read one persisted Slack draft."),
+			mcp.WithString("draft_id", mcp.Required(), mcp.Description("Draft ID as returned by drafts_list or drafts_create.")),
+		}},
+		{Name: capability.DraftsCreate, Run: h.Create, Options: []mcp.ToolOption{
+			mcp.WithDescription("Create a persisted Slack draft without sending it."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Destination channel or DM ID (Cxxxxxxxxxx or Dxxxxxxxxxx); names are not resolved.")),
+			mcp.WithString("text", mcp.Required(), mcp.Description("Draft message text; required and non-empty.")),
+			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to draft a thread reply.")),
+		}},
+		{Name: capability.DraftsUpdate, Run: h.Update, Options: []mcp.ToolOption{
+			mcp.WithDescription("Update a persisted Slack draft without sending it."),
+			mcp.WithString("id", mcp.Required(), mcp.Description("ID of the draft to update, as returned by drafts_list or drafts_create.")),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Destination channel or DM ID (Cxxxxxxxxxx or Dxxxxxxxxxx); names are not resolved.")),
+			mcp.WithString("text", mcp.Required(), mcp.Description("Replacement draft text; required and non-empty.")),
+			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to target a thread; omit for a top-level draft.")),
+		}},
+		{Name: capability.DraftsDelete, Run: h.Delete, Options: []mcp.ToolOption{
+			mcp.WithOutputSchema[DraftMutationResult](),
+			mcp.WithDescription("Preview or delete a persisted Slack draft."),
+			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+			mcp.WithString("draft_id", mcp.Required(), mcp.Description("ID of the draft to delete, as returned by drafts_list.")),
+			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
+		}},
+	}
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *SemanticSearchHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.SearchSemantic, Run: h.Search, Options: []mcp.ToolOption{
+			mcp.WithDescription("Semantic (meaning-based) search over messages and files; use for natural-language questions when exact keywords are unknown. For keyword, from:, in:, or date-filtered search use conversations_search_messages. Only works when Slack Real-time Search is enabled for the app."),
+			mcp.WithString("query", mcp.Required(), mcp.Description("Natural-language search query or question.")),
+			mcp.WithArray("content_types", mcp.Items(map[string]any{"type": "string", "enum": []string{"messages", "files"}}), mcp.Description("Result kinds to include; defaults to messages only.")),
+			mcp.WithArray("channel_types", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Channel kinds to search: public_channel, private_channel, mpim, im; defaults to public_channel.")),
+			mcp.WithString("context_channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) Slack uses to scope or bias results when applicable.")),
+			mcp.WithString("cursor", mcp.Description(descCursor)),
+			mcp.WithBoolean("include_bots", mcp.Description("Include messages authored by bots; defaults to false.")),
+			mcp.WithNumber("limit", mcp.Description("Maximum results per page, 1 to 20; defaults to 20.")),
+		}},
+	}
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *CanvasHandler) Tools() []ToolDef {
+	change := map[string]any{"type": "object", "required": []string{"operation", "markdown"}, "properties": map[string]any{"operation": map[string]any{"type": "string", "enum": canvasOperations}, "section_id": map[string]any{"type": "string"}, "markdown": map[string]any{"type": "string"}}, "additionalProperties": false}
+	return []ToolDef{
+		{Name: capability.CanvasesCreate, Run: h.Create, Options: []mcp.ToolOption{
+			mcp.WithDescription("Create a Slack canvas from Markdown."),
+			mcp.WithString("title", mcp.Description("Canvas title; at least one of title or markdown is required.")),
+			mcp.WithString("markdown", mcp.Description("Initial canvas body in Slack-flavored Markdown; at least one of title or markdown is required.")),
+		}},
+		{Name: capability.CanvasesRead, Run: h.Read, Options: []mcp.ToolOption{
+			mcp.WithDescription("Read a canvas: its full content plus metadata and matching section IDs. Full content needs user OAuth; without it the result carries a preview and says why."),
+			mcp.WithString("canvas_id", mcp.Required(), mcp.Description("Canvas ID, a Slack file ID starting with F (e.g. F1234567890).")),
+			mcp.WithArray("section_types", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Section types to look up, e.g. h1, h2, h3, list, table, any_header; returns matching section IDs.")),
+			mcp.WithString("contains_text", mcp.Description("Return IDs of sections whose text contains this string; combinable with section_types.")),
+			mcp.WithString("content_format", mcp.Enum("markdown", "html", "none"), mcp.Description("Format of the full content: markdown (default), html, or none for metadata only.")),
+		}},
+		{Name: capability.CanvasesUpdate, Run: h.Update, Options: []mcp.ToolOption{
+			mcp.WithDescription("Apply exactly one Markdown edit to a Slack canvas."),
+			mcp.WithString("canvas_id", mcp.Required(), mcp.Description("Canvas ID, a Slack file ID starting with F (e.g. F1234567890).")),
+			mcp.WithArray("changes", mcp.Required(), mcp.MinItems(1), mcp.MaxItems(1), mcp.Items(change), mcp.Description("Exactly one edit object with operation, markdown, and section_id (needed for insert_before and insert_after).")),
+		}},
+	}
 }

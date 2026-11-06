@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -124,4 +125,20 @@ func dndError(code string, err error) error {
 		return &ToolError{Code: "outcome_unknown", Message: "Slack may have changed DND state; read current DND state before another attempt", Cause: err}
 	}
 	return &ToolError{Code: code, Message: err.Error(), Cause: err}
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *DNDHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.DNDGet, Run: h.Get, Options: []mcp.ToolOption{
+			mcp.WithDescription("Read the authenticated user's Do Not Disturb and snooze state."),
+		}},
+		{Name: capability.DNDSetSnooze, Run: h.SetSnooze, Options: []mcp.ToolOption{
+			mcp.WithDescription("Set a bounded Do Not Disturb snooze for the authenticated user."),
+			mcp.WithNumber("minutes", mcp.Required(), mcp.Min(1), mcp.Max(maxSnoozeMinutes), mcp.Description("Snooze length in minutes, 1 to 10080 (7 days).")),
+		}},
+		{Name: capability.DNDEndSnooze, Run: h.EndSnooze, Options: []mcp.ToolOption{
+			mcp.WithDescription("End the authenticated user's current Do Not Disturb snooze."),
+		}},
+	}
 }

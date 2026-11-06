@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"net/url"
 	"os"
 	"strings"
@@ -375,4 +376,18 @@ func (ap *ApiProvider) WorkspaceURL() string {
 		}
 	}
 	return ""
+}
+
+// Satisfies reports whether the running credentials meet a tool's requirement.
+func (ap *ApiProvider) Satisfies(requirement capability.Requirement) bool {
+	switch requirement {
+	case capability.UserToken:
+		return !ap.IsBotToken()
+	case capability.UserOAuth:
+		return ap.IsOAuth() && !ap.IsBotToken()
+	case capability.BrowserSession:
+		return ap.ConfiguredWithBrowserSession()
+	default:
+		return true
+	}
 }

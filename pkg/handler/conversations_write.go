@@ -303,13 +303,8 @@ func (ch *ConversationsHandler) fetchMessageByTimestamp(ctx context.Context, cha
 	return &msgs[0], nil
 }
 
-// addMessageKnownParams is the parameter set conversations_add_message and
-// conversations_draft_message accept, including the legacy "payload" alias for
-// text. Anything file-shaped outside this set gets signposted to files_upload.
-var addMessageKnownParams = []string{"channel_id", "thread_ts", "text", "payload", "content_type", "blocks"}
-
 func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
-	if err := signpostFileParam(request, addMessageKnownParams...); err != nil {
+	if err := signpostFileParam(request); err != nil {
 		return nil, err
 	}
 
@@ -353,7 +348,7 @@ func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context,
 func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
 	toolConfig := os.Getenv("SLACK_MCP_ADD_MESSAGE_TOOL")
 
-	if err := signpostFileParam(request, addMessageKnownParams...); err != nil {
+	if err := signpostFileParam(request); err != nil {
 		return nil, err
 	}
 

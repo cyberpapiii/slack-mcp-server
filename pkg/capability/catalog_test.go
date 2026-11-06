@@ -78,3 +78,26 @@ func TestOAuthScopesForToolsDedupsAndSorts(t *testing.T) {
 	}, scopes)
 	assert.Empty(t, OAuthScopesForTools(nil))
 }
+
+func TestPresets(t *testing.T) {
+	daily, err := Preset("daily-power")
+	require.NoError(t, err)
+	assert.Equal(t, DailyPowerNames(), daily)
+
+	legacy, err := Preset("legacy-full")
+	require.NoError(t, err)
+	assert.Equal(t, Names(), legacy)
+
+	_, err = Preset("unknown")
+	assert.ErrorContains(t, err, "unknown tool preset")
+}
+
+func TestValidateNamesEveryUnknownTool(t *testing.T) {
+	require.NoError(t, Validate(nil))
+	require.NoError(t, Validate(Names()))
+
+	err := Validate([]string{ChannelsList, "invalid_tool", "channel_list"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid_tool, channel_list")
+	assert.NotContains(t, err.Error(), "invalid tool name(s): channels_list")
+}

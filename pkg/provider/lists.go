@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -89,10 +90,8 @@ type ListColumn struct {
 	Options         *ListColumnOptions `json:"options,omitempty"`
 }
 
-var supportedListColumnTypes = map[string]struct{}{
-	"text": {}, "rich_text": {}, "number": {}, "select": {}, "multi_select": {}, "date": {},
-	"user": {}, "checkbox": {}, "email": {}, "phone": {}, "channel": {}, "link": {},
-}
+// ListColumnTypes are the Slack List column types this server can write.
+var ListColumnTypes = []string{"text", "rich_text", "number", "select", "multi_select", "date", "user", "checkbox", "email", "phone", "channel", "link"}
 
 type UnsupportedListFieldTypeError struct{ Type string }
 
@@ -102,7 +101,7 @@ func (e *UnsupportedListFieldTypeError) Error() string {
 
 func validateColumns(columns []ListColumn) error {
 	for _, column := range columns {
-		if _, ok := supportedListColumnTypes[column.Type]; !ok {
+		if !slices.Contains(ListColumnTypes, column.Type) {
 			return &UnsupportedListFieldTypeError{Type: column.Type}
 		}
 	}

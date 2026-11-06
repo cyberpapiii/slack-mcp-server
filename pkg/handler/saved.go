@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"strconv"
 	"strings"
 	"time"
@@ -479,4 +480,75 @@ func formatUnixTs(ts int64) string {
 		return ""
 	}
 	return time.Unix(ts, 0).UTC().Format("2006-01-02 15:04")
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *SavedHandler) Tools() []ToolDef {
+	savedTargetChannel := mcp.WithString("channel_id", mcp.Description("Channel or DM ID of a message (Channel column in saved_list). Use with timestamp."))
+	savedTargetTimestamp := mcp.WithString("timestamp", mcp.Description("Message timestamp (MsgID column in saved_list). Use with channel_id."))
+	savedTargetItemID := mcp.WithString("item_id", mcp.Description("ID of a custom to-do (Sa...) or a file (F...), from the ItemID column in saved_list. Use instead of channel_id and timestamp."))
+	savedTodoState := func(description string) mcp.ToolOption {
+		return mcp.WithString("todo_state", mcp.Enum("to_do", "saved"), mcp.Description(description))
+	}
+
+	return []ToolDef{
+		{Name: capability.SavedList, Run: h.SavedListHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("List items from Slack's To-dos tab and Saved section. Returns CSV: with include_messages=true the message rows come first, then a `#saved_items:` line and an item table (Channel,MsgID,DateCreated,DateDue,State,Type,TodoState,ItemID,Text). Channel and MsgID identify a message; ItemID identifies a custom to-do or a file. Needs a Slack browser session (xoxc/xoxd)."),
+			mcp.WithString("filter",
+				mcp.Description("Which list: 'saved' (Saved section, default), 'todo' (To-dos in progress), 'completed' (completed to-dos), 'archived' (empty since Slack moved archived items to Saved)."),
+				mcp.DefaultString("saved"),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("Maximum number of items to return from this page. Default is 50."),
+				mcp.DefaultNumber(50),
+			),
+			mcp.WithString("cursor",
+				mcp.Description(descCursor),
+			),
+			mcp.WithBoolean("include_messages",
+				mcp.Description("If true (default), fetches the actual saved message content. If false, returns metadata only."),
+				mcp.DefaultBool(true),
+			),
+			mcp.WithNumber("max_messages_per_item",
+				mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
+				mcp.DefaultNumber(5),
+			),
+			mcp.WithString("detail",
+				mcp.Description(toolDetailDescription),
+				mcp.Enum("standard", "full"),
+			),
+		}},
+		{Name: capability.SavedAdd, Run: h.SavedAddHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Add a to-do or saved item: a custom to-do from text, a message, or a file. Pass exactly one of text, channel_id with timestamp, or file_id. Private to the user; nothing is posted."),
+			mcp.WithString("text", mcp.Description("Text of a custom to-do.")),
+			mcp.WithString("channel_id", mcp.Description("Channel or DM ID of the message to add. Use with timestamp.")),
+			mcp.WithString("timestamp", mcp.Description("Timestamp of the message to add. Use with channel_id.")),
+			mcp.WithString("file_id", mcp.Description("ID of the file to add (F...).")),
+			savedTodoState("List to add to: to_do (To-dos tab, default) or saved (Saved section)."),
+			mcp.WithNumber("date_due", mcp.Description("Unix timestamp for a reminder.")),
+		}},
+		{Name: capability.SavedUpdate, Run: h.SavedUpdateHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Update a to-do or saved item: complete or reopen it, move it between To-dos and Saved, or set or clear its reminder. Identify it with channel_id and timestamp, or item_id. Moving an item to Saved clears its reminder."),
+			savedTargetChannel,
+			savedTargetTimestamp,
+			savedTargetItemID,
+			mcp.WithString("mark",
+				mcp.Enum("completed", "uncompleted"),
+				mcp.Description("completed marks the item done; uncompleted reopens it."),
+			),
+			savedTodoState("Move the item: to_do (To-dos tab) or saved (Saved section)."),
+			mcp.WithNumber("date_due",
+				mcp.Description("Unix timestamp for due date/reminder. Set to 0 to clear."),
+			),
+		}},
+		{Name: capability.SavedDelete, Run: h.SavedDeleteHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Remove one item from To-dos or Saved. A message or file stays where it is; a custom to-do is deleted. Identify it with channel_id and timestamp, or item_id."),
+			savedTargetChannel,
+			savedTargetTimestamp,
+			savedTargetItemID,
+		}},
+		{Name: capability.SavedClearCompleted, Run: h.SavedClearCompletedHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Clear all completed items from To-dos. This is a bulk operation that removes all items with state='completed'."),
+		}},
+	}
 }

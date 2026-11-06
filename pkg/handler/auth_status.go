@@ -134,3 +134,13 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 
 	return strings.Join(parts, " ")
 }
+
+// Tools lists the MCP tools this handler serves.
+func (h *AuthStatusHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.SlackAuthStatus, Run: h.Handler, Options: []mcp.ToolOption{
+			mcp.WithOutputSchema[AuthStatusResult](),
+			mcp.WithDescription("Report Slack auth, cache readiness, and browser-session health. Use before activity or saved tools when auth may have expired."),
+		}},
+	}
+}

@@ -33,7 +33,7 @@ func TestUnitSignpostFileParam(t *testing.T) {
 			req := mcp.CallToolRequest{}
 			req.Params.Arguments = tt.args
 
-			err := signpostFileParam(req, addMessageKnownParams...)
+			err := signpostFileParam(req)
 			if !tt.signposts {
 				assert.Nil(t, err)
 				return

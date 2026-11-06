@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
@@ -239,4 +240,44 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 
 	fallback := fmt.Sprintf("Successfully marked activity item as read (key=%s)", key)
 	return NewStructuredResult(ActionData{Action: "mark_activity_read", Status: "marked", ActivityKey: key, MessageID: feedTs}, SlackResultMeta("", false, ""), fallback), nil
+}
+
+// Tools lists the MCP tools this handler serves.
+func (h *ActivityHandler) Tools() []ToolDef {
+	return []ToolDef{
+		{Name: capability.ActivityUnreads, Run: h.ActivityUnreadsHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Get unread Activity items (thread replies and @mentions), as in Slack's Activity panel Unreads tab. Returns CSV: with include_messages=true the message rows come first, then an `#activity_items:` line and an item table (Type,Channel,MsgID,ThreadTs,UnreadCount,FeedTs,Key) whose Key, FeedTs and Type feed activity_mark_read. For unread channel messages use conversations_unreads. Needs a Slack browser session (xoxc/xoxd)."),
+			mcp.WithBoolean("include_messages",
+				mcp.Description("If true (default), fetches unread reply messages per thread. If false, returns summary only."),
+				mcp.DefaultBool(true),
+			),
+			mcp.WithNumber("max_messages_per_thread",
+				mcp.Description("Max messages to fetch per thread when include_messages is true. Default is 10."),
+				mcp.DefaultNumber(10),
+			),
+			mcp.WithNumber("limit",
+				mcp.Description("Max Activity items to return, 1 to 50; larger values return 50. Default is 30."),
+				mcp.DefaultNumber(30),
+			),
+			mcp.WithString("detail",
+				mcp.Description(toolDetailDescription),
+				mcp.Enum("standard", "full"),
+			),
+		}},
+		{Name: capability.ActivityMarkRead, Run: h.ActivityMarkReadHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Mark an Activity item as read. Use the Key, FeedTs and Type values from the activity_unreads item table."),
+			mcp.WithString("key",
+				mcp.Description("Key column from activity_unreads, e.g. 'thread_v2-C092WJP9Z38-1772545632.256259'."),
+				mcp.Required(),
+			),
+			mcp.WithString("feed_ts",
+				mcp.Description("FeedTs column from activity_unreads."),
+				mcp.Required(),
+			),
+			mcp.WithString("type",
+				mcp.Description("Type column from activity_unreads: thread_v2, at_user, at_user_group, at_channel, at_everyone."),
+				mcp.Required(),
+			),
+		}},
+	}
 }
