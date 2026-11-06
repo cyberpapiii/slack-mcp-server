@@ -18,40 +18,41 @@ import (
 // authKey is a custom context key for storing the auth token.
 type authKey struct{}
 
-// withAuthKey adds an auth key to the context.
-func withAuthKey(ctx context.Context, auth string) context.Context {
-	return context.WithValue(ctx, authKey{}, auth)
-}
-
 // silentPassWarnOnce ensures the "serving without authentication" log fires
 // at Warn level only once; subsequent occurrences log at Debug to avoid
 // flooding logs on every request.
 var silentPassWarnOnce sync.Once
 
+// access is the network transports' access configuration, read from the
+// environment once, when a middleware is built.
+type access struct {
+	apiKey string
+	// allowUnauthenticated is SLACK_MCP_ALLOW_UNAUTHENTICATED=true, exact
+	// match only (docs); do not widen to IsTruthy.
+	allowUnauthenticated bool
+}
+
+func accessFromEnv() access {
+	key := os.Getenv("SLACK_MCP_API_KEY")
+	if key == "" {
+		key = os.Getenv("SLACK_MCP_SSE_API_KEY")
+	}
+	return access{apiKey: key, allowUnauthenticated: os.Getenv("SLACK_MCP_ALLOW_UNAUTHENTICATED") == "true"}
+}
+
 // RequireAPIKeyOrOptOut returns an error if no API key is configured for a
 // network transport and the operator has not explicitly opted out via
 // SLACK_MCP_ALLOW_UNAUTHENTICATED=true.
-func apiKeyFromEnv() string {
-	if key := os.Getenv("SLACK_MCP_API_KEY"); key != "" {
-		return key
-	}
-	return os.Getenv("SLACK_MCP_SSE_API_KEY")
-}
-
-func allowUnauthenticated() bool {
-	// Exact match only (docs); do not widen to IsTruthy.
-	return os.Getenv("SLACK_MCP_ALLOW_UNAUTHENTICATED") == "true"
-}
-
 func RequireAPIKeyOrOptOut(logger *zap.Logger) error {
-	if apiKeyFromEnv() != "" {
+	a := accessFromEnv()
+	if a.apiKey != "" {
 		if os.Getenv("SLACK_MCP_API_KEY") == "" {
 			logger.Warn("SLACK_MCP_SSE_API_KEY is deprecated, please use SLACK_MCP_API_KEY")
 		}
 		return nil
 	}
 
-	if allowUnauthenticated() {
+	if a.allowUnauthenticated {
 		logger.Warn("serving WITHOUT authentication: every client that can reach this server gets full Slack access",
 			zap.String("context", "console"),
 		)
@@ -69,11 +70,9 @@ func constantTimeEqualAPIKey(configured, provided string) bool {
 	return subtle.ConstantTimeCompare(sumA[:], sumB[:]) == 1
 }
 
-func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
-	keyA := apiKeyFromEnv()
-
-	if keyA == "" {
-		if allowUnauthenticated() {
+func (a access) validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
+	if a.apiKey == "" {
+		if a.allowUnauthenticated {
 			alreadyWarned := true
 			silentPassWarnOnce.Do(func() {
 				alreadyWarned = false
@@ -94,8 +93,8 @@ func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
 		return false, fmt.Errorf("unauthorized")
 	}
 
-	keyB, ok := ctx.Value(authKey{}).(string)
-	if !ok || keyB == "" {
+	provided, ok := ctx.Value(authKey{}).(string)
+	if !ok || provided == "" {
 		logger.Warn("Missing auth token in context",
 			zap.String("context", "http"),
 		)
@@ -104,14 +103,11 @@ func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
 
 	logger.Debug("Validating auth token",
 		zap.String("context", "http"),
-		zap.Bool("has_bearer_prefix", strings.HasPrefix(keyB, "Bearer ")),
+		zap.Bool("has_bearer_prefix", strings.HasPrefix(provided, "Bearer ")),
 	)
 
-	if strings.HasPrefix(keyB, "Bearer ") {
-		keyB = strings.TrimPrefix(keyB, "Bearer ")
-	}
-
-	if !constantTimeEqualAPIKey(keyA, keyB) {
+	provided = strings.TrimPrefix(provided, "Bearer ")
+	if !constantTimeEqualAPIKey(a.apiKey, provided) {
 		logger.Warn("Invalid auth token provided",
 			zap.String("context", "http"),
 		)
@@ -127,11 +123,12 @@ func validateToken(ctx context.Context, logger *zap.Logger) (bool, error) {
 // AuthFromRequest carries the request's Authorization header in ctx for the
 // tool and resource middlewares to check.
 func AuthFromRequest(ctx context.Context, r *http.Request) context.Context {
-	return withAuthKey(ctx, r.Header.Get("Authorization"))
+	return context.WithValue(ctx, authKey{}, r.Header.Get("Authorization"))
 }
 
 // BuildMiddleware creates a middleware function that ensures authentication based on the provided transport type.
 func BuildMiddleware(transport string, logger *zap.Logger) server.ToolHandlerMiddleware {
+	a := accessFromEnv()
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			logger.Debug("Auth middleware invoked",
@@ -140,7 +137,7 @@ func BuildMiddleware(transport string, logger *zap.Logger) server.ToolHandlerMid
 				zap.String("tool", req.Params.Name),
 			)
 
-			if authenticated, err := IsAuthenticated(ctx, transport, logger); !authenticated {
+			if authenticated, err := a.authenticate(ctx, transport, logger); !authenticated {
 				return nil, err
 			}
 
@@ -158,9 +155,10 @@ func BuildMiddleware(transport string, logger *zap.Logger) server.ToolHandlerMid
 // BuildResourceMiddleware applies the tool calls' authentication to resource
 // reads.
 func BuildResourceMiddleware(transport string, logger *zap.Logger) server.ResourceHandlerMiddleware {
+	a := accessFromEnv()
 	return func(next server.ResourceHandlerFunc) server.ResourceHandlerFunc {
 		return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-			if authenticated, err := IsAuthenticated(ctx, transport, logger); !authenticated {
+			if authenticated, err := a.authenticate(ctx, transport, logger); !authenticated {
 				return nil, err
 			}
 			return next(ctx, req)
@@ -168,14 +166,14 @@ func BuildResourceMiddleware(transport string, logger *zap.Logger) server.Resour
 	}
 }
 
-func IsAuthenticated(ctx context.Context, transport string, logger *zap.Logger) (bool, error) {
+func (a access) authenticate(ctx context.Context, transport string, logger *zap.Logger) (bool, error) {
 	switch transport {
 	case "stdio":
 		return true, nil
 
 	case "sse", "http":
 		// validateToken logs the specific reason once; callers add nothing.
-		if authenticated, err := validateToken(ctx, logger); !authenticated || err != nil {
+		if authenticated, err := a.validateToken(ctx, logger); !authenticated || err != nil {
 			return false, fmt.Errorf("unauthorized")
 		}
 		return true, nil
