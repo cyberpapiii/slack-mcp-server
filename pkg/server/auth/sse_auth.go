@@ -15,12 +15,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// authKey is a custom context key for storing the auth token.
 type authKey struct{}
 
-// silentPassWarnOnce ensures the "serving without authentication" log fires
-// at Warn level only once; subsequent occurrences log at Debug to avoid
-// flooding logs on every request.
 var silentPassWarnOnce sync.Once
 
 // access is the network transports' access configuration, read from the
@@ -126,7 +122,6 @@ func AuthFromRequest(ctx context.Context, r *http.Request) context.Context {
 	return context.WithValue(ctx, authKey{}, r.Header.Get("Authorization"))
 }
 
-// BuildMiddleware creates a middleware function that ensures authentication based on the provided transport type.
 func BuildMiddleware(transport string, logger *zap.Logger) server.ToolHandlerMiddleware {
 	a := accessFromEnv()
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {

@@ -20,7 +20,7 @@ type MCPConfig struct {
 	SSEKey             string
 	MessageToolEnabled bool
 	MessageToolMark    bool
-	EnabledTools       []string // List of enabled tools (empty = all tools)
+	EnabledTools       []string // empty leaves the server on its tool preset
 }
 
 type MCPConnection struct {

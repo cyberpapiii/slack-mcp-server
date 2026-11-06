@@ -32,7 +32,6 @@ const MaxResponseBytes = 64 << 20
 // or unparsable, so callers still see a retryable RateLimitedError.
 const DefaultRetryAfter = 5 * time.Second
 
-// Doer is the part of *http.Client used here.
 type Doer interface {
 	Do(*http.Request) (*http.Response, error)
 }
@@ -135,7 +134,6 @@ func Decode(body []byte, v any) error {
 	return json.Unmarshal(body, v)
 }
 
-// Call is Post followed by Decode.
 func Call(ctx context.Context, client Doer, req Request, v any) error {
 	body, err := Post(ctx, client, req)
 	if err != nil {

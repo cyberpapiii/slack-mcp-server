@@ -23,13 +23,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// accountUsage says where the default account comes from. The server has no
-// default of its own, so a login saved under the fallback is used only once
-// the server's environment names it too.
 const accountUsage = "macOS Keychain account; defaults to $" + oauthcred.EnvKeychainAccount + ", else " + defaultAccount + ", which only this tool falls back to: the server uses the account $" + oauthcred.EnvKeychainAccount + " names"
 
-// A login asks for the scopes of the server's default preset unless --preset
-// names another.
 const presetUsage = "scope preset: " + capability.PresetDailyPower + " or " + capability.PresetLegacyFull
 
 const (

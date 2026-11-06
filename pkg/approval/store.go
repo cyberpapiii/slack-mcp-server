@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// TTL is how long a prepared token stays valid.
 const TTL = 5 * time.Minute
 
 var (
@@ -19,8 +18,6 @@ var (
 	ErrBinding = errors.New("approval token does not match this action")
 )
 
-// Binding is what a token authorizes: who acts, with which tool, on which
-// arguments, against which observed Slack state.
 type Binding struct {
 	teamID, userID, tool string
 	arguments, observed  string
@@ -69,7 +66,6 @@ func NewStoreWithClock(clock func() time.Time) *Store {
 	return &Store{records: make(map[string]record), now: clock}
 }
 
-// Prepare issues a token for the binding and reports when it expires.
 func (s *Store) Prepare(binding Binding) (string, time.Time, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {

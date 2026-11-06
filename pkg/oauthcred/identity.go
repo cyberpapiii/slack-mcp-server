@@ -36,7 +36,6 @@ func (want Identity) Match(got Identity) error {
 	return nil
 }
 
-// AuthTestFunc runs auth.test for token.
 type AuthTestFunc func(ctx context.Context, token string) (*slack.AuthTestResponse, error)
 
 // SlackAuthTest calls auth.test through httpClient, which should come from

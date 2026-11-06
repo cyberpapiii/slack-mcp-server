@@ -11,7 +11,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// OutputMode selects the render fidelity for tool output.
 type OutputMode int
 
 const (
@@ -36,14 +35,6 @@ const attachmentCompactBudget = 300
 // literal double quotes get doubled by the CSV encoder and read as noise.
 const attachmentTruncationReceipt = " …[attachment truncated; re-fetch this message with detail: full]"
 
-// attachmentToCompactText renders bot-attachment content in standard mode up
-// to attachmentCompactBudget characters, in priority order: title+link, then
-// fields (Title: Value pairs, matching attachmentToFullText's formatting),
-// then text, then pretext. Parts are cut whole, not mid-word, except that an
-// oversized first part (typically the title) is hard-cut at the budget so an
-// attachment always renders something. When any content is dropped or cut,
-// attachmentTruncationReceipt is appended so the agent knows it can recover
-// the rest by re-fetching the message with detail: "full".
 func attachmentToCompactText(att slack.Attachment) string {
 	var parts []string
 
@@ -96,9 +87,6 @@ func attachmentToCompactText(att slack.Attachment) string {
 		}
 
 		if i == 0 {
-			// Nothing fits yet; hard-cut the first part so we still render
-			// something. Back up to a rune boundary so the cut can't split a
-			// multibyte character into invalid UTF-8.
 			cut := attachmentCompactBudget
 			for cut > 0 && !utf8.RuneStart(candidate[cut]) {
 				cut--

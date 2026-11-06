@@ -10,7 +10,6 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// browserSession is what the gate needs to know about the browser session.
 type browserSession interface {
 	BrowserFeaturesAvailable() bool
 	BrowserDegradedReason() string

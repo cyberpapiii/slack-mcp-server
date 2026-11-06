@@ -28,9 +28,8 @@ func logFilePath() (string, error) {
 	return path, nil
 }
 
-// prepareLogFile creates path owner-only (logs can carry message text when
-// SLACK_MCP_LOG_PARAMS=debug), and first moves it to path.1 once it exceeds
-// maxBytes. zap then opens it for append.
+// prepareLogFile creates path owner-only because logs can carry message text
+// when SLACK_MCP_LOG_PARAMS=debug.
 func prepareLogFile(path string, maxBytes int64) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
