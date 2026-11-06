@@ -10,7 +10,6 @@ import (
 
 const ResultSchemaVersion = "1"
 
-// fallbackJSON renders a structured result as the plain-text fallback content.
 func fallbackJSON(value any) string {
 	raw, err := json.Marshal(value)
 	if err != nil {

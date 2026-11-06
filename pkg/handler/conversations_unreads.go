@@ -38,7 +38,6 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	// The mute prefs and client.counts are independent reads; overlap them.
 	var mutedChannels map[string]bool
 	var mutedErr error
 	var wg sync.WaitGroup
@@ -176,9 +175,6 @@ func unreadCountFromHistory(current, msgCount int, fetchErr error) int {
 	return msgCount
 }
 
-// historyFetcher is the single method of provider.SlackAPI that the unread-count
-// backfill needs. It exists so tests can substitute a call-counting fake;
-// production passes ch.apiProvider.WebAPI().
 type historyFetcher interface {
 	GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
 }
@@ -296,7 +292,6 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 	return unreadChannels, dropped
 }
 
-// unreadChannelName is the cached label for a conversation, or its ID.
 func unreadChannelName(dir *provider.Directory, id string) string {
 	if label := dir.ChannelLabel(id); label != "" {
 		return label
@@ -304,7 +299,6 @@ func unreadChannelName(dir *provider.Directory, id string) string {
 	return id
 }
 
-// ConversationsMarkHandler marks a channel as read up to a specific timestamp
 func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
 	params, err := ch.parseParamsToolMark(ctx, request)
@@ -453,7 +447,6 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(request mcp.Call
 	return userIDs, nil
 }
 
-// ConversationsOpenHandler opens a new DM or MPIM
 func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
 	userIDs, err := ch.parseParamsToolOpenConversation(request)

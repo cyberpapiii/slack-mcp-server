@@ -321,9 +321,6 @@ func filterChannelsByQuery(channels []provider.Channel, query string, targets []
 	return result
 }
 
-// paginateChannels returns one page of channels plus the cursor for the next
-// page. An undecodable cursor is an error, not a silent restart at page one:
-// restarting would hand a paginating agent the first page forever.
 // sortChannels orders the full list before pagination so a cursor walks the
 // same ordering the first page showed. Ties break on ID for stability.
 func sortChannels(channels []provider.Channel, sortType string) {
@@ -336,7 +333,9 @@ func sortChannels(channels []provider.Channel, sortType string) {
 }
 
 // paginateChannels slices an already-ordered list. The cursor is the base64
-// ID of the last row served; the next page starts right after it.
+// ID of the last row served; the next page starts right after it. An
+// undecodable cursor is an error, not a silent restart at page one:
+// restarting would hand a paginating agent the first page forever.
 func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]provider.Channel, string, error) {
 	startIndex := 0
 	if cursor != "" {
@@ -372,7 +371,6 @@ func paginateChannels(channels []provider.Channel, cursor string, limit int) ([]
 
 var channelTypesDescription = fmt.Sprintf("Comma-separated channel types. Allowed values: %s. Default: '%s'.", quotedList(provider.AllChanTypes), strings.Join(defaultChannelTypes, ","))
 
-// Tools lists the MCP tools this handler serves.
 func (ch *ChannelsHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.ChannelsList, Run: ch.ChannelsHandler, Options: []mcp.ToolOption{

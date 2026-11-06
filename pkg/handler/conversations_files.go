@@ -247,7 +247,6 @@ func attachmentKind(f slack.File) string {
 	}
 }
 
-// megabytes renders a whole-megabyte limit, e.g. 5MB.
 func megabytes(n int) string {
 	return strconv.Itoa(n>>20) + "MB"
 }

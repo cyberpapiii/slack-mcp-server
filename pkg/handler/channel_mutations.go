@@ -143,7 +143,6 @@ func mutationResult(action string, state provider.ChannelMutationState, err erro
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *ChannelMutationHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.ChannelsRename, Run: h.ConversationsRenameHandler, Options: []mcp.ToolOption{

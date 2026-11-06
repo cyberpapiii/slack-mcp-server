@@ -8,7 +8,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Tools lists the MCP tools this handler serves.
 func (ch *ConversationsHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.ConversationsOpen, Run: ch.ConversationsOpenHandler, Options: []mcp.ToolOption{

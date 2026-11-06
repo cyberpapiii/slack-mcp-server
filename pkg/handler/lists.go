@@ -163,7 +163,6 @@ func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolReque
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Deleted Slack List item "+itemID), nil
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *ListsHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.ListsItemsList, Run: h.ListItems, Options: []mcp.ToolOption{

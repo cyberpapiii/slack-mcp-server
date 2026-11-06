@@ -298,7 +298,6 @@ func validateUserID(userID string) error {
 	return nil
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *PeopleChannelsHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.UsersGetProfile, Run: h.GetUserProfile, Options: []mcp.ToolOption{

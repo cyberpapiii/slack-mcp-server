@@ -64,7 +64,6 @@ const (
 	detailFull     = "full"
 )
 
-// detailOption declares the `detail` parameter outputMode reads.
 func detailOption() mcp.ToolOption {
 	return mcp.WithString("detail", mcp.Description(toolDetailDescription), mcp.Enum(detailStandard, detailFull))
 }
@@ -84,7 +83,6 @@ func (s Settings) outputMode(request mcp.CallToolRequest) (text.OutputMode, erro
 	return text.ModeStandard, invalidArguments(fmt.Sprintf("invalid detail value %q: must be \"standard\" or \"full\"", detail))
 }
 
-// requireChannel enforces the tool's channel allowlist, if it has one.
 func (s Settings) requireChannel(tool, channel string) error {
 	if s.channelAllowed(tool, channel) {
 		return nil

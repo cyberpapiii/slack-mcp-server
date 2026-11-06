@@ -251,7 +251,6 @@ func parsePostAt(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339, value)
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *MessageFilesHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.FilesUpload, Run: h.FilesUpload, Options: []mcp.ToolOption{

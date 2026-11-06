@@ -267,7 +267,6 @@ type SemanticSearchHandler struct {
 	labels Labels
 }
 
-// SemanticSearchAPI is the Slack call search_semantic makes.
 type SemanticSearchAPI interface {
 	SearchSemantic(context.Context, provider.SemanticSearchRequest) (provider.SemanticSearchPage, error)
 }
@@ -349,7 +348,6 @@ func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallTool
 	return semanticSearchResult(page, slices.Contains(input.ContentTypes, "files"), h.labels.ChannelLabel)
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *DraftsHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.DraftsList, Run: h.List, Options: []mcp.ToolOption{
@@ -384,7 +382,6 @@ func (h *DraftsHandler) Tools() []ToolDef {
 	}
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *SemanticSearchHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.SearchSemantic, Run: h.Search, Options: []mcp.ToolOption{
@@ -400,7 +397,6 @@ func (h *SemanticSearchHandler) Tools() []ToolDef {
 	}
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *CanvasHandler) Tools() []ToolDef {
 	change := map[string]any{"type": "object", "required": []string{"operation", "markdown"}, "properties": map[string]any{"operation": map[string]any{"type": "string", "enum": canvasOperations}, "section_id": map[string]any{"type": "string"}, "markdown": map[string]any{"type": "string"}}, "additionalProperties": false}
 	return []ToolDef{

@@ -110,7 +110,6 @@ func cacheReadyNames() []string {
 	return names
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *AuthStatusHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.SlackAuthStatus, Run: h.Handler, Options: []mcp.ToolOption{

@@ -327,7 +327,6 @@ func parseFlexibleDate(dateStr string) (time.Time, string, error) {
 		}
 	}
 
-	// Month-Year patterns
 	if m := flexibleDateMonthYear.FindStringSubmatch(dateStr); m != nil {
 		var year int
 		var monStr string
@@ -344,7 +343,6 @@ func parseFlexibleDate(dateStr string) (time.Time, string, error) {
 		}
 	}
 
-	// Day-Month-Year and Month-Day-Year patterns
 	if m := flexibleDateDMY.FindStringSubmatch(dateStr); m != nil {
 		day, _ := strconv.Atoi(m[1])
 		year, _ := strconv.Atoi(m[3])

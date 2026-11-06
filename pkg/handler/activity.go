@@ -194,7 +194,6 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 	return NewStructuredResult(ActionData{Action: "mark_activity_read", Status: "marked", ActivityKey: key, MessageID: feedTs}, SlackResultMeta("", false, ""), fallback), nil
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *ActivityHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.ActivityUnreads, Run: h.ActivityUnreadsHandler, Options: []mcp.ToolOption{
