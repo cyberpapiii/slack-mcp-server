@@ -247,7 +247,7 @@ func (ap *ApiProvider) startUserOAuth(managed *oauthcred.Manager, record oauthcr
 	ap.startBrowserReprobe(client, browser.account, browser.envXoxc, browser.envXoxd)
 }
 
-func newProvider(authProvider slackcreds.Credentials, creds CredentialConfig, cache cacheConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
+func newProvider(authProvider slackcreds.Value, creds CredentialConfig, cache cacheConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
 	mode := credentialModeFor(authProvider.SlackToken(), browserConfigured)
 	if creds.Demo() {
 		mode = ModeDemo

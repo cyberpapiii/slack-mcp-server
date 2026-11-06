@@ -90,7 +90,7 @@ func demoAuthResponse() *slack.AuthTestResponse {
 
 // authTest builds the HTTP client for authProvider's credentials and proves
 // them against auth.test.
-func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
+func authTest(authProvider slackcreds.Value, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
 	httpClient, err := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 	if err != nil {
 		return nil, nil, err
@@ -113,7 +113,7 @@ func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Cl
 
 // connect authenticates authProvider and sets c up around it. Demo mode never
 // reaches Slack: it answers auth.test itself.
-func (c *MCPSlackClient) connect(authProvider slackcreds.Credentials, mode CredentialMode, logger *zap.Logger) error {
+func (c *MCPSlackClient) connect(authProvider slackcreds.Value, mode CredentialMode, logger *zap.Logger) error {
 	var httpClient *http.Client
 	var authResp *slack.AuthTestResponse
 	var err error
