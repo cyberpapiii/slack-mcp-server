@@ -333,7 +333,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		"G_MPIM":    {ID: "G_MPIM", Name: "@mpdm-alice--bob-1", IsMpIM: true},
 		"D_ALICE":   {ID: "D_ALICE", Name: "@alice", IsIM: true, User: "U_ALICE"},
 		"D_GHOST":   {ID: "D_GHOST", Name: "@U_NOT_CACHED", IsIM: true, User: "U_NOT_CACHED"},
-		"D_NOUSER":  {ID: "D_NOUSER", Name: "@", IsIM: true},
+		"D_NOUSER":  {ID: "D_NOUSER", IsIM: true},
 	}}
 	dir := provider.NewDirectory(users, channelsCache)
 

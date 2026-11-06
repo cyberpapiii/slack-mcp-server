@@ -262,13 +262,7 @@ func (d *Directory) ChannelLabel(id string) string {
 		return ""
 	}
 	if ch.IsIM && ch.User != "" {
-		if u, ok := d.users.Users[ch.User]; ok && u.Name != "" {
-			return "@" + u.Name
-		}
-		return "@" + ch.User
-	}
-	if ch.Name == "@" || ch.Name == "#" {
-		return ""
+		return dmName(ch.User, d.users.Users)
 	}
 	return ch.Name
 }

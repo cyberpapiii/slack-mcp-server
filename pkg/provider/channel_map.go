@@ -32,15 +32,31 @@ func newChannelsCache(size int) *ChannelsCache {
 	}
 }
 
-// add stores ch and indexes it by name. An IM whose peer could not be resolved
-// yet carries the bare "@" sigil; indexing that would make every such IM
-// collide on one inverse key, so it stays reachable by ID only until the next
-// refresh resolves it.
+// add stores ch and indexes it by name. A conversation with no name stays
+// reachable by ID only.
 func (c *ChannelsCache) add(ch Channel) {
 	c.Channels[ch.ID] = ch
-	if ch.Name != "" && ch.Name != "@" && ch.Name != "#" {
+	if ch.Name != "" {
 		c.ChannelsInv[ch.Name] = ch.ID
 	}
+}
+
+// withSigil is name behind its "#" or "@" sigil, or "" when there is no name,
+// so no conversation is ever named by a bare sigil.
+func withSigil(sigil, name string) string {
+	if name == "" {
+		return ""
+	}
+	return sigil + name
+}
+
+// dmName is a DM's label: "@" and the peer's username as the users snapshot
+// knows it, else the peer's ID.
+func dmName(peer string, users map[string]slack.User) string {
+	if u, ok := users[peer]; ok && u.Name != "" {
+		return "@" + u.Name
+	}
+	return withSigil("@", peer)
 }
 
 // Conversation categories, as conversations_unreads and channels_starred
@@ -101,6 +117,7 @@ func MapChannelFromSlack(c slack.Channel, usersMap map[string]slack.User) Channe
 		ch.User = c.User
 		return withIMPeer(ch, usersMap)
 	case c.IsMpIM:
+		ch.Name = withSigil("@", c.NameNormalized)
 		if len(c.Members) > 0 {
 			userNames := make([]string, 0, len(c.Members))
 			for _, uid := range c.Members {
@@ -110,13 +127,12 @@ func MapChannelFromSlack(c slack.Channel, usersMap map[string]slack.User) Channe
 					userNames = append(userNames, uid)
 				}
 			}
-			ch.Name = "@" + c.NameNormalized
 			ch.Purpose = "Group DM with " + strings.Join(userNames, ", ")
 			ch.Topic = ""
 			ch.MemberCount = len(c.Members)
 		}
 	default:
-		ch.Name = "#" + c.NameNormalized
+		ch.Name = withSigil("#", c.NameNormalized)
 	}
 	return ch
 }
@@ -134,11 +150,10 @@ func withIMPeer(ch Channel, usersMap map[string]slack.User) Channel {
 			}
 		}
 	}
+	ch.Name = dmName(ch.User, usersMap)
 	if u, ok := usersMap[ch.User]; ok {
-		ch.Name = "@" + u.Name
 		ch.Purpose = "DM with " + u.RealName
 	} else {
-		ch.Name = "@" + ch.User
 		ch.Purpose = "DM with " + ch.User
 	}
 	return ch
