@@ -58,10 +58,7 @@ func testChannel(id, name string) slack.Channel {
 // emptyUsersCache is the minimal users snapshot getChannelsMultiType needs,
 // since it calls ProvideUsersMap to resolve DM names.
 func emptyUsersCache() *UsersCache {
-	return &UsersCache{
-		Users:    map[string]slack.User{},
-		UsersInv: map[string]string{},
-	}
+	return newUsersCache(nil)
 }
 
 // Truncated channel pagination must error; must not replace a good snapshot.

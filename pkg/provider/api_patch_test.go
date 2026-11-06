@@ -54,10 +54,7 @@ func newTestApiProvider(client SlackAPI, snapshot *UsersCache) *ApiProvider {
 
 func TestUnitPatchUser(t *testing.T) {
 	t.Run("fetches and adds new user to snapshot", func(t *testing.T) {
-		initial := &UsersCache{
-			Users:    map[string]slack.User{"U001": {ID: "U001", Name: "alice"}},
-			UsersInv: map[string]string{"alice": "U001"},
-		}
+		initial := newUsersCache([]slack.User{{ID: "U001", Name: "alice"}})
 
 		newUser := slack.User{ID: "U002", Name: "bob"}
 		ap := newTestApiProvider(
@@ -78,10 +75,7 @@ func TestUnitPatchUser(t *testing.T) {
 	})
 
 	t.Run("API error leaves snapshot unchanged", func(t *testing.T) {
-		initial := &UsersCache{
-			Users:    map[string]slack.User{"U001": {ID: "U001", Name: "alice"}},
-			UsersInv: map[string]string{"alice": "U001"},
-		}
+		initial := newUsersCache([]slack.User{{ID: "U001", Name: "alice"}})
 
 		ap := newTestApiProvider(
 			&mockSlackClient{usersInfoErr: errors.New("slack API error")},
@@ -97,10 +91,7 @@ func TestUnitPatchUser(t *testing.T) {
 	})
 
 	t.Run("empty API result returns not found", func(t *testing.T) {
-		initial := &UsersCache{
-			Users:    map[string]slack.User{},
-			UsersInv: map[string]string{},
-		}
+		initial := newUsersCache(nil)
 
 		ap := newTestApiProvider(
 			&mockSlackClient{usersInfoResult: &[]slack.User{}},
@@ -114,10 +105,7 @@ func TestUnitPatchUser(t *testing.T) {
 	})
 
 	t.Run("nil API result returns not found", func(t *testing.T) {
-		initial := &UsersCache{
-			Users:    map[string]slack.User{},
-			UsersInv: map[string]string{},
-		}
+		initial := newUsersCache(nil)
 
 		ap := newTestApiProvider(
 			&mockSlackClient{usersInfoResult: nil},
@@ -130,10 +118,7 @@ func TestUnitPatchUser(t *testing.T) {
 	})
 
 	t.Run("does not mutate original snapshot", func(t *testing.T) {
-		initial := &UsersCache{
-			Users:    map[string]slack.User{"U001": {ID: "U001", Name: "alice"}},
-			UsersInv: map[string]string{"alice": "U001"},
-		}
+		initial := newUsersCache([]slack.User{{ID: "U001", Name: "alice"}})
 
 		var snapshotRef atomic.Pointer[UsersCache]
 		snapshotRef.Store(initial)
@@ -154,10 +139,7 @@ func TestUnitPatchUser(t *testing.T) {
 	})
 
 	t.Run("overwrites existing user with fresh data", func(t *testing.T) {
-		initial := &UsersCache{
-			Users:    map[string]slack.User{"U001": {ID: "U001", Name: "alice_old"}},
-			UsersInv: map[string]string{"alice_old": "U001"},
-		}
+		initial := newUsersCache([]slack.User{{ID: "U001", Name: "alice_old"}})
 
 		updatedUser := slack.User{ID: "U001", Name: "alice_new"}
 		ap := newTestApiProvider(
@@ -180,16 +162,11 @@ func TestUnitPatchUserConcurrent(t *testing.T) {
 	const seedCount = 5
 	const concurrentPatches = 8
 
-	initial := &UsersCache{
-		Users:    make(map[string]slack.User, seedCount),
-		UsersInv: make(map[string]string, seedCount),
-	}
+	seed := make([]slack.User, 0, seedCount)
 	for i := 0; i < seedCount; i++ {
-		id := fmt.Sprintf("SEED%d", i)
-		name := fmt.Sprintf("seed_%d", i)
-		initial.Users[id] = slack.User{ID: id, Name: name}
-		initial.UsersInv[name] = id
+		seed = append(seed, slack.User{ID: fmt.Sprintf("SEED%d", i), Name: fmt.Sprintf("seed_%d", i)})
 	}
+	initial := newUsersCache(seed)
 
 	ap := newTestApiProvider(&perUserSlackClient{}, initial)
 
