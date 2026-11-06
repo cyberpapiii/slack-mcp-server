@@ -9,15 +9,7 @@ import (
 )
 
 func TestUnitOAuthCredentialStatusNeverContainsTokens(t *testing.T) {
-	original := getenv
-	t.Cleanup(func() { getenv = original })
-	getenv = func(key string) string {
-		if key == "SLACK_MCP_XOXP_TOKEN" {
-			return "sentinel-access-secret"
-		}
-		return ""
-	}
-	status := OAuthStatusFromEnvironment()
+	status := CredentialConfig{XOXP: "sentinel-access-secret"}.oauthStatus()
 	raw, err := json.Marshal(status)
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "sentinel-access-secret")
@@ -26,20 +18,16 @@ func TestUnitOAuthCredentialStatusNeverContainsTokens(t *testing.T) {
 }
 
 func TestUnitOAuthCredentialStatusSupportsPKCEPublicClient(t *testing.T) {
-	original := getenv
-	t.Cleanup(func() { getenv = original })
-	getenv = func(key string) string {
-		switch key {
-		case "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT":
-			return "loop-user"
-		case "SLACK_MCP_OAUTH_CLIENT_ID":
-			return "client-id"
-		default:
-			return ""
-		}
-	}
-
-	status := OAuthStatusFromEnvironment()
+	status := CredentialConfig{OAuthKeychainAccount: "loop-user", OAuthClientID: "client-id"}.oauthStatus()
 	assert.Equal(t, "configured", status.State)
 	assert.True(t, status.RotationConfigured)
+}
+
+func TestUnitCredentialConfigTrimsEveryValue(t *testing.T) {
+	t.Setenv("SLACK_MCP_XOXP_TOKEN", " demo\n")
+	t.Setenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT", "  ")
+	creds := CredentialConfigFromEnv()
+	assert.Equal(t, "demo", creds.XOXP)
+	assert.True(t, creds.Demo())
+	assert.Empty(t, creds.OAuthKeychainAccount)
 }

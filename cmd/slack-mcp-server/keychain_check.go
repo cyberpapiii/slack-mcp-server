@@ -10,7 +10,7 @@ import (
 
 // runKeychainCheck backs --check-keychain. It prints no credential data.
 func runKeychainCheck() int {
-	read, err := provider.CheckKeychainAccess(context.Background())
+	read, err := provider.CheckKeychainAccess(context.Background(), provider.CredentialConfigFromEnv())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "keychain check failed: %v\n", err)
 		return 1

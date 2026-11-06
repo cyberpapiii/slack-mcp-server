@@ -2,8 +2,6 @@ package provider
 
 import (
 	"context"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
@@ -20,12 +18,12 @@ type OAuthCredentialStatus struct {
 	Reason             string `json:"reason,omitempty"`
 }
 
-func OAuthStatusFromEnvironment() OAuthCredentialStatus {
+func (c CredentialConfig) oauthStatus() OAuthCredentialStatus {
 	status := OAuthCredentialStatus{Source: "not_configured", Store: "not_configured", State: "unavailable"}
-	if strings.TrimSpace(getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT")) != "" {
+	if c.OAuthKeychainAccount != "" {
 		status.Source = "keychain"
 		status.Store = "macos_keychain"
-		if getenv("SLACK_MCP_OAUTH_CLIENT_ID") != "" {
+		if c.OAuthClientID != "" {
 			status.RotationConfigured = true
 			status.State = "configured"
 		} else {
@@ -34,14 +32,14 @@ func OAuthStatusFromEnvironment() OAuthCredentialStatus {
 		}
 		return status
 	}
-	if strings.TrimSpace(getenv("SLACK_MCP_XOXP_TOKEN")) != "" {
+	if c.XOXP != "" {
 		status.Source = "static_user_oauth"
 		status.Store = "environment"
 		status.State = "live"
 		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
 		return status
 	}
-	if strings.TrimSpace(getenv("SLACK_MCP_XOXB_TOKEN")) != "" {
+	if c.XOXB != "" {
 		status.Source = "static_bot_oauth"
 		status.Store = "environment"
 		status.State = "live"
@@ -51,12 +49,8 @@ func OAuthStatusFromEnvironment() OAuthCredentialStatus {
 	return status
 }
 
-func loadManagedOAuth(ctx context.Context, logger *zap.Logger) (*oauthcred.Manager, oauthcred.Record, error) {
-	account := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"))
-	if account == "" {
-		return nil, oauthcred.Record{}, nil
-	}
-	store, err := oauthcred.NewKeychainStore(account)
+func loadManagedOAuth(ctx context.Context, creds CredentialConfig, logger *zap.Logger) (*oauthcred.Manager, oauthcred.Record, error) {
+	store, err := oauthcred.NewKeychainStore(creds.OAuthKeychainAccount)
 	if err != nil {
 		return nil, oauthcred.Record{}, err
 	}
@@ -65,10 +59,8 @@ func loadManagedOAuth(ctx context.Context, logger *zap.Logger) (*oauthcred.Manag
 		return nil, oauthcred.Record{}, err
 	}
 	var refresher oauthcred.Refresher
-	clientID := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_CLIENT_ID"))
-	clientSecret := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_CLIENT_SECRET"))
-	if clientID != "" {
-		refresher = &oauthcred.SlackRefresher{HTTPClient: httpClient, ClientID: clientID, ClientSecret: clientSecret}
+	if creds.OAuthClientID != "" {
+		refresher = &oauthcred.SlackRefresher{HTTPClient: httpClient, ClientID: creds.OAuthClientID, ClientSecret: creds.OAuthClientSecret}
 	}
 	manager := oauthcred.NewManager(store, refresher, oauthcred.WithLock)
 	expected, err := store.Load(ctx)
@@ -83,10 +75,8 @@ func loadManagedOAuth(ctx context.Context, logger *zap.Logger) (*oauthcred.Manag
 	return manager, record, nil
 }
 
-var getenv = os.Getenv
-
 func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
-	status := OAuthStatusFromEnvironment()
+	status := ap.creds.oauthStatus()
 	if ap.oauthLoadErr != nil {
 		status.State = "unavailable"
 		status.Reason = "stored OAuth login failed to load (" + ap.oauthLoadErr.Error() + "); run slack-mcp-auth login --replace, then restart"

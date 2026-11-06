@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -243,7 +242,7 @@ func (ap *ApiProvider) startBrowserReprobe(account, xoxc, xoxd string) {
 		if err != nil {
 			return slackcreds.Value{}, nil, nil, err
 		}
-		httpClient, identity, err := authTest(browserAuth, client.logger)
+		httpClient, identity, err := authTest(browserAuth, client.demo, client.logger)
 		return browserAuth, identity, httpClient, err
 	}
 	go client.runBrowserReprobe(ap.lifetime(), browserReprobeInterval)
@@ -291,7 +290,7 @@ func attachBrowserToOAuth(ap *ApiProvider, xoxcToken, xoxdToken string, logger *
 			httpClient      *http.Client
 			browserIdentity *slack.AuthTestResponse
 		)
-		httpClient, browserIdentity, err = authTest(browserAuth, logger)
+		httpClient, browserIdentity, err = authTest(browserAuth, client.demo, logger)
 		if err == nil {
 			err = client.attachBrowserSession(browserAuth, browserIdentity, httpClient)
 		}
@@ -427,11 +426,5 @@ func (ap *ApiProvider) BrowserDegradedReason() string {
 }
 
 func (ap *ApiProvider) BrowserCredentialSource() string {
-	if strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT")) != "" {
-		return "macos_keychain"
-	}
-	if os.Getenv("SLACK_MCP_XOXC_TOKEN") != "" && os.Getenv("SLACK_MCP_XOXD_TOKEN") != "" {
-		return "environment_compatibility"
-	}
-	return "not_configured"
+	return ap.creds.browserCredentialSource()
 }

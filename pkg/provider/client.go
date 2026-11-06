@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,6 +51,7 @@ type MCPSlackClient struct {
 	authProvider slackcreds.Credentials
 	logger       *zap.Logger
 
+	demo         bool
 	isEnterprise bool
 	isOAuth      bool
 	isBotToken   bool
@@ -72,14 +72,6 @@ type MCPSlackClient struct {
 	oauthShutdownGrace time.Duration // test override for oauthShutdownGrace
 }
 
-// IsDemoCredentials reports whether the process runs with the documented
-// placeholder tokens. Demo mode builds a real client around a canned auth
-// response so every tool registers, but never reaches Slack.
-func IsDemoCredentials() bool {
-	return os.Getenv("SLACK_MCP_XOXP_TOKEN") == "demo" ||
-		(os.Getenv("SLACK_MCP_XOXC_TOKEN") == "demo" && os.Getenv("SLACK_MCP_XOXD_TOKEN") == "demo")
-}
-
 func demoAuthResponse() *slack.AuthTestResponse {
 	return &slack.AuthTestResponse{
 		URL:    "https://_.slack.com/",
@@ -92,12 +84,12 @@ func demoAuthResponse() *slack.AuthTestResponse {
 
 // authTest builds the HTTP client for authProvider's credentials and proves
 // them against auth.test. Demo credentials skip the network entirely.
-func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
+func authTest(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
 	httpClient, err := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 	if err != nil {
 		return nil, nil, err
 	}
-	if IsDemoCredentials() {
+	if demo {
 		return httpClient, demoAuthResponse(), nil
 	}
 
@@ -117,8 +109,8 @@ func authTest(authProvider slackcreds.Credentials, logger *zap.Logger) (*http.Cl
 	return httpClient, authResp, nil
 }
 
-func newMCPSlackClient(authProvider slackcreds.Credentials, logger *zap.Logger) (*MCPSlackClient, error) {
-	httpClient, authResp, err := authTest(authProvider, logger)
+func newMCPSlackClient(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger) (*MCPSlackClient, error) {
+	httpClient, authResp, err := authTest(authProvider, demo, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +132,6 @@ func newMCPSlackClient(authProvider slackcreds.Credentials, logger *zap.Logger) 
 	// xoxe.* are rotation variants of xoxp/xoxb (same scopes, ~12h expiry).
 	isOAuth := strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxp-") || strings.HasPrefix(token, "xoxe.xoxb-")
 	isBotToken := strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxb-")
-	demo := IsDemoCredentials()
 	if demo {
 		isOAuth = true
 	}
@@ -151,6 +142,7 @@ func newMCPSlackClient(authProvider slackcreds.Credentials, logger *zap.Logger) 
 		authResponse: authResp,
 		authProvider: authProvider,
 		logger:       logger,
+		demo:         demo,
 		isEnterprise: authResp.EnterpriseID != "",
 		isOAuth:      isOAuth,
 		isBotToken:   isBotToken,
