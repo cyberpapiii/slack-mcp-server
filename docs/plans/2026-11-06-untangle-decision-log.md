@@ -190,3 +190,31 @@ Observable changes:
 - `SLACK_MCP_ADD_MESSAGE_UNFURLING` reads `off`/mixed-case booleans as booleans, not as a one-domain allowlist.
 - IDs with a lowercase body after `C`/`U` are rejected locally.
 - The channels/users resources no longer call auth.test per read.
+
+### Review rounds 1–2 (W5, W6, W9, W10) and the comments/tests passes
+Observable changes:
+- Tools no longer wait for the cache unless they look a name up; a cold-cache `#name`/`@name` returns
+  `cache_warming` (retryable). IDs work at once.
+- `conversations_get_message`, `reactions_get` and `saved_list` match the exact timestamp; a missing message is
+  `not_found` (reactions_get used to answer a successful "No message found" text). Local not-found codes are
+  `not_found`, matching Slack's own misses.
+- Bad `channel_types`/`query_targets`/`sort`, argument decoding and Lists input are `invalid_arguments`;
+  #general/shared-channel refusals `permission_denied`; archive conflicts `conflict`; a read deadline
+  `network_error`.
+- Six user-only write tools (`conversations_mark`, `messages_delete`, `users_set_profile`, `users_set_status`,
+  `scheduled_message_cancel`, `channels_archive`) require a user token, so bot tokens no longer list them.
+- `reactions_get` asks for the history scopes it uses (not `reactions:read`). `slack-mcp-auth` resolves tools
+  like the server (`--enabled-tools`, `--preset`, same env defaults); the server warns when the login lacks scopes.
+- Error hints name a tool only if it is served. The search description no longer promises message-URL lookup.
+  `saved_list` drops `max_messages_per_item` and names the failure code in its placeholder.
+- Clients own pacing and retries: 2 rate-limit retries everywhere (adds them to history/replies),
+  `conversations.replies` paced everywhere, Enterprise merge pages paced.
+- Channel writes, join, leave and open keep the channel cache current.
+- `canvases_read` falls back to the preview only for `not_allowed_token_type`/`missing_scope`.
+- A relative `SLACK_MCP_DOWNLOAD_DIR` fails at startup; downloads stop at the size cap while streaming.
+- `emoji_list` `#next_cursor` uses the one cursor codec; old numeric cursors are rejected.
+- Mark-after-post is skipped for a bot identity. Config warnings (bad cache TTL, log level, allowlists) reach the
+  log file. The OAuth refresh lock refuses a cwd-relative path.
+
+Still open (product decisions for Rob): `activity_unreads` skips top-level mentions; `reactions_add` returns text
+while its siblings return structured content.
