@@ -16,11 +16,6 @@ import (
 
 func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	params, err := ch.parseParamsToolFilesGet(request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse attachment_get_data params", zap.Error(err))
@@ -123,11 +118,6 @@ func nextFilesCursor(paging *slack.Paging) string {
 }
 
 func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	params, err := ch.parseParamsToolFilesList(ctx, request)
 	if err != nil {
@@ -351,11 +341,6 @@ func downloadPath(root string, f *slack.File) string {
 }
 
 func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	root, err := downloadRoot(ch.settings.DownloadDir)
 	if err != nil {

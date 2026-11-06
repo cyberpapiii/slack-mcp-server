@@ -271,7 +271,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 		}
 
 		channelType := "internal"
-		if cached, ok := dir.ChannelByRef(snap.ID); ok && cached.IsExtShared {
+		if cached, err := dir.ChannelByRef(snap.ID); err == nil && cached.IsExtShared {
 			channelType = "partner"
 		}
 
@@ -518,14 +518,9 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 			userIDs = append(userIDs, id)
 			continue
 		}
-		if !strings.HasPrefix(user, "@") {
-			// Anything else goes to Slack as given, for Slack to judge.
-			userIDs = append(userIDs, user)
-			continue
-		}
-		u, ok := ch.apiProvider.UserByRef(user)
-		if !ok {
-			return nil, userNotFound(user)
+		u, err := ch.apiProvider.UserByRef(user)
+		if err != nil {
+			return nil, cacheMiss(user, err, userNotFound)
 		}
 		userIDs = append(userIDs, u.ID)
 	}
@@ -539,11 +534,6 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 
 // ConversationsOpenHandler opens a new DM or MPIM
 func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	userIDs, err := ch.parseParamsToolOpenConversation(ctx, request)
 	if err != nil {

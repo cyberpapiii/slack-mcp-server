@@ -46,11 +46,6 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 
 func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	params, err := ch.parseParamsToolUsersSearch(request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse users-search params", zap.Error(err))

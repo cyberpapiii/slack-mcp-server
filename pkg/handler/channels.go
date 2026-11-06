@@ -80,11 +80,6 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 
 func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	sortType := request.GetString("sort", "popularity")
 	types := request.GetString("channel_types", "public_channel,private_channel")
 	cursor := request.GetString("cursor", "")
@@ -315,11 +310,6 @@ type StarredChannel struct {
 
 func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	channelTypesFilter := request.GetString("channel_types", "all")
 	limit := pageLimit(request, 100, 1000)
 
@@ -350,7 +340,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 			IsMuted: mutedChannels[id],
 		}
 
-		if cached, ok := dir.ChannelByRef(id); ok {
+		if cached, err := dir.ChannelByRef(id); err == nil {
 			sc.Name = cached.Name
 			sc.MemberCount = cached.MemberCount
 			sc.ChannelType = classifyChannelType(cached)

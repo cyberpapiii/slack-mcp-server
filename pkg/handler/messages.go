@@ -135,13 +135,8 @@ func (p messagePipeline) rows(ctx context.Context, slackMessages []slack.Message
 		})
 	}
 
-	if ready, err := p.api.IsReady(); !ready {
-		if warn && errors.Is(err, provider.ErrUsersNotReady) {
-			p.logger.Warn(
-				"Slack users sync is not ready yet: names may render as raw UIDs and @handle lookups will fail. Users sync runs as part of channels sync, and IM/MPIM channel operations need the users collection. Wait for the sync to finish and try again.",
-				zap.Error(err),
-			)
-		}
+	if warn && !p.api.UsersCacheReady() {
+		p.logger.Warn("Slack users sync is not ready yet: names may render as raw UIDs and @handle lookups will fail. Users sync runs as part of channels sync, and IM/MPIM channel operations need the users collection. Wait for the sync to finish and try again.")
 	}
 	return messages
 }
@@ -216,15 +211,19 @@ func (p messagePipeline) message(ctx context.Context, channel, timestamp string)
 }
 
 // channelID resolves a channel reference to an ID. A "#name" or "@user" the
-// cache does not know triggers one cache refresh before it is reported
+// warm cache does not know triggers one cache refresh before it is reported
 // missing; IDs and anything else pass through for Slack to judge.
 func (p messagePipeline) channelID(ctx context.Context, ref string) (string, error) {
 	id, name := provider.ParseChannelRef(ref)
 	if id != "" {
 		return id, nil
 	}
-	if ch, ok := p.api.ChannelByRef(name); ok {
+	ch, err := p.api.ChannelByRef(name)
+	if err == nil {
 		return ch.ID, nil
+	}
+	if !errors.Is(err, provider.ErrNotCached) {
+		return "", cacheMiss(name, err, channelNotFound)
 	}
 
 	p.logger.Debug("Channel not found in cache, attempting refresh", zap.String("channel", name))
@@ -237,9 +236,8 @@ func (p messagePipeline) channelID(ctx context.Context, ref string) (string, err
 		p.logger.Warn("Failed to refresh channels cache", zap.String("channel", name), zap.Error(refreshErr))
 		return "", &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", name), Cause: refreshErr}
 	}
-	ch, ok := p.api.ChannelByRef(name)
-	if !ok {
-		return "", channelNotFound(name)
+	if ch, err = p.api.ChannelByRef(name); err != nil {
+		return "", cacheMiss(name, err, channelNotFound)
 	}
 	return ch.ID, nil
 }

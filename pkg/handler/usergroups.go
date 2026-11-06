@@ -87,8 +87,6 @@ func newUsergroupsHandlerWithAPI(api UsergroupsAPI, logger *zap.Logger) *Usergro
 	return &UsergroupsHandler{api: api, logger: logger}
 }
 
-// No IsReady check: usergroup handlers call the Slack API directly and do not
-// depend on the users/channels cache, so cache readiness is not required.
 func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
 	includeUsers := request.GetBool("include_users", false)

@@ -15,11 +15,6 @@ import (
 
 func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	params, err := ch.parseParamsToolAddMessage(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse add-message params", zap.Error(err))
@@ -77,11 +72,6 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 // Preview for review before conversations_add_message.
 func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	params, err := ch.parseParamsToolDraftMessage(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse draft-message params", zap.Error(err))
@@ -115,11 +105,6 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 // ReactionsAddHandler adds an emoji reaction to a message
 func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
-
 	params, err := ch.parseParamsToolReaction(ctx, capability.ReactionsAdd, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse add-reaction params", zap.Error(err))
@@ -148,11 +133,6 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 
 // ReactionsRemoveHandler removes an emoji reaction from a message
 func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	params, err := ch.parseParamsToolReaction(ctx, capability.ReactionsRemove, request)
 	if err != nil {
@@ -185,11 +165,6 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 // Uses conversations.replies which works for top-level messages, thread parents, and thread replies
 // alike. Requires only channels:history scope, no additional reactions:read permission needed.
 func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	if ready, err := ch.apiProvider.IsReady(); !ready {
-		ch.logger.Debug("API provider not ready", zap.Error(err))
-		return nil, err
-	}
 
 	rawChannel := request.GetString("channel_id", "")
 	if rawChannel == "" {

@@ -200,6 +200,9 @@ func TypeError(err error, mutationAttempted bool) error {
 			return &ToolError{Code: code, Message: err.Error(), Cause: err}
 		}
 	}
+	if errors.Is(err, provider.ErrUsersNotReady) || errors.Is(err, provider.ErrChannelsNotReady) {
+		return &ToolError{Code: "cache_warming", Message: err.Error() + "; pass an ID instead of a name, or retry shortly", Retryable: true, Cause: err}
+	}
 	if errors.Is(err, provider.ErrOutcomeUnknown) {
 		return outcomeUnknown(err)
 	}

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -210,27 +209,9 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 		}
 	}
 
-	if strings.HasPrefix(channel, "#") || strings.HasPrefix(channel, "@") {
-		if ready, err := ch.apiProvider.IsReady(); !ready {
-			if errors.Is(err, provider.ErrUsersNotReady) {
-				ch.logger.Warn(
-					"Slack users sync is not ready yet: names may render as raw UIDs and @handle lookups will fail. Users sync runs as part of channels sync, and IM/MPIM channel operations need the users collection. Wait for the sync to finish and try again.",
-					zap.Error(err),
-				)
-			}
-			if errors.Is(err, provider.ErrChannelsNotReady) {
-				ch.logger.Warn(
-					"Slack channels sync is not ready yet: channels can only be requested by ID, not by name, until the sync finishes. Wait and try again.",
-					zap.Error(err),
-				)
-			}
-			return nil, fmt.Errorf("channel %q not found in empty cache", channel)
-		}
-		resolvedChannel, err := ch.messages.channelID(ctx, channel)
-		if err != nil {
-			return nil, err
-		}
-		channel = resolvedChannel
+	channel, err = ch.messages.channelID(ctx, channel)
+	if err != nil {
+		return nil, err
 	}
 
 	return &conversationParams{
