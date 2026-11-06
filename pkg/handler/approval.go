@@ -48,6 +48,18 @@ type approvalGate struct {
 	identity func() provider.ProviderIdentity
 }
 
+func newApprovalGate(identity func() provider.ProviderIdentity) approvalGate {
+	return approvalGate{store: approval.NewStore(), identity: identity}
+}
+
+// approvalOptions are a destructive tool's parameters wrapped in the
+// prepare/execute pair every approval-gated tool takes.
+func approvalOptions(params ...mcp.ToolOption) []mcp.ToolOption {
+	options := []mcp.ToolOption{mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction))}
+	options = append(options, params...)
+	return append(options, mcp.WithString("approval_token", mcp.Description(descApprovalToken)))
+}
+
 func (g approvalGate) check(request mcp.CallToolRequest, tool string, prepare bool, arguments, observed any) (ApprovalPhase, error) {
 	actor, err := requireUserActor(g.identity())
 	if err != nil {

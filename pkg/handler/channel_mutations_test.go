@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -14,7 +13,7 @@ import (
 )
 
 func newTestChannelMutationHandler(service ChannelMutationService) *ChannelMutationHandler {
-	return NewChannelMutationHandler(service, approval.NewStore(), userIdentity, envSettings())
+	return NewChannelMutationHandler(service, userIdentity, envSettings())
 }
 
 type fakeChannelMutationService struct {

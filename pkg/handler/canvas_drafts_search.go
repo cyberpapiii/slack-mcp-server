@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
@@ -105,8 +104,8 @@ type DraftsHandler struct {
 	labels    Labels
 }
 
-func NewDraftsHandler(api provider.DraftsAPI, labels Labels, approvals *approval.Store, identity func() provider.ProviderIdentity) *DraftsHandler {
-	return &DraftsHandler{api: renderedDrafts{api}, labels: labels, approvals: approvalGate{store: approvals, identity: identity}}
+func NewDraftsHandler(api provider.DraftsAPI, labels Labels, identity func() provider.ProviderIdentity) *DraftsHandler {
+	return &DraftsHandler{api: renderedDrafts{api}, labels: labels, approvals: newApprovalGate(identity)}
 }
 
 // renderedDrafts fills each draft Slack returns with its blocks rendered as
@@ -372,13 +371,12 @@ func (h *DraftsHandler) Tools() []ToolDef {
 			mcp.WithString("text", mcp.Required(), mcp.Description("Replacement draft text; required and non-empty.")),
 			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to target a thread; omit for a top-level draft.")),
 		}},
-		{Name: capability.DraftsDelete, Run: h.Delete, Options: []mcp.ToolOption{
+		{Name: capability.DraftsDelete, Run: h.Delete, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[DraftMutationResult](),
 			mcp.WithDescription("Preview or delete a persisted Slack draft."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("draft_id", mcp.Required(), mcp.Description("ID of the draft to delete, as returned by drafts_list.")),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }
 

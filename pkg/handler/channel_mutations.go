@@ -6,7 +6,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -36,8 +35,8 @@ type ChannelMutationData struct {
 
 type ChannelMutationResult = ToolResult[ChannelMutationData]
 
-func NewChannelMutationHandler(service ChannelMutationService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings) *ChannelMutationHandler {
-	return &ChannelMutationHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}, settings: settings}
+func NewChannelMutationHandler(service ChannelMutationService, identity func() provider.ProviderIdentity, settings Settings) *ChannelMutationHandler {
+	return &ChannelMutationHandler{service: service, approvals: newApprovalGate(identity), settings: settings}
 }
 
 func (h *ChannelMutationHandler) ConversationsRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -160,12 +159,11 @@ func (h *ChannelMutationHandler) Tools() []ToolDef {
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
 			mcp.WithString("purpose", mcp.Required(), mcp.Description("New purpose, up to 250 characters; pass an empty string to clear it.")),
 		}},
-		{Name: capability.ChannelsArchive, Run: h.ConversationsArchiveHandler, Options: []mcp.ToolOption{
+		{Name: capability.ChannelsArchive, Run: h.ConversationsArchiveHandler, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[ChannelMutationResult](),
 			mcp.WithDescription("Preview or archive one ordinary channel. Prepare first, then confirm the exact observed channel before execute."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelIDRaw)),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }

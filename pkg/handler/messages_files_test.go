@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
@@ -48,7 +47,7 @@ func (f *fakeMessageFilesService) GetMessage(context.Context, string, string) (s
 }
 
 func newTestMessageFilesHandler(service MessageFilesService) *MessageFilesHandler {
-	return NewMessageFilesHandler(service, approval.NewStore(), func() provider.ProviderIdentity {
+	return NewMessageFilesHandler(service, func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user", TokenMode: "oauth"}
 	}, envSettings())
 }

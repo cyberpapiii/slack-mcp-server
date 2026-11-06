@@ -10,7 +10,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -65,8 +64,8 @@ type MessageFilesHandler struct {
 	now       func() time.Time
 }
 
-func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings) *MessageFilesHandler {
-	return &MessageFilesHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}, settings: settings, now: time.Now}
+func NewMessageFilesHandler(service MessageFilesService, identity func() provider.ProviderIdentity, settings Settings) *MessageFilesHandler {
+	return &MessageFilesHandler{service: service, approvals: newApprovalGate(identity), settings: settings, now: time.Now}
 }
 
 func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -278,13 +277,12 @@ func (h *MessageFilesHandler) Tools() []ToolDef {
 			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to edit, e.g. 1712345678.123456.")),
 			mcp.WithString("text", mcp.Required(), mcp.Description("Replacement message text, non-empty and up to "+maxRunesText+".")),
 		}},
-		{Name: capability.MessagesDelete, Run: h.MessagesDelete, Options: []mcp.ToolOption{
+		{Name: capability.MessagesDelete, Run: h.MessagesDelete, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[MessageMutationResult](),
 			mcp.WithDescription("Preview or delete a Slack message. Prepare first, then execute with the approval token."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) containing the message; names are not resolved.")),
 			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to delete, e.g. 1712345678.123456.")),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }

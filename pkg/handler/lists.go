@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -25,8 +24,8 @@ type ListsHandler struct {
 	approvals approvalGate
 }
 
-func NewListsHandler(api ListsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity) *ListsHandler {
-	return &ListsHandler{api: api, approvals: approvalGate{store: approvals, identity: identity}}
+func NewListsHandler(api ListsAPI, identity func() provider.ProviderIdentity) *ListsHandler {
+	return &ListsHandler{api: api, approvals: newApprovalGate(identity)}
 }
 
 type ListCreateData struct {
@@ -200,14 +199,13 @@ func (h *ListsHandler) Tools() []ToolDef {
 			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID containing the items (starts with F, e.g. F1234567890).")),
 			mcp.WithArray("cells", mcp.Required(), mcp.MinItems(1), mcp.Items(listFieldItemSchema(true)), mcp.Description("Cells to set; each has column_id, row_id (the item ID), and one typed value key such as rich_text or select.")),
 		}},
-		{Name: capability.ListsItemDelete, Run: h.DeleteItem, Options: []mcp.ToolOption{
+		{Name: capability.ListsItemDelete, Run: h.DeleteItem, Options: append([]mcp.ToolOption{
 			mcp.WithOutputSchema[ListItemDeleteResult](),
 			mcp.WithDescription("Preview or delete one Slack List item. Prepare first, then confirm the exact item before execute."),
-			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
+		}, approvalOptions(
 			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID containing the item (starts with F, e.g. F1234567890).")),
 			mcp.WithString("item_id", mcp.Required(), mcp.Description("ID of the List item to delete, from lists_items_list or lists_items_create.")),
-			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
-		}},
+		)...)},
 	}
 }
 

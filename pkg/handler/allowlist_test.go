@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/stretchr/testify/assert"
@@ -47,11 +46,10 @@ func TestUnitEveryAllowlistedToolRefusesADeniedChannel(t *testing.T) {
 			require.NoError(t, err)
 			messageFiles := &fakeMessageFilesService{}
 			channelMutations := &fakeChannelMutationService{}
-			approvals := approval.NewStore()
 			var tools []ToolDef
 			tools = append(tools, NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop(), settings, true).Tools()...)
-			tools = append(tools, NewMessageFilesHandler(messageFiles, approvals, userIdentity, settings).Tools()...)
-			tools = append(tools, NewChannelMutationHandler(channelMutations, approvals, userIdentity, settings).Tools()...)
+			tools = append(tools, NewMessageFilesHandler(messageFiles, userIdentity, settings).Tools()...)
+			tools = append(tools, NewChannelMutationHandler(channelMutations, userIdentity, settings).Tools()...)
 
 			var run *ToolDef
 			for i := range tools {
