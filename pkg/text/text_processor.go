@@ -2,7 +2,6 @@ package text
 
 import (
 	"fmt"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -249,19 +248,6 @@ func AttachmentsTo2CSV(msgText string, attachments []slack.Attachment, mode Outp
 	}
 
 	return prefix + strings.Join(descriptions, ", ")
-}
-
-func Workspace(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", err
-	}
-	host := u.Hostname()
-	parts := strings.Split(host, ".")
-	if len(parts) < 3 {
-		return "", fmt.Errorf("invalid Slack URL: %q", rawURL)
-	}
-	return parts[0], nil
 }
 
 func TimestampToIsoRFC3339(slackTS string) (string, error) {
