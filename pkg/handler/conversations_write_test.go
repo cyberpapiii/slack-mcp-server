@@ -30,7 +30,7 @@ func TestUnitWriteToolsDenyChannelOutsideAllowlist(t *testing.T) {
 			t.Setenv(tt.env, "C456")
 			api := &provider.ApiProvider{}
 			api.SkipCache()
-			h := NewConversationsHandler(api, zap.NewNop(), envSettings())
+			h := NewConversationsHandler(api, zap.NewNop(), envSettings(), true)
 			_, err := tt.call(h, context.Background(), mutationRequest(tt.args))
 			var toolErr *ToolError
 			require.ErrorAs(t, err, &toolErr)

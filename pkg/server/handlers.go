@@ -20,8 +20,7 @@ type handlerSet struct {
 // tools they serve.
 func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools []string, settings handler.Settings) handlerSet {
 	approvals := approval.NewStore()
-	settings.AddMessageEnabled = slices.Contains(enabledTools, capability.ConversationsAddMessage)
-	conversations := handler.NewConversationsHandler(api, logger, settings)
+	conversations := handler.NewConversationsHandler(api, logger, settings, slices.Contains(enabledTools, capability.ConversationsAddMessage))
 	channels := handler.NewChannelsHandler(api, logger)
 	set := handlerSet{conversations: conversations, channels: channels}
 	for _, tools := range [][]handler.ToolDef{

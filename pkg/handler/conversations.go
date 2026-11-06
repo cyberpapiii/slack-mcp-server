@@ -155,14 +155,18 @@ type ConversationsHandler struct {
 	logger      *zap.Logger
 	settings    Settings
 	messages    messagePipeline
+	// sendEnabled says whether conversations_add_message is served, for the
+	// draft preview's "would it send" line.
+	sendEnabled bool
 }
 
-func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *ConversationsHandler {
+func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings, sendEnabled bool) *ConversationsHandler {
 	return &ConversationsHandler{
 		apiProvider: apiProvider,
 		logger:      logger,
 		settings:    settings,
 		messages:    messagePipeline{api: apiProvider, logger: logger},
+		sendEnabled: sendEnabled,
 	}
 }
 

@@ -41,6 +41,17 @@ func TestChannelAllowlistGrammar(t *testing.T) {
 	}
 }
 
+func TestAFalsyAllowlistIsWarnedAbout(t *testing.T) {
+	settings, err := settingsWith(map[string]string{capability.ReactionAllowlist: "false"})
+	require.NoError(t, err)
+	require.Len(t, settings.Warnings, 1)
+	assert.Contains(t, settings.Warnings[0], capability.ReactionAllowlist+"=false is treated as a channel allowlist and blocks every channel")
+
+	settings, err = settingsWith(map[string]string{capability.ReactionAllowlist: "C1"})
+	require.NoError(t, err)
+	assert.Empty(t, settings.Warnings)
+}
+
 func TestMalformedChannelAllowlistFailsAtStartup(t *testing.T) {
 	for _, value := range []string{"C1,!C2", "C1,,C2", "!"} {
 		_, err := settingsWith(map[string]string{capability.ReactionAllowlist: value})

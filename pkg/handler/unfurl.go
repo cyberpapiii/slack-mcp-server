@@ -15,31 +15,48 @@ var (
 	unfurlDomainRegex = regexp.MustCompile(`\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}\b`)
 )
 
-// unfurls reports whether a posted message may unfurl its links under
-// SLACK_MCP_ADD_MESSAGE_UNFURLING: off when empty or false, on for every link
-// when true, otherwise only when every URL and bare domain in the text is on
-// the comma-separated domain allowlist.
-func (s Settings) unfurls(text string, logger *zap.Logger) bool {
-	opt := s.Unfurling
-	if opt == "" || envutil.IsFalsy(opt) {
-		return false
-	}
-	if envutil.IsTruthy(opt) {
-		return true
-	}
+// unfurlPolicy is SLACK_MCP_ADD_MESSAGE_UNFURLING: off when empty or false,
+// on for every link when true, otherwise a comma-separated domain allowlist.
+type unfurlPolicy struct {
+	all     bool
+	allowed map[string]struct{}
+	raw     string
+}
 
-	allowed := make(map[string]struct{})
-	for _, d := range strings.Split(opt, ",") {
+func parseUnfurling(value string) unfurlPolicy {
+	policy := unfurlPolicy{raw: value}
+	if value == "" || envutil.IsFalsy(value) {
+		return policy
+	}
+	if envutil.IsTruthy(value) {
+		policy.all = true
+		return policy
+	}
+	policy.allowed = make(map[string]struct{})
+	for _, d := range strings.Split(value, ",") {
 		d = strings.ToLower(strings.TrimSpace(d))
 		if d != "" {
-			allowed[d] = struct{}{}
+			policy.allowed[d] = struct{}{}
 		}
+	}
+	return policy
+}
+
+// unfurls reports whether a posted message may unfurl its links: with a
+// domain allowlist, only when every URL and bare domain in the text is on it.
+func (s Settings) unfurls(text string, logger *zap.Logger) bool {
+	if s.unfurling.all {
+		return true
+	}
+	allowed := s.unfurling.allowed
+	if allowed == nil {
+		return false
 	}
 	refuse := func(host string) bool {
 		if logger != nil {
 			logger.Warn("Security: attempt to unfurl non-whitelisted host",
 				zap.String("host", host),
-				zap.String("allowed", opt),
+				zap.String("allowed", s.unfurling.raw),
 			)
 		}
 		return false
