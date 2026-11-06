@@ -63,7 +63,7 @@ func (h *ListsHandler) CreateList(ctx context.Context, request mcp.CallToolReque
 	}
 	listID, metadata, err := h.api.CreateList(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	return NewStructuredResult(ListCreateData{ListID: listID, Metadata: metadata}, SlackResultMeta("", false, ""), "Created Slack List "+listID), nil
 }
@@ -77,7 +77,7 @@ func (h *ListsHandler) UpdateList(ctx context.Context, request mcp.CallToolReque
 		return nil, invalidArguments("id is required")
 	}
 	if err := h.api.UpdateList(ctx, input); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	return NewStructuredResult(ListMutationData{ListID: input.ID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List "+input.ID), nil
 }
@@ -110,7 +110,7 @@ func (h *ListsHandler) CreateItem(ctx context.Context, request mcp.CallToolReque
 	}
 	item, err := h.api.CreateItem(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	return NewStructuredResult(item, SlackResultMeta("", false, ""), "Created Slack List item "+item.ID), nil
 }
@@ -124,7 +124,7 @@ func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequ
 		return nil, invalidArguments("list_id and at least one cell are required")
 	}
 	if err := h.api.UpdateItems(ctx, input); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	return NewStructuredResult(ListItemMutationData{ListID: input.ListID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List items"), nil
 }
@@ -156,7 +156,7 @@ func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolReque
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), "Prepared deletion of Slack List item "+itemID), nil
 	}
 	if err := h.api.DeleteItem(ctx, listID, itemID); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ListItemDeleteData{ApprovalPhase: phase, ListID: listID, ItemID: itemID, Status: "deleted"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Deleted Slack List item "+itemID), nil

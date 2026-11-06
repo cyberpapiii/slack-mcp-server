@@ -97,7 +97,7 @@ func TestPeopleHandlerRejectsEmptyProfileMutation(t *testing.T) {
 
 func TestPeopleHandlerStatusNormalizesEmojiAndDoesNotRetry(t *testing.T) {
 	service := &fakePeopleChannelsService{err: context.DeadlineExceeded}
-	result, err := served(newPeopleHandler(service).SetUserStatus(context.Background(), toolRequest(map[string]any{
+	result, err := servedWrite(newPeopleHandler(service).SetUserStatus(context.Background(), toolRequest(map[string]any{
 		"status_text": "Heads down", "status_emoji": "focus", "status_expiration": 123,
 	})))
 	require.NoError(t, err)

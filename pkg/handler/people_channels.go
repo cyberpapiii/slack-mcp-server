@@ -96,7 +96,7 @@ func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.
 	}
 	profile, err := h.service.UpdateProfile(ctx, identity.UserID, update)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ProfileData{Profile: profile}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -128,7 +128,7 @@ func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.C
 	}
 	profile, err := h.service.SetStatus(ctx, identity.UserID, text, emoji, expiration)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ProfileData{Profile: profile}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -158,7 +158,7 @@ func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.C
 	}
 	state, err := h.service.CreateChannel(ctx, name, request.GetBool("is_private", false), teamID)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ChannelData{Channel: state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -208,7 +208,7 @@ func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, reques
 	sort.Strings(userIDs)
 	state, err := h.service.InviteChannelMembers(ctx, channelID, userIDs)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ChannelData{Channel: state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil

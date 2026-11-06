@@ -36,7 +36,7 @@ func (h *CanvasHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 	}
 	id, err := h.api.CreateCanvas(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := CanvasMutationData{CanvasID: id, Status: "created"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -92,7 +92,7 @@ func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 		}
 	}
 	if err := h.api.UpdateCanvas(ctx, input); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := CanvasMutationData{CanvasID: input.CanvasID, Status: "updated"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -194,7 +194,7 @@ func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 	}
 	created, err := h.api.CreateDraft(ctx, draft)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: ApprovalPhase{Phase: "executed"}, Status: "created", Draft: &created}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -207,7 +207,7 @@ func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 	}
 	updated, err := h.api.UpdateDraft(ctx, draft)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: ApprovalPhase{Phase: "executed"}, Status: "updated", Draft: &updated}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -238,7 +238,7 @@ func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest)
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 	}
 	if err := h.api.DeleteDraft(ctx, id, current.UpdatedTS); err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := DraftMutationData{ApprovalPhase: phase, Status: "deleted", Draft: &current}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil

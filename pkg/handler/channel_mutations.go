@@ -128,7 +128,7 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	}
 	state, err := h.service.ArchivePrepared(ctx, preparation)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	data := ChannelMutationData{Action: "archive", ApprovalPhase: phase, Channel: &state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil

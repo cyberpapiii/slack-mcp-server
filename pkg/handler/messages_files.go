@@ -99,7 +99,7 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 		AltText: strings.TrimSpace(request.GetString("alt_text", "")), SnippetType: strings.TrimSpace(request.GetString("snippet_type", "")),
 	})
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	result := FileUploadData{FileID: uploaded.FileID, Filename: uploaded.Filename, Title: uploaded.Title, ChannelID: uploaded.ChannelID, Outcome: "uploaded"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
@@ -124,7 +124,7 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 	}
 	mutation, err := h.service.Schedule(ctx, channelID, text, postAt, threadTS)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	result := MessageMutationData{Action: "schedule", ApprovalPhase: ApprovalPhase{Phase: "executed"}, ChannelID: mutation.ChannelID, ScheduledMessageID: mutation.ScheduledMessageID, PostAt: postAt.UTC().Format(time.RFC3339), Outcome: "scheduled"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
@@ -140,7 +140,7 @@ func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.Ca
 	}
 	mutation, err := h.service.Update(ctx, channelID, timestamp, text)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	result := MessageMutationData{Action: "update", ApprovalPhase: ApprovalPhase{Phase: "executed"}, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Outcome: "updated"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
@@ -187,7 +187,7 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	}
 	mutation, err := h.service.Delete(ctx, channelID, timestamp)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	result := MessageMutationData{Action: "delete", ApprovalPhase: phase, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Target: &target, Outcome: "deleted"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil

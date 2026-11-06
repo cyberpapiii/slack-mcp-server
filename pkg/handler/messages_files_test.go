@@ -105,7 +105,7 @@ func TestUnitMessagesDeletePrepareExecuteRevalidatesAndConsumesToken(t *testing.
 
 func TestUnitMessagesUpdateTimeoutIsOutcomeUnknownAndNeverRetried(t *testing.T) {
 	service := &fakeMessageFilesService{updateErr: context.DeadlineExceeded}
-	result, err := served(newTestMessageFilesHandler(service).MessagesUpdate(context.Background(), toolRequest(map[string]any{
+	result, err := servedWrite(newTestMessageFilesHandler(service).MessagesUpdate(context.Background(), toolRequest(map[string]any{
 		"channel_id": "C1", "timestamp": "1.000001", "text": "changed",
 	})))
 	require.NoError(t, err)

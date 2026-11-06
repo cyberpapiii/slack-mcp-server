@@ -98,6 +98,14 @@ func served(result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) 
 	return result, nil
 }
 
+// servedWrite is served for a write tool, as the server middleware types it.
+func servedWrite(result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) {
+	if err != nil {
+		return NewTypedErrorResult(TypeError(err, true)), nil
+	}
+	return result, nil
+}
+
 type timeoutErr struct{}
 
 func (timeoutErr) Error() string   { return "i/o timeout" }

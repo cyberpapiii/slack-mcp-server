@@ -70,13 +70,3 @@ func TestUnitDNDMutationsRejectBotIdentity(t *testing.T) {
 	assert.Equal(t, "user_oauth_required", typed.Code)
 	assert.False(t, api.ended)
 }
-
-func TestUnitDNDMutationTimeoutIsOutcomeUnknown(t *testing.T) {
-	api := &fakeDNDAPI{err: context.DeadlineExceeded}
-	handler := NewDNDHandler(api, userIdentity)
-	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"minutes": 30}}}
-	_, err := handler.SetSnooze(context.Background(), request)
-	var typed *ToolError
-	require.ErrorAs(t, err, &typed)
-	assert.Equal(t, "outcome_unknown", typed.Code)
-}

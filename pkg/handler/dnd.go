@@ -61,7 +61,7 @@ func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest)
 	}
 	status, err := h.api.SetSnoozeContext(ctx, minutes)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	return dndResult(identity.UserID, status)
 }
@@ -73,7 +73,7 @@ func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest)
 	}
 	status, err := h.api.EndSnoozeContext(ctx)
 	if err != nil {
-		return nil, TypeError(err, true)
+		return nil, err
 	}
 	return dndResult(identity.UserID, status)
 }
