@@ -2,13 +2,95 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
+
+type OAuthCredentialStatus struct {
+	Source             string `json:"source"`
+	RotationConfigured bool   `json:"rotation_configured"`
+	Store              string `json:"store"`
+	State              string `json:"state"`
+	Reason             string `json:"reason,omitempty"`
+}
+
+func OAuthStatusFromEnvironment() OAuthCredentialStatus {
+	status := OAuthCredentialStatus{Source: "not_configured", Store: "not_configured", State: "unavailable"}
+	if strings.TrimSpace(getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT")) != "" {
+		status.Source = "keychain"
+		status.Store = "macos_keychain"
+		if getenv("SLACK_MCP_OAUTH_CLIENT_ID") != "" {
+			status.RotationConfigured = true
+			status.State = "configured"
+		} else {
+			status.State = "foundation"
+			status.Reason = "OAuth client configuration is absent; authorization and rotation are unavailable"
+		}
+		return status
+	}
+	if strings.TrimSpace(getenv("SLACK_MCP_XOXP_TOKEN")) != "" {
+		status.Source = "static_user_oauth"
+		status.Store = "environment"
+		status.State = "live"
+		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
+		return status
+	}
+	if strings.TrimSpace(getenv("SLACK_MCP_XOXB_TOKEN")) != "" {
+		status.Source = "static_bot_oauth"
+		status.Store = "environment"
+		status.State = "live"
+		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
+		return status
+	}
+	return status
+}
+
+func loadManagedOAuth(ctx context.Context) (*oauthcred.Manager, oauthcred.Record, error) {
+	account := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"))
+	if account == "" {
+		return nil, oauthcred.Record{}, nil
+	}
+	store, err := oauthcred.NewKeychainStore(account)
+	if err != nil {
+		return nil, oauthcred.Record{}, err
+	}
+	var refresher oauthcred.Refresher
+	clientID := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_CLIENT_ID"))
+	clientSecret := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_CLIENT_SECRET"))
+	if clientID != "" {
+		refresher = &oauthcred.SlackRefresher{ClientID: clientID, ClientSecret: clientSecret}
+	}
+	manager := oauthcred.NewManager(store, refresher, oauthcred.WithLock)
+	expected, err := store.Load(ctx)
+	if err != nil {
+		return nil, oauthcred.Record{}, err
+	}
+	manager.WithValidator(func(ctx context.Context, rotated oauthcred.Record) error {
+		identity, err := slack.New(rotated.AccessToken).AuthTestContext(ctx)
+		if err != nil {
+			return err
+		}
+		if expected.TeamID == "" || expected.UserID == "" || identity.TeamID != expected.TeamID || identity.UserID != expected.UserID {
+			return errors.New("rotated OAuth identity does not match persisted workspace and user")
+		}
+		return nil
+	})
+	record, err := manager.Current(ctx)
+	if err != nil {
+		return nil, oauthcred.Record{}, err
+	}
+	return manager, record, nil
+}
+
+var getenv = os.Getenv
 
 func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 	status := OAuthStatusFromEnvironment()
@@ -29,13 +111,13 @@ func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 	return status
 }
 
-func (ap *ApiProvider) startManagedOAuth(manager *OAuthTokenManager, record OAuthTokenRecord) {
+func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oauthcred.Record) {
 	client, ok := ap.client.(*MCPSlackClient)
 	if !ok || client == nil {
 		return
 	}
 	expected := client.AuthResponse()
-	manager.WithValidator(func(ctx context.Context, rotated OAuthTokenRecord) error {
+	manager.WithValidator(func(ctx context.Context, rotated oauthcred.Record) error {
 		_, identity, err := client.managedSlackClient(ctx, rotated.AccessToken)
 		if err != nil {
 			return err

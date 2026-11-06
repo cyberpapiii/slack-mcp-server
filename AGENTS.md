@@ -26,7 +26,7 @@ After changing Go code, run `make deploy-local` (or rebuild `bin/slack-mcp-serve
 
 The target restarts the server by stopping its process and waiting up to 120s for a new PID, because `plug server off` is refused while `[http.slack_events]` depends on the `slack` upstream. Plug reconnects a stopped stdio server by itself (47s measured), so expect tools to be unavailable for up to a minute.
 
-Run the deploy while someone is at the Mac (or screen-sharing into it). The Keychain items' partition list pins the exact build (`cdhash:`) last allowed, and the local signing certificate has no Team ID, so every rebuild makes macOS show an access prompt for the OAuth (and browser) credential. `make deploy-local` collects that approval before it touches anything live: it builds and signs into `build/deploy-stage/`, runs that binary with `--check-keychain` (reads the items named by `SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT` / `SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT`, taken from Plug's `[servers.slack.env]`, and exits), and waits there with no deadline for **Always Allow**. Only after the check passes does it `rm` + `cp` the same file into `bin/` and restart Plug, so the live server starts already trusted. If the check fails, `bin/` and Plug are left unchanged. Removing the prompt entirely needs a signing identity with a Team ID; widening the Keychain ACL instead would let other programs read the token. With `SLACK_MCP_LOG_FILE` set, a stalled read in the live server logs `Still waiting on macOS Keychain` after 3s (`warnWhileWaiting`, `pkg/provider/keychain_wait.go`).
+Run the deploy while someone is at the Mac (or screen-sharing into it). The Keychain items' partition list pins the exact build (`cdhash:`) last allowed, and the local signing certificate has no Team ID, so every rebuild makes macOS show an access prompt for the OAuth (and browser) credential. `make deploy-local` collects that approval before it touches anything live: it builds and signs into `build/deploy-stage/`, runs that binary with `--check-keychain` (reads the items named by `SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT` / `SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT`, taken from Plug's `[servers.slack.env]`, and exits), and waits there with no deadline for **Always Allow**. Only after the check passes does it `rm` + `cp` the same file into `bin/` and restart Plug, so the live server starts already trusted. If the check fails, `bin/` and Plug are left unchanged. Removing the prompt entirely needs a signing identity with a Team ID; widening the Keychain ACL instead would let other programs read the token. With `SLACK_MCP_LOG_FILE` set, a stalled read in the live server logs `Still waiting on macOS Keychain` after 3s (`keychain.WarnWhileWaiting`, `pkg/keychain/wait.go`).
 
 ## Runtime layout
 
@@ -97,6 +97,9 @@ pkg/server/                  → tool registration (server.go, core_tools.go, da
 pkg/handler/                 → per-tool handlers; csv_result.go holds the CSV contract
 pkg/provider/                → Slack auth, SWR cache, API client, browser session
 pkg/slackcreds/              → the credential type (token + session cookies + browser user agent)
+pkg/oauthcred/               → rotating user OAuth credential: record, Keychain store, refresh lock, refresher, PKCE login, identity check
+pkg/keychain/                → macOS Keychain access (cgo) and the slow-prompt warning; shared by the OAuth and browser stores
+pkg/cachedir/                → per-user cache directory shared by the caches and the OAuth lock
 pkg/text/                    → message/block-kit formatting
 ```
 

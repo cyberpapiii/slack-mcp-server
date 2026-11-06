@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/korotovsky/slack-mcp-server/pkg/keychain"
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 )
 
 // CheckKeychainAccess reads every Keychain item the environment names
@@ -17,12 +20,12 @@ import (
 // binary under its 60s initialize timeout. The read blocks until someone
 // answers the prompt; ctx cannot interrupt the cgo call.
 func CheckKeychainAccess(ctx context.Context) (int, error) {
-	return checkKeychainAccess(ctx, platformKeychain())
+	return checkKeychainAccess(ctx, keychain.Platform())
 }
 
-func checkKeychainAccess(ctx context.Context, keychain keychainStore) (int, error) {
+func checkKeychainAccess(ctx context.Context, store keychain.Store) (int, error) {
 	items := []struct{ label, service, envVar string }{
-		{"OAuth", defaultOAuthKeychainService, "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"},
+		{"OAuth", oauthcred.KeychainService, "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"},
 		{"browser", browserKeychainService, "SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"},
 	}
 	read := 0
@@ -31,8 +34,8 @@ func checkKeychainAccess(ctx context.Context, keychain keychainStore) (int, erro
 		if account == "" {
 			continue
 		}
-		if _, err := keychain.Read(ctx, item.service, account); err != nil {
-			if errors.Is(err, ErrCredentialNotFound) {
+		if _, err := store.Read(ctx, item.service, account); err != nil {
+			if errors.Is(err, keychain.ErrNotFound) {
 				return read, fmt.Errorf("%s credential named by %s is not in the Keychain", item.label, item.envVar)
 			}
 			return read, fmt.Errorf("read %s credential named by %s: access denied or Keychain unavailable", item.label, item.envVar)

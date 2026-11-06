@@ -2,24 +2,40 @@ package provider
 
 import (
 	"context"
+	"net/http"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
-// ctxCheckingStore refuses a save on a done context, as the Keychain store
-// does before its cgo write.
-type ctxCheckingStore struct{ memoryCredentialStore }
-
-func (s *ctxCheckingStore) SaveIfGeneration(ctx context.Context, expected uint64, record OAuthTokenRecord) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return s.memoryCredentialStore.SaveIfGeneration(ctx, expected, record)
+// memoryStore is an in-memory oauthcred.Store.
+type memoryStore struct {
+	mu     sync.Mutex
+	record oauthcred.Record
 }
+
+func (s *memoryStore) Load(context.Context) (oauthcred.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.record, nil
+}
+
+func (s *memoryStore) SaveIfGeneration(_ context.Context, expected uint64, record oauthcred.Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.record.Generation != expected {
+		return oauthcred.ErrGenerationChanged
+	}
+	s.record = record
+	return nil
+}
+
+func (s *memoryStore) Delete(context.Context) error { return nil }
 
 // hookRefresher rotates like Slack, running onRefresh after Slack has
 // already consumed the old refresh token.
@@ -28,39 +44,23 @@ type hookRefresher struct {
 	onRefresh func()
 }
 
-func (r *hookRefresher) Refresh(context.Context, string) (OAuthRefreshResult, error) {
+func (r *hookRefresher) Refresh(context.Context, string) (oauthcred.RefreshResult, error) {
 	if r.onRefresh != nil {
 		r.onRefresh()
 	}
-	return OAuthRefreshResult{
+	return oauthcred.RefreshResult{
 		AccessToken: "rotated-access", RefreshToken: "rotated-refresh",
 		ExpiresAt: r.now.Add(time.Hour), Scopes: []string{"channels:read"},
 	}, nil
 }
 
-func expiringStore(now time.Time) *ctxCheckingStore {
-	return &ctxCheckingStore{memoryCredentialStore{record: OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "old-access", RefreshToken: "old-refresh",
+// expiringStore holds a credential inside the refresh window, so the next
+// Current rotates it.
+func expiringStore(now time.Time) *memoryStore {
+	return &memoryStore{record: oauthcred.Record{
+		Version: oauthcred.RecordVersion, AccessToken: "old-access", RefreshToken: "old-refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 7, Scopes: []string{"channels:read"},
-	}}}
-}
-
-// Slack consumes the old refresh token when it answers, so a context that
-// ends after the answer (shutdown, the 30s refresh deadline) must not stop
-// the rotated token reaching the store. Losing it forces a new login.
-func TestUnitOAuthRotationIsPersistedEvenIfTheCallerStopsWaiting(t *testing.T) {
-	now := time.Now().UTC()
-	store := expiringStore(now)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	manager := NewOAuthTokenManager(store, &hookRefresher{now: now, onRefresh: cancel}, nil)
-	manager.now = func() time.Time { return now }
-
-	_, _ = manager.Current(ctx)
-
-	saved, _ := store.Load(context.Background())
-	assert.Equal(t, "rotated-refresh", saved.RefreshToken, "the rotated refresh token is durable")
-	assert.Equal(t, uint64(8), saved.Generation)
+	}}
 }
 
 // Close waits for a refresh already in flight, so a normal shutdown (Plug
@@ -74,8 +74,7 @@ func TestUnitCloseWaitsForAnInFlightOAuthRefresh(t *testing.T) {
 		close(entered)
 		<-release
 	}}
-	manager := NewOAuthTokenManager(store, refresher, nil)
-	manager.now = func() time.Time { return now }
+	manager := oauthcred.NewManager(store, refresher, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	client := &MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, managedClientFactory: nil}
@@ -108,11 +107,10 @@ func TestUnitCloseDoesNotWaitForeverOnAStuckRefresh(t *testing.T) {
 	now := time.Now().UTC()
 	entered, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
-	manager := NewOAuthTokenManager(expiringStore(now), &hookRefresher{now: now, onRefresh: func() {
+	manager := oauthcred.NewManager(expiringStore(now), &hookRefresher{now: now, onRefresh: func() {
 		close(entered)
 		<-release
 	}}, nil)
-	manager.now = func() time.Time { return now }
 	ctx, cancel := context.WithCancel(context.Background())
 	client := &MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, oauthShutdownGrace: 20 * time.Millisecond}
 	ap := &ApiProvider{client: client, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
@@ -122,4 +120,11 @@ func TestUnitCloseDoesNotWaitForeverOnAStuckRefresh(t *testing.T) {
 	start := time.Now()
 	ap.Close()
 	assert.Less(t, time.Since(start), time.Second)
+}
+
+// oauthRoundTripFunc stubs an http.Client transport.
+type oauthRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f oauthRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }

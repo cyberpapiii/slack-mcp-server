@@ -11,6 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/cachedir"
+	"github.com/korotovsky/slack-mcp-server/pkg/keychain"
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -94,13 +97,13 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
 	xoxdToken := os.Getenv("SLACK_MCP_XOXD_TOKEN")
 	browserAccount := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"))
-	var managedManager *OAuthTokenManager
-	var managedRecord OAuthTokenRecord
+	var managedManager *oauthcred.Manager
+	var managedRecord oauthcred.Record
 	var oauthLoadErr error
 	if os.Getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT") != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		var managedErr error
-		stop := warnWhileWaiting(logger, keychainPromptAfter, "oauth")
+		stop := keychain.WarnWhileWaiting(logger, keychain.PromptAfter, "oauth")
 		managedManager, managedRecord, managedErr = loadManagedOAuth(ctx)
 		stop()
 		cancel()
@@ -123,7 +126,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 			oauthFallbackToken = xoxbToken
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		stop := warnWhileWaiting(logger, keychainPromptAfter, "browser")
+		stop := keychain.WarnWhileWaiting(logger, keychain.PromptAfter, "browser")
 		browserCredentials, loadErr := resolveBrowserStartupCredentials(ctx, account, oauthFallbackToken, xoxcToken, xoxdToken)
 		stop()
 		cancel()
@@ -229,9 +232,8 @@ func newProvider(transport string, authProvider slackcreds.Credentials, logger *
 	if IsDemoCredentials() {
 		teamID = "demo"
 	}
-	cacheDir, err := userCacheDir()
+	cacheDir, err := cachedir.Dir()
 	if err != nil {
-		cacheDir = "."
 		logger.Warn("User cache directory unavailable; caching in the working directory", zap.Error(err))
 	}
 	usersCache := os.Getenv("SLACK_MCP_USERS_CACHE")

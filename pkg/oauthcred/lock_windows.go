@@ -1,6 +1,6 @@
 //go:build windows
 
-package provider
+package oauthcred
 
 import (
 	"os"

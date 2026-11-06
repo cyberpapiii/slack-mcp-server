@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
@@ -61,7 +62,7 @@ type MCPSlackClient struct {
 	browserProbe         browserProbeFunc
 	browserConfigured    bool
 	oauthClientMu        sync.RWMutex
-	oauthManager         *OAuthTokenManager
+	oauthManager         *oauthcred.Manager
 	oauthGeneration      atomic.Uint64
 	oauthAccessToken     atomic.Value
 	oauthRuntimeState    atomic.Value

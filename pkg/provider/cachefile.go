@@ -49,28 +49,6 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// userCacheDir is the per-user cache directory; the error explains why the
-// caller has to fall back to the working directory.
-func userCacheDir() (string, error) {
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(cacheDir, "slack-mcp-server")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return "", err
-	}
-	return dir, nil
-}
-
-func getCacheDir() string {
-	dir, err := userCacheDir()
-	if err != nil {
-		return "."
-	}
-	return dir
-}
-
 func cachePath(cacheDir, teamID, filename string) string {
 	if teamID != "" {
 		return filepath.Join(cacheDir, teamID+"_"+filename)

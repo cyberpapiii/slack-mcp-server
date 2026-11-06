@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/keychain/keychaintest"
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,9 +28,9 @@ func withKeychainAccounts(t *testing.T, oauth, browser string) {
 
 func TestUnitCheckKeychainAccessReadsEveryConfiguredItem(t *testing.T) {
 	withKeychainAccounts(t, "oauth-account", "browser-account")
-	keychain := newFakeKeychain()
-	keychain.items[fakeKeychainKey(defaultOAuthKeychainService, "oauth-account")] = []byte("{}")
-	keychain.items[fakeKeychainKey(browserKeychainService, "browser-account")] = []byte("{}")
+	keychain := keychaintest.New()
+	keychain.Items[keychaintest.Key(oauthcred.KeychainService, "oauth-account")] = []byte("{}")
+	keychain.Items[keychaintest.Key(browserKeychainService, "browser-account")] = []byte("{}")
 
 	read, err := checkKeychainAccess(context.Background(), keychain)
 
@@ -38,8 +40,8 @@ func TestUnitCheckKeychainAccessReadsEveryConfiguredItem(t *testing.T) {
 
 func TestUnitCheckKeychainAccessNamesTheMissingItem(t *testing.T) {
 	withKeychainAccounts(t, "oauth-account", "browser-account")
-	keychain := newFakeKeychain()
-	keychain.items[fakeKeychainKey(defaultOAuthKeychainService, "oauth-account")] = []byte("{}")
+	keychain := keychaintest.New()
+	keychain.Items[keychaintest.Key(oauthcred.KeychainService, "oauth-account")] = []byte("{}")
 
 	read, err := checkKeychainAccess(context.Background(), keychain)
 
@@ -50,8 +52,8 @@ func TestUnitCheckKeychainAccessNamesTheMissingItem(t *testing.T) {
 
 func TestUnitCheckKeychainAccessReportsADeniedRead(t *testing.T) {
 	withKeychainAccounts(t, "oauth-account", "")
-	keychain := newFakeKeychain()
-	keychain.readErr = errors.New("user denied")
+	keychain := keychaintest.New()
+	keychain.ReadErr = errors.New("user denied")
 
 	_, err := checkKeychainAccess(context.Background(), keychain)
 
@@ -62,7 +64,7 @@ func TestUnitCheckKeychainAccessReportsADeniedRead(t *testing.T) {
 func TestUnitCheckKeychainAccessWithNothingConfiguredReadsNothing(t *testing.T) {
 	withKeychainAccounts(t, "", "")
 
-	read, err := checkKeychainAccess(context.Background(), newFakeKeychain())
+	read, err := checkKeychainAccess(context.Background(), keychaintest.New())
 
 	require.NoError(t, err)
 	assert.Zero(t, read)

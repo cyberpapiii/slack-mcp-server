@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/korotovsky/slack-mcp-server/pkg/keychain"
 )
 
 const browserKeychainService = "slack-mcp-server.browser"
@@ -21,7 +23,7 @@ func (BrowserTokenRecord) String() string { return "[REDACTED browser credential
 
 type BrowserCredentialStore struct {
 	account  string
-	keychain keychainStore
+	keychain keychain.Store
 }
 
 func NewBrowserCredentialStore(account string) (*BrowserCredentialStore, error) {
@@ -29,7 +31,7 @@ func NewBrowserCredentialStore(account string) (*BrowserCredentialStore, error) 
 	if account == "" {
 		return nil, errors.New("browser Keychain account is required")
 	}
-	return &BrowserCredentialStore{account: account, keychain: platformKeychain()}, nil
+	return &BrowserCredentialStore{account: account, keychain: keychain.Platform()}, nil
 }
 
 func (s *BrowserCredentialStore) Load(ctx context.Context) (BrowserTokenRecord, error) {

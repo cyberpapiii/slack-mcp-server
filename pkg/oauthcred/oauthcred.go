@@ -1,4 +1,7 @@
-package provider
+// Package oauthcred holds the rotating Slack user OAuth credential: its record,
+// its Keychain store and lock, the refresh that rotates it, and the PKCE login
+// that creates it.
+package oauthcred
 
 import (
 	"context"
@@ -10,8 +13,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,13 +21,13 @@ import (
 	"github.com/slack-go/slack"
 )
 
-const oauthRecordVersion = 1
+const RecordVersion = 1
 
-var ErrOAuthRefreshUnavailable = errors.New("OAuth refresh is unavailable")
+var ErrRefreshUnavailable = errors.New("OAuth refresh is unavailable")
 
-// OAuthTokenRecord is persisted only through CredentialStore. Callers must
+// Record is persisted only through Store. Callers must
 // never log or return this value.
-type OAuthTokenRecord struct {
+type Record struct {
 	Version           int       `json:"version"`
 	AccessToken       string    `json:"access_token"`
 	RefreshToken      string    `json:"refresh_token,omitempty"`
@@ -39,10 +40,10 @@ type OAuthTokenRecord struct {
 	RequiredScopes    []string  `json:"required_scopes,omitempty"`
 }
 
-func (OAuthTokenRecord) String() string { return "[REDACTED OAuth credential]" }
+func (Record) String() string { return "[REDACTED OAuth credential]" }
 
-func (r OAuthTokenRecord) validate() error {
-	if r.Version != oauthRecordVersion {
+func (r Record) validate() error {
+	if r.Version != RecordVersion {
 		return fmt.Errorf("unsupported OAuth credential version %d", r.Version)
 	}
 	if strings.TrimSpace(r.AccessToken) == "" {
@@ -51,39 +52,39 @@ func (r OAuthTokenRecord) validate() error {
 	return nil
 }
 
-func (r OAuthTokenRecord) expiring(now time.Time, earlyRefresh time.Duration) bool {
+func (r Record) expiring(now time.Time, earlyRefresh time.Duration) bool {
 	return !r.ExpiresAt.IsZero() && !r.ExpiresAt.After(now.Add(earlyRefresh))
 }
 
-type CredentialStore interface {
-	Load(context.Context) (OAuthTokenRecord, error)
-	SaveIfGeneration(context.Context, uint64, OAuthTokenRecord) error
+type Store interface {
+	Load(context.Context) (Record, error)
+	SaveIfGeneration(context.Context, uint64, Record) error
 	Delete(context.Context) error
 }
 
-var ErrCredentialGenerationChanged = errors.New("OAuth credential generation changed")
+var ErrGenerationChanged = errors.New("OAuth credential generation changed")
 
-type OAuthRefreshResult struct {
+type RefreshResult struct {
 	AccessToken  string
 	RefreshToken string
 	ExpiresAt    time.Time
 	Scopes       []string
 }
 
-type OAuthRefresher interface {
-	Refresh(context.Context, string) (OAuthRefreshResult, error)
+type Refresher interface {
+	Refresh(context.Context, string) (RefreshResult, error)
 }
 
-type SlackOAuthRefresher struct {
+type SlackRefresher struct {
 	HTTPClient   *http.Client
 	ClientID     string
 	ClientSecret string
 	now          func() time.Time
 }
 
-func (r *SlackOAuthRefresher) Refresh(ctx context.Context, refreshToken string) (OAuthRefreshResult, error) {
+func (r *SlackRefresher) Refresh(ctx context.Context, refreshToken string) (RefreshResult, error) {
 	if r.ClientID == "" {
-		return OAuthRefreshResult{}, ErrOAuthRefreshUnavailable
+		return RefreshResult{}, ErrRefreshUnavailable
 	}
 	client := r.HTTPClient
 	if client == nil {
@@ -99,26 +100,26 @@ func (r *SlackOAuthRefresher) Refresh(ctx context.Context, refreshToken string) 
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, transportpkg.SlackAPIBase()+"oauth.v2.access", strings.NewReader(form.Encode()))
 	if err != nil {
-		return OAuthRefreshResult{}, errors.New("build Slack OAuth refresh request")
+		return RefreshResult{}, errors.New("build Slack OAuth refresh request")
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	responseHTTP, err := client.Do(request)
 	if err != nil {
-		return OAuthRefreshResult{}, fmt.Errorf("refresh Slack OAuth token: %w", err)
+		return RefreshResult{}, fmt.Errorf("refresh Slack OAuth token: %w", err)
 	}
 	defer responseHTTP.Body.Close()
 	if rateLimited := transportpkg.RateLimited(responseHTTP); rateLimited != nil {
-		return OAuthRefreshResult{}, rateLimited
+		return RefreshResult{}, rateLimited
 	}
 	if responseHTTP.StatusCode != http.StatusOK {
-		return OAuthRefreshResult{}, fmt.Errorf("refresh Slack OAuth token: HTTP %d", responseHTTP.StatusCode)
+		return RefreshResult{}, fmt.Errorf("refresh Slack OAuth token: HTTP %d", responseHTTP.StatusCode)
 	}
 	var response slack.OAuthV2Response
 	if err := json.NewDecoder(responseHTTP.Body).Decode(&response); err != nil {
-		return OAuthRefreshResult{}, errors.New("decode Slack OAuth refresh response")
+		return RefreshResult{}, errors.New("decode Slack OAuth refresh response")
 	}
 	if err := response.Err(); err != nil {
-		return OAuthRefreshResult{}, fmt.Errorf("refresh Slack OAuth token: %w", err)
+		return RefreshResult{}, fmt.Errorf("refresh Slack OAuth token: %w", err)
 	}
 	now := r.now
 	if now == nil {
@@ -135,9 +136,9 @@ func (r *SlackOAuthRefresher) Refresh(ctx context.Context, refreshToken string) 
 		scope = response.Scope
 	}
 	if accessToken == "" || rotatedRefresh == "" || expiresIn <= 0 {
-		return OAuthRefreshResult{}, errors.New("refresh Slack OAuth token: incomplete rotated credential")
+		return RefreshResult{}, errors.New("refresh Slack OAuth token: incomplete rotated credential")
 	}
-	return OAuthRefreshResult{
+	return RefreshResult{
 		AccessToken: accessToken, RefreshToken: rotatedRefresh,
 		ExpiresAt: now().Add(time.Duration(expiresIn) * time.Second).UTC(),
 		Scopes:    splitScopes(scope),
@@ -149,18 +150,18 @@ func splitScopes(raw string) []string {
 	return append([]string(nil), fields...)
 }
 
-type OAuthTokenManager struct {
-	store        CredentialStore
-	refresher    OAuthRefresher
+type Manager struct {
+	store        Store
+	refresher    Refresher
 	lock         func(context.Context, func() error) error
 	now          func() time.Time
 	earlyRefresh time.Duration
-	validate     func(context.Context, OAuthTokenRecord) error
-	pending      *OAuthTokenRecord
+	validate     func(context.Context, Record) error
+	pending      *Record
 	mu           sync.Mutex
 }
 
-func (m *OAuthTokenManager) WithValidator(validate func(context.Context, OAuthTokenRecord) error) *OAuthTokenManager {
+func (m *Manager) WithValidator(validate func(context.Context, Record) error) *Manager {
 	m.validate = validate
 	return m
 }
@@ -169,11 +170,11 @@ func (m *OAuthTokenManager) WithValidator(validate func(context.Context, OAuthTo
 // returns. It is independent of the caller's context; see Current.
 const oauthRotateTimeout = 30 * time.Second
 
-func NewOAuthTokenManager(store CredentialStore, refresher OAuthRefresher, lock func(context.Context, func() error) error) *OAuthTokenManager {
+func NewManager(store Store, refresher Refresher, lock func(context.Context, func() error) error) *Manager {
 	if lock == nil {
 		lock = func(_ context.Context, fn func() error) error { return fn() }
 	}
-	return &OAuthTokenManager{
+	return &Manager{
 		store: store, refresher: refresher, lock: lock,
 		now: time.Now, earlyRefresh: 5 * time.Minute,
 	}
@@ -181,11 +182,11 @@ func NewOAuthTokenManager(store CredentialStore, refresher OAuthRefresher, lock 
 
 // Current serializes refresh in-process and across processes. It reloads after
 // taking the lock so a waiter observes the winner's rotated refresh token.
-func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, error) {
+func (m *Manager) Current(ctx context.Context) (Record, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var current OAuthTokenRecord
+	var current Record
 	err := m.lock(ctx, func() error {
 		record, err := m.store.Load(ctx)
 		if err != nil {
@@ -199,7 +200,7 @@ func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, erro
 			pending.Scopes = append([]string(nil), m.pending.Scopes...)
 			pending.RequiredScopes = append([]string(nil), m.pending.RequiredScopes...)
 			if err := m.store.SaveIfGeneration(ctx, pending.Generation-1, pending); err != nil {
-				if errors.Is(err, ErrCredentialGenerationChanged) {
+				if errors.Is(err, ErrGenerationChanged) {
 					m.pending = nil
 				}
 				return fmt.Errorf("persist pending rotated OAuth credential: %w", err)
@@ -208,18 +209,8 @@ func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, erro
 			record = pending
 		}
 		if record.PendingValidation {
-			if missing := missingScopes(record.RequiredScopes, record.Scopes); len(missing) != 0 {
-				return fmt.Errorf("validate rotated OAuth credential: lost required scopes: %s", strings.Join(missing, ","))
-			}
-			if m.validate != nil {
-				if err := m.validate(ctx, record); err != nil {
-					return fmt.Errorf("validate rotated OAuth credential: %w", err)
-				}
-			}
-			record.PendingValidation = false
-			record.RequiredScopes = nil
-			if err := m.store.SaveIfGeneration(ctx, record.Generation, record); err != nil {
-				return fmt.Errorf("commit validated OAuth credential: %w", err)
+			if record, err = m.commitValidated(ctx, record); err != nil {
+				return err
 			}
 		}
 		if !record.expiring(m.now(), m.earlyRefresh) {
@@ -227,7 +218,7 @@ func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, erro
 			return nil
 		}
 		if m.refresher == nil || record.RefreshToken == "" {
-			return ErrOAuthRefreshUnavailable
+			return ErrRefreshUnavailable
 		}
 		// Slack may consume the old refresh token as soon as it is sent, so
 		// the call and the save of its replacement run to completion even if
@@ -260,23 +251,29 @@ func (m *OAuthTokenManager) Current(ctx context.Context) (OAuthTokenRecord, erro
 			return fmt.Errorf("persist rotated OAuth credential: %w", err)
 		}
 		m.pending = nil
-		if missing := missingScopes(requiredScopes, rotated.Scopes); len(missing) != 0 {
-			return fmt.Errorf("refresh OAuth credential: rotated credential lost required scopes: %s", strings.Join(missing, ","))
-		}
-		if m.validate != nil {
-			if err := m.validate(ctx, record); err != nil {
-				return fmt.Errorf("validate rotated OAuth credential: %w", err)
-			}
-		}
-		record.PendingValidation = false
-		record.RequiredScopes = nil
-		if err := m.store.SaveIfGeneration(ctx, record.Generation, record); err != nil {
-			return fmt.Errorf("commit validated OAuth credential: %w", err)
-		}
-		current = record
-		return nil
+		current, err = m.commitValidated(ctx, record)
+		return err
 	})
 	return current, err
+}
+
+// commitValidated clears a rotated record's pending flag once it still has
+// every scope it had before rotation and passes the identity validator.
+func (m *Manager) commitValidated(ctx context.Context, record Record) (Record, error) {
+	if missing := missingScopes(record.RequiredScopes, record.Scopes); len(missing) != 0 {
+		return Record{}, fmt.Errorf("validate rotated OAuth credential: lost required scopes: %s", strings.Join(missing, ","))
+	}
+	if m.validate != nil {
+		if err := m.validate(ctx, record); err != nil {
+			return Record{}, fmt.Errorf("validate rotated OAuth credential: %w", err)
+		}
+	}
+	record.PendingValidation = false
+	record.RequiredScopes = nil
+	if err := m.store.SaveIfGeneration(ctx, record.Generation, record); err != nil {
+		return Record{}, fmt.Errorf("commit validated OAuth credential: %w", err)
+	}
+	return record, nil
 }
 
 func missingScopes(required, actual []string) []string {
@@ -293,7 +290,7 @@ func missingScopes(required, actual []string) []string {
 	return missing
 }
 
-type PKCEAuthorization struct {
+type PKCE struct {
 	State       string
 	Verifier    string
 	Challenge   string
@@ -304,7 +301,7 @@ type PKCEAuthorization struct {
 	mu          sync.Mutex
 }
 
-func NewPKCEAuthorization(redirectURI string) (*PKCEAuthorization, error) {
+func NewPKCE(redirectURI string) (*PKCE, error) {
 	u, err := url.Parse(redirectURI)
 	if err != nil || u.Scheme != "http" || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost") || u.Fragment != "" {
 		return nil, errors.New("OAuth redirect must be an exact HTTP loopback URL")
@@ -318,7 +315,7 @@ func NewPKCEAuthorization(redirectURI string) (*PKCEAuthorization, error) {
 		return nil, err
 	}
 	digest := sha256.Sum256([]byte(verifier))
-	return &PKCEAuthorization{
+	return &PKCE{
 		State: state, Verifier: verifier,
 		Challenge:   base64.RawURLEncoding.EncodeToString(digest[:]),
 		RedirectURI: u.String(),
@@ -327,7 +324,7 @@ func NewPKCEAuthorization(redirectURI string) (*PKCEAuthorization, error) {
 	}, nil
 }
 
-func (p *PKCEAuthorization) ValidateCallback(state, redirectURI string) error {
+func (p *PKCE) ValidateCallback(state, redirectURI string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.used {
@@ -351,16 +348,16 @@ func randomURLToken(bytes int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-// CommitAuthorizedOAuthCredential is final authorization-code boundary. Caller
+// CommitAuthorized is final authorization-code boundary. Caller
 // exchanges code using Slack app configuration, then supplies exact auth.test
 // identity validation before any credential becomes durable.
-func CommitAuthorizedOAuthCredential(
+func CommitAuthorized(
 	ctx context.Context,
-	store CredentialStore,
+	store Store,
 	expectedGeneration uint64,
-	record OAuthTokenRecord,
+	record Record,
 	requiredScopes []string,
-	validateIdentity func(context.Context, OAuthTokenRecord) error,
+	validateIdentity func(context.Context, Record) error,
 ) error {
 	if err := record.validate(); err != nil {
 		return err
@@ -380,21 +377,21 @@ func CommitAuthorizedOAuthCredential(
 	return store.SaveIfGeneration(ctx, expectedGeneration, record)
 }
 
-func ExchangeOAuthAuthorizationCode(
+func ExchangeCode(
 	ctx context.Context,
 	client *http.Client,
 	clientID, clientSecret, code, callbackState, callbackRedirect string,
-	authorization *PKCEAuthorization,
+	authorization *PKCE,
 	now time.Time,
-) (OAuthTokenRecord, error) {
+) (Record, error) {
 	if authorization == nil {
-		return OAuthTokenRecord{}, errors.New("PKCE authorization state is required")
+		return Record{}, errors.New("PKCE authorization state is required")
 	}
 	if err := authorization.ValidateCallback(callbackState, callbackRedirect); err != nil {
-		return OAuthTokenRecord{}, err
+		return Record{}, err
 	}
 	if clientID == "" || code == "" {
-		return OAuthTokenRecord{}, errors.New("OAuth client ID and authorization code are required")
+		return Record{}, errors.New("OAuth client ID and authorization code are required")
 	}
 	if client == nil {
 		client = http.DefaultClient
@@ -410,23 +407,23 @@ func ExchangeOAuthAuthorizationCode(
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, transportpkg.SlackAPIBase()+"oauth.v2.access", strings.NewReader(form.Encode()))
 	if err != nil {
-		return OAuthTokenRecord{}, errors.New("build Slack OAuth exchange request")
+		return Record{}, errors.New("build Slack OAuth exchange request")
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := client.Do(request)
 	if err != nil {
-		return OAuthTokenRecord{}, fmt.Errorf("exchange Slack OAuth code: %w", err)
+		return Record{}, fmt.Errorf("exchange Slack OAuth code: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return OAuthTokenRecord{}, fmt.Errorf("exchange Slack OAuth code: HTTP %d", response.StatusCode)
+		return Record{}, fmt.Errorf("exchange Slack OAuth code: HTTP %d", response.StatusCode)
 	}
 	var exchanged slack.OAuthV2Response
 	if err := json.NewDecoder(response.Body).Decode(&exchanged); err != nil {
-		return OAuthTokenRecord{}, errors.New("decode Slack OAuth exchange response")
+		return Record{}, errors.New("decode Slack OAuth exchange response")
 	}
 	if err := exchanged.Err(); err != nil {
-		return OAuthTokenRecord{}, fmt.Errorf("exchange Slack OAuth code: %w", err)
+		return Record{}, fmt.Errorf("exchange Slack OAuth code: %w", err)
 	}
 	accessToken := exchanged.AuthedUser.AccessToken
 	refreshToken := exchanged.AuthedUser.RefreshToken
@@ -439,98 +436,16 @@ func ExchangeOAuthAuthorizationCode(
 		expiresIn = exchanged.ExpiresIn
 		scopes = splitScopes(exchanged.Scope)
 	}
-	record := OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: accessToken, RefreshToken: refreshToken,
+	record := Record{
+		Version: RecordVersion, AccessToken: accessToken, RefreshToken: refreshToken,
 		ExpiresAt: now.Add(time.Duration(expiresIn) * time.Second).UTC(),
 		TeamID:    exchanged.Team.ID, UserID: userID, Scopes: scopes,
 	}
 	if err := record.validate(); err != nil {
-		return OAuthTokenRecord{}, err
+		return Record{}, err
 	}
 	if record.RefreshToken == "" || expiresIn <= 0 {
-		return OAuthTokenRecord{}, errors.New("Slack OAuth exchange did not return rotating credentials")
+		return Record{}, errors.New("Slack OAuth exchange did not return rotating credentials")
 	}
 	return record, nil
 }
-
-type OAuthCredentialStatus struct {
-	Source             string `json:"source"`
-	RotationConfigured bool   `json:"rotation_configured"`
-	Store              string `json:"store"`
-	State              string `json:"state"`
-	Reason             string `json:"reason,omitempty"`
-}
-
-func OAuthStatusFromEnvironment() OAuthCredentialStatus {
-	status := OAuthCredentialStatus{Source: "not_configured", Store: "not_configured", State: "unavailable"}
-	if strings.TrimSpace(getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT")) != "" {
-		status.Source = "keychain"
-		status.Store = "macos_keychain"
-		if getenv("SLACK_MCP_OAUTH_CLIENT_ID") != "" {
-			status.RotationConfigured = true
-			status.State = "configured"
-		} else {
-			status.State = "foundation"
-			status.Reason = "OAuth client configuration is absent; authorization and rotation are unavailable"
-		}
-		return status
-	}
-	if strings.TrimSpace(getenv("SLACK_MCP_XOXP_TOKEN")) != "" {
-		status.Source = "static_user_oauth"
-		status.Store = "environment"
-		status.State = "live"
-		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
-		return status
-	}
-	if strings.TrimSpace(getenv("SLACK_MCP_XOXB_TOKEN")) != "" {
-		status.Source = "static_bot_oauth"
-		status.Store = "environment"
-		status.State = "live"
-		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
-		return status
-	}
-	return status
-}
-
-func loadManagedOAuth(ctx context.Context) (*OAuthTokenManager, OAuthTokenRecord, error) {
-	account := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"))
-	if account == "" {
-		return nil, OAuthTokenRecord{}, nil
-	}
-	store, err := NewKeychainCredentialStore(account)
-	if err != nil {
-		return nil, OAuthTokenRecord{}, err
-	}
-	var refresher OAuthRefresher
-	clientID := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_CLIENT_ID"))
-	clientSecret := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_CLIENT_SECRET"))
-	if clientID != "" {
-		refresher = &SlackOAuthRefresher{ClientID: clientID, ClientSecret: clientSecret}
-	}
-	manager := NewOAuthTokenManager(
-		store,
-		refresher,
-		withOAuthFileLock(filepath.Join(getCacheDir(), "oauth-refresh.lock")),
-	)
-	expected, err := store.Load(ctx)
-	if err != nil {
-		return nil, OAuthTokenRecord{}, err
-	}
-	manager.WithValidator(func(ctx context.Context, rotated OAuthTokenRecord) error {
-		identity, err := slack.New(rotated.AccessToken).AuthTestContext(ctx)
-		if err != nil {
-			return err
-		}
-		if expected.TeamID == "" || expected.UserID == "" || identity.TeamID != expected.TeamID || identity.UserID != expected.UserID {
-			return errors.New("rotated OAuth identity does not match persisted workspace and user")
-		}
-		return nil
-	})
-	record, err := manager.Current(ctx)
-	if err != nil {
-		return nil, OAuthTokenRecord{}, err
-	}
-	return manager, record, nil
-}
-
-var getenv = os.Getenv
