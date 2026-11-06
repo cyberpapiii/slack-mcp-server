@@ -88,6 +88,28 @@ func (c *MCPSlackClient) browserFeaturesAvailable() bool {
 	return browserRuntimeState(c.browserState.Load()) == browserStateActive
 }
 
+// prefersBrowser reports whether a read that Slack serves both ways should go
+// through the browser session: always when it is the only session, and beside
+// OAuth while it is healthy. It answers more completely there (users/search
+// sees Slack Connect users, client.userBoot carries starred channels, mute
+// state needs users.prefs).
+func (c *MCPSlackClient) prefersBrowser() bool {
+	switch c.mode {
+	case ModeBrowser:
+		return true
+	case ModeUserOAuthBrowser:
+		return c.browserFeaturesAvailable()
+	default:
+		return false
+	}
+}
+
+// fallsBackToOAuth reports whether a browser read that failed with err can be
+// retried on OAuth: the call found the session dead and OAuth is there.
+func (c *MCPSlackClient) fallsBackToOAuth(err error) bool {
+	return c.mode == ModeUserOAuthBrowser && errors.Is(err, ErrBrowserSessionUnavailable)
+}
+
 func (c *MCPSlackClient) browserDegradedReason() string {
 	if reason, ok := c.browserReason.Load().(string); ok {
 		return reason
@@ -301,6 +323,12 @@ func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool,
 }
 
 func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error) {
+	if c.prefersBrowser() {
+		ids, err := c.bootStarredChannelIDs(ctx)
+		if !c.fallsBackToOAuth(err) {
+			return ids, err
+		}
+	}
 	if c.mode.OAuth() {
 		// v0.29 of slack-go replaced the Count/Page pair with cursor
 		// pagination; an empty cursor is still the first page.
@@ -322,7 +350,10 @@ func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([
 		}
 		return channelIDs, nil
 	}
+	return c.bootStarredChannelIDs(ctx)
+}
 
+func (c *MCPSlackClient) bootStarredChannelIDs(ctx context.Context) ([]string, error) {
 	ub, err := c.ClientUserBoot(ctx)
 	if err != nil {
 		return nil, err
@@ -365,6 +396,13 @@ func (c *MCPSlackClient) SavedDelete(ctx context.Context, itemType, itemID, ts s
 func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
 	_, err := browserCall(c, "saved.clearCompleted", func() (struct{}, error) { return struct{}{}, c.edgeClient.Load().SavedClearCompleted(ctx) })
 	return err
+}
+
+// PrefersBrowser reports whether reads Slack serves both ways should use the
+// browser session right now.
+func (ap *ApiProvider) PrefersBrowser() bool {
+	client, ok := ap.client.(*MCPSlackClient)
+	return ok && client != nil && client.prefersBrowser()
 }
 
 func (ap *ApiProvider) BrowserFeaturesAvailable() bool {

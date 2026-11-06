@@ -259,8 +259,8 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 
 	list := users
 
-	if ap.Mode().OAuth() {
-		ap.logger.Debug("Skipping Slack Connect enrichment (OAuth token, browser features unavailable)")
+	if !ap.PrefersBrowser() {
+		ap.logger.Debug("Skipping Slack Connect enrichment: no healthy browser session")
 	} else {
 		connectUsers, err := ap.GetSlackConnect(ctx)
 		if err != nil {
@@ -323,7 +323,8 @@ func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
 
 var slackUserIDPattern = regexp.MustCompile(`^[UW][A-Z0-9]{2,}$`)
 
-// ID query → users.info; OAuth → local cache regex; browser → edge UsersSearch.
+// SearchUsers looks an ID up with users.info. Otherwise it searches through the
+// browser session when that is preferred, and the local cache on OAuth.
 func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int) ([]slack.User, error) {
 	if slackUserIDPattern.MatchString(query) {
 		users, err := ap.client.GetUsersInfo(query)
@@ -336,10 +337,15 @@ func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int)
 		return nil, nil
 	}
 
+	if ap.PrefersBrowser() {
+		users, err := ap.client.UsersSearch(ctx, query, limit)
+		if client, _ := ap.client.(*MCPSlackClient); client == nil || !client.fallsBackToOAuth(err) {
+			return users, err
+		}
+	}
 	if ap.Mode().OAuth() {
 		return ap.searchUsersInCache(query, limit)
 	}
-
 	return ap.client.UsersSearch(ctx, query, limit)
 }
 

@@ -139,8 +139,8 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		}
 	}
 
-	// Supported Web API calls always prefer OAuth. Browser credentials are
-	// attached only to browser-private Activity and Later surfaces.
+	// Web API calls use OAuth. The browser session serves the browser-only
+	// tools and, while healthy, the reads it answers more completely.
 	if xoxpToken != "" {
 		authProvider, err := slackcreds.New(xoxpToken, "")
 		if err != nil {
