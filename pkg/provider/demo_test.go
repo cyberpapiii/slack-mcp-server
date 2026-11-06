@@ -33,7 +33,7 @@ func TestDemoCredentialsBuildFullClient(t *testing.T) {
 
 			assert.Equal(t, ModeDemo, ap.Mode())
 			for _, requirement := range []capability.Requirement{capability.UserToken, capability.UserOAuth, capability.BrowserSession} {
-				assert.True(t, ap.Satisfies(requirement), "demo registers every tool")
+				assert.True(t, requirement.Met(ap), "demo registers every tool")
 			}
 		})
 	}

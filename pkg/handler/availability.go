@@ -9,7 +9,7 @@ import (
 // RuntimeState is what the running server knows that decides whether a
 // tool can be called: the credentials, the browser session and the caches.
 type RuntimeState interface {
-	Satisfies(capability.Requirement) bool
+	capability.Credentials
 	BrowserFeaturesAvailable() bool
 	UsersCacheReady() bool
 	ChannelsCacheReady() bool
@@ -51,7 +51,7 @@ func (a Availability) unserved(tool capability.Tool) string {
 	if !slices.Contains(a.enabled, tool.Name) {
 		return "not_enabled"
 	}
-	if !a.state.Satisfies(tool.Requires) {
+	if !tool.Requires.Met(a.state) {
 		return requirementMissing[tool.Requires]
 	}
 	return ""

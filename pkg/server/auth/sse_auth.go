@@ -15,6 +15,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// The transports the server runs on. Only stdio skips authentication.
+const (
+	TransportStdio = "stdio"
+	TransportSSE   = "sse"
+	TransportHTTP  = "http"
+)
+
 type authKey struct{}
 
 var silentPassWarnOnce sync.Once
@@ -162,22 +169,12 @@ func BuildResourceMiddleware(transport string, logger *zap.Logger) server.Resour
 }
 
 func (a access) authenticate(ctx context.Context, transport string, logger *zap.Logger) (bool, error) {
-	switch transport {
-	case "stdio":
+	if transport == TransportStdio {
 		return true, nil
-
-	case "sse", "http":
-		// validateToken logs the specific reason once; callers add nothing.
-		if authenticated, err := a.validateToken(ctx, logger); !authenticated || err != nil {
-			return false, fmt.Errorf("unauthorized")
-		}
-		return true, nil
-
-	default:
-		logger.Error("Unknown transport type",
-			zap.String("context", "http"),
-			zap.String("transport", transport),
-		)
-		return false, fmt.Errorf("unknown transport type: %s", transport)
 	}
+	// validateToken logs the specific reason once; callers add nothing.
+	if authenticated, err := a.validateToken(ctx, logger); !authenticated || err != nil {
+		return false, fmt.Errorf("unauthorized")
+	}
+	return true, nil
 }

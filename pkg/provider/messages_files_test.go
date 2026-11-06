@@ -124,16 +124,13 @@ func TestUnitGetMessageRequiresTheAskedTimestamp(t *testing.T) {
 	parent := slack.Message{Msg: slack.Msg{Timestamp: "1712345678.000100"}}
 	client := &fakeMessageFilesClient{replies: []slack.Message{parent}}
 
-	got, err := fetchMessage(context.Background(), client, "C1", "1712345678.000200")
-	require.NoError(t, err)
-	assert.Nil(t, got, "Slack answered with another message")
-
-	_, err = NewMessageFilesProvider(client).GetMessage(context.Background(), "C1", "1712345678.000200")
+	_, err := NewMessageFilesProvider(client).GetMessage(context.Background(), "C1", "1712345678.000200")
 	var slackErr slack.SlackErrorResponse
-	require.ErrorAs(t, err, &slackErr)
+	require.ErrorAs(t, err, &slackErr, "Slack answered with another message")
 	assert.Equal(t, "message_not_found", slackErr.Err)
+	assert.True(t, IsMessageNotFound(err))
 
-	got, err = fetchMessage(context.Background(), &fakeMessageFilesClient{}, "C1", "1712345678.000100")
-	require.NoError(t, err)
-	assert.Nil(t, got, "no message at all")
+	_, err = fetchMessage(context.Background(), &fakeMessageFilesClient{}, "C1", "1712345678.000100")
+	assert.True(t, IsMessageNotFound(err), "no message at all")
+	assert.False(t, IsMessageNotFound(slack.SlackErrorResponse{Err: "channel_not_found"}))
 }

@@ -218,11 +218,9 @@ func (c *MCPSlackClient) reprobeBrowser(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := oauthcred.IdentityOf(&c.authResponse).Match(oauthcred.IdentityOf(identity)); err != nil {
-		return fmt.Errorf("browser provider %w", err)
+	if err := c.attachBrowserSession(browserAuth, identity, httpClient); err != nil {
+		return err
 	}
-	browserEdge := edge.NewWithInfo(identity, browserAuth.SlackToken(), httpClient, c.logger, c.pacing)
-	c.useBrowserEdge(browserEdge)
 	c.logger.Info("Browser-session Slack auth recovered")
 	return nil
 }

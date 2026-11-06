@@ -25,7 +25,7 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, availability h
 		handler.NewUsergroupsHandler(api.WebAPI(), api.Identity, logger).Tools(),
 		handler.NewSavedHandler(api, logger, settings).Tools(),
 		handler.NewActivityHandler(api, logger, settings).Tools(),
-		handler.NewScheduledHandler(api.Scheduled(), approvals, api.Identity).Tools(),
+		handler.NewScheduledHandler(api.WebAPI(), approvals, api.Identity).Tools(),
 		handler.NewChannelMutationHandler(api.ChannelMutations(), approvals, api.Identity, settings).Tools(),
 		handler.NewListsHandler(api.Lists(), approvals, api.Identity).Tools(),
 		handler.NewDNDHandler(api.WebAPI(), api.Identity).Tools(),

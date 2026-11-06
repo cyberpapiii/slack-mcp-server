@@ -182,3 +182,22 @@ func TestUnitCacheRevalidationLoopRunsOnATimerAndStopsOnCancel(t *testing.T) {
 		t.Fatal("revalidation loop did not stop on cancel")
 	}
 }
+
+// --no-cache and demo credentials mark the caches ready and register the
+// cache-dependent tools before StartCaches returns, so the first tools/list
+// already lists them.
+func TestUnitStartCachesSkipsWarmUpForNoCacheAndDemo(t *testing.T) {
+	for name, ap := range map[string]*ApiProvider{
+		"no-cache": {logger: zap.NewNop()},
+		"demo":     {logger: zap.NewNop(), client: MCPSlackClient{mode: ModeDemo}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ready := false
+			ap.StartCaches(name == "no-cache", func() { ready = true })
+			assert.True(t, ready)
+			isReady, err := ap.IsReady()
+			assert.True(t, isReady)
+			assert.NoError(t, err)
+		})
+	}
+}

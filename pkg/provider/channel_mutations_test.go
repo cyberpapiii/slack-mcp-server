@@ -37,7 +37,7 @@ func (f *fakeChannelMutationClient) RenameConversationContext(_ context.Context,
 		return nil, f.mutationErr
 	}
 	result := *f.infos[0]
-	result.Name = value
+	result.Name, result.NameNormalized = value, value
 	return &result, nil
 }
 
@@ -64,7 +64,7 @@ func (f *fakeChannelMutationClient) ArchiveConversationContext(context.Context, 
 
 func testMutationChannel() *slack.Channel {
 	return &slack.Channel{GroupConversation: slack.GroupConversation{
-		Conversation: slack.Conversation{ID: "C123"},
+		Conversation: slack.Conversation{ID: "C123", NameNormalized: "old-name"},
 		Name:         "old-name",
 		Topic:        slack.Topic{Value: "old topic"},
 		Purpose:      slack.Purpose{Value: "old purpose"},
@@ -102,7 +102,7 @@ func TestChannelMutationMetadataMethods(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := &fakeChannelMutationClient{infos: []*slack.Channel{testMutationChannel()}}
-			state, err := tt.call(NewChannelMutationProvider(fake))
+			state, err := tt.call(testChannelMutations(fake))
 			require.NoError(t, err)
 			assert.Equal(t, 1, fake.infoCalls)
 			tt.assert(t, fake, state)
@@ -124,7 +124,7 @@ func TestChannelMutationRejectsGeneralAndSharedBeforeMutation(t *testing.T) {
 			channel := testMutationChannel()
 			tt.edit(channel)
 			fake := &fakeChannelMutationClient{infos: []*slack.Channel{channel}}
-			_, err := NewChannelMutationProvider(fake).Rename(context.Background(), "C123", "new-name")
+			_, err := testChannelMutations(fake).Rename(context.Background(), "C123", "new-name")
 			require.ErrorIs(t, err, tt.want)
 			assert.Zero(t, fake.renameCalls)
 		})
@@ -135,7 +135,7 @@ func TestArchivePreparedChecksExactCurrentStateBeforeMutation(t *testing.T) {
 	initial := testMutationChannel()
 	unchanged := *initial
 	fake := &fakeChannelMutationClient{infos: []*slack.Channel{initial, &unchanged}}
-	provider := NewChannelMutationProvider(fake)
+	provider := testChannelMutations(fake)
 
 	preparation, err := provider.PrepareArchive(context.Background(), "C123")
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestArchivePreparedRejectsStateDriftWithoutMutation(t *testing.T) {
 	changed := *initial
 	changed.Topic.Value = "changed after review"
 	fake := &fakeChannelMutationClient{infos: []*slack.Channel{initial, &changed}}
-	provider := NewChannelMutationProvider(fake)
+	provider := testChannelMutations(fake)
 
 	preparation, err := provider.PrepareArchive(context.Background(), "C123")
 	require.NoError(t, err)
@@ -166,7 +166,41 @@ func TestPrepareArchiveRejectsAlreadyArchived(t *testing.T) {
 	channel := testMutationChannel()
 	channel.IsArchived = true
 	fake := &fakeChannelMutationClient{infos: []*slack.Channel{channel}}
-	_, err := NewChannelMutationProvider(fake).PrepareArchive(context.Background(), "C123")
+	_, err := testChannelMutations(fake).PrepareArchive(context.Background(), "C123")
 	require.ErrorIs(t, err, ErrChannelAlreadyArchived)
 	assert.Zero(t, fake.archiveCalls)
+}
+
+// testChannelMutations writes into a cache holding the test channel.
+func testChannelMutations(client ChannelMutationClient) *ChannelMutationProvider {
+	return &ChannelMutationProvider{client: client, cache: testChannelCache(testMutationChannel())}
+}
+
+func testChannelCache(channels ...*slack.Channel) *ApiProvider {
+	ap := newTestApiProvider(&fakeChannelsClient{}, newUsersCache(nil))
+	ap.channelsSnapshot.Store(newChannelsCache(0))
+	for _, ch := range channels {
+		ap.UpsertChannel(ch)
+	}
+	return ap
+}
+
+func TestUnitChannelMutationsKeepTheCacheCurrent(t *testing.T) {
+	initial := testMutationChannel()
+	unchanged := *initial
+	cache := testChannelCache(initial)
+	fake := &fakeChannelMutationClient{infos: []*slack.Channel{initial, &unchanged, initial}}
+	mutations := &ChannelMutationProvider{client: fake, cache: cache}
+
+	_, err := mutations.Rename(context.Background(), "C123", "renamed")
+	require.NoError(t, err)
+	snapshot := cache.ProvideChannelsMaps()
+	assert.Equal(t, "C123", snapshot.ChannelsInv["#renamed"])
+	assert.NotContains(t, snapshot.ChannelsInv, "#"+initial.NameNormalized, "the old name stops resolving")
+
+	preparation, err := mutations.PrepareArchive(context.Background(), "C123")
+	require.NoError(t, err)
+	_, err = mutations.ArchivePrepared(context.Background(), preparation)
+	require.NoError(t, err)
+	assert.NotContains(t, cache.ProvideChannelsMaps().Channels, "C123", "an archived channel leaves the cache")
 }

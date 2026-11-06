@@ -27,50 +27,44 @@ type conversationsPage struct {
 	cursor   string
 }
 
-// GetConversationsContext lists conversations paced as conversations.list.
-// On an Enterprise browser session one call merges the edge list with every
-// standard page.
+// GetConversationsContext lists conversations, each conversations.list page
+// paced and retried. On an Enterprise browser session one call merges the
+// edge list with every standard page and returns no cursor.
 func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
-	page, err := limiter.Paced(ctx, c.pacing, "conversations.list", func() (conversationsPage, error) {
-		channels, cursor, err := c.conversations(ctx, params)
+	if !c.isEnterprise || c.mode != ModeBrowser {
+		return c.conversationsPage(ctx, params)
+	}
+	// Edge alone is partial (issue #73), so it is merged with the fully
+	// paginated standard API.
+	edgeChannels, edgeErr := browserCall(c, "conversation list", func() ([]slack.Channel, error) {
+		return c.edgeClient.Load().GetConversationsContext(ctx)
+	})
+	if edgeErr != nil {
+		c.logger.Debug("Edge channel list failed; using the Web API alone", zap.Error(edgeErr))
+		return c.conversationsPage(ctx, params)
+	}
+	var channels []slack.Channel
+	for _, ec := range edgeChannels {
+		if params.ExcludeArchived && ec.IsArchived {
+			continue
+		}
+		channels = append(channels, ec)
+	}
+	return mergeStandardConversationPages(channels, params, func(p *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+		return c.conversationsPage(ctx, p)
+	})
+}
+
+func (c *MCPSlackClient) conversationsPage(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+	page, err := limiter.Paced(ctx, c.pacing, "conversations.list", nil, func() (conversationsPage, error) {
+		channels, cursor, err := c.standardSlackClient().GetConversationsContext(ctx, params)
 		return conversationsPage{channels, cursor}, err
 	})
 	return page.channels, page.cursor, err
 }
 
-func (c *MCPSlackClient) conversations(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
-	std := c.standardSlackClient()
-	// Enterprise + session: edge alone is partial (issue #73); merge with fully
-	// paginated standard API and return empty cursor. OAuth / non-Enterprise: standard only.
-	if c.isEnterprise {
-		if c.mode != ModeBrowser {
-			return std.GetConversationsContext(ctx, params)
-		}
-
-		edgeChannels, edgeErr := browserCall(c, "conversation list", func() ([]slack.Channel, error) {
-			return c.edgeClient.Load().GetConversationsContext(ctx)
-		})
-		if edgeErr != nil {
-			c.logger.Debug("Edge channel list failed; using the Web API alone", zap.Error(edgeErr))
-			return std.GetConversationsContext(ctx, params)
-		}
-
-		var channels []slack.Channel
-		for _, ec := range edgeChannels {
-			if params != nil && params.ExcludeArchived && ec.IsArchived {
-				continue
-			}
-			channels = append(channels, ec)
-		}
-
-		return mergeStandardConversationPages(channels, params, func(p *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
-			return std.GetConversationsContext(ctx, p)
-		})
-	}
-
-	return std.GetConversationsContext(ctx, params)
-}
-
+// mergeStandardConversationPages appends every standard page for the
+// caller's params to channels, skipping IDs already present.
 func mergeStandardConversationPages(
 	channels []slack.Channel,
 	params *slack.GetConversationsParameters,
@@ -81,16 +75,9 @@ func mergeStandardConversationPages(
 		seen[ch.ID] = struct{}{}
 	}
 
-	stdParams := &slack.GetConversationsParameters{
-		Limit:           999,
-		ExcludeArchived: true,
-	}
-	if params != nil {
-		stdParams.Types = params.Types
-	}
-
+	stdParams := *params
 	for {
-		stdChannels, nextCur, stdErr := fetchStd(stdParams)
+		stdChannels, nextCur, stdErr := fetchStd(&stdParams)
 		if stdErr != nil {
 			return channels, "", stdErr
 		}

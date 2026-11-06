@@ -14,7 +14,28 @@ import (
 // the file is missing or unreadable. An expired file is served while a
 // background fetch replaces it.
 func (ap *ApiProvider) RefreshChannels(ctx context.Context) error {
-	return ap.refreshChannelsInternal(ctx, false)
+	ap.channelsMu.Lock()
+	if cached, expired, ok := loadCacheFile[Channel](ap.channelsCachePath, ap.cacheTTL, ap.logger); ok {
+		// Re-map IMs against current users so @names stay fresh after user cache updates.
+		usersMap := ap.ProvideUsersMap().Users
+		newSnapshot := newChannelsCache(len(cached))
+		for _, c := range cached {
+			if c.IsIM {
+				c = withIMPeer(c, usersMap)
+			}
+			newSnapshot.add(c)
+		}
+		ap.channelsSnapshot.Store(newSnapshot)
+		ap.channelsReady.Store(true)
+		ap.channelsMu.Unlock()
+
+		if expired {
+			ap.spawnBackgroundRefresh(&ap.channelsFlight, "channels", ap.fetchAndStoreChannels)
+		}
+		return nil
+	}
+	ap.channelsMu.Unlock()
+	return ap.channelsFlight.do(ctx, ap.fetchAndStoreChannels)
 }
 
 // ForceRefreshChannels bypasses cache; rate-limited by minRefreshInterval (ErrRefreshRateLimited).
@@ -34,35 +55,6 @@ func (ap *ApiProvider) ForceRefreshChannels(ctx context.Context) error {
 	}
 
 	ap.logger.Info("Force refreshing channels cache")
-	return ap.refreshChannelsInternal(ctx, true)
-}
-
-func (ap *ApiProvider) refreshChannelsInternal(ctx context.Context, force bool) error {
-	ap.channelsMu.Lock()
-
-	if !force {
-		if cached, expired, ok := loadCacheFile[Channel](ap.channelsCachePath, ap.cacheTTL, ap.logger); ok {
-			// Re-map IMs against current users so @names stay fresh after user cache updates.
-			usersMap := ap.ProvideUsersMap().Users
-			newSnapshot := newChannelsCache(len(cached))
-			for _, c := range cached {
-				if c.IsIM {
-					c = withIMPeer(c, usersMap)
-				}
-				newSnapshot.add(c)
-			}
-			ap.channelsSnapshot.Store(newSnapshot)
-			ap.channelsReady.Store(true)
-			ap.channelsMu.Unlock()
-
-			if expired {
-				ap.spawnBackgroundRefresh(&ap.channelsFlight, "channels", ap.fetchAndStoreChannels)
-			}
-			return nil
-		}
-	}
-
-	ap.channelsMu.Unlock()
 	return ap.channelsFlight.do(ctx, ap.fetchAndStoreChannels)
 }
 
@@ -150,13 +142,33 @@ func (ap *ApiProvider) fetchChannels(ctx context.Context) ([]Channel, error) {
 	return chans, nil
 }
 
-// UpsertChannel adds one freshly opened conversation to the channels snapshot
-// without a full refetch, so the new DM resolves by ID and name immediately.
+// UpsertChannel writes one conversation Slack just returned (opened, joined,
+// created, renamed, retopiced) into the channels snapshot without a full
+// refetch, so it resolves by ID and current name at once and a renamed
+// channel's old name stops resolving. Write responses omit num_members, so a
+// zero count keeps the cached one.
 func (ap *ApiProvider) UpsertChannel(channel *slack.Channel) {
 	if channel == nil || channel.ID == "" {
 		return
 	}
 	mapped := MapChannelFromSlack(*channel, ap.ProvideUsersMap().Users)
+	ap.editChannels(func(c *ChannelsCache) {
+		if old, ok := c.Channels[mapped.ID]; ok && mapped.MemberCount == 0 {
+			mapped.MemberCount = old.MemberCount
+		}
+		c.remove(mapped.ID)
+		c.add(mapped)
+	})
+}
+
+// forgetChannel drops a conversation conversations.list no longer returns:
+// an archived channel, or a private channel or group DM the user left.
+func (ap *ApiProvider) forgetChannel(id string) {
+	ap.editChannels(func(c *ChannelsCache) { c.remove(id) })
+}
+
+// editChannels publishes edit applied to a copy of the channels snapshot.
+func (ap *ApiProvider) editChannels(edit func(*ChannelsCache)) {
 	for {
 		old := ap.channelsSnapshot.Load()
 		next := newChannelsCache(len(old.Channels) + 1)
@@ -166,7 +178,7 @@ func (ap *ApiProvider) UpsertChannel(channel *slack.Channel) {
 		for name, id := range old.ChannelsInv {
 			next.ChannelsInv[name] = id
 		}
-		next.add(mapped)
+		edit(next)
 		if ap.channelsSnapshot.CompareAndSwap(old, next) {
 			return
 		}

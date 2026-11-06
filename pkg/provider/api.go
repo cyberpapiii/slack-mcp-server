@@ -10,15 +10,11 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/cachedir"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/keychain"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"go.uber.org/zap"
 )
-
-const usersNotReadyMsg = "users cache is not ready yet, sync process is still running... please wait"
-const channelsNotReadyMsg = "channels cache is not ready yet, sync process is still running... please wait"
 
 // Upper bound for one cache warm-up or background refresh, so an orphaned
 // goroutine cannot hold Slack rate-limit budget forever. Large workspaces need
@@ -34,16 +30,13 @@ const (
 	IMChanType      = "im"
 )
 
-var ErrUsersNotReady = errors.New(usersNotReadyMsg)
-var ErrChannelsNotReady = errors.New(channelsNotReadyMsg)
-var ErrRefreshRateLimited = errors.New("refresh skipped due to rate limiting")
-var ErrBrowserSessionUnavailable = errors.New("browser-session Slack auth is unavailable; refresh browser tokens to restore browser-only Slack tools")
-var ErrUserOAuthRequired = errors.New("this personal Slack action requires user OAuth")
-
 type ApiProvider struct {
 	// oauthLoadErr is why managed OAuth failed at startup when the server
 	// continued on the browser session instead. OAuth-only tools are absent.
 	oauthLoadErr error
+	// oauthScopes are the scopes the managed OAuth login was granted, as
+	// loaded at startup; nil without managed OAuth.
+	oauthScopes []string
 
 	creds CredentialConfig
 	// client is the Slack session. api is the Slack calls the caches make:
@@ -378,9 +371,10 @@ func (ap *ApiProvider) WorkspaceURL() string {
 	return ap.client.authResponse.URL
 }
 
-// Satisfies reports whether the running credentials meet a tool's requirement.
-// A configured browser session satisfies BrowserSession even while degraded:
-// its tools stay registered and say why they fail until the session recovers.
-func (ap *ApiProvider) Satisfies(requirement capability.Requirement) bool {
-	return ap.Mode().satisfies(requirement)
-}
+// UserToken, UserOAuth and BrowserSession are the running credentials as a
+// tool's capability.Requirement reads them. A configured browser session
+// counts even while degraded: its tools stay registered and say why they fail
+// until the session recovers.
+func (ap *ApiProvider) UserToken() bool      { return ap.Mode().UserToken() }
+func (ap *ApiProvider) UserOAuth() bool      { return ap.Mode().UserOAuth() }
+func (ap *ApiProvider) BrowserSession() bool { return ap.Mode().BrowserSession() }

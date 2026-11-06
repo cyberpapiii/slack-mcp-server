@@ -65,7 +65,7 @@ func TestPeopleChannelsProfileReadAndExplicitClear(t *testing.T) {
 	fields := slack.UserProfileCustomFields{}
 	fields.SetMap(map[string]slack.UserProfileCustomField{"X1": {Value: "blue", Label: "Color"}})
 	fake := &fakePeopleChannelsClient{profile: &slack.UserProfile{DisplayName: "Rob", StatusEmoji: ":wave:", Fields: fields}}
-	service := NewPeopleChannelsProvider(fake)
+	service := &PeopleChannelsProvider{client: fake, cache: testChannelCache()}
 
 	profile, err := service.GetProfile(context.Background(), "U123", true)
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestPeopleChannelsEmojiSearchSortAndPagination(t *testing.T) {
 	fake := &fakePeopleChannelsClient{emoji: map[string]string{
 		"party_parrot": "https://emoji/party", "party_blob": "alias:blob", "wave": "https://emoji/wave",
 	}}
-	service := NewPeopleChannelsProvider(fake)
+	service := &PeopleChannelsProvider{client: fake, cache: testChannelCache()}
 
 	first, err := service.ListEmoji(context.Background(), "party", "", 1)
 	require.NoError(t, err)
@@ -110,7 +110,7 @@ func TestPeopleChannelsPassesSlackChannelPaginationAndMutatesOnce(t *testing.T) 
 	}}
 	channel.NumMembers = 3
 	fake := &fakePeopleChannelsClient{channel: channel, members: []string{"U1", "U2"}, nextCursor: "next"}
-	service := NewPeopleChannelsProvider(fake)
+	service := &PeopleChannelsProvider{client: fake, cache: testChannelCache()}
 
 	page, err := service.ListChannelMembers(context.Background(), "C123", "cursor", 2)
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestPeopleChannelsPassesSlackChannelPaginationAndMutatesOnce(t *testing.T) 
 
 func TestPeopleChannelsDoesNotRetryMutations(t *testing.T) {
 	fake := &fakePeopleChannelsClient{mutationErr: errors.New("timeout")}
-	service := NewPeopleChannelsProvider(fake)
+	service := &PeopleChannelsProvider{client: fake, cache: testChannelCache()}
 	empty := ""
 
 	_, _ = service.UpdateProfile(context.Background(), "U1", UserProfileUpdate{Title: &empty})

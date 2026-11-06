@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 )
 
@@ -36,8 +37,15 @@ func (c *WebClient) token() string {
 	return token
 }
 
+// post sends a hand-built call with the current token through the primary
+// HTTP client, for the methods slack-go does not wrap.
+func (c *WebClient) post(ctx context.Context, req slackhttp.Request) ([]byte, error) {
+	req.Token = c.token()
+	return slackhttp.Post(ctx, c.client.httpClient, req)
+}
+
 func (c *WebClient) GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-	return limiter.Paced(ctx, c.client.pacing, "conversations.history", func() (*slack.GetConversationHistoryResponse, error) {
+	return limiter.Paced(ctx, c.client.pacing, "conversations.history", nil, func() (*slack.GetConversationHistoryResponse, error) {
 		return c.resolve().GetConversationHistoryContext(ctx, params)
 	})
 }
@@ -49,7 +57,7 @@ type repliesPage struct {
 }
 
 func (c *WebClient) GetConversationRepliesContext(ctx context.Context, params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
-	page, err := limiter.Paced(ctx, c.client.pacing, "conversations.replies", func() (repliesPage, error) {
+	page, err := limiter.Paced(ctx, c.client.pacing, "conversations.replies", nil, func() (repliesPage, error) {
 		messages, hasMore, cursor, err := c.resolve().GetConversationRepliesContext(ctx, params)
 		return repliesPage{messages, hasMore, cursor}, err
 	})
@@ -104,14 +112,6 @@ func (c *WebClient) ScheduleMessageContext(ctx context.Context, channelID, postA
 	return c.resolve().ScheduleMessageContext(ctx, channelID, postAt, options...)
 }
 
-func (c *WebClient) GetScheduledMessagesContext(ctx context.Context, params *slack.GetScheduledMessagesParameters) ([]slack.ScheduledMessage, string, error) {
-	return c.resolve().GetScheduledMessagesContext(ctx, params)
-}
-
-func (c *WebClient) DeleteScheduledMessageContext(ctx context.Context, params *slack.DeleteScheduledMessageParameters) (bool, error) {
-	return c.resolve().DeleteScheduledMessageContext(ctx, params)
-}
-
 func (c *WebClient) AddReactionContext(ctx context.Context, name string, item slack.ItemRef) error {
 	return c.resolve().AddReactionContext(ctx, name, item)
 }
@@ -126,7 +126,7 @@ type searchPage struct {
 }
 
 func (c *WebClient) SearchContext(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, *slack.SearchFiles, error) {
-	page, err := limiter.Paced(ctx, c.client.pacing, "search.messages", func() (searchPage, error) {
+	page, err := limiter.Paced(ctx, c.client.pacing, "search.messages", nil, func() (searchPage, error) {
 		messages, files, err := c.resolve().SearchContext(ctx, query, params)
 		return searchPage{messages, files}, err
 	})

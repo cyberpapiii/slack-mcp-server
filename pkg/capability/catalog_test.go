@@ -102,3 +102,69 @@ func TestValidateNamesEveryUnknownTool(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid_tool, channel_list")
 	assert.NotContains(t, err.Error(), "invalid tool name(s): channels_list")
 }
+
+type creds struct{ user, oauth, browser bool }
+
+func (c creds) UserToken() bool      { return c.user }
+func (c creds) UserOAuth() bool      { return c.oauth }
+func (c creds) BrowserSession() bool { return c.browser }
+
+func TestRequirementTable(t *testing.T) {
+	bot := creds{}
+	assert.True(t, AnyToken.Met(bot))
+	for _, r := range []Requirement{UserToken, UserOAuth, BrowserSession} {
+		assert.False(t, r.Met(bot), "%s", r)
+		assert.Equal(t, r.String()+"_required", r.Missing())
+	}
+	assert.True(t, UserOAuth.Met(creds{oauth: true}))
+	assert.Empty(t, AnyToken.Missing())
+	assert.True(t, BrowserSession.Degrades())
+	assert.False(t, UserOAuth.Degrades())
+}
+
+func TestCacheReadyNames(t *testing.T) {
+	assert.Equal(t, []string{
+		"activity_mark_read",
+		"activity_unreads",
+		"channels_list",
+		"channels_me",
+		"channels_starred",
+		"conversations_unreads",
+	}, CacheReadyNames())
+}
+
+func TestResolve(t *testing.T) {
+	t.Run("explicit list overrides preset", func(t *testing.T) {
+		tools, err := Resolve("channels_list, users_search", PresetDailyPower)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"channels_list", "users_search"}, tools)
+	})
+
+	t.Run("daily power is default", func(t *testing.T) {
+		tools, err := Resolve("", "")
+		require.NoError(t, err)
+		assert.Equal(t, DailyPowerNames(), tools)
+	})
+
+	t.Run("legacy preset", func(t *testing.T) {
+		tools, err := Resolve("", PresetLegacyFull)
+		require.NoError(t, err)
+		assert.Equal(t, Names(), tools)
+	})
+
+	t.Run("whitespace-only explicit list is an error", func(t *testing.T) {
+		_, err := Resolve("  , , ", PresetDailyPower)
+		assert.ErrorContains(t, err, "no tool names")
+	})
+
+	t.Run("blank explicit list still uses the default preset", func(t *testing.T) {
+		tools, err := Resolve("   ", "")
+		require.NoError(t, err)
+		assert.Equal(t, DailyPowerNames(), tools)
+	})
+
+	t.Run("unknown names are refused", func(t *testing.T) {
+		_, err := Resolve("channels_list,no_such_tool", "")
+		assert.ErrorContains(t, err, "no_such_tool")
+	})
+}

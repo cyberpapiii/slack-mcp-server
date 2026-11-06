@@ -186,11 +186,14 @@ func hasImageBlocks(blocks slack.Blocks) bool {
 // delete path makes. nil means Slack has no message at that timestamp.
 func (p messagePipeline) message(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
 	msg, err := p.api.WebAPI().GetMessage(ctx, channel, timestamp)
+	if provider.IsMessageNotFound(err) {
+		return nil, nil
+	}
 	if err != nil {
 		p.logger.Debug("Failed to fetch message", zap.Error(err))
 		return nil, fmt.Errorf("failed to fetch message: %w", err)
 	}
-	return msg, nil
+	return &msg, nil
 }
 
 // channelID resolves a channel reference to an ID. A "#name" or "@user" the

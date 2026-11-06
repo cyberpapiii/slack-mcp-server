@@ -12,20 +12,14 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// ErrOutcomeUnknown marks a write whose result Slack did not report: it may
-// have been applied.
-var ErrOutcomeUnknown = errors.New("Slack may have applied the change")
-
 // ListsClient calls the Slack Lists API on slack.com (or the GovSlack host),
 // not the workspace host, with the current Web API token.
 type ListsClient struct {
-	httpClient *http.Client
-	token      func() string
+	web *WebClient
 }
 
 func (ap *ApiProvider) Lists() *ListsClient {
-	web := ap.WebAPI()
-	return &ListsClient{httpClient: web.client.httpClient, token: web.token}
+	return &ListsClient{web: ap.WebAPI()}
 }
 
 type ListChoice struct {
@@ -63,6 +57,8 @@ type UnsupportedListFieldTypeError struct{ Type string }
 func (e *UnsupportedListFieldTypeError) Error() string {
 	return fmt.Sprintf("unsupported Slack List field type %q", e.Type)
 }
+
+func (e *UnsupportedListFieldTypeError) Unwrap() error { return ErrInvalidListInput }
 
 func validateColumns(columns []ListColumn) error {
 	for _, column := range columns {
@@ -195,7 +191,7 @@ func (c *ListsClient) CreateList(ctx context.Context, request CreateListRequest)
 		ListID       string       `json:"list_id"`
 		ListMetadata ListMetadata `json:"list_metadata"`
 	}
-	if err := c.call(ctx, "slackLists.create", request, &response); err != nil {
+	if err := c.call(ctx, "slackLists.create", listWrite, request, &response); err != nil {
 		return "", ListMetadata{}, err
 	}
 	response.ListMetadata.ID = response.ListID
@@ -203,7 +199,7 @@ func (c *ListsClient) CreateList(ctx context.Context, request CreateListRequest)
 }
 
 func (c *ListsClient) UpdateList(ctx context.Context, request UpdateListRequest) error {
-	return c.call(ctx, "slackLists.update", request, nil)
+	return c.call(ctx, "slackLists.update", listWrite, request, nil)
 }
 
 func (c *ListsClient) CreateItem(ctx context.Context, request CreateListItemRequest) (ListItem, error) {
@@ -213,7 +209,7 @@ func (c *ListsClient) CreateItem(ctx context.Context, request CreateListItemRequ
 	var response struct {
 		Item ListItem `json:"item"`
 	}
-	if err := c.call(ctx, "slackLists.items.create", request, &response); err != nil {
+	if err := c.call(ctx, "slackLists.items.create", listWrite, request, &response); err != nil {
 		return ListItem{}, err
 	}
 	return response.Item, nil
@@ -223,14 +219,14 @@ func (c *ListsClient) UpdateItems(ctx context.Context, request UpdateListItemsRe
 	if err := validateFieldInputs(request.Cells, true); err != nil {
 		return err
 	}
-	return c.call(ctx, "slackLists.items.update", request, nil)
+	return c.call(ctx, "slackLists.items.update", listWrite, request, nil)
 }
 
 func (c *ListsClient) GetItem(ctx context.Context, listID, itemID string) (ListItem, error) {
 	var response struct {
 		Record ListItem `json:"record"`
 	}
-	if err := c.call(ctx, "slackLists.items.info", map[string]string{"list_id": listID, "id": itemID}, &response); err != nil {
+	if err := c.call(ctx, "slackLists.items.info", listRead, map[string]string{"list_id": listID, "id": itemID}, &response); err != nil {
 		return ListItem{}, err
 	}
 	return response.Record, nil
@@ -243,25 +239,30 @@ func (c *ListsClient) ListItems(ctx context.Context, request ListItemsRequest) (
 			NextCursor string `json:"next_cursor"`
 		} `json:"response_metadata"`
 	}
-	if err := c.call(ctx, "slackLists.items.list", request, &response); err != nil {
+	if err := c.call(ctx, "slackLists.items.list", listRead, request, &response); err != nil {
 		return ListItemsPage{}, err
 	}
 	return ListItemsPage{Items: response.Items, NextCursor: response.Metadata.NextCursor}, nil
 }
 
 func (c *ListsClient) DeleteItem(ctx context.Context, listID, itemID string) error {
-	return c.call(ctx, "slackLists.items.delete", map[string]string{"list_id": listID, "id": itemID}, nil)
+	return c.call(ctx, "slackLists.items.delete", listWrite, map[string]string{"list_id": listID, "id": itemID}, nil)
 }
 
-func (c *ListsClient) call(ctx context.Context, method string, requestBody any, output any) error {
+// listWrite and listRead say whether a Lists call can change Slack state, so a
+// failure partway leaves its outcome unknown.
+const (
+	listWrite = true
+	listRead  = false
+)
+
+func (c *ListsClient) call(ctx context.Context, method string, mutates bool, requestBody any, output any) error {
 	encoded, err := json.Marshal(requestBody)
 	if err != nil {
 		return fmt.Errorf("encode %s request: %w", method, err)
 	}
-	mutates := listsMethodMutates(method)
-	body, err := slackhttp.Post(ctx, c.httpClient, slackhttp.Request{
+	body, err := c.web.post(ctx, slackhttp.Request{
 		URL:    slackhttp.SlackAPIBase() + method,
-		Token:  c.token(),
 		Bearer: true,
 		JSON:   encoded,
 		Header: http.Header{"Content-Type": {"application/json; charset=utf-8"}},
@@ -288,20 +289,16 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 	return nil
 }
 
-func listsMethodMutates(method string) bool {
-	return method == "slackLists.create" || method == "slackLists.update" || method == "slackLists.items.create" || method == "slackLists.items.update" || method == "slackLists.items.delete"
-}
-
 func validateFieldInputs(fields []ListFieldValue, requireRowID bool) error {
 	for _, field := range fields {
 		if field.ColumnID == "" {
-			return errors.New("Slack List field column_id is required")
+			return listInputError("Slack List field column_id is required")
 		}
 		if requireRowID && field.RowID == "" {
-			return errors.New("Slack List update field row_id is required")
+			return listInputError("Slack List update field row_id is required")
 		}
 		if field.Key != "" || len(field.Value) != 0 || field.Text != "" {
-			return errors.New("Slack List response-only key, value, and text fields cannot be sent")
+			return listInputError("Slack List response-only key, value, and text fields cannot be sent")
 		}
 		count := 0
 		for _, present := range []bool{
@@ -314,8 +311,14 @@ func validateFieldInputs(fields []ListFieldValue, requireRowID bool) error {
 			}
 		}
 		if count != 1 {
-			return errors.New("Slack List field requires exactly one supported typed value")
+			return listInputError("Slack List field requires exactly one supported typed value")
 		}
 	}
 	return nil
 }
+
+// listInputError is a refused Slack List field; it is ErrInvalidListInput.
+type listInputError string
+
+func (e listInputError) Error() string        { return string(e) }
+func (e listInputError) Is(target error) bool { return target == ErrInvalidListInput }

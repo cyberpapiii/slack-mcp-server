@@ -19,6 +19,11 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+const (
+	transportList  = auth.TransportStdio + ", " + auth.TransportSSE + ", " + auth.TransportHTTP
+	transportUsage = "Transport type (" + transportList + ")"
+)
+
 var defaultSseHost = "127.0.0.1"
 var defaultSsePort = 13080
 
@@ -28,11 +33,11 @@ func main() {
 	var toolPreset string
 	var noCache bool
 	var checkKeychain bool
-	flag.StringVar(&transport, "t", "stdio", "Transport type (stdio, sse or http)")
-	flag.StringVar(&transport, "transport", "stdio", "Transport type (stdio, sse or http)")
+	flag.StringVar(&transport, "t", auth.TransportStdio, transportUsage)
+	flag.StringVar(&transport, "transport", auth.TransportStdio, transportUsage)
 	flag.StringVar(&enabledToolsFlag, "e", "", "Comma-separated list of enabled tools (overrides tool preset)")
 	flag.StringVar(&enabledToolsFlag, "enabled-tools", "", "Comma-separated list of enabled tools (overrides tool preset)")
-	flag.StringVar(&toolPreset, "tool-preset", "", "Tool preset: daily-power (default) or legacy-full")
+	flag.StringVar(&toolPreset, "tool-preset", "", "Tool preset: "+capability.PresetDailyPower+" (default) or "+capability.PresetLegacyFull)
 	flag.BoolVar(&noCache, "no-cache", false, "Skip user/channel cache loading on startup for faster initialization. Lookups by #channel-name or @username will not work; use channel/user IDs instead.")
 	flag.BoolVar(&checkKeychain, "check-keychain", false, "Read the Keychain items named by SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT and SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT, then exit. make deploy-local uses it to collect the macOS access approval before Plug starts the binary.")
 	flag.Parse()
@@ -54,7 +59,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	enabledTools, err := resolveEnabledTools(enabledToolsFlag, toolPreset)
+	enabledTools, err := capability.Resolve(enabledToolsFlag, toolPreset)
 	if err != nil {
 		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS / SLACK_MCP_TOOL_PRESET", err)
 	}
@@ -68,11 +73,6 @@ func main() {
 	}
 	warnRemovedGateVars(logger)
 
-	err = capability.Validate(enabledTools)
-	if err != nil {
-		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS", err)
-	}
-
 	p, err := provider.New(logger)
 	if err != nil {
 		fatal(logger, "Failed to initialize Slack provider", err)
@@ -80,23 +80,9 @@ func main() {
 	defer p.Close()
 	s := server.NewMCPServer(p, transport, logger, enabledTools, settings)
 	logStartupAuthStatus(p, logger)
+	warnMissingOAuthScopes(p, enabledTools, logger)
 
-	if noCache {
-		p.SkipCache()
-		s.RegisterCacheDependentTools()
-		logger.Info("Cache loading disabled via --no-cache flag",
-			zap.String("context", "console"),
-		)
-	} else if p.Mode() == provider.ModeDemo {
-		// Register before Serve so early tools/list sees cache-dependent tools.
-		p.SkipCache()
-		s.RegisterCacheDependentTools()
-		logger.Info("Demo credentials are set, skip cache warm-up",
-			zap.String("context", "console"),
-		)
-	} else {
-		p.StartCacheLifecycle(s.RegisterCacheDependentTools)
-	}
+	p.StartCaches(noCache, s.RegisterCacheDependentTools)
 
 	if ready, _ := p.IsReady(); !ready {
 		logger.Info("Slack MCP Server is still warming up caches, serving immediately",
@@ -105,11 +91,11 @@ func main() {
 	}
 
 	switch transport {
-	case "stdio":
+	case auth.TransportStdio:
 		if err := s.ServeStdio(); err != nil {
 			fatal(logger, "Server error", err)
 		}
-	case "sse", "http":
+	case auth.TransportSSE, auth.TransportHTTP:
 		if err := auth.RequireAPIKeyOrOptOut(logger); err != nil {
 			fatal(logger, "Server error", err)
 		}
@@ -117,7 +103,7 @@ func main() {
 		addr := host + ":" + port
 		var srv interface{ Start(string) error }
 		path := ""
-		if transport == "sse" {
+		if transport == auth.TransportSSE {
 			srv = s.ServeSSE(addr)
 			path = "/sse"
 		} else {
@@ -136,7 +122,7 @@ func main() {
 		logger.Fatal("Invalid transport type",
 			zap.String("context", "console"),
 			zap.String("transport", transport),
-			zap.String("allowed", "stdio, sse, http"),
+			zap.String("allowed", transportList),
 		)
 	}
 }
@@ -158,23 +144,41 @@ func fatal(logger *zap.Logger, msg string, err error) {
 	logger.Fatal(msg, zap.String("context", "console"), zap.Error(err))
 }
 
-func resolveEnabledTools(explicit, preset string) ([]string, error) {
-	if strings.TrimSpace(explicit) != "" {
-		var tools []string
-		for _, tool := range strings.Split(explicit, ",") {
-			if tool = strings.TrimSpace(tool); tool != "" {
-				tools = append(tools, tool)
-			}
-		}
-		if len(tools) == 0 {
-			return nil, fmt.Errorf("SLACK_MCP_ENABLED_TOOLS / --enabled-tools is set but contains no tool names")
-		}
-		return tools, nil
+// warnMissingOAuthScopes warns when the managed OAuth login was granted fewer
+// scopes than the served tools need: those tools fail with missing_scope
+// until slack-mcp-auth logs in again for the same tool list.
+func warnMissingOAuthScopes(p *provider.ApiProvider, enabled []string, logger *zap.Logger) {
+	granted, ok := p.ManagedOAuthScopes()
+	if !ok {
+		return
 	}
-	if preset == "" {
-		preset = capability.DefaultPreset
+	if missing := missingOAuthScopes(granted, servedTools(p, enabled)); len(missing) > 0 {
+		logger.Warn("The stored OAuth login lacks scopes enabled tools need; run slack-mcp-auth login --replace with the same SLACK_MCP_ENABLED_TOOLS, then restart",
+			zap.String("context", "console"),
+			zap.Strings("missing_scopes", missing),
+		)
 	}
-	return capability.Preset(preset)
+}
+
+// servedTools are the enabled tools the running credentials can serve.
+func servedTools(creds capability.Credentials, enabled []string) []string {
+	var served []string
+	for _, name := range enabled {
+		if tool, ok := capability.Lookup(name); ok && tool.Requires.Met(creds) {
+			served = append(served, name)
+		}
+	}
+	return served
+}
+
+func missingOAuthScopes(granted, tools []string) []string {
+	var missing []string
+	for _, scope := range capability.OAuthScopesForTools(tools) {
+		if !slices.Contains(granted, scope) {
+			missing = append(missing, scope)
+		}
+	}
+	return missing
 }
 
 // warnRemovedGateVars flags SLACK_MCP_*_TOOL variables left over from the
@@ -219,7 +223,7 @@ func newLogger(transport string) (*zap.Logger, error) {
 	useColors := shouldUseColors() && !useJSON
 
 	outputPath := "stdout"
-	if transport == "stdio" {
+	if transport == auth.TransportStdio {
 		outputPath = "stderr"
 	}
 	errorPath := "stderr"

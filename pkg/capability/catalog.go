@@ -4,6 +4,7 @@
 package capability
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -107,6 +108,46 @@ const (
 	BrowserSession             // a configured Slack browser session (xoxc/xoxd)
 )
 
+// Credentials is what the running server holds, as a Requirement reads it.
+type Credentials interface {
+	UserToken() bool      // any token that is not a bot token
+	UserOAuth() bool      // a user OAuth token
+	BrowserSession() bool // a configured browser session, healthy or not
+}
+
+type requirement struct {
+	name string
+	// missing is the availability state and error code when the running
+	// credentials cannot meet the requirement.
+	missing string
+	// degrades says a requirement met at startup can still fail at run time:
+	// a browser session can die, and its tools answer missing until it
+	// recovers.
+	degrades bool
+	met      func(Credentials) bool
+}
+
+var requirements = [...]requirement{
+	AnyToken:       {name: "any_token", met: func(Credentials) bool { return true }},
+	UserToken:      {name: "user_token", missing: "user_token_required", met: Credentials.UserToken},
+	UserOAuth:      {name: "user_oauth", missing: "user_oauth_required", met: Credentials.UserOAuth},
+	BrowserSession: {name: "browser_session", missing: "browser_session_required", degrades: true, met: Credentials.BrowserSession},
+}
+
+func (r Requirement) String() string { return requirements[r].name }
+
+// Met reports whether creds meet the requirement. A configured browser
+// session meets BrowserSession even while degraded.
+func (r Requirement) Met(creds Credentials) bool { return requirements[r].met(creds) }
+
+// Missing is the availability state and error code of a tool whose
+// requirement the credentials do not meet; "" for AnyToken.
+func (r Requirement) Missing() string { return requirements[r].missing }
+
+// Degrades reports whether a met requirement can fail at run time, so its
+// tools need a run-time gate.
+func (r Requirement) Degrades() bool { return requirements[r].degrades }
+
 type Tool struct {
 	Name       string
 	Title      string // MCP title annotation
@@ -137,7 +178,7 @@ var Tools = []Tool{
 
 	{Name: ConversationsSearchMessages, Requires: UserToken, Title: "Search Messages", ReadOnly: true, Scopes: []string{"search:read"}},
 	{Name: ConversationsUnreads, Title: "Get Unread Messages", DailyPower: true, Requires: BrowserSession, CacheReady: true, ReadOnly: true},
-	{Name: ConversationsMark, Title: "Mark Conversation Read", Idempotent: true, Scopes: []string{"channels:write", "groups:write", "im:write", "mpim:write"}},
+	{Name: ConversationsMark, Requires: UserToken, Title: "Mark Conversation Read", Idempotent: true, Scopes: []string{"channels:write", "groups:write", "im:write", "mpim:write"}},
 
 	{Name: ConversationsOpen, Title: "Open Conversation", Idempotent: true, Scopes: []string{"im:write", "mpim:write"}},
 	{Name: ConversationsJoin, Title: "Join Channel", Idempotent: true, Scopes: []string{"channels:write"}},
@@ -148,7 +189,8 @@ var Tools = []Tool{
 
 	{Name: ReactionsAdd, ChannelAllowlist: ReactionAllowlist, Title: "Add Reaction", Scopes: []string{"reactions:write"}},
 	{Name: ReactionsRemove, ChannelAllowlist: ReactionAllowlist, Title: "Remove Reaction", Destructive: true, Scopes: []string{"reactions:write"}},
-	{Name: ReactionsGet, Title: "Get Message Reactions", ReadOnly: true, Scopes: []string{"reactions:read"}},
+	// reactions_get reads the message through conversations.replies.
+	{Name: ReactionsGet, Title: "Get Message Reactions", ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
 
 	{Name: AttachmentGetData, Title: "Get Attachment Data", ReadOnly: true, Scopes: []string{"files:read"}},
 	{Name: FilesList, Title: "List Files", ReadOnly: true, Scopes: []string{"files:read"}},
@@ -176,15 +218,15 @@ var Tools = []Tool{
 	{Name: FilesUpload, ChannelAllowlist: AddMessageAllowlist, Title: "Upload File", Scopes: []string{"files:write"}},
 	{Name: MessagesSchedule, ChannelAllowlist: AddMessageAllowlist, Title: "Schedule Message", Scopes: []string{"chat:write"}},
 	{Name: MessagesUpdate, ChannelAllowlist: AddMessageAllowlist, Title: "Update Message", Destructive: true, Scopes: []string{"chat:write"}},
-	{Name: MessagesDelete, ChannelAllowlist: AddMessageAllowlist, Title: "Delete Message", Destructive: true, Scopes: []string{"chat:write"}},
+	{Name: MessagesDelete, Requires: UserToken, ChannelAllowlist: AddMessageAllowlist, Title: "Delete Message", Destructive: true, Scopes: []string{"chat:write"}},
 
 	{Name: ChannelsCreate, Title: "Create Channel", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsMembers, Title: "List Channel Members", DailyPower: true, ReadOnly: true, Scopes: []string{"channels:read", "groups:read"}},
 	{Name: ChannelsInvite, Title: "Invite Channel Members", Scopes: []string{"channels:write", "channels:write.invites", "groups:write", "groups:write.invites"}},
 	{Name: EmojiList, Title: "List Custom Emoji", DailyPower: true, ReadOnly: true, Scopes: []string{"emoji:read"}},
 	{Name: UsersGetProfile, Title: "Get User Profile", DailyPower: true, ReadOnly: true, Scopes: []string{"users.profile:read"}},
-	{Name: UsersSetProfile, Title: "Update User Profile", Destructive: true, Scopes: []string{"users.profile:write"}},
-	{Name: UsersSetStatus, Title: "Set User Status", Scopes: []string{"users.profile:write"}},
+	{Name: UsersSetProfile, Requires: UserToken, Title: "Update User Profile", Destructive: true, Scopes: []string{"users.profile:write"}},
+	{Name: UsersSetStatus, Requires: UserToken, Title: "Set User Status", Scopes: []string{"users.profile:write"}},
 
 	{Name: CanvasesCreate, Title: "Create Canvas", Scopes: []string{"canvases:write"}},
 	{Name: CanvasesRead, Title: "Read Canvas", DailyPower: true, ReadOnly: true, Scopes: []string{"canvases:read"}},
@@ -192,12 +234,12 @@ var Tools = []Tool{
 	{Name: SearchSemantic, Title: "Search Slack Semantically", DailyPower: true, ReadOnly: true, Scopes: []string{"search:read.files", "search:read.public", "search:read.private", "search:read.im", "search:read.mpim", "search:read.users"}},
 
 	{Name: ScheduledMessagesList, Title: "List Scheduled Messages", DailyPower: true, ReadOnly: true},
-	{Name: ScheduledMessageCancel, Title: "Cancel Scheduled Message", Destructive: true, Scopes: []string{"chat:write"}},
+	{Name: ScheduledMessageCancel, Requires: UserToken, Title: "Cancel Scheduled Message", Destructive: true, Scopes: []string{"chat:write"}},
 
 	{Name: ChannelsRename, ChannelAllowlist: ChannelManagementAllowlist, Title: "Rename Channel", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsSetTopic, ChannelAllowlist: ChannelManagementAllowlist, Title: "Set Channel Topic", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsSetPurpose, ChannelAllowlist: ChannelManagementAllowlist, Title: "Set Channel Purpose", Scopes: []string{"channels:write", "groups:write"}},
-	{Name: ChannelsArchive, ChannelAllowlist: ChannelManagementAllowlist, Title: "Archive Channel", Destructive: true, Scopes: []string{"channels:write", "groups:write"}},
+	{Name: ChannelsArchive, Requires: UserToken, ChannelAllowlist: ChannelManagementAllowlist, Title: "Archive Channel", Destructive: true, Scopes: []string{"channels:write", "groups:write"}},
 
 	{Name: ListsCreate, Requires: UserOAuth, Title: "Create Slack List", Scopes: []string{"lists:write"}},
 	{Name: ListsUpdate, Requires: UserOAuth, Title: "Update Slack List", Scopes: []string{"lists:write"}},
@@ -234,6 +276,12 @@ func DailyPowerNames() []string {
 // BrowserNames lists the tools that need a Slack browser session, sorted.
 func BrowserNames() []string {
 	return names(func(t Tool) bool { return t.Requires == BrowserSession })
+}
+
+// CacheReadyNames lists the tools registered after the users and channels
+// caches warm, sorted.
+func CacheReadyNames() []string {
+	return names(func(t Tool) bool { return t.CacheReady })
 }
 
 func names(include func(Tool) bool) []string {
@@ -295,8 +343,38 @@ func Preset(name string) ([]string, error) {
 	case PresetLegacyFull:
 		return Names(), nil
 	default:
-		return nil, fmt.Errorf("unknown tool preset %q (valid: %s, %s)", name, PresetDailyPower, PresetLegacyFull)
+		return nil, fmt.Errorf("unknown tool preset %q (valid: %s)", name, strings.Join(PresetNames(), ", "))
 	}
+}
+
+// PresetNames lists the presets, the default first.
+func PresetNames() []string {
+	return []string{PresetDailyPower, PresetLegacyFull}
+}
+
+// Resolve is the enabled-tools list the server serves and slack-mcp-auth
+// requests scopes for: explicit, a comma-separated list of tool names, when it
+// names any, else preset, else DefaultPreset. Every name must be a tool.
+func Resolve(explicit, preset string) ([]string, error) {
+	if strings.TrimSpace(explicit) == "" {
+		if preset == "" {
+			preset = DefaultPreset
+		}
+		return Preset(preset)
+	}
+	var tools []string
+	for _, tool := range strings.Split(explicit, ",") {
+		if tool = strings.TrimSpace(tool); tool != "" {
+			tools = append(tools, tool)
+		}
+	}
+	if len(tools) == 0 {
+		return nil, errors.New("the enabled-tools list is set but contains no tool names")
+	}
+	if err := Validate(tools); err != nil {
+		return nil, err
+	}
+	return tools, nil
 }
 
 // Validate reports every name that is not a tool in the table.

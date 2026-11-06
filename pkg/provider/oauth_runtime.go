@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
-	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -42,19 +42,14 @@ func (c CredentialConfig) oauthStatus() OAuthCredentialStatus {
 		}
 		return status
 	}
-	if c.XOXP != "" {
+	if c.XOXP != "" || c.XOXB != "" {
 		status.Source = "static_user_oauth"
+		if c.XOXP == "" {
+			status.Source = "static_bot_oauth"
+		}
 		status.Store = "environment"
 		status.State = OAuthStateLive
 		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
-		return status
-	}
-	if c.XOXB != "" {
-		status.Source = "static_bot_oauth"
-		status.Store = "environment"
-		status.State = OAuthStateLive
-		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
-		return status
 	}
 	return status
 }
@@ -101,14 +96,16 @@ func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 	return status
 }
 
+// ManagedOAuthScopes are the scopes the managed OAuth login was granted; ok
+// is false without one.
+func (ap *ApiProvider) ManagedOAuthScopes() (scopes []string, ok bool) {
+	return ap.oauthScopes, ap.client.oauthManager != nil
+}
+
 func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oauthcred.Record) {
 	client := &ap.client
-	expected := oauthcred.IdentityOf(&client.authResponse)
-	manager.WithValidator(expected.Validator(func(ctx context.Context, token string) (*slack.AuthTestResponse, error) {
-		_, identity, err := client.managedSlackClient(ctx, token)
-		return identity, err
-	}))
 	client.oauthManager = manager
+	ap.oauthScopes = record.Scopes
 	client.oauthGeneration.Store(record.Generation)
 	client.oauthRuntimeState.Store(OAuthStateLive)
 	go client.runManagedOAuthRefresh(ap.ctx)
@@ -126,9 +123,6 @@ func (c *MCPSlackClient) managedSlackClient(ctx context.Context, token string) (
 }
 
 func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
-	if c.oauthManager == nil {
-		return nil
-	}
 	record, err := c.oauthManager.Current(ctx)
 	if err != nil {
 		c.oauthRuntimeState.Store(OAuthStateDegraded)
@@ -208,7 +202,7 @@ func managedOAuthRefreshInterval(err error) time.Duration {
 		base = time.Minute
 		max  = 15 * time.Minute
 	)
-	retryAfter, _ := slackhttp.RetryAfter(err)
+	retryAfter, _ := limiter.RetryAfter(err)
 	if retryAfter <= base {
 		return base
 	}
