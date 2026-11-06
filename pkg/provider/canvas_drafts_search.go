@@ -14,8 +14,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-var ErrPersistedDraftsUnsupported = errors.New("persisted Slack drafts require a healthy browser session")
-
 type CanvasCreateRequest struct {
 	Title    string `json:"title,omitempty"`
 	Markdown string `json:"markdown,omitempty"`

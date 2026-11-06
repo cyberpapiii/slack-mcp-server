@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -313,12 +312,10 @@ func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
 	return ap.usersSnapshot.Load()
 }
 
-var slackUserIDPattern = regexp.MustCompile(`^[UW][A-Z0-9]{2,}$`)
-
 // SearchUsers looks an ID up with users.info. Otherwise it searches through the
 // browser session when that is preferred, and the local cache on OAuth.
 func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int) ([]slack.User, error) {
-	if slackUserIDPattern.MatchString(query) {
+	if ClassifyID(query) == IDUser {
 		users, err := ap.client.GetUsersInfo(query)
 		if err != nil {
 			return nil, err

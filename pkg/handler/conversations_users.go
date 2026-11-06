@@ -18,11 +18,6 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 		return nil, err
 	}
 
-	ws, err := workspaceName(ch.apiProvider, ch.logger)
-	if err != nil {
-		return nil, err
-	}
-
 	usersMaps := ch.apiProvider.ProvideUsersMap()
 	users := usersMaps.Users
 	usersList := make([]User, 0, len(users))
@@ -42,7 +37,7 @@ func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.R
 
 	return []mcp.ResourceContents{
 		mcp.TextResourceContents{
-			URI:      "slack://" + ws + "/users",
+			URI:      request.Params.URI,
 			MIMEType: "text/csv",
 			Text:     string(csvBytes),
 		},

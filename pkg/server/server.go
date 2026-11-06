@@ -20,9 +20,8 @@ import (
 )
 
 type MCPServer struct {
-	server    *server.MCPServer
-	logger    *zap.Logger
-	workspace string
+	server *server.MCPServer
+	logger *zap.Logger
 
 	// cacheTools register once the users and channels caches are warm, with
 	// the directory resources that read the same caches.
@@ -71,7 +70,7 @@ func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.
 		)
 	}
 
-	ms := &MCPServer{server: s, logger: logger, workspace: ws}
+	ms := &MCPServer{server: s, logger: logger}
 	families := buildHandlers(provider, logger, enabledTools, settings)
 	for _, def := range families.tools {
 		spec, ok := capability.Lookup(def.Name)

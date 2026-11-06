@@ -49,11 +49,6 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 		return nil, err
 	}
 
-	ws, err := workspaceName(ch.apiProvider, ch.logger)
-	if err != nil {
-		return nil, err
-	}
-
 	channels := ch.apiProvider.ProvideChannelsMaps().Channels
 	ch.logger.Debug("Retrieved channels from provider", zap.Int("count", len(channels)))
 
@@ -76,7 +71,7 @@ func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.Rea
 
 	return []mcp.ResourceContents{
 		mcp.TextResourceContents{
-			URI:      "slack://" + ws + "/channels",
+			URI:      request.Params.URI,
 			MIMEType: "text/csv",
 			Text:     string(csvBytes),
 		},

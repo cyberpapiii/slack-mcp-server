@@ -63,22 +63,15 @@ func TestCanvasHandlersValidateAndReturnPartialRead(t *testing.T) {
 }
 
 type fakeDraftsAPI struct {
-	draft       provider.Draft
-	nextCursor  string
-	deletedID   string
-	unsupported bool
+	draft      provider.Draft
+	nextCursor string
+	deletedID  string
 }
 
 func (f *fakeDraftsAPI) ListDrafts(context.Context, string, int) (provider.DraftPage, error) {
-	if f.unsupported {
-		return provider.DraftPage{}, provider.ErrPersistedDraftsUnsupported
-	}
 	return provider.DraftPage{Drafts: []provider.Draft{f.draft}, NextCursor: f.nextCursor}, nil
 }
 func (f *fakeDraftsAPI) GetDraft(context.Context, string) (provider.Draft, error) {
-	if f.unsupported {
-		return provider.Draft{}, provider.ErrPersistedDraftsUnsupported
-	}
 	return f.draft, nil
 }
 func (f *fakeDraftsAPI) CreateDraft(context.Context, provider.Draft) (provider.Draft, error) {
@@ -90,16 +83,6 @@ func (f *fakeDraftsAPI) UpdateDraft(context.Context, provider.Draft) (provider.D
 func (f *fakeDraftsAPI) DeleteDraft(_ context.Context, id, _ string) error {
 	f.deletedID = id
 	return nil
-}
-
-func TestDraftsUnsupportedIsTyped(t *testing.T) {
-	handler := NewDraftsHandler(&fakeDraftsAPI{unsupported: true}, mapLabels{}, approval.NewStore(), func() provider.ProviderIdentity {
-		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user"}
-	}, zap.NewNop())
-	result, err := served(handler.List(context.Background(), capabilityRequest(map[string]any{"limit": 20})))
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-	assert.Equal(t, "unsupported", result.StructuredContent.(ToolResult[struct{}]).Error.Code)
 }
 
 func TestDraftsListReturnsCSVWithChannelsLegendAndNextCursor(t *testing.T) {

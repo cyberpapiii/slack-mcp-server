@@ -192,10 +192,9 @@ func TypeError(err error, mutationAttempted bool) error {
 		return &ToolError{Code: "cancelled", Message: "the call was cancelled", Cause: err}
 	}
 	for sentinel, code := range map[error]string{
-		provider.ErrUserOAuthRequired:          "user_oauth_required",
-		provider.ErrInvalidPaginationCursor:    "invalid_cursor",
-		provider.ErrPersistedDraftsUnsupported: "unsupported",
-		provider.ErrBrowserSessionUnavailable:  "browser_session_required",
+		provider.ErrUserOAuthRequired:         "user_oauth_required",
+		provider.ErrInvalidPaginationCursor:   "invalid_cursor",
+		provider.ErrBrowserSessionUnavailable: "browser_session_required",
 	} {
 		if errors.Is(err, sentinel) {
 			return &ToolError{Code: code, Message: err.Error(), Cause: err}
