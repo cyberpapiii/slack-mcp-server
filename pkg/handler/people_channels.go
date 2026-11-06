@@ -8,6 +8,7 @@ import (
 	"net/mail"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -56,7 +57,7 @@ type PeopleChannelsService interface {
 	GetProfile(context.Context, string, bool) (provider.UserProfile, error)
 	UpdateProfile(context.Context, string, provider.UserProfileUpdate) (provider.UserProfile, error)
 	SetStatus(context.Context, string, string, string, int64) (provider.UserProfile, error)
-	ListEmoji(context.Context, string, string, int) (provider.EmojiPage, error)
+	ListEmoji(ctx context.Context, query string, offset, limit int) (provider.EmojiPage, error)
 	CreateChannel(context.Context, string, bool, string) (provider.ChannelState, error)
 	ListChannelMembers(context.Context, string, string, int) (provider.ChannelMembersPage, error)
 	InviteChannelMembers(context.Context, string, []string) (provider.ChannelState, error)
@@ -162,15 +163,40 @@ func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.C
 
 func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	limit := pageLimit(request, defaultPeoplePageSize, maxEmojiPageSize)
-	page, err := h.service.ListEmoji(ctx, strings.TrimSpace(request.GetString("query", "")), strings.TrimSpace(request.GetString("cursor", "")), limit)
+	offset, err := emojiOffset(strings.TrimSpace(request.GetString("cursor", "")))
 	if err != nil {
 		return nil, err
+	}
+	page, err := h.service.ListEmoji(ctx, strings.TrimSpace(request.GetString("query", "")), offset, limit)
+	if err != nil {
+		return nil, err
+	}
+	nextCursor := ""
+	if page.NextOffset > 0 {
+		nextCursor = encodeCursor(strconv.Itoa(page.NextOffset))
 	}
 	rows := make([]EmojiRow, len(page.Emoji))
 	for i, e := range page.Emoji {
 		rows[i] = EmojiRow{Name: e.Name, URL: e.URL, Alias: e.AliasFor}
 	}
-	return csvResult("", SlackResultMeta(page.NextCursor, false, ""), &rows)
+	return csvResult("", SlackResultMeta(nextCursor, false, ""), &rows)
+}
+
+// emojiOffset reads an emoji_list cursor: the encoded offset of the next
+// name; "" is the first page.
+func emojiOffset(cursor string) (int, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	value, err := decodeCursor(cursor)
+	if err != nil {
+		return 0, err
+	}
+	offset, err := strconv.Atoi(value)
+	if err != nil || offset < 0 {
+		return 0, invalidCursor(cursor)
+	}
+	return offset, nil
 }
 
 func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

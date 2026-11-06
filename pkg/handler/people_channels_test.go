@@ -40,7 +40,7 @@ func (f *fakePeopleChannelsService) SetStatus(_ context.Context, _ string, _ str
 	f.statusExpires = expiration
 	return f.profile, f.err
 }
-func (f *fakePeopleChannelsService) ListEmoji(context.Context, string, string, int) (provider.EmojiPage, error) {
+func (f *fakePeopleChannelsService) ListEmoji(context.Context, string, int, int) (provider.EmojiPage, error) {
 	return f.emoji, f.err
 }
 func (f *fakePeopleChannelsService) CreateChannel(_ context.Context, name string, _ bool, _ string) (provider.ChannelState, error) {
@@ -120,7 +120,7 @@ func TestPeopleHandlerStatusRejectsHalfWrappedEmoji(t *testing.T) {
 
 func TestPeopleHandlerEmojiAndMembersReturnCSVWithNextCursor(t *testing.T) {
 	service := &fakePeopleChannelsService{
-		emoji:   provider.EmojiPage{Emoji: []provider.Emoji{{Name: "wave", URL: "https://emoji/wave.png"}, {Name: "hi", AliasFor: "wave"}}, NextCursor: "10"},
+		emoji:   provider.EmojiPage{Emoji: []provider.Emoji{{Name: "wave", URL: "https://emoji/wave.png"}, {Name: "hi", AliasFor: "wave"}}, NextOffset: 10},
 		members: provider.ChannelMembersPage{ChannelID: "C1", UserIDs: []string{"U1", "U2"}, NextCursor: "next"},
 	}
 	handler := newPeopleHandler(service)
@@ -129,7 +129,7 @@ func TestPeopleHandlerEmojiAndMembersReturnCSVWithNextCursor(t *testing.T) {
 	emojiResult, err := served(handler.ListEmoji(context.Background(), toolRequest(map[string]any{"limit": 10})))
 	require.NoError(t, err)
 	assert.Nil(t, emojiResult.StructuredContent)
-	assert.Equal(t, "#next_cursor: 10\nName,URL,Alias\nwave,https://emoji/wave.png,\nhi,,wave\n", ResultText(emojiResult))
+	assert.Equal(t, "#next_cursor: "+encodeCursor("10")+"\nName,URL,Alias\nwave,https://emoji/wave.png,\nhi,,wave\n", ResultText(emojiResult))
 
 	membersResult, err := served(handler.ListChannelMembers(context.Background(), toolRequest(map[string]any{"channel_id": "C1", "limit": 10})))
 	require.NoError(t, err)
@@ -165,4 +165,16 @@ func TestPeopleHandlerCreateAndInviteValidateBeforeOneMutation(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, bad.IsError)
 	assert.Equal(t, 1, service.createCalls)
+}
+
+func TestUnitEmojiCursorRoundTrips(t *testing.T) {
+	offset, err := emojiOffset(encodeCursor("10"))
+	require.NoError(t, err)
+	assert.Equal(t, 10, offset)
+	for _, bad := range []string{"10", encodeCursor("x"), encodeCursor("-1")} {
+		_, err := emojiOffset(bad)
+		var typed *ToolError
+		require.ErrorAs(t, err, &typed, bad)
+		assert.Equal(t, "invalid_arguments", typed.Code, bad)
+	}
 }
