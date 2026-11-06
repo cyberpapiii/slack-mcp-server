@@ -13,7 +13,7 @@ import (
 func (ch *ConversationsHandler) UsersResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	ch.logger.Debug("UsersResource called")
 
-	users, err := ch.apiProvider.Directory().Users()
+	users, err := ch.api.Directory().Users()
 	if err != nil {
 		ch.logger.Warn("Users cache not ready", zap.Error(err))
 		return nil, err
@@ -55,13 +55,13 @@ func (ch *ConversationsHandler) UsersSearchHandler(ctx context.Context, request 
 		zap.Int("limit", params.limit),
 	)
 
-	users, err := ch.apiProvider.SearchUsers(ctx, params.query, params.limit)
+	users, err := ch.api.SearchUsers(ctx, params.query, params.limit)
 	if err != nil {
 		ch.logger.Debug("UsersSearch failed", zap.Error(err))
 		return nil, fmt.Errorf("users search failed: %w", err)
 	}
 
-	dir := ch.apiProvider.Directory()
+	dir := ch.api.Directory()
 	results := make([]UserSearchResult, 0, len(users))
 	for _, user := range users {
 		if user.Deleted {

@@ -439,7 +439,7 @@ func TestUnitSendStatus(t *testing.T) {
 		if sendEnabled {
 			served = []string{capability.ConversationsAddMessage}
 		}
-		return NewConversationsHandler(nil, zap.NewNop(), envSettings(), servedTools(served...))
+		return NewConversationsHandler(nil, MessagePipeline{}, zap.NewNop(), envSettings(), servedTools(served...))
 	}
 
 	t.Run("not available when add_message not enabled", func(t *testing.T) {

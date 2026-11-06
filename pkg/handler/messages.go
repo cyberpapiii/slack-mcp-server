@@ -46,18 +46,22 @@ type CompactMessage struct {
 	Files         string `csv:"Files,omitempty"`
 }
 
-// messagePipeline is the one path from Slack messages to CSV rows. Every tool
+// MessagePipeline is the one path from Slack messages to CSV rows. Every tool
 // that returns messages (history, replies, get_message, search, unreads,
 // activity, saved) converts and renders through it, so a row reads the same
 // whichever tool produced it.
-type messagePipeline struct {
-	api    *provider.ApiProvider
+type MessagePipeline struct {
+	source MessageSource
 	logger *zap.Logger
+}
+
+func NewMessagePipeline(source MessageSource, logger *zap.Logger) MessagePipeline {
+	return MessagePipeline{source: source, logger: logger}
 }
 
 // rows converts Slack messages to CSV rows. channel is the conversation every
 // message belongs to; "" takes each message's own Channel.
-func (p messagePipeline) rows(ctx context.Context, slackMessages []slack.Message, channel string, includeActivity bool, mode text.OutputMode) []Message {
+func (p MessagePipeline) rows(ctx context.Context, slackMessages []slack.Message, channel string, includeActivity bool, mode text.OutputMode) []Message {
 	resolver := p.newUserResolver(ctx)
 	authors := make([]string, 0, len(slackMessages))
 	for _, msg := range slackMessages {
@@ -134,13 +138,13 @@ func (p messagePipeline) rows(ctx context.Context, slackMessages []slack.Message
 		})
 	}
 
-	if warn && !p.api.UsersCacheReady() {
+	if warn && !p.source.Directory().UsersReady() {
 		p.logger.Warn("Slack users sync is not ready yet: names may render as raw UIDs and @handle lookups will fail. Users sync runs as part of channels sync, and IM/MPIM channel operations need the users collection. Wait for the sync to finish and try again.")
 	}
 	return messages
 }
 
-func (p messagePipeline) searchRows(ctx context.Context, matches []slack.SearchMessage, mode text.OutputMode) []Message {
+func (p MessagePipeline) searchRows(ctx context.Context, matches []slack.SearchMessage, mode text.OutputMode) []Message {
 	msgs := make([]slack.Message, len(matches))
 	for i, m := range matches {
 		msgs[i] = searchMatchMessage(m)
@@ -184,8 +188,8 @@ func hasImageBlocks(blocks slack.Blocks) bool {
 
 // message fetches one message by channel and timestamp, the same read the
 // delete path makes. nil means Slack has no message at that timestamp.
-func (p messagePipeline) message(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
-	msg, err := p.api.WebAPI().GetMessage(ctx, channel, timestamp)
+func (p MessagePipeline) message(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
+	msg, err := p.source.GetMessage(ctx, channel, timestamp)
 	if err != nil {
 		p.logger.Debug("Failed to fetch message", zap.Error(err))
 		return nil, fmt.Errorf("failed to fetch message: %w", err)
@@ -196,12 +200,12 @@ func (p messagePipeline) message(ctx context.Context, channel, timestamp string)
 // channelID resolves a channel reference to an ID. A "#name" or "@user" the
 // warm cache does not know triggers one cache refresh before it is reported
 // missing; IDs and anything else pass through for Slack to judge.
-func (p messagePipeline) channelID(ctx context.Context, ref string) (string, error) {
+func (p MessagePipeline) channelID(ctx context.Context, ref string) (string, error) {
 	id, name := provider.ParseChannelRef(ref)
 	if id != "" {
 		return id, nil
 	}
-	ch, err := p.api.ChannelByRef(name)
+	ch, err := p.source.Directory().ChannelByRef(name)
 	if err == nil {
 		return ch.ID, nil
 	}
@@ -210,7 +214,7 @@ func (p messagePipeline) channelID(ctx context.Context, ref string) (string, err
 	}
 
 	p.logger.Debug("Channel not found in cache, attempting refresh", zap.String("channel", name))
-	refreshErr := p.api.ForceRefreshChannels(ctx)
+	refreshErr := p.source.ForceRefreshChannels(ctx)
 	if errors.Is(refreshErr, provider.ErrRefreshRateLimited) {
 		p.logger.Warn("Channel not found; cache refresh was rate-limited", zap.String("channel", name))
 		return "", &ToolError{Code: codeNotFound, Message: fmt.Sprintf("channel %q not found and the cache refresh was rate-limited; retry shortly or pass the channel ID (Cxxxxxxxxxx)", name), Retryable: true}
@@ -219,7 +223,7 @@ func (p messagePipeline) channelID(ctx context.Context, ref string) (string, err
 		p.logger.Warn("Failed to refresh channels cache", zap.String("channel", name), zap.Error(refreshErr))
 		return "", &ToolError{Code: codeNotFound, Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", name), Cause: refreshErr}
 	}
-	if ch, err = p.api.ChannelByRef(name); err != nil {
+	if ch, err = p.source.Directory().ChannelByRef(name); err != nil {
 		return "", cacheMiss(name, err, channelNotFound)
 	}
 	return ch.ID, nil
@@ -233,13 +237,18 @@ type renderOptions struct {
 	sections     []csvSection
 }
 
-func (p messagePipeline) render(mode text.OutputMode, meta ResultMeta) renderOptions {
+func (p MessagePipeline) render(mode text.OutputMode, meta ResultMeta) renderOptions {
 	return renderOptions{
 		mode:         mode,
-		workspaceURL: p.api.WorkspaceURL(),
-		channelName:  p.api.ChannelLabel,
+		workspaceURL: p.source.WorkspaceURL(),
+		channelName:  p.channelLabel,
 		meta:         meta,
 	}
+}
+
+// channelLabel names a conversation for a "#channels:" legend.
+func (p MessagePipeline) channelLabel(channelID string) string {
+	return p.source.Directory().ChannelLabel(channelID)
 }
 
 func marshalMessagesToCSV(messages []Message, opts renderOptions) (*mcp.CallToolResult, error) {
@@ -357,14 +366,14 @@ func buildLegendHeader(messages []Message, opts renderOptions) string {
 // user that doesn't exist in Slack is only looked up once per batch rather
 // than once per message.
 type userResolver struct {
-	api          *provider.ApiProvider
+	source       MessageSource
 	logger       *zap.Logger
 	ctx          context.Context
 	attemptedIDs map[string]bool
 }
 
-func (p messagePipeline) newUserResolver(ctx context.Context) *userResolver {
-	return &userResolver{api: p.api, logger: p.logger, ctx: ctx, attemptedIDs: make(map[string]bool)}
+func (p MessagePipeline) newUserResolver(ctx context.Context) *userResolver {
+	return &userResolver{source: p.source, logger: p.logger, ctx: ctx, attemptedIDs: make(map[string]bool)}
 }
 
 // prefetch resolves every uncached author on the page in one users.info call.
@@ -374,7 +383,7 @@ func (p messagePipeline) newUserResolver(ctx context.Context) *userResolver {
 // it did not return is not asked for again; after a failed batch resolve
 // falls back to the per-user patch.
 func (r *userResolver) prefetch(userIDs []string) {
-	dir := r.api.Directory()
+	dir := r.source.Directory()
 	var missing []string
 	seen := make(map[string]bool, len(userIDs))
 	for _, id := range userIDs {
@@ -389,7 +398,7 @@ func (r *userResolver) prefetch(userIDs []string) {
 	if len(missing) == 0 {
 		return
 	}
-	if err := r.api.PatchUsers(r.ctx, missing); err != nil {
+	if err := r.source.PatchUsers(r.ctx, missing); err != nil {
 		r.logger.Debug("Batched users.info failed; resolving authors one by one", zap.Int("users", len(missing)), zap.Error(err))
 		return
 	}
@@ -399,14 +408,14 @@ func (r *userResolver) prefetch(userIDs []string) {
 }
 
 func (r *userResolver) resolve(userID string) (userName, realName string, ok bool) {
-	if u, ok := r.api.Directory().User(userID); ok {
+	if u, ok := r.source.Directory().User(userID); ok {
 		return u.Name, u.RealName, true
 	}
 	if userID == "" || r.attemptedIDs[userID] {
 		return userID, userID, false
 	}
 	r.attemptedIDs[userID] = true
-	patched, err := r.api.PatchUser(r.ctx, userID)
+	patched, err := r.source.PatchUser(r.ctx, userID)
 	if err != nil {
 		r.logger.Debug("users.info failed; showing the user ID", zap.String("user_id", userID), zap.Error(err))
 		return userID, userID, false

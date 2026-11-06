@@ -45,10 +45,10 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			mutedChannels, mutedErr = ch.apiProvider.Slack().GetMutedChannels(ctx)
+			mutedChannels, mutedErr = ch.api.GetMutedChannels(ctx)
 		}()
 	}
-	counts, err := ch.apiProvider.Slack().ClientCounts(ctx)
+	counts, err := ch.api.ClientCounts(ctx)
 	wg.Wait()
 
 	if !params.includeMuted {
@@ -75,11 +75,11 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		zap.Int("mpims", len(counts.MPIMs)),
 		zap.Int("ims", len(counts.IMs)))
 
-	unreadChannels, dropped := ch.collectUnreadChannels(params, counts, ch.apiProvider.Directory())
+	unreadChannels, dropped := ch.collectUnreadChannels(params, counts, ch.api.Directory())
 
 	ch.logger.Debug("Found unread channels", zap.Int("count", len(unreadChannels)))
 
-	if !ch.backfillUnreadCounts(ctx, request, ch.apiProvider.WebAPI(), params, unreadChannels) {
+	if !ch.backfillUnreadCounts(ctx, request, ch.api, params, unreadChannels) {
 		return nil, ctx.Err()
 	}
 
@@ -90,7 +90,7 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 		return csvResult("", coverage.meta(), &unreadChannels)
 	}
 
-	histories, errs := fetchUnreadHistories(ctx, ch.apiProvider.WebAPI(), unreadChannels, params.maxMessagesPerChannel,
+	histories, errs := fetchUnreadHistories(ctx, ch.api, unreadChannels, params.maxMessagesPerChannel,
 		func(c UnreadChannel) bool { return c.LastRead == "" },
 		func(finished int) {
 			sendProgress(ctx, request, finished, len(unreadChannels), fmt.Sprintf("Fetching messages: %d of %d channels", finished, len(unreadChannels)))
@@ -316,7 +316,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 			ChannelID: channel,
 			Limit:     1,
 		}
-		history, err := ch.apiProvider.WebAPI().GetConversationHistoryContext(ctx, &historyParams)
+		history, err := ch.api.GetConversationHistoryContext(ctx, &historyParams)
 		if err != nil {
 			ch.logger.Debug("Failed to get latest message", zap.Error(err))
 			return nil, fmt.Errorf("failed to get latest message: %w", err)
@@ -328,7 +328,7 @@ func (ch *ConversationsHandler) ConversationsMarkHandler(ctx context.Context, re
 		}
 	}
 
-	err = ch.apiProvider.Slack().MarkConversationContext(ctx, channel, ts)
+	err = ch.api.MarkConversationContext(ctx, channel, ts)
 	if err != nil {
 		ch.logger.Debug("Failed to mark conversation", zap.Error(err))
 		return nil, fmt.Errorf("failed to mark conversation as read: %w", err)
@@ -354,7 +354,7 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 		return nil, fmt.Errorf("failed to resolve channel: %w", err)
 	}
 
-	notInChannel, err := ch.apiProvider.Slack().LeaveConversationContext(ctx, channel)
+	notInChannel, err := ch.api.LeaveConversationContext(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Failed to leave conversation", zap.Error(err))
 		return nil, fmt.Errorf("failed to leave conversation: %w", err)
@@ -381,7 +381,7 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 		return nil, fmt.Errorf("failed to resolve channel: %w", err)
 	}
 
-	_, _, _, err = ch.apiProvider.WebAPI().JoinConversationContext(ctx, channel)
+	_, _, _, err = ch.api.JoinConversationContext(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Failed to join conversation", zap.Error(err))
 		return nil, fmt.Errorf("failed to join conversation: %w", err)
@@ -433,7 +433,7 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(request mcp.Call
 			userIDs = append(userIDs, id)
 			continue
 		}
-		u, err := ch.apiProvider.UserByRef(user)
+		u, err := ch.api.Directory().UserByRef(user)
 		if err != nil {
 			return nil, cacheMiss(user, err, userNotFound)
 		}
@@ -460,13 +460,13 @@ func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, re
 		ReturnIM: true,
 	}
 
-	channel, _, _, err := ch.apiProvider.WebAPI().OpenConversationContext(ctx, params)
+	channel, _, _, err := ch.api.OpenConversationContext(ctx, params)
 	if err != nil {
 		ch.logger.Debug("Slack OpenConversationContext failed", zap.Error(err))
 		return nil, err
 	}
 
-	ch.apiProvider.UpsertChannel(channel)
+	ch.api.UpsertChannel(channel)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully opened conversation. Channel ID: %s", channel.Conversation.ID)), nil
 }

@@ -58,24 +58,14 @@ func renderSavedItems(items []SavedItemRow, channelName func(string) string, met
 }
 
 type SavedHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
-	settings    Settings
-	messages    messagePipeline
-
-	// listPage and itemMessages are the Slack side of listSaved, swapped out
-	// in tests. The clients pace saved.list and the message reads.
-	listPage     func(ctx context.Context, filter string, limit int, cursor string) (provider.SavedPage, error)
-	itemMessages func(ctx context.Context, item provider.SavedItem, mode text.OutputMode) ([]Message, error)
+	api      SavedAPI
+	messages MessagePipeline
+	logger   *zap.Logger
+	settings Settings
 }
 
-func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *SavedHandler {
-	h := &SavedHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}}
-	h.listPage = func(ctx context.Context, filter string, limit int, cursor string) (provider.SavedPage, error) {
-		return apiProvider.Slack().SavedList(ctx, filter, limit, cursor)
-	}
-	h.itemMessages = h.savedItemMessages
-	return h
+func NewSavedHandler(api SavedAPI, messages MessagePipeline, logger *zap.Logger, settings Settings) *SavedHandler {
+	return &SavedHandler{api: api, messages: messages, logger: logger, settings: settings}
 }
 
 func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -116,7 +106,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 			}
 		}
 
-		resp, err := h.listPage(ctx, filter, pageSize, cursor)
+		resp, err := h.api.SavedList(ctx, filter, pageSize, cursor)
 		if err != nil {
 			if len(allItems) > 0 && ctx.Err() != nil {
 				stopErr = err
@@ -141,7 +131,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 				stopErr = err
 				continue
 			}
-			msgs, err := h.itemMessages(ctx, item, mode)
+			msgs, err := h.savedItemMessages(ctx, item, mode)
 			if err != nil {
 				stopErr = err
 				continue
@@ -174,7 +164,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 		return marshalMessagesToCSV(allMessages, opts)
 	}
 
-	return renderSavedItems(allItems, h.apiProvider.ChannelLabel, meta)
+	return renderSavedItems(allItems, h.messages.channelLabel, meta)
 }
 
 // savedItemMessages fetches one saved message. A Slack failure is logged and
@@ -284,7 +274,7 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 		return nil, err
 	}
 
-	if err := h.apiProvider.Slack().SavedUpdate(ctx, params); err != nil {
+	if err := h.api.SavedUpdate(ctx, params); err != nil {
 		h.logger.Debug("SavedUpdate failed", zap.String("item_id", params.ID), zap.String("ts", params.Ts), zap.Error(err))
 		return nil, fmt.Errorf("failed to update saved item: %w", err)
 	}
@@ -325,7 +315,7 @@ func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallTool
 		return nil, err
 	}
 
-	item, err := h.apiProvider.Slack().SavedAdd(ctx, params)
+	item, err := h.api.SavedAdd(ctx, params)
 	if err != nil {
 		h.logger.Debug("SavedAdd failed", zap.String("item_type", params.Type), zap.Error(err))
 		return nil, fmt.Errorf("failed to add saved item: %w", err)
@@ -341,7 +331,7 @@ func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallT
 		return nil, err
 	}
 
-	if err := h.apiProvider.Slack().SavedDelete(ctx, target); err != nil {
+	if err := h.api.SavedDelete(ctx, target); err != nil {
 		h.logger.Debug("SavedDelete failed", zap.String("item_id", target.ID), zap.String("ts", target.Ts), zap.Error(err))
 		return nil, fmt.Errorf("failed to delete saved item: %w", err)
 	}
@@ -355,7 +345,7 @@ func savedActionData(action, status string, ref provider.SavedRef) ActionData {
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	err := h.apiProvider.Slack().SavedClearCompleted(ctx)
+	err := h.api.SavedClearCompleted(ctx)
 	if err != nil {
 		h.logger.Debug("SavedClearCompleted failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to clear completed saved items: %w", err)

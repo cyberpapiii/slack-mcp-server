@@ -47,7 +47,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		zap.String("thread_ts", params.threadTs),
 		zap.String("content_type", params.contentType),
 	)
-	respChannel, respTimestamp, err := ch.apiProvider.WebAPI().PostMessageContext(ctx, params.channel, options...)
+	respChannel, respTimestamp, err := ch.api.PostMessageContext(ctx, params.channel, options...)
 	if err != nil {
 		ch.logger.Debug("Slack PostMessageContext failed", zap.Error(err))
 		return nil, err
@@ -60,7 +60,7 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	// The message is already posted, so a failed mark is reported, not
 	// returned as an error a caller would retry into a duplicate post.
 	if ch.settings.MarkAfterPost {
-		if err := ch.apiProvider.Slack().MarkConversationContext(ctx, params.channel, respTimestamp); err != nil {
+		if err := ch.api.MarkConversationContext(ctx, params.channel, respTimestamp); err != nil {
 			ch.logger.Debug("Slack MarkConversationContext failed", zap.Error(err))
 			posted += fmt.Sprintf(". Warning: marking the channel read failed: %v", err)
 		}
@@ -125,7 +125,7 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 		zap.String("emoji", params.emoji),
 	)
 
-	err = ch.apiProvider.WebAPI().AddReactionContext(ctx, params.emoji, itemRef)
+	err = ch.api.AddReactionContext(ctx, params.emoji, itemRef)
 	if err != nil {
 		ch.logger.Debug("Slack AddReactionContext failed", zap.Error(err))
 		return nil, err
@@ -153,7 +153,7 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 		zap.String("emoji", params.emoji),
 	)
 
-	err = ch.apiProvider.WebAPI().RemoveReactionContext(ctx, params.emoji, itemRef)
+	err = ch.api.RemoveReactionContext(ctx, params.emoji, itemRef)
 	if err != nil {
 		ch.logger.Debug("Slack RemoveReactionContext failed", zap.Error(err))
 		return nil, err

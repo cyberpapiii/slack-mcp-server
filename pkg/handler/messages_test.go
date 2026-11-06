@@ -4,15 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func TestUnitAColdCacheFailsOnlyNameLookups(t *testing.T) {
-	p := messagePipeline{api: &provider.ApiProvider{}, logger: zap.NewNop()}
+	p := (&fakeSlack{dir: coldDirectory()}).pipeline()
 
 	for _, ref := range []string{"C0123ABC", "<#C0123ABC|general>"} {
 		id, err := p.channelID(context.Background(), ref)

@@ -72,7 +72,7 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 		Cursor:    params.cursor,
 		Inclusive: false,
 	}
-	history, err := ch.apiProvider.WebAPI().GetConversationHistoryContext(ctx, &historyParams)
+	history, err := ch.api.GetConversationHistoryContext(ctx, &historyParams)
 	if err != nil {
 		ch.logger.Debug("GetConversationHistoryContext failed", zap.Error(err))
 		return nil, err
@@ -115,7 +115,7 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 		Cursor:    params.cursor,
 		Inclusive: false,
 	}
-	replies, hasMore, nextCursor, err := ch.apiProvider.WebAPI().GetConversationRepliesContext(ctx, &repliesParams)
+	replies, hasMore, nextCursor, err := ch.api.GetConversationRepliesContext(ctx, &repliesParams)
 	if err != nil {
 		ch.logger.Debug("GetConversationRepliesContext failed", zap.Error(err))
 		return nil, err
@@ -150,7 +150,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 		Page:          params.page,
 	}
 
-	messagesRes, _, err := ch.apiProvider.WebAPI().SearchContext(ctx, params.query, searchParams)
+	messagesRes, _, err := ch.api.SearchContext(ctx, params.query, searchParams)
 	if err != nil {
 		ch.logger.Debug("Slack SearchContext failed", zap.Error(err))
 		return nil, err
@@ -244,7 +244,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		// form, which is not a user ID and must be resolved via the channels
 		// cache rather than the users map.
 		if kind := provider.ClassifyID(im); kind == provider.IDDirectMessage || kind == provider.IDGroup {
-			f, err = conversationFilter(ch.apiProvider.Directory(), im)
+			f, err = conversationFilter(ch.api.Directory(), im)
 		} else {
 			f, err = ch.userFilter(ctx, im)
 		}

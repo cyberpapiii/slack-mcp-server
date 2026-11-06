@@ -144,20 +144,20 @@ type reactionRow struct {
 	Users string `csv:"Users"`
 }
 type ConversationsHandler struct {
-	apiProvider  *provider.ApiProvider
+	api          ConversationsAPI
+	messages     MessagePipeline
 	logger       *zap.Logger
 	settings     Settings
 	availability Availability
-	messages     messagePipeline
 }
 
-func NewConversationsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings, availability Availability) *ConversationsHandler {
+func NewConversationsHandler(api ConversationsAPI, messages MessagePipeline, logger *zap.Logger, settings Settings, availability Availability) *ConversationsHandler {
 	return &ConversationsHandler{
-		apiProvider:  apiProvider,
+		api:          api,
+		messages:     messages,
 		logger:       logger,
 		settings:     settings,
 		availability: availability,
-		messages:     messagePipeline{api: apiProvider, logger: logger},
 	}
 }
 
@@ -209,17 +209,17 @@ func conversationFilter(dir *provider.Directory, raw string) (string, error) {
 func (ch *ConversationsHandler) userFilter(ctx context.Context, raw string) (string, error) {
 	id, name := provider.ParseUserRef(raw)
 	if id != "" {
-		if _, ok := ch.apiProvider.Directory().User(id); ok {
+		if _, ok := ch.api.Directory().User(id); ok {
 			return fmt.Sprintf("<@%s>", id), nil
 		}
-		patched, err := ch.apiProvider.PatchUser(ctx, id)
+		patched, err := ch.api.PatchUser(ctx, id)
 		if err != nil {
 			ch.logger.Debug("Targeted user fetch failed, user not found", zap.String("user_id", id), zap.Error(err))
 			return "", userNotFound(id)
 		}
 		return fmt.Sprintf("<@%s>", patched.ID), nil
 	}
-	u, err := ch.apiProvider.UserByRef(name)
+	u, err := ch.api.Directory().UserByRef(name)
 	if err != nil {
 		return "", cacheMiss(name, err, userNotFound)
 	}
@@ -233,7 +233,7 @@ func (ch *ConversationsHandler) channelFilter(raw string) (string, error) {
 	id, name := provider.ParseChannelRef(raw)
 	kind := provider.ClassifyID(id)
 	if strings.HasPrefix(name, "#") || kind == provider.IDChannel || kind == provider.IDGroup {
-		c, err := ch.apiProvider.ChannelByRef(raw)
+		c, err := ch.api.Directory().ChannelByRef(raw)
 		if err != nil {
 			return "", cacheMiss(raw, err, channelNotFound)
 		}

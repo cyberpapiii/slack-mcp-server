@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -34,14 +33,14 @@ const (
 )
 
 type ActivityHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
-	settings    Settings
-	messages    messagePipeline
+	api      ActivityAPI
+	messages MessagePipeline
+	logger   *zap.Logger
+	settings Settings
 }
 
-func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *ActivityHandler {
-	return &ActivityHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}}
+func NewActivityHandler(api ActivityAPI, messages MessagePipeline, logger *zap.Logger, settings Settings) *ActivityHandler {
+	return &ActivityHandler{api: api, messages: messages, logger: logger, settings: settings}
 }
 
 // renderActivityItems is the include_messages=false output: rows keyed by the
@@ -64,7 +63,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		return nil, err
 	}
 
-	feed, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
+	feed, err := h.api.ActivityFeed(ctx, limit)
 	if err != nil {
 		h.logger.Debug("ActivityFeed failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to get activity feed: %w", err)
@@ -89,7 +88,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	h.logger.Debug("Filtered unread activity items", zap.Int("count", len(items)))
 
 	if !includeMessages {
-		return renderActivityItems(items, h.apiProvider.ChannelLabel, SlackResultMeta("", false, ""))
+		return renderActivityItems(items, h.messages.channelLabel, SlackResultMeta("", false, ""))
 	}
 
 	type threadKey struct {
@@ -118,10 +117,9 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		}{ai.ChannelID, ai.ThreadTs, ai.MinUnreadTs})
 	}
 
-	api := h.apiProvider.WebAPI()
 	replies, errs := fetchInOrder(ctx, len(threads), fanOutWorkers, func(ctx context.Context, i int) ([]slack.Message, error) {
 		t := threads[i]
-		msgs, _, _, err := api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
+		msgs, _, _, err := h.api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 			ChannelID: t.ChannelID,
 			Timestamp: t.ThreadTs,
 			Oldest:    t.MinUnreadTs,
@@ -163,7 +161,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	meta := SlackResultMeta("", partialReason != "", partialReason)
 
 	if len(allMessages) == 0 {
-		return renderActivityItems(items, h.apiProvider.ChannelLabel, meta)
+		return renderActivityItems(items, h.messages.channelLabel, meta)
 	}
 
 	opts := h.messages.render(mode, meta)
@@ -180,7 +178,7 @@ func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request m
 		return nil, invalidArguments("key, feed_ts, and type are all required parameters")
 	}
 
-	err := h.apiProvider.Slack().ActivityMarkRead(ctx, itemType, feedTs, key)
+	err := h.api.ActivityMarkRead(ctx, itemType, feedTs, key)
 	if err != nil {
 		h.logger.Debug("ActivityMarkRead failed",
 			zap.String("key", key),

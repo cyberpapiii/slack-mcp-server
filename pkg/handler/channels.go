@@ -23,12 +23,12 @@ type Channel struct {
 }
 
 type ChannelsHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
+	api    ChannelsAPI
+	logger *zap.Logger
 }
 
-func NewChannelsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *ChannelsHandler {
-	return &ChannelsHandler{apiProvider: apiProvider, logger: logger}
+func NewChannelsHandler(api ChannelsAPI, logger *zap.Logger) *ChannelsHandler {
+	return &ChannelsHandler{api: api, logger: logger}
 }
 
 // The values channels_list and channels_me accept, and their defaults.
@@ -64,7 +64,7 @@ func channelRows(channels []provider.Channel) []Channel {
 func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	ch.logger.Debug("ChannelsResource called")
 
-	channels, err := ch.apiProvider.Directory().Channels()
+	channels, err := ch.api.Directory().Channels()
 	if err != nil {
 		ch.logger.Warn("Channels cache not ready", zap.Error(err))
 		return nil, err
@@ -106,7 +106,7 @@ func (ch *ChannelsHandler) ChannelsHandler(ctx context.Context, request mcp.Call
 	limit := pageLimit(request, 100, 999)
 	query := request.GetString("query", "")
 
-	allChannels, err := ch.apiProvider.Directory().Channels()
+	allChannels, err := ch.api.Directory().Channels()
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 	cursor := request.GetString("cursor", "")
 	limit := pageLimit(request, 100, 999)
 
-	channels, nextCursor, err := ch.apiProvider.ChannelsForUser(ctx, channelTypes, cursor, limit)
+	channels, nextCursor, err := ch.api.ChannelsForUser(ctx, channelTypes, cursor, limit)
 	if err != nil {
 		ch.logger.Debug("Failed to fetch user conversations", zap.Error(err))
 		return nil, fmt.Errorf("failed to fetch your channels: %w", err)
@@ -183,7 +183,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	}
 	limit := pageLimit(request, 100, 1000)
 
-	starredIDs, err := ch.apiProvider.Slack().GetStarredChannelIDs(ctx, limit)
+	starredIDs, err := ch.api.GetStarredChannelIDs(ctx, limit)
 	if err != nil {
 		ch.logger.Debug("Failed to get starred channel IDs", zap.Error(err))
 		return nil, fmt.Errorf("failed to get starred channels: %w", err)
@@ -191,13 +191,13 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 
 	ch.logger.Debug("Got starred channel IDs", zap.Int("count", len(starredIDs)))
 
-	mutedChannels, err := ch.apiProvider.Slack().GetMutedChannels(ctx)
+	mutedChannels, err := ch.api.GetMutedChannels(ctx)
 	if err != nil {
 		ch.logger.Warn("Failed to fetch muted channels, proceeding without mute info", zap.Error(err))
 		mutedChannels = map[string]bool{}
 	}
 
-	dir := ch.apiProvider.Directory()
+	dir := ch.api.Directory()
 
 	var result []StarredChannel
 	for _, id := range starredIDs {
