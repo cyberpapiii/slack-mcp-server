@@ -180,7 +180,7 @@ func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, brow
 	if err := oauthcred.IdentityOf(&c.authResponse).Match(oauthcred.IdentityOf(browserIdentity)); err != nil {
 		return fmt.Errorf("browser provider %w", err)
 	}
-	browserEdge := edge.NewWithInfo(browserIdentity, browserAuth.SlackToken(), httpClient, edge.OptionLogger(c.logger))
+	browserEdge := edge.NewWithInfo(browserIdentity, browserAuth.SlackToken(), httpClient, c.logger, c.pacing)
 	c.useBrowserEdge(browserEdge)
 	return nil
 }
@@ -217,7 +217,7 @@ func (c *MCPSlackClient) reprobeBrowser(ctx context.Context) error {
 	if err := oauthcred.IdentityOf(&c.authResponse).Match(oauthcred.IdentityOf(identity)); err != nil {
 		return fmt.Errorf("browser provider %w", err)
 	}
-	browserEdge := edge.NewWithInfo(identity, browserAuth.SlackToken(), httpClient, edge.OptionLogger(c.logger))
+	browserEdge := edge.NewWithInfo(identity, browserAuth.SlackToken(), httpClient, c.logger, c.pacing)
 	c.useBrowserEdge(browserEdge)
 	c.logger.Info("Browser-session Slack auth recovered")
 	return nil

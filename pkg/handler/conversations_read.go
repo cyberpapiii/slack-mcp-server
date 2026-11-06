@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -153,11 +152,7 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 		Page:          params.page,
 	}
 
-	rl := limiter.SearchMessages
-	messagesRes, err := limiter.CallWithRetry(ctx, rl, 2, func() (*slack.SearchMessages, error) {
-		msgs, _, err := ch.apiProvider.WebAPI().SearchContext(ctx, params.query, searchParams)
-		return msgs, err
-	})
+	messagesRes, _, err := ch.apiProvider.WebAPI().SearchContext(ctx, params.query, searchParams)
 	if err != nil {
 		ch.logger.Debug("Slack SearchContext failed", zap.Error(err))
 		return nil, err

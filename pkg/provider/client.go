@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
@@ -56,6 +57,9 @@ type MCPSlackClient struct {
 
 	mode         CredentialMode
 	isEnterprise bool
+	// pacing is limiter.SlackPacing() once connected; nil (no pacing) in
+	// tests that build a client by hand.
+	pacing limiter.Pacing
 
 	browserState    atomic.Int32
 	browserReason   atomic.Value
@@ -132,7 +136,8 @@ func (c *MCPSlackClient) connect(authProvider slackcreds.Credentials, mode Crede
 		slack.OptionHTTPClient(httpClient),
 		slack.OptionAPIURL(c.apiBase()),
 	)
-	c.edgeClient.Store(edge.NewWithInfo(authResp, token, httpClient, edge.OptionLogger(logger)))
+	c.pacing = limiter.SlackPacing()
+	c.edgeClient.Store(edge.NewWithInfo(authResp, token, httpClient, logger, c.pacing))
 	c.token.Store(token)
 	c.initBrowserState()
 	return nil

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
@@ -103,7 +102,6 @@ func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Cha
 	if query == "" {
 		maxPages = maxEmptyQueryPages
 	}
-	lim := limiter.Tier2boost
 	var cc []slack.Channel
 	seenCursor := make(map[string]struct{})
 	for page := 0; page < maxPages; page++ {
@@ -130,9 +128,6 @@ func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Cha
 				zap.Bool("empty_query", query == ""),
 			)
 			break
-		}
-		if err := lim.Wait(ctx); err != nil {
-			return nil, err
 		}
 	}
 	lg.Debug("channels", zap.Int("count", len(cc)))

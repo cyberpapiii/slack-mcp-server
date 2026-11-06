@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
@@ -143,23 +142,6 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 		assert.Equal(t, "C001", snapshot.ChannelsInv["#general"])
 		_, stale := snapshot.Channels["COLD"]
 		assert.False(t, stale, "a complete fetch should install the fresh snapshot")
-	})
-
-	t.Run("rate limited fetch retries then gives up", func(t *testing.T) {
-		// RetryAfter is one millisecond so exercising the retry path stays
-		// fast. newTestApiProvider pacing is unlimited, so the three attempts
-		// do not wait on Tier2 token refills either.
-		client := &fakeChannelsClient{pages: []channelsPage{
-			{err: &slack.RateLimitedError{RetryAfter: time.Millisecond}},
-		}}
-		ap := newTestApiProvider(client, emptyUsersCache())
-
-		chans, err := ap.getChannelsMultiType(context.Background(), AllChanTypes)
-
-		require.Error(t, err)
-		assert.Empty(t, chans)
-		// Initial attempt plus two retries, per the maxRetries of 2.
-		assert.Equal(t, 3, client.calls)
 	})
 }
 

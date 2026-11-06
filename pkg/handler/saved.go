@@ -7,13 +7,11 @@ import (
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 // SavedItemRow is one item on the To-dos or Saved list. For a message, Channel
@@ -64,15 +62,14 @@ type SavedHandler struct {
 	settings    Settings
 	messages    messagePipeline
 
-	// pace, listPage and itemMessages are the Slack side of listSaved,
-	// swapped out in tests.
-	pace         *rate.Limiter
+	// listPage and itemMessages are the Slack side of listSaved, swapped out
+	// in tests. The clients pace saved.list and the message reads.
 	listPage     func(ctx context.Context, filter string, limit int, cursor string) (provider.SavedPage, error)
 	itemMessages func(ctx context.Context, item provider.SavedItem, mode text.OutputMode) ([]Message, error)
 }
 
 func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *SavedHandler {
-	h := &SavedHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}, pace: limiter.Tier3}
+	h := &SavedHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}}
 	h.listPage = func(ctx context.Context, filter string, limit int, cursor string) (provider.SavedPage, error) {
 		return apiProvider.Slack().SavedList(ctx, filter, limit, cursor)
 	}
@@ -112,7 +109,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 
 	for fetched < limit && stopErr == nil {
 		if cursor != "" {
-			if err := h.pace.Wait(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				stopErr = err
 				break
 			}
@@ -139,7 +136,7 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 			if !includeMessages || stopErr != nil || !item.IsMessage() {
 				continue
 			}
-			if err := h.pace.Wait(ctx); err != nil {
+			if err := ctx.Err(); err != nil {
 				stopErr = err
 				continue
 			}

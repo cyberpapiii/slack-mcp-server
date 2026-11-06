@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
@@ -96,12 +95,6 @@ func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
 	return nil
 }
 
-// Wraps channels+cursor so CallWithRetry (one T) can paginate GetConversationsContext.
-type channelsPageResult struct {
-	channels []slack.Channel
-	cursor   string
-}
-
 // Partial pages returned on error — callers must not treat that as a complete list.
 func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []string) ([]Channel, error) {
 	params := &slack.GetConversationsParameters{
@@ -113,22 +106,13 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 	var chans []Channel
 
 	usersMap := ap.ProvideUsersMap().Users
-	// Tier2 matches conversations.list; faster budgets caused 429 truncations.
-	lim := ap.conversationsLimiter
-	if lim == nil {
-		lim = limiter.Tier2
-	}
-
 	for {
-		// CallWithRetry already paces; do not wait again in this loop.
-		page, err := limiter.CallWithRetry(ctx, lim, 2,
-			func() (channelsPageResult, error) {
-				c, cur, err := ap.api.GetConversationsContext(ctx, params)
-				return channelsPageResult{channels: c, cursor: cur}, err
-			})
+		// The client paces conversations.list on Tier2 and retries a 429;
+		// faster budgets caused 429 truncations.
+		pageChannels, cursor, err := ap.api.GetConversationsContext(ctx, params)
 		ap.logger.Debug("Fetched channels",
 			zap.Strings("channelTypes", channelTypes),
-			zap.Int("count", len(page.channels)),
+			zap.Int("count", len(pageChannels)),
 		)
 		if err != nil {
 			ap.logger.Error("Failed to fetch channels, returning partial result",
@@ -138,15 +122,15 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 			return chans, err
 		}
 
-		for _, channel := range page.channels {
+		for _, channel := range pageChannels {
 			chans = append(chans, MapChannelFromSlack(channel, usersMap))
 		}
 
-		if page.cursor == "" {
+		if cursor == "" {
 			break
 		}
 
-		params.Cursor = page.cursor
+		params.Cursor = cursor
 	}
 	return chans, nil
 }

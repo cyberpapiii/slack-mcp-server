@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
@@ -21,7 +22,23 @@ func (c *MCPSlackClient) LeaveConversationContext(ctx context.Context, channelID
 	return c.standardSlackClient().LeaveConversationContext(ctx, channelID)
 }
 
+type conversationsPage struct {
+	channels []slack.Channel
+	cursor   string
+}
+
+// GetConversationsContext lists conversations paced as conversations.list.
+// On an Enterprise browser session one call merges the edge list with every
+// standard page.
 func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
+	page, err := limiter.Paced(ctx, c.pacing, "conversations.list", func() (conversationsPage, error) {
+		channels, cursor, err := c.conversations(ctx, params)
+		return conversationsPage{channels, cursor}, err
+	})
+	return page.channels, page.cursor, err
+}
+
+func (c *MCPSlackClient) conversations(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
 	std := c.standardSlackClient()
 	// Enterprise + session: edge alone is partial (issue #73); merge with fully
 	// paginated standard API and return empty cursor. OAuth / non-Enterprise: standard only.

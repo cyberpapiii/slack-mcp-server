@@ -181,7 +181,7 @@ func edgeAnswering(body string) *edge.Client {
 	return edge.NewWithInfo(&slack.AuthTestResponse{TeamID: "T1", URL: "https://example.slack.com/"}, "xoxc-test",
 		&http.Client{Transport: draftsRoundTrip(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-		})})
+		})}, zap.NewNop(), nil)
 }
 
 // Drafts used to capture the edge client once at startup, so a session the

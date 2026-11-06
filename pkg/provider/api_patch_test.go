@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 // mockSlackClient implements just enough of SlackAPI for PatchUser tests.
@@ -40,14 +39,7 @@ func (m *perUserSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error
 }
 
 func newTestApiProvider(client SlackAPI, snapshot *UsersCache) *ApiProvider {
-	ap := &ApiProvider{
-		api:    client,
-		logger: zap.NewNop(),
-		// Unlimited pacing: these tests assert pagination and snapshot
-		// semantics, not Slack's Tier2 budget. Sharing the process-wide
-		// limiter made the suite sleep 18s on real token refills.
-		conversationsLimiter: rate.NewLimiter(rate.Inf, 1),
-	}
+	ap := &ApiProvider{api: client, logger: zap.NewNop()}
 	ap.usersSnapshot.Store(snapshot)
 	return ap
 }

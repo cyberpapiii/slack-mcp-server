@@ -21,7 +21,8 @@ var (
 	// 429 past the burst is still retried on Slack's Retry-After.
 	SearchMessages = rate.NewLimiter(rate.Every(3*time.Second), 10)
 
-	// ConversationsReplies paces activity_unreads' per-thread fetches at
+	// ConversationsReplies paces every conversations.replies call (thread
+	// reads, activity_unreads' per-thread fan-out, single-message fetches) at
 	// Slack's Tier 3 rate, apart from saved_list's pagination on Tier3.
 	ConversationsReplies = rate.NewLimiter(rate.Every(1200*time.Millisecond), 8)
 )
