@@ -146,3 +146,20 @@ uses `invalidArguments`.
   history converter (gain reactions/attachments, email-file text); `reactions_get`/`users_search` go
   through the CSV builder (empty lists return a header-only CSV); a failed mark after a successful post
   returns success with a warning instead of an error (a retry would post twice).
+
+## Progress (2026-11-06)
+Landed on `refactor/untangle`: F1, F4 (W1), F5, F6, F7, F12 (W2), the provider error unification, and the
+W1 leftovers (oauthcred on slackhttp; edge and Lists take a required HTTP client). Running in worktrees:
+W3 (F2, F3, Q1, F11, F14 server side), W4 (F8, F9, F10, F13 handler side, Q2, F14 text side).
+
+Observable changes so far, besides the Q1–Q3 decisions:
+- `channels_archive` and `drafts_delete` require `action`, as their schemas said (they defaulted to prepare).
+- An invalid `detail` value is `invalid_arguments`.
+- Allowlist denials name the refused tool (`reactions_add`, not "reactions tools").
+- `SLACK_MCP_COMPACT_OUTPUT=off` selects full, like `0`/`false`/`no` (one falsy parser).
+- Credential env values are trimmed, so a whitespace-only `SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT` counts as unset.
+- Error codes follow one table: Lists `missing_scope` is `permission_denied`, a missing Lists item or draft is
+  `not_found`, an unknown Slack code is `slack_error` everywhere (was `slack_api_error` or the raw code), and a
+  5xx or `fatal_error`/`internal_error` after any write is `outcome_unknown`.
+- Edge errors and logs: edge logs reach the server log (they went to `slog.Default()`); HTTP status errors use
+  slack-go's `StatusCodeError` text; one 64 MiB response cap; any 429 is retryable, including `Retry-After: 0`.
