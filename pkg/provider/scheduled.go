@@ -43,12 +43,8 @@ func NewScheduledProvider(client ScheduledClient) *ScheduledProvider {
 	return &ScheduledProvider{client: client}
 }
 
-func (ap *ApiProvider) Scheduled() (*ScheduledProvider, error) {
-	web := ap.WebAPI()
-	if web == nil {
-		return nil, errors.New("configured Slack client does not support scheduled messages")
-	}
-	return NewScheduledProvider(web), nil
+func (ap *ApiProvider) Scheduled() *ScheduledProvider {
+	return NewScheduledProvider(ap.WebAPI())
 }
 
 func (p *ScheduledProvider) ListScheduled(ctx context.Context, request ScheduledListRequest) (ScheduledPage, error) {

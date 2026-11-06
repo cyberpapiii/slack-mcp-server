@@ -130,18 +130,19 @@ func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {
 		})},
 	}
 
-	_, err := client.GetCanvasContentContext(context.Background(), "F1", "markdown")
+	web := &WebClient{client: client}
+	_, err := web.GetCanvasContentContext(context.Background(), "F1", "markdown")
 	require.ErrorIs(t, err, ErrUserOAuthRequired, "a browser-session client has no OAuth token to send")
 
 	client.oauthAccessToken.Store("xoxp-test")
-	content, err := client.GetCanvasContentContext(context.Background(), "F1", "html")
+	content, err := web.GetCanvasContentContext(context.Background(), "F1", "html")
 	require.NoError(t, err)
 	assert.Equal(t, "# Plan", content)
 	assert.Equal(t, "F1", form.Get("canvas_id"))
 	assert.Equal(t, "html", form.Get("content_type"))
 
 	body = `{"ok":false,"error":"canvas_not_found"}`
-	_, err = client.GetCanvasContentContext(context.Background(), "F1", "markdown")
+	_, err = web.GetCanvasContentContext(context.Background(), "F1", "markdown")
 	assert.ErrorContains(t, err, "canvas_not_found")
 }
 

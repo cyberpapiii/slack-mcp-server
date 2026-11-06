@@ -60,36 +60,44 @@ func (f *rotatingFixture) assertUsedRotatedClient(t *testing.T) {
 
 func TestUnitScheduledProviderFollowsClientRotation(t *testing.T) {
 	f := newRotatingFixture(t, `{"ok":true,"scheduled_messages":[]}`)
-	service, err := f.provider.Scheduled()
-	require.NoError(t, err)
+	service := f.provider.Scheduled()
 
 	f.rotate()
 
-	_, err = service.ListScheduled(context.Background(), ScheduledListRequest{ChannelID: "C1"})
+	_, err := service.ListScheduled(context.Background(), ScheduledListRequest{ChannelID: "C1"})
 	require.NoError(t, err)
 	f.assertUsedRotatedClient(t)
 }
 
 func TestUnitChannelMutationsProviderFollowsClientRotation(t *testing.T) {
 	f := newRotatingFixture(t, `{"ok":true,"channel":{"id":"C1","name":"renamed"}}`)
-	service, err := f.provider.ChannelMutations()
-	require.NoError(t, err)
+	service := f.provider.ChannelMutations()
 
 	f.rotate()
 
-	_, err = service.client.RenameConversationContext(context.Background(), "C1", "renamed")
+	_, err := service.client.RenameConversationContext(context.Background(), "C1", "renamed")
 	require.NoError(t, err)
 	f.assertUsedRotatedClient(t)
 }
 
 func TestUnitMessageFilesProviderFollowsClientRotation(t *testing.T) {
 	f := newRotatingFixture(t, `{"ok":true,"channel":"C1","ts":"1.000001"}`)
-	service, err := f.provider.MessageFiles()
-	require.NoError(t, err)
+	service := f.provider.MessageFiles()
 
 	f.rotate()
 
-	_, err = service.Update(context.Background(), "C1", "1.000001", "updated")
+	_, err := service.Update(context.Background(), "C1", "1.000001", "updated")
+	require.NoError(t, err)
+	f.assertUsedRotatedClient(t)
+}
+
+func TestUnitPeopleChannelsProviderFollowsClientRotation(t *testing.T) {
+	f := newRotatingFixture(t, `{"ok":true,"emoji":{"party":"https://example.com/party.png"}}`)
+	service := f.provider.PeopleChannels()
+
+	f.rotate()
+
+	_, err := service.ListEmoji(context.Background(), "", "", 10)
 	require.NoError(t, err)
 	f.assertUsedRotatedClient(t)
 }

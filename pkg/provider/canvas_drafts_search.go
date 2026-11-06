@@ -63,7 +63,7 @@ type CanvasAPI interface {
 	UpdateCanvas(context.Context, CanvasUpdateRequest) error
 }
 
-var _ canvasSlackAPI = (*MCPSlackClient)(nil)
+var _ canvasSlackAPI = (*WebClient)(nil)
 
 type canvasSlackAPI interface {
 	CreateCanvasContext(context.Context, string, slack.DocumentContent) (string, error)
@@ -77,12 +77,8 @@ type CanvasProvider struct{ client canvasSlackAPI }
 
 func NewCanvasProvider(client canvasSlackAPI) *CanvasProvider { return &CanvasProvider{client: client} }
 
-func (ap *ApiProvider) Canvases() (*CanvasProvider, error) {
-	client, ok := ap.client.(canvasSlackAPI)
-	if !ok {
-		return nil, errors.New("configured Slack client does not support canvases")
-	}
-	return NewCanvasProvider(client), nil
+func (ap *ApiProvider) Canvases() *CanvasProvider {
+	return NewCanvasProvider(ap.WebAPI())
 }
 
 func (p *CanvasProvider) CreateCanvas(ctx context.Context, request CanvasCreateRequest) (string, error) {
@@ -150,27 +146,23 @@ func (p *CanvasProvider) UpdateCanvas(ctx context.Context, request CanvasUpdateR
 	return wrapSlack("canvas update", err)
 }
 
-func (c *MCPSlackClient) CreateCanvasContext(ctx context.Context, title string, content slack.DocumentContent) (string, error) {
-	return c.standardSlackClient().CreateCanvasContext(ctx, title, content)
+func (c *WebClient) CreateCanvasContext(ctx context.Context, title string, content slack.DocumentContent) (string, error) {
+	return c.resolve().CreateCanvasContext(ctx, title, content)
 }
 
-func (c *MCPSlackClient) EditCanvasContext(ctx context.Context, params slack.EditCanvasParams) error {
-	return c.standardSlackClient().EditCanvasContext(ctx, params)
-}
-
-func (c *MCPSlackClient) GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error) {
-	return c.standardSlackClient().GetFileInfoContext(ctx, fileID, count, page)
+func (c *WebClient) EditCanvasContext(ctx context.Context, params slack.EditCanvasParams) error {
+	return c.resolve().EditCanvasContext(ctx, params)
 }
 
 // GetCanvasContentContext calls canvases.getContent, which slack-go does not wrap
 // yet. Slack answers not_allowed_token_type to a browser-session token.
-func (c *MCPSlackClient) GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error) {
-	token, _ := c.oauthAccessToken.Load().(string)
+func (c *WebClient) GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error) {
+	token := c.oauthToken()
 	if token == "" {
 		return "", ErrUserOAuthRequired
 	}
-	body, err := slackhttp.Post(ctx, c.httpClient, slackhttp.Request{
-		URL:   strings.TrimRight(c.authResponse.URL, "/") + "/api/canvases.getContent",
+	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
+		URL:   strings.TrimRight(c.client.authResponse.URL, "/") + "/api/canvases.getContent",
 		Token: token,
 		Form:  url.Values{"canvas_id": {canvasID}, "content_type": {format}},
 	})
@@ -190,8 +182,8 @@ func (c *MCPSlackClient) GetCanvasContentContext(ctx context.Context, canvasID, 
 	return payload.Content, nil
 }
 
-func (c *MCPSlackClient) LookupCanvasSectionsContext(ctx context.Context, params slack.LookupCanvasSectionsParams) ([]slack.CanvasSection, error) {
-	return c.standardSlackClient().LookupCanvasSectionsContext(ctx, params)
+func (c *WebClient) LookupCanvasSectionsContext(ctx context.Context, params slack.LookupCanvasSectionsParams) ([]slack.CanvasSection, error) {
+	return c.resolve().LookupCanvasSectionsContext(ctx, params)
 }
 
 type Draft struct {
@@ -415,12 +407,8 @@ func NewSemanticSearchProvider(client semanticSlackAPI) *SemanticSearchProvider 
 	return &SemanticSearchProvider{client: client}
 }
 
-func (ap *ApiProvider) SemanticSearch() (*SemanticSearchProvider, error) {
-	client, ok := ap.client.(semanticSlackAPI)
-	if !ok {
-		return nil, errors.New("configured Slack client does not support semantic search")
-	}
-	return NewSemanticSearchProvider(client), nil
+func (ap *ApiProvider) SemanticSearch() *SemanticSearchProvider {
+	return NewSemanticSearchProvider(ap.WebAPI())
 }
 
 func (p *SemanticSearchProvider) SearchSemantic(ctx context.Context, request SemanticSearchRequest) (SemanticSearchPage, error) {
@@ -431,8 +419,8 @@ func (p *SemanticSearchProvider) SearchSemantic(ctx context.Context, request Sem
 	return page, nil
 }
 
-func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
-	token, _ := c.oauthAccessToken.Load().(string)
+func (c *WebClient) SearchSemanticContext(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
+	token := c.oauthToken()
 	if token == "" {
 		return SemanticSearchPage{}, errors.New("OAuth token unavailable")
 	}
@@ -455,8 +443,8 @@ func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params Seman
 	if params.Limit > 0 {
 		form.Set("limit", strconv.Itoa(params.Limit))
 	}
-	body, err := slackhttp.Post(ctx, c.httpClient, slackhttp.Request{
-		URL:   strings.TrimRight(c.authResponse.URL, "/") + "/api/assistant.search.context",
+	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
+		URL:   strings.TrimRight(c.client.authResponse.URL, "/") + "/api/assistant.search.context",
 		Token: token,
 		Form:  form,
 	})

@@ -358,7 +358,7 @@ func (ap *ApiProvider) WebAPI() *WebClient {
 	if !ok || client == nil {
 		return nil
 	}
-	return &WebClient{resolve: client.standardSlackClient}
+	return &WebClient{client: client}
 }
 
 // Mode is the credential mode New chose; zero for a provider without a Slack
