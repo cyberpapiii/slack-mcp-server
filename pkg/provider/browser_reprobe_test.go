@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
@@ -24,11 +26,10 @@ func degradedBrowserClient(t *testing.T, probe browserProbeFunc) *MCPSlackClient
 	browserDegradationNotifier = func(string, *zap.Logger) {}
 
 	c := &MCPSlackClient{
-		authResponse:      &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"},
-		logger:            zap.NewNop(),
-		isOAuth:           true,
-		browserConfigured: true,
-		browserProbe:      probe,
+		authResponse: &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"},
+		logger:       zap.NewNop(),
+		mode:         ModeUserOAuthBrowser,
+		browserProbe: probe,
 	}
 	c.initBrowserState()
 	c.degradeBrowserSession(errors.New("invalid_auth"))
@@ -122,12 +123,14 @@ func TestUnitMarkBrowserUnavailableRegistersADegradedSession(t *testing.T) {
 	t.Cleanup(func() { browserDegradationNotifier = origNotifier })
 	browserDegradationNotifier = func(string, *zap.Logger) {}
 
-	c := &MCPSlackClient{logger: zap.NewNop(), isOAuth: true}
+	c := &MCPSlackClient{logger: zap.NewNop(), mode: ModeUserOAuthBrowser}
 	c.initBrowserState()
-	ap := &ApiProvider{client: c}
-	markBrowserUnavailable(ap, errors.New("load browser credential: item not found"))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ap := &ApiProvider{client: c, ctx: ctx, cancel: cancel}
+	ap.startUserOAuth(nil, oauthcred.Record{}, oauthBrowser{loadErr: errors.New("item not found")})
 
-	assert.True(t, ap.ConfiguredWithBrowserSession(), "browser tools register and explain the failure")
+	assert.True(t, ap.Satisfies(capability.BrowserSession), "browser tools register and explain the failure")
 	assert.False(t, ap.BrowserFeaturesAvailable())
 	assert.Contains(t, ap.BrowserDegradedReason(), "item not found")
 }

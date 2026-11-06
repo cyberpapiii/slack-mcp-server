@@ -62,12 +62,8 @@ func NewMessageFilesProvider(client MessageFilesClient) *MessageFilesProvider {
 }
 
 // MessageFiles returns the custom local provider. No official MCP dependency.
-func (ap *ApiProvider) MessageFiles() (*MessageFilesProvider, error) {
-	web := ap.WebAPI()
-	if web == nil {
-		return nil, errors.New("configured Slack client does not support file and message mutations")
-	}
-	return NewMessageFilesProvider(web), nil
+func (ap *ApiProvider) MessageFiles() *MessageFilesProvider {
+	return NewMessageFilesProvider(ap.WebAPI())
 }
 
 func (p *MessageFilesProvider) Upload(ctx context.Context, request FileUploadRequest) (UploadedFile, error) {

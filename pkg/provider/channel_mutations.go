@@ -49,12 +49,8 @@ func NewChannelMutationProvider(client ChannelMutationClient) *ChannelMutationPr
 	return &ChannelMutationProvider{client: client}
 }
 
-func (ap *ApiProvider) ChannelMutations() (*ChannelMutationProvider, error) {
-	web := ap.WebAPI()
-	if web == nil {
-		return nil, errors.New("Slack client does not support channel mutations")
-	}
-	return NewChannelMutationProvider(web), nil
+func (ap *ApiProvider) ChannelMutations() *ChannelMutationProvider {
+	return NewChannelMutationProvider(ap.WebAPI())
 }
 
 func (p *ChannelMutationProvider) Rename(ctx context.Context, channelID, name string) (ChannelMutationState, error) {

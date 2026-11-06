@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -41,8 +42,22 @@ func newUsersCache(users []slack.User) *UsersCache {
 	return snapshot
 }
 
+// RefreshUsers loads the users cache file, or fetches the users when the file
+// is missing or unreadable. An expired file is served while a background
+// fetch replaces it.
 func (ap *ApiProvider) RefreshUsers(ctx context.Context) error {
-	return ap.refreshUsersInternal(ctx, false)
+	ap.usersMu.Lock()
+	if cached, expired, ok := loadCacheFile[slack.User](ap.usersCachePath, ap.cacheTTL, ap.logger); ok {
+		ap.usersSnapshot.Store(newUsersCache(cached))
+		ap.usersReady.Store(true)
+		ap.usersMu.Unlock()
+		if expired {
+			ap.spawnBackgroundRefresh(&ap.usersFlight, "users", ap.fetchAndStoreUsers)
+		}
+		return nil
+	}
+	ap.usersMu.Unlock()
+	return ap.usersFlight.do(ctx, ap.fetchAndStoreUsers)
 }
 
 // PatchUser merges one users.info result into the in-memory snapshot (no disk write).
@@ -222,26 +237,6 @@ func patchSearchIndex(current *UsersCache, users map[string]slack.User, patched 
 	return append(index, inserts[j:]...)
 }
 
-func (ap *ApiProvider) refreshUsersInternal(ctx context.Context, force bool) error {
-	ap.usersMu.Lock()
-
-	if !force {
-		if cached, expired, ok := loadCacheFile[slack.User](ap.usersCachePath, ap.cacheTTL, ap.logger); ok {
-			ap.usersSnapshot.Store(newUsersCache(cached))
-			ap.usersReady.Store(true)
-			ap.usersMu.Unlock()
-
-			if expired {
-				ap.spawnBackgroundRefresh(&ap.usersFlight, "users", ap.fetchAndStoreUsers)
-			}
-			return nil
-		}
-	}
-
-	ap.usersMu.Unlock()
-	return ap.usersFlight.do(ctx, ap.fetchAndStoreUsers)
-}
-
 func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 	users, err := ap.client.GetUsersContext(ctx, slack.GetUsersOptionLimit(1000))
 	if err != nil {
@@ -259,10 +254,10 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 
 	list := users
 
-	if ap.IsOAuth() {
-		ap.logger.Debug("Skipping Slack Connect enrichment (OAuth token, browser features unavailable)")
+	if !ap.PrefersBrowser() {
+		ap.logger.Debug("Skipping Slack Connect enrichment: no healthy browser session")
 	} else {
-		connectUsers, err := ap.GetSlackConnect(ctx)
+		connectUsers, err := ap.slackConnectUsers(ctx, users)
 		if err != nil {
 			ap.logger.Warn("Slack Connect enrichment failed; continuing with standard user list",
 				zap.Error(err))
@@ -281,40 +276,37 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 	return nil
 }
 
-func (ap *ApiProvider) GetSlackConnect(ctx context.Context) ([]slack.User, error) {
+// slackConnectUsers returns the people in the browser session's shared DMs
+// that users.list did not return: Slack Connect users from other workspaces.
+func (ap *ApiProvider) slackConnectUsers(ctx context.Context, listed []slack.User) ([]slack.User, error) {
 	boot, err := ap.client.ClientUserBoot(ctx)
 	if err != nil {
-		ap.logger.Error("Failed to fetch client user boot", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("client.userBoot: %w", err)
 	}
-
-	usersSnapshot := ap.usersSnapshot.Load()
-	var collectedIDs []string
+	if boot == nil {
+		return nil, nil
+	}
+	known := make(map[string]bool, len(listed))
+	for _, u := range listed {
+		known[u.ID] = true
+	}
+	var missing []string
 	for _, im := range boot.IMs {
-		if !im.IsShared && !im.IsExtShared {
+		if (!im.IsShared && !im.IsExtShared) || im.User == "" || known[im.User] {
 			continue
 		}
-
-		_, ok := usersSnapshot.Users[im.User]
-		if !ok {
-			collectedIDs = append(collectedIDs, im.User)
-		}
+		known[im.User] = true
+		missing = append(missing, im.User)
 	}
-
-	res := make([]slack.User, 0, len(collectedIDs))
-	if len(collectedIDs) > 0 {
-		usersInfo, err := ap.client.GetUsersInfo(strings.Join(collectedIDs, ","))
+	var users []slack.User
+	for start := 0; start < len(missing); start += usersInfoBatch {
+		batch, err := ap.fetchUsersInfo(missing[start:min(start+usersInfoBatch, len(missing))]...)
 		if err != nil {
-			ap.logger.Error("Failed to fetch users info for shared IMs", zap.Error(err))
-			return nil, err
+			return nil, fmt.Errorf("users.info for shared DMs: %w", err)
 		}
-
-		for _, u := range *usersInfo {
-			res = append(res, u)
-		}
+		users = append(users, batch...)
 	}
-
-	return res, nil
+	return users, nil
 }
 
 func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
@@ -323,7 +315,8 @@ func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
 
 var slackUserIDPattern = regexp.MustCompile(`^[UW][A-Z0-9]{2,}$`)
 
-// ID query → users.info; OAuth → local cache regex; browser → edge UsersSearch.
+// SearchUsers looks an ID up with users.info. Otherwise it searches through the
+// browser session when that is preferred, and the local cache on OAuth.
 func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int) ([]slack.User, error) {
 	if slackUserIDPattern.MatchString(query) {
 		users, err := ap.client.GetUsersInfo(query)
@@ -336,10 +329,15 @@ func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int)
 		return nil, nil
 	}
 
-	if ap.IsOAuth() {
+	if ap.PrefersBrowser() {
+		users, err := ap.client.UsersSearch(ctx, query, limit)
+		if client, _ := ap.client.(*MCPSlackClient); client == nil || !client.fallsBackToOAuth(err) {
+			return users, err
+		}
+	}
+	if ap.Mode().OAuth() {
 		return ap.searchUsersInCache(query, limit)
 	}
-
 	return ap.client.UsersSearch(ctx, query, limit)
 }
 

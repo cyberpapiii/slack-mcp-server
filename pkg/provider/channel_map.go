@@ -43,84 +43,63 @@ func (c *ChannelsCache) add(ch Channel) {
 	}
 }
 
-func mapChannel(
-	id, name, nameNormalized, topic, purpose, user string,
-	members []string,
-	numMembers int,
-	isIM, isMpIM, isPrivate, isExtShared bool,
-	usersMap map[string]slack.User,
-) Channel {
-	channelName := name
-	finalPurpose := purpose
-	finalTopic := topic
-	finalMemberCount := numMembers
-
-	var userID string
-	if isIM {
-		finalMemberCount = 2
-		userID = user
-
-		// Some payloads omit User; recover peer ID from members when present.
-		if userID == "" && len(members) > 0 {
-			for _, memberID := range members {
-				if _, ok := usersMap[memberID]; ok {
-					userID = memberID
-					break
-				}
-			}
-		}
-
-		if u, ok := usersMap[userID]; ok {
-			channelName = "@" + u.Name
-			finalPurpose = "DM with " + u.RealName
-		} else if userID != "" {
-			channelName = "@" + userID
-			finalPurpose = "DM with " + userID
-		} else {
-			channelName = "@"
-			finalPurpose = "DM with "
-		}
-		finalTopic = ""
-	} else if isMpIM {
-		if len(members) > 0 {
-			finalMemberCount = len(members)
-			var userNames []string
-			for _, uid := range members {
+func MapChannelFromSlack(c slack.Channel, usersMap map[string]slack.User) Channel {
+	ch := Channel{
+		ID:          c.ID,
+		Name:        c.Name,
+		Topic:       c.Topic.Value,
+		Purpose:     c.Purpose.Value,
+		MemberCount: c.NumMembers,
+		IsIM:        c.IsIM,
+		IsMpIM:      c.IsMpIM,
+		IsPrivate:   c.IsPrivate,
+		IsExtShared: c.IsExtShared,
+		Members:     c.Members,
+	}
+	switch {
+	case c.IsIM:
+		ch.User = c.User
+		return withIMPeer(ch, usersMap)
+	case c.IsMpIM:
+		if len(c.Members) > 0 {
+			userNames := make([]string, 0, len(c.Members))
+			for _, uid := range c.Members {
 				if u, ok := usersMap[uid]; ok {
 					userNames = append(userNames, u.RealName)
 				} else {
 					userNames = append(userNames, uid)
 				}
 			}
-			channelName = "@" + nameNormalized
-			finalPurpose = "Group DM with " + strings.Join(userNames, ", ")
-			finalTopic = ""
+			ch.Name = "@" + c.NameNormalized
+			ch.Purpose = "Group DM with " + strings.Join(userNames, ", ")
+			ch.Topic = ""
+			ch.MemberCount = len(c.Members)
 		}
-	} else {
-		channelName = "#" + nameNormalized
+	default:
+		ch.Name = "#" + c.NameNormalized
 	}
-
-	return Channel{
-		ID:          id,
-		Name:        channelName,
-		Topic:       finalTopic,
-		Purpose:     finalPurpose,
-		MemberCount: finalMemberCount,
-		IsIM:        isIM,
-		IsMpIM:      isMpIM,
-		IsPrivate:   isPrivate,
-		IsExtShared: isExtShared,
-		User:        userID,
-		Members:     members,
-	}
+	return ch
 }
 
-func MapChannelFromSlack(c slack.Channel, usersMap map[string]slack.User) Channel {
-	return mapChannel(
-		c.ID, c.Name, c.NameNormalized,
-		c.Topic.Value, c.Purpose.Value,
-		c.User, c.Members, c.NumMembers,
-		c.IsIM, c.IsMpIM, c.IsPrivate, c.IsExtShared,
-		usersMap,
-	)
+// withIMPeer names a DM after its peer as the users snapshot knows them.
+func withIMPeer(ch Channel, usersMap map[string]slack.User) Channel {
+	ch.MemberCount = 2
+	ch.Topic = ""
+	// Some payloads omit User; recover peer ID from members when present.
+	if ch.User == "" {
+		for _, memberID := range ch.Members {
+			if _, ok := usersMap[memberID]; ok {
+				ch.User = memberID
+				break
+			}
+		}
+	}
+	if u, ok := usersMap[ch.User]; ok {
+		ch.Name = "@" + u.Name
+		ch.Purpose = "DM with " + u.RealName
+	} else {
+		ch.Name = "@" + ch.User
+		ch.Purpose = "DM with " + ch.User
+	}
+	return ch
 }

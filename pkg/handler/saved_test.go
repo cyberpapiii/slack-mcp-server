@@ -264,28 +264,6 @@ func TestUnitListSavedShowsCustomToDosWithoutFetchingMessages(t *testing.T) {
 	assert.Contains(t, body, ",,,,in_progress,file,to_do,F1,")
 }
 
-func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
-	h := NewSavedHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
-	ctx := context.Background()
-
-	req := mcp.CallToolRequest{}
-	req.Params.Arguments = map[string]any{"filter": "saved"}
-	_, err := h.SavedListHandler(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
-
-	req = mcp.CallToolRequest{}
-	req.Params.Arguments = map[string]any{"channel_id": "C1", "timestamp": "1.0", "mark": "completed"}
-	_, err = h.SavedUpdateHandler(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
-
-	req = mcp.CallToolRequest{}
-	_, err = h.SavedClearCompletedHandler(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
-}
-
 // newStubSavedHandler serves one saved.list page per call from pages and
 // runs onPage after each; itemMessages returns one message per item and runs
 // onItem first.

@@ -4,15 +4,19 @@ import (
 	"context"
 
 	"github.com/slack-go/slack"
+	"go.uber.org/zap"
 )
 
 func (c *MCPSlackClient) LeaveConversationContext(ctx context.Context, channelID string) (bool, error) {
-	if c.isEnterprise && !c.isOAuth {
+	if c.isEnterprise && c.mode == ModeBrowser {
 		// Edge webclient path bypasses enterprise_is_restricted on session tokens.
-		notInChannel, err := c.edgeClient.Load().LeaveConversation(ctx, channelID)
+		notInChannel, err := browserCall(c, "conversations.leave", func() (bool, error) {
+			return c.edgeClient.Load().LeaveConversation(ctx, channelID)
+		})
 		if err == nil {
 			return notInChannel, nil
 		}
+		c.logger.Debug("Edge conversations.leave failed; using the Web API", zap.Error(err))
 	}
 	return c.standardSlackClient().LeaveConversationContext(ctx, channelID)
 }
@@ -22,12 +26,15 @@ func (c *MCPSlackClient) GetConversationsContext(ctx context.Context, params *sl
 	// Enterprise + session: edge alone is partial (issue #73); merge with fully
 	// paginated standard API and return empty cursor. OAuth / non-Enterprise: standard only.
 	if c.isEnterprise {
-		if c.isOAuth {
+		if c.mode != ModeBrowser {
 			return std.GetConversationsContext(ctx, params)
 		}
 
-		edgeChannels, edgeErr := c.edgeClient.Load().GetConversationsContext(ctx)
+		edgeChannels, edgeErr := browserCall(c, "conversation list", func() ([]slack.Channel, error) {
+			return c.edgeClient.Load().GetConversationsContext(ctx)
+		})
 		if edgeErr != nil {
+			c.logger.Debug("Edge channel list failed; using the Web API alone", zap.Error(edgeErr))
 			return std.GetConversationsContext(ctx, params)
 		}
 

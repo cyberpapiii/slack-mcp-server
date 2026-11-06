@@ -22,8 +22,22 @@ import (
 // for the life of the process is safe by construction. That is the point of the
 // type: the old accessor returned a snapshot that looked like a live handle,
 // and nothing in the type system told the two apart.
+//
+// The hand-built calls slack-go does not wrap (users.profile.set,
+// canvases.getContent, assistant.search.context, Lists) live here too, reading
+// the current OAuth access token the same way.
 type WebClient struct {
-	resolve func() *slack.Client
+	client *MCPSlackClient
+}
+
+func (c *WebClient) resolve() *slack.Client {
+	return c.client.standardSlackClient()
+}
+
+// oauthToken is the current OAuth access token, or "" on a browser session.
+func (c *WebClient) oauthToken() string {
+	token, _ := c.client.oauthAccessToken.Load().(string)
+	return token
 }
 
 func (c *WebClient) AuthTest() (*slack.AuthTestResponse, error) {

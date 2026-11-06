@@ -23,18 +23,9 @@ type ListsClient struct {
 	APIBase       string
 }
 
-func (ap *ApiProvider) Lists() (*ListsClient, error) {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil || !client.IsOAuth() || client.IsBotToken() {
-		return nil, ErrUserOAuthRequired
-	}
-	return &ListsClient{
-		HTTPClient: client.httpClient,
-		TokenProvider: func() string {
-			token, _ := client.oauthAccessToken.Load().(string)
-			return token
-		},
-	}, nil
+func (ap *ApiProvider) Lists() *ListsClient {
+	web := ap.WebAPI()
+	return &ListsClient{HTTPClient: web.client.httpClient, TokenProvider: web.oauthToken}
 }
 
 type ListChoice struct {

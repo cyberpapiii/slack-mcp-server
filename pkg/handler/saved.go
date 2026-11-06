@@ -104,10 +104,6 @@ func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, conv
 }
 
 func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if !h.apiProvider.BrowserFeaturesAvailable() {
-		return nil, browserSessionRequired("saved_list", h.apiProvider.BrowserDegradedReason())
-	}
-
 	filter := request.GetString("filter", "saved")
 	limit := pageLimit(request, 50, 0)
 	includeMessages := request.GetBool("include_messages", true)
@@ -354,10 +350,6 @@ func parseSavedUpdateParams(request mcp.CallToolRequest) (edge.SavedUpdateParams
 }
 
 func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if !h.apiProvider.BrowserFeaturesAvailable() {
-		return nil, browserSessionRequired("saved_update", h.apiProvider.BrowserDegradedReason())
-	}
-
 	params, err := parseSavedUpdateParams(request)
 	if err != nil {
 		return nil, err
@@ -403,10 +395,6 @@ func parseSavedAddParams(request mcp.CallToolRequest) (edge.SavedAddParams, erro
 }
 
 func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if !h.apiProvider.BrowserFeaturesAvailable() {
-		return nil, browserSessionRequired("saved_add", h.apiProvider.BrowserDegradedReason())
-	}
-
 	params, err := parseSavedAddParams(request)
 	if err != nil {
 		return nil, err
@@ -423,10 +411,6 @@ func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallTool
 }
 
 func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if !h.apiProvider.BrowserFeaturesAvailable() {
-		return nil, browserSessionRequired("saved_delete", h.apiProvider.BrowserDegradedReason())
-	}
-
 	target, err := parseSavedTarget(request)
 	if err != nil {
 		return nil, err
@@ -450,10 +434,6 @@ func savedActionData(action, status, itemType, itemID, ts string) ActionData {
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if !h.apiProvider.BrowserFeaturesAvailable() {
-		return nil, browserSessionRequired("saved_clear_completed", h.apiProvider.BrowserDegradedReason())
-	}
-
 	err := h.apiProvider.Slack().SavedClearCompleted(ctx)
 	if err != nil {
 		h.logger.Debug("SavedClearCompleted failed", zap.Error(err))

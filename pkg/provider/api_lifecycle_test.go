@@ -15,6 +15,12 @@ import (
 	"go.uber.org/zap"
 )
 
+func (f *refreshFlight) inFlight() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.call != nil
+}
+
 func TestUnitRefreshFlightWaitersShareLeaderError(t *testing.T) {
 	var flight refreshFlight
 	boom := errors.New("boom")
@@ -198,7 +204,7 @@ func TestUnitManagedOAuthRefreshLoopStopsOnCancel(t *testing.T) {
 }
 
 func TestUnitBrowserCallWithoutBrowserSession(t *testing.T) {
-	c := &MCPSlackClient{logger: zap.NewNop(), isOAuth: true}
+	c := &MCPSlackClient{logger: zap.NewNop(), mode: ModeUserOAuth}
 	c.initBrowserState()
 	require.False(t, c.browserFeaturesAvailable())
 

@@ -77,12 +77,12 @@ func main() {
 		fatal(logger, "error in SLACK_MCP_ENABLED_TOOLS", err)
 	}
 
-	p, err := provider.New(transport, logger)
+	p, err := provider.New(logger)
 	if err != nil {
 		fatal(logger, "Failed to initialize Slack provider", err)
 	}
 	defer p.Close()
-	s := server.NewMCPServer(p, logger, enabledTools, settings)
+	s := server.NewMCPServer(p, transport, logger, enabledTools, settings)
 	logStartupAuthStatus(p, logger)
 
 	if noCache {
@@ -99,7 +99,7 @@ func main() {
 			zap.String("context", "console"),
 		)
 	} else {
-		startCacheWarmup(p, s, logger)
+		p.StartCacheLifecycle(s.RegisterCacheDependentTools)
 	}
 
 	if ready, _ := p.IsReady(); !ready {
@@ -141,6 +141,19 @@ func main() {
 			zap.String("context", "console"),
 			zap.String("transport", transport),
 			zap.String("allowed", "stdio, sse, http"),
+		)
+	}
+}
+
+// logStartupAuthStatus warns when the browser session failed at startup. Only a
+// session beside OAuth can start degraded, and its re-probe recovers it
+// without a restart.
+func logStartupAuthStatus(p *provider.ApiProvider, logger *zap.Logger) {
+	if reason := p.BrowserDegradedReason(); reason != "" && !p.BrowserFeaturesAvailable() {
+		logger.Warn("Browser session auth degraded: browser-session tools fail until the browser credential works again; the server retries every 5 minutes",
+			zap.String("context", "console"),
+			zap.Strings("tools", capability.BrowserNames()),
+			zap.String("reason", reason),
 		)
 	}
 }

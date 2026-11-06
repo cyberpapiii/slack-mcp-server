@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -42,10 +41,6 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if !ch.apiProvider.BrowserFeaturesAvailable() {
-		return nil, browserSessionRequired("conversations_unreads", ch.apiProvider.BrowserDegradedReason())
-	}
-
 	// The mute prefs and client.counts are independent reads; overlap them.
 	var mutedChannels map[string]bool
 	var mutedErr error
@@ -71,9 +66,6 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 	}
 
 	if err != nil {
-		if errors.Is(err, provider.ErrBrowserSessionUnavailable) {
-			return nil, browserSessionRequired("conversations_unreads", ch.apiProvider.BrowserDegradedReason())
-		}
 		ch.logger.Debug("ClientCounts failed", zap.Error(err))
 		return nil, fmt.Errorf("get Slack unread state: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -25,7 +26,7 @@ func TestDemoCredentialsBuildFullClient(t *testing.T) {
 			}
 			require.True(t, IsDemoCredentials())
 
-			ap, err := New("stdio", zap.NewNop())
+			ap, err := New(zap.NewNop())
 			require.NoError(t, err)
 			defer ap.Close()
 			require.NotNil(t, ap.WebAPI(), "demo must expose the Web API surface")
@@ -34,13 +35,10 @@ func TestDemoCredentialsBuildFullClient(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "TEAM123456", auth.TeamID)
 
-			_, isUnsupported := ap.Drafts().(UnsupportedDraftsProvider)
-			assert.False(t, isUnsupported, "demo must expose browser-only tools")
-
-			_, err = ap.DND()
-			assert.NoError(t, err, "demo must expose user-OAuth tools")
-			_, err = ap.Lists()
-			assert.NoError(t, err)
+			assert.Equal(t, ModeDemo, ap.Mode())
+			for _, requirement := range []capability.Requirement{capability.UserToken, capability.UserOAuth, capability.BrowserSession} {
+				assert.True(t, ap.Satisfies(requirement), "demo registers every tool")
+			}
 		})
 	}
 }
@@ -53,7 +51,7 @@ func TestUnitFailedManagedOAuthFallsBackToBrowserSession(t *testing.T) {
 	t.Setenv("SLACK_MCP_XOXC_TOKEN", "demo")
 	t.Setenv("SLACK_MCP_XOXD_TOKEN", "demo")
 
-	ap, err := New("stdio", zap.NewNop())
+	ap, err := New(zap.NewNop())
 	require.NoError(t, err, "a dead OAuth login must not take the browser session down with it")
 	defer ap.Close()
 
@@ -68,7 +66,7 @@ func TestUnitFailedManagedOAuthStaysFatalWithoutBrowserSession(t *testing.T) {
 	}
 	t.Setenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT", "slack-mcp-test-account-that-does-not-exist")
 
-	_, err := New("stdio", zap.NewNop())
+	_, err := New(zap.NewNop())
 	require.ErrorContains(t, err, "load managed OAuth credential")
 }
 

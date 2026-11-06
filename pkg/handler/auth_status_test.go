@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
@@ -12,7 +13,7 @@ import (
 )
 
 func TestUnitAuthStatusHandler_ReturnsJSONSummary(t *testing.T) {
-	h := NewAuthStatusHandler(&provider.ApiProvider{}, zap.NewNop())
+	h := NewAuthStatusHandler(&provider.ApiProvider{}, []string{capability.SavedList}, zap.NewNop())
 	result, err := h.Handler(context.Background(), mcp.CallToolRequest{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -34,25 +35,41 @@ func TestUnitAuthStatusHandler_ReturnsJSONSummary(t *testing.T) {
 	assert.Contains(t, body, "provider_identity")
 	assert.Contains(t, body, "capability_availability")
 	assert.Contains(t, body, "summary")
+
+	availability := structured.Data.CapabilityAvailability
+	assert.Len(t, availability, len(capability.Tools), "every catalog tool is reported")
+	assert.Equal(t, "browser_session_required", availability[capability.SavedList])
+	assert.Equal(t, "not_enabled", availability[capability.DNDGet])
 }
 
-func TestUnitCapabilityAvailabilityIsolatesBrowserDegradation(t *testing.T) {
-	available := capabilityAvailability(true, false, false, "expired browser session")
-	assert.Equal(t, "available", available["standard_oauth"])
-	assert.Equal(t, "degraded", available["browser_session"])
-	assert.Equal(t, "available_if_workspace_supported_and_enabled", available["slack_lists"])
-	assert.Equal(t, "browser_session_degraded", available["activity"])
-	assert.Equal(t, "browser_session_degraded", available["conversations_unreads"])
+func TestUnitToolAvailabilityFollowsTheCatalogRow(t *testing.T) {
+	saved, _ := capability.Lookup(capability.SavedList)
+	unreads, _ := capability.Lookup(capability.ConversationsUnreads)
+	dnd, _ := capability.Lookup(capability.DNDGet)
+	ready := toolState{enabled: true, satisfied: true, browserOK: true, cacheReady: true}
+
+	assert.Equal(t, "available", toolAvailability(saved, ready))
+	cold := ready
+	cold.cacheReady = false
+	assert.Equal(t, "available", toolAvailability(saved, cold), "saved tools do not wait for the cache")
+	assert.Equal(t, "available_after_cache_warmup", toolAvailability(unreads, cold))
+
+	degraded := ready
+	degraded.browserOK = false
+	assert.Equal(t, "browser_session_degraded", toolAvailability(unreads, degraded))
+	assert.Equal(t, "available", toolAvailability(dnd, degraded), "an OAuth tool is untouched by the browser session")
+
+	bot := ready
+	bot.satisfied = false
+	assert.Equal(t, "user_oauth_required", toolAvailability(dnd, bot))
 }
 
-func TestUnitCapabilityAvailabilityExplainsBotLimitations(t *testing.T) {
-	available := capabilityAvailability(false, true, false, "")
-	assert.Equal(t, "user_oauth_required", available["dnd"])
-	assert.Equal(t, "user_oauth_required", available["slack_lists"])
-	assert.Equal(t, "browser_session_required", available["conversations_unreads"])
-}
+func TestUnitAuthSummarySaysWhetherADegradedSessionRecoversByItself(t *testing.T) {
+	assert.Contains(t, buildAuthSummary(true, true, false, "invalid_auth", true), "recovers without a restart")
+	assert.NotContains(t, buildAuthSummary(true, true, false, "invalid_auth", true), "restart Plug")
+	assert.Contains(t, buildAuthSummary(true, true, false, "invalid_auth", false), "restart Plug")
 
-func TestUnitCapabilityAvailabilityReportsBrowserUnreads(t *testing.T) {
-	available := capabilityAvailability(true, false, true, "")
-	assert.Equal(t, "available_after_cache_warmup", available["conversations_unreads"])
+	cold := buildAuthSummary(false, true, true, "", false)
+	assert.Contains(t, cold, "channels_list")
+	assert.NotContains(t, cold, "saved", "saved tools are not cache-dependent")
 }

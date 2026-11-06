@@ -10,7 +10,6 @@ import (
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/server/auth"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -57,12 +56,6 @@ func NewChannelsHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *
 
 func (ch *ChannelsHandler) ChannelsResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	ch.logger.Debug("ChannelsResource called")
-
-	// mark3labs/mcp-go does not support middlewares for resources.
-	if authenticated, err := auth.IsAuthenticated(ctx, ch.apiProvider.ServerTransport(), ch.logger); !authenticated {
-		ch.logger.Error("Authentication failed for channels resource", zap.Error(err))
-		return nil, err
-	}
 
 	if ready, err := ch.apiProvider.IsReady(); !ready {
 		ch.logger.Warn("API provider not ready", zap.Error(err))
@@ -367,7 +360,7 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 	ch.logger.Debug("Got starred channel IDs", zap.Int("count", len(starredIDs)))
 
 	mutedChannels := make(map[string]bool)
-	if !ch.apiProvider.IsOAuth() {
+	if ch.apiProvider.PrefersBrowser() {
 		mc, err := ch.apiProvider.Slack().GetMutedChannels(ctx)
 		if err != nil {
 			ch.logger.Warn("Failed to fetch muted channels, proceeding without mute info", zap.Error(err))

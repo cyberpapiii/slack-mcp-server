@@ -63,7 +63,7 @@ type CanvasAPI interface {
 	UpdateCanvas(context.Context, CanvasUpdateRequest) error
 }
 
-var _ canvasSlackAPI = (*MCPSlackClient)(nil)
+var _ canvasSlackAPI = (*WebClient)(nil)
 
 type canvasSlackAPI interface {
 	CreateCanvasContext(context.Context, string, slack.DocumentContent) (string, error)
@@ -77,12 +77,8 @@ type CanvasProvider struct{ client canvasSlackAPI }
 
 func NewCanvasProvider(client canvasSlackAPI) *CanvasProvider { return &CanvasProvider{client: client} }
 
-func (ap *ApiProvider) Canvases() (*CanvasProvider, error) {
-	client, ok := ap.client.(canvasSlackAPI)
-	if !ok {
-		return nil, errors.New("configured Slack client does not support canvases")
-	}
-	return NewCanvasProvider(client), nil
+func (ap *ApiProvider) Canvases() *CanvasProvider {
+	return NewCanvasProvider(ap.WebAPI())
 }
 
 func (p *CanvasProvider) CreateCanvas(ctx context.Context, request CanvasCreateRequest) (string, error) {
@@ -150,27 +146,23 @@ func (p *CanvasProvider) UpdateCanvas(ctx context.Context, request CanvasUpdateR
 	return wrapSlack("canvas update", err)
 }
 
-func (c *MCPSlackClient) CreateCanvasContext(ctx context.Context, title string, content slack.DocumentContent) (string, error) {
-	return c.standardSlackClient().CreateCanvasContext(ctx, title, content)
+func (c *WebClient) CreateCanvasContext(ctx context.Context, title string, content slack.DocumentContent) (string, error) {
+	return c.resolve().CreateCanvasContext(ctx, title, content)
 }
 
-func (c *MCPSlackClient) EditCanvasContext(ctx context.Context, params slack.EditCanvasParams) error {
-	return c.standardSlackClient().EditCanvasContext(ctx, params)
-}
-
-func (c *MCPSlackClient) GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error) {
-	return c.standardSlackClient().GetFileInfoContext(ctx, fileID, count, page)
+func (c *WebClient) EditCanvasContext(ctx context.Context, params slack.EditCanvasParams) error {
+	return c.resolve().EditCanvasContext(ctx, params)
 }
 
 // GetCanvasContentContext calls canvases.getContent, which slack-go does not wrap
 // yet. Slack answers not_allowed_token_type to a browser-session token.
-func (c *MCPSlackClient) GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error) {
-	token, _ := c.oauthAccessToken.Load().(string)
+func (c *WebClient) GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error) {
+	token := c.oauthToken()
 	if token == "" {
 		return "", ErrUserOAuthRequired
 	}
-	body, err := slackhttp.Post(ctx, c.httpClient, slackhttp.Request{
-		URL:   strings.TrimRight(c.authResponse.URL, "/") + "/api/canvases.getContent",
+	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
+		URL:   strings.TrimRight(c.client.authResponse.URL, "/") + "/api/canvases.getContent",
 		Token: token,
 		Form:  url.Values{"canvas_id": {canvasID}, "content_type": {format}},
 	})
@@ -190,8 +182,8 @@ func (c *MCPSlackClient) GetCanvasContentContext(ctx context.Context, canvasID, 
 	return payload.Content, nil
 }
 
-func (c *MCPSlackClient) LookupCanvasSectionsContext(ctx context.Context, params slack.LookupCanvasSectionsParams) ([]slack.CanvasSection, error) {
-	return c.standardSlackClient().LookupCanvasSectionsContext(ctx, params)
+func (c *WebClient) LookupCanvasSectionsContext(ctx context.Context, params slack.LookupCanvasSectionsParams) ([]slack.CanvasSection, error) {
+	return c.resolve().LookupCanvasSectionsContext(ctx, params)
 }
 
 type Draft struct {
@@ -215,20 +207,30 @@ type DraftsAPI interface {
 	DeleteDraft(context.Context, string, string) error
 }
 
-type UnsupportedDraftsProvider struct{}
-
-type BrowserDraftsProvider struct{ client *edge.Client }
+// BrowserDraftsProvider reaches Slack drafts through the browser session. Each
+// call takes the session's current edge client, so drafts follow a session the
+// re-probe brought back.
+type BrowserDraftsProvider struct{ client *MCPSlackClient }
 
 func (ap *ApiProvider) Drafts() DraftsAPI {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client.edgeClient.Load() == nil || !client.browserFeaturesAvailable() {
-		return UnsupportedDraftsProvider{}
-	}
-	return &BrowserDraftsProvider{client: client.edgeClient.Load()}
+	return &BrowserDraftsProvider{client: ap.client.(*MCPSlackClient)}
+}
+
+type draftsListPage struct {
+	drafts []edge.Draft
+	next   string
+}
+
+func (p *BrowserDraftsProvider) list(ctx context.Context, limit int, activeOnly bool, cursor string) ([]edge.Draft, string, error) {
+	page, err := browserCall(p.client, "drafts.list", func() (draftsListPage, error) {
+		drafts, next, err := p.client.edgeClient.Load().DraftsList(ctx, limit, activeOnly, cursor)
+		return draftsListPage{drafts: drafts, next: next}, err
+	})
+	return page.drafts, page.next, err
 }
 
 func (p *BrowserDraftsProvider) ListDrafts(ctx context.Context, cursor string, limit int) (DraftPage, error) {
-	drafts, next, err := p.client.DraftsList(ctx, limit, true, cursor)
+	drafts, next, err := p.list(ctx, limit, true, cursor)
 	if err != nil {
 		return DraftPage{}, wrapSlack("draft list", err)
 	}
@@ -243,7 +245,7 @@ func (p *BrowserDraftsProvider) GetDraft(ctx context.Context, id string) (Draft,
 	cursor := ""
 	seen := map[string]bool{}
 	for page := 0; page < 100; page++ {
-		drafts, next, err := p.client.DraftsList(ctx, 100, false, cursor)
+		drafts, next, err := p.list(ctx, 100, false, cursor)
 		if err != nil {
 			return Draft{}, wrapSlack("draft read", err)
 		}
@@ -262,7 +264,9 @@ func (p *BrowserDraftsProvider) GetDraft(ctx context.Context, id string) (Draft,
 }
 
 func (p *BrowserDraftsProvider) CreateDraft(ctx context.Context, draft Draft) (Draft, error) {
-	created, err := p.client.DraftCreate(ctx, draft.ChannelID, draft.ThreadTS, draft.Text)
+	created, err := browserCall(p.client, "drafts.create", func() (edge.Draft, error) {
+		return p.client.edgeClient.Load().DraftCreate(ctx, draft.ChannelID, draft.ThreadTS, draft.Text)
+	})
 	if err != nil {
 		return Draft{}, wrapSlack("draft create", err)
 	}
@@ -274,7 +278,9 @@ func (p *BrowserDraftsProvider) UpdateDraft(ctx context.Context, draft Draft) (D
 	if err != nil {
 		return Draft{}, err
 	}
-	updated, err := p.client.DraftUpdate(ctx, draft.ID, current.UpdatedTS, draft.ChannelID, draft.ThreadTS, draft.Text)
+	updated, err := browserCall(p.client, "drafts.update", func() (edge.Draft, error) {
+		return p.client.edgeClient.Load().DraftUpdate(ctx, draft.ID, current.UpdatedTS, draft.ChannelID, draft.ThreadTS, draft.Text)
+	})
 	if err != nil {
 		return Draft{}, wrapSlack("draft update", err)
 	}
@@ -282,7 +288,10 @@ func (p *BrowserDraftsProvider) UpdateDraft(ctx context.Context, draft Draft) (D
 }
 
 func (p *BrowserDraftsProvider) DeleteDraft(ctx context.Context, id, expectedUpdatedTS string) error {
-	return wrapSlack("draft delete", p.client.DraftDelete(ctx, id, expectedUpdatedTS))
+	_, err := browserCall(p.client, "drafts.delete", func() (struct{}, error) {
+		return struct{}{}, p.client.edgeClient.Load().DraftDelete(ctx, id, expectedUpdatedTS)
+	})
+	return wrapSlack("draft delete", err)
 }
 
 func providerDraft(draft edge.Draft) Draft {
@@ -355,22 +364,6 @@ func joinDraftNodes(value any, separator string) string {
 	return strings.Join(parts, separator)
 }
 
-func (UnsupportedDraftsProvider) ListDrafts(context.Context, string, int) (DraftPage, error) {
-	return DraftPage{}, ErrPersistedDraftsUnsupported
-}
-func (UnsupportedDraftsProvider) GetDraft(context.Context, string) (Draft, error) {
-	return Draft{}, ErrPersistedDraftsUnsupported
-}
-func (UnsupportedDraftsProvider) CreateDraft(context.Context, Draft) (Draft, error) {
-	return Draft{}, ErrPersistedDraftsUnsupported
-}
-func (UnsupportedDraftsProvider) UpdateDraft(context.Context, Draft) (Draft, error) {
-	return Draft{}, ErrPersistedDraftsUnsupported
-}
-func (UnsupportedDraftsProvider) DeleteDraft(context.Context, string, string) error {
-	return ErrPersistedDraftsUnsupported
-}
-
 type SemanticSearchRequest struct {
 	Query            string   `json:"query"`
 	ContentTypes     []string `json:"content_types,omitempty"`
@@ -414,12 +407,8 @@ func NewSemanticSearchProvider(client semanticSlackAPI) *SemanticSearchProvider 
 	return &SemanticSearchProvider{client: client}
 }
 
-func (ap *ApiProvider) SemanticSearch() (*SemanticSearchProvider, error) {
-	client, ok := ap.client.(semanticSlackAPI)
-	if !ok {
-		return nil, errors.New("configured Slack client does not support semantic search")
-	}
-	return NewSemanticSearchProvider(client), nil
+func (ap *ApiProvider) SemanticSearch() *SemanticSearchProvider {
+	return NewSemanticSearchProvider(ap.WebAPI())
 }
 
 func (p *SemanticSearchProvider) SearchSemantic(ctx context.Context, request SemanticSearchRequest) (SemanticSearchPage, error) {
@@ -430,8 +419,8 @@ func (p *SemanticSearchProvider) SearchSemantic(ctx context.Context, request Sem
 	return page, nil
 }
 
-func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
-	token, _ := c.oauthAccessToken.Load().(string)
+func (c *WebClient) SearchSemanticContext(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
+	token := c.oauthToken()
 	if token == "" {
 		return SemanticSearchPage{}, errors.New("OAuth token unavailable")
 	}
@@ -454,8 +443,8 @@ func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params Seman
 	if params.Limit > 0 {
 		form.Set("limit", strconv.Itoa(params.Limit))
 	}
-	body, err := slackhttp.Post(ctx, c.httpClient, slackhttp.Request{
-		URL:   strings.TrimRight(c.authResponse.URL, "/") + "/api/assistant.search.context",
+	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
+		URL:   strings.TrimRight(c.client.authResponse.URL, "/") + "/api/assistant.search.context",
 		Token: token,
 		Form:  form,
 	})

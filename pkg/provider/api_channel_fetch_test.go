@@ -103,7 +103,7 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 		ap := newTestApiProvider(client, emptyUsersCache())
 		ap.channelsSnapshot.Store(good)
 
-		_, err := ap.GetChannels(context.Background(), AllChanTypes)
+		_, err := ap.fetchChannels(context.Background())
 		require.Error(t, err)
 
 		// The regression: the truncated one-channel result must not have
@@ -127,7 +127,7 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 			ChannelsInv: map[string]string{"#stale": "COLD"},
 		})
 
-		chans, err := ap.GetChannels(context.Background(), AllChanTypes)
+		chans, err := ap.fetchChannels(context.Background())
 
 		require.NoError(t, err)
 		require.Len(t, chans, 2)

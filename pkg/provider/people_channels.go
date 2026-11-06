@@ -18,7 +18,7 @@ var ErrInvalidPaginationCursor = errors.New("invalid pagination cursor")
 // PeopleChannelsClient is the narrow Slack API surface used by profile, emoji,
 // and channel-membership tools. Mutation methods are called once; callers must
 // observe current Slack state before retrying an ambiguous failure.
-var _ PeopleChannelsClient = (*MCPSlackClient)(nil)
+var _ PeopleChannelsClient = (*WebClient)(nil)
 
 type PeopleChannelsClient interface {
 	GetUserProfileContext(context.Context, *slack.GetUserProfileParameters) (*slack.UserProfile, error)
@@ -131,12 +131,8 @@ func NewPeopleChannelsProvider(client PeopleChannelsClient) *PeopleChannelsProvi
 	return &PeopleChannelsProvider{client: client}
 }
 
-func (ap *ApiProvider) PeopleChannels() (*PeopleChannelsProvider, error) {
-	client, ok := ap.client.(PeopleChannelsClient)
-	if !ok || client == nil {
-		return nil, errors.New("configured Slack client does not support people and channel operations")
-	}
-	return NewPeopleChannelsProvider(client), nil
+func (ap *ApiProvider) PeopleChannels() *PeopleChannelsProvider {
+	return NewPeopleChannelsProvider(ap.WebAPI())
 }
 
 func (p *PeopleChannelsProvider) GetProfile(ctx context.Context, userID string, includeLabels bool) (UserProfile, error) {
@@ -309,49 +305,43 @@ func profileFromUpdate(userID string, update UserProfileUpdate) UserProfile {
 	return result
 }
 
-func (c *MCPSlackClient) GetUserProfileContext(ctx context.Context, params *slack.GetUserProfileParameters) (*slack.UserProfile, error) {
-	return c.standardSlackClient().GetUserProfileContext(ctx, params)
+func (c *WebClient) GetUserProfileContext(ctx context.Context, params *slack.GetUserProfileParameters) (*slack.UserProfile, error) {
+	return c.resolve().GetUserProfileContext(ctx, params)
 }
 
-func (c *MCPSlackClient) SetUserCustomStatusContext(ctx context.Context, text, emoji string, expiration int64) error {
-	if c.IsBotToken() {
-		return ErrUserOAuthRequired
-	}
-	return c.standardSlackClient().SetUserCustomStatusContext(ctx, text, emoji, expiration)
+func (c *WebClient) SetUserCustomStatusContext(ctx context.Context, text, emoji string, expiration int64) error {
+	return c.resolve().SetUserCustomStatusContext(ctx, text, emoji, expiration)
 }
 
-func (c *MCPSlackClient) GetEmojiContext(ctx context.Context) (map[string]string, error) {
-	return c.standardSlackClient().GetEmojiContext(ctx)
+func (c *WebClient) GetEmojiContext(ctx context.Context) (map[string]string, error) {
+	return c.resolve().GetEmojiContext(ctx)
 }
 
-func (c *MCPSlackClient) CreateConversationContext(ctx context.Context, params slack.CreateConversationParams) (*slack.Channel, error) {
-	return c.standardSlackClient().CreateConversationContext(ctx, params)
+func (c *WebClient) CreateConversationContext(ctx context.Context, params slack.CreateConversationParams) (*slack.Channel, error) {
+	return c.resolve().CreateConversationContext(ctx, params)
 }
 
-func (c *MCPSlackClient) GetUsersInConversationContext(ctx context.Context, params *slack.GetUsersInConversationParameters) ([]string, string, error) {
-	return c.standardSlackClient().GetUsersInConversationContext(ctx, params)
+func (c *WebClient) GetUsersInConversationContext(ctx context.Context, params *slack.GetUsersInConversationParameters) ([]string, string, error) {
+	return c.resolve().GetUsersInConversationContext(ctx, params)
 }
 
-func (c *MCPSlackClient) InviteUsersToConversationContext(ctx context.Context, channelID string, users ...string) (*slack.Channel, error) {
-	return c.standardSlackClient().InviteUsersToConversationContext(ctx, channelID, users...)
+func (c *WebClient) InviteUsersToConversationContext(ctx context.Context, channelID string, users ...string) (*slack.Channel, error) {
+	return c.resolve().InviteUsersToConversationContext(ctx, channelID, users...)
 }
 
-func (c *MCPSlackClient) UpdateUserProfileContext(ctx context.Context, update UserProfileUpdate) (*slack.UserProfile, error) {
-	if c.IsBotToken() {
-		return nil, ErrUserOAuthRequired
-	}
+func (c *WebClient) UpdateUserProfileContext(ctx context.Context, update UserProfileUpdate) (*slack.UserProfile, error) {
 	profileJSON, err := json.Marshal(update)
 	if err != nil {
 		return nil, err
 	}
-	token, _ := c.oauthAccessToken.Load().(string)
+	token := c.oauthToken()
 	if token == "" {
-		token = c.authProvider.SlackToken()
+		token = c.client.authProvider.SlackToken()
 	}
 	var result struct {
 		Profile *slack.UserProfile `json:"profile"`
 	}
-	err = slackhttp.Call(ctx, c.httpClient, slackhttp.Request{
+	err = slackhttp.Call(ctx, c.client.httpClient, slackhttp.Request{
 		URL:    slackhttp.SlackAPIBase() + "users.profile.set",
 		Token:  token,
 		Bearer: true,
