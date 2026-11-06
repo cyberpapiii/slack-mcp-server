@@ -29,10 +29,11 @@ const (
 
 // ClassifyID reports what a Slack ID names. Slack IDs are an uppercase prefix
 // followed by uppercase letters and digits; anything else, including a
-// username that happens to start with U, is IDUnknown.
+// username that happens to start with U, is IDUnknown. A custom to-do ID is
+// "Sa" and then letters and digits.
 func ClassifyID(id string) IDKind {
 	if strings.HasPrefix(id, "Sa") {
-		if len(id) > 2 && isIDBody(id[2:]) {
+		if len(id) > 2 && isAlnum(id[2:]) {
 			return IDReminder
 		}
 		return IDUnknown
@@ -62,6 +63,15 @@ func isIDBody(s string) bool {
 		}
 	}
 	return s != ""
+}
+
+func isAlnum(s string) bool {
+	for _, r := range s {
+		if (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // IsConversationID reports whether id names a channel, group or DM.

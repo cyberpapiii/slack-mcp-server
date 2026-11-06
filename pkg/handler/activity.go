@@ -67,44 +67,26 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 		return nil, err
 	}
 
-	feedResp, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
+	feed, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
 	if err != nil {
 		h.logger.Debug("ActivityFeed failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to get activity feed: %w", err)
 	}
 
 	var items []ActivityItem
-	for _, fi := range feedResp.Items {
-		if !fi.IsUnread {
+	for _, entry := range feed {
+		if !entry.Unread {
 			continue
 		}
-
-		var ai ActivityItem
-		ai.FeedTs = fi.FeedTs
-		ai.Key = fi.Key
-		ai.Type = fi.Item.Type
-
-		switch fi.Item.Type {
-		case "thread_v2":
-			if fi.Item.BundleInfo == nil {
-				continue
-			}
-			te := fi.Item.BundleInfo.Payload.ThreadEntry
-			ai.ChannelID = te.ChannelID
-			ai.ThreadTs = te.ThreadTs
-			ai.UnreadCount = te.UnreadMsgCount
-			ai.MinUnreadTs = te.MinUnreadTs
-		default:
-			if fi.Item.Message == nil {
-				continue
-			}
-			ai.ChannelID = fi.Item.Message.Channel
-			ai.ThreadTs = fi.Item.Message.ThreadTs
-			ai.UnreadCount = 1
-			ai.MinUnreadTs = fi.Item.Message.Ts
-		}
-
-		items = append(items, ai)
+		items = append(items, ActivityItem{
+			Type:        entry.Type,
+			ChannelID:   entry.ChannelID,
+			MinUnreadTs: entry.MinUnreadTs,
+			ThreadTs:    entry.ThreadTs,
+			UnreadCount: entry.UnreadCount,
+			FeedTs:      entry.FeedTs,
+			Key:         entry.Key,
+		})
 	}
 
 	h.logger.Debug("Filtered unread activity items", zap.Int("count", len(items)))

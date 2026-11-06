@@ -311,12 +311,14 @@ func (c *MCPSlackClient) UsersSearch(ctx context.Context, query string, count in
 	return browserCall(c, "users/search", func() ([]slack.User, error) { return c.edgeClient.Load().UsersSearch(ctx, query, count) })
 }
 
-func (c *MCPSlackClient) ClientCounts(ctx context.Context) (edge.ClientCountsResponse, error) {
-	return browserCall(c, "client.counts", func() (edge.ClientCountsResponse, error) { return c.edgeClient.Load().ClientCounts(ctx) })
+func (c *MCPSlackClient) ClientCounts(ctx context.Context) (UnreadCounts, error) {
+	counts, err := browserCall(c, "client.counts", func() (edge.ClientCountsResponse, error) { return c.edgeClient.Load().ClientCounts(ctx) })
+	return unreadCountsFromEdge(counts), err
 }
 
-func (c *MCPSlackClient) ActivityFeed(ctx context.Context, limit int) (edge.ActivityFeedResponse, error) {
-	return browserCall(c, "activity.feed", func() (edge.ActivityFeedResponse, error) { return c.edgeClient.Load().ActivityFeed(ctx, limit) })
+func (c *MCPSlackClient) ActivityFeed(ctx context.Context, limit int) ([]ActivityEntry, error) {
+	feed, err := browserCall(c, "activity.feed", func() (edge.ActivityFeedResponse, error) { return c.edgeClient.Load().ActivityFeed(ctx, limit) })
+	return activityFromEdge(feed), err
 }
 
 func (c *MCPSlackClient) ActivityMarkRead(ctx context.Context, itemType, feedTs, key string) error {
@@ -366,28 +368,35 @@ func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([
 	return channelIDs, nil
 }
 
-func (c *MCPSlackClient) SavedList(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error) {
-	return browserCall(c, "saved.list", func() (edge.SavedListResponse, error) {
+func (c *MCPSlackClient) SavedList(ctx context.Context, filter string, limit int, cursor string) (SavedPage, error) {
+	page, err := browserCall(c, "saved.list", func() (edge.SavedListResponse, error) {
 		return c.edgeClient.Load().SavedList(ctx, filter, limit, cursor)
 	})
+	return savedPageFromEdge(page), err
 }
 
-func (c *MCPSlackClient) SavedUpdate(ctx context.Context, params edge.SavedUpdateParams) error {
+func (c *MCPSlackClient) SavedUpdate(ctx context.Context, update SavedUpdate) error {
+	params := edge.SavedUpdateParams{ItemType: update.Type, ItemID: update.ID, Ts: update.Ts, Mark: update.Mark, TodoState: update.TodoState, DateDue: update.DateDue}
 	_, err := browserCall(c, "saved.update", func() (struct{}, error) {
 		return struct{}{}, c.edgeClient.Load().SavedUpdate(ctx, params)
 	})
 	return err
 }
 
-func (c *MCPSlackClient) SavedAdd(ctx context.Context, params edge.SavedAddParams) (edge.SavedItem, error) {
-	return browserCall(c, "saved.add", func() (edge.SavedItem, error) {
+func (c *MCPSlackClient) SavedAdd(ctx context.Context, add SavedAdd) (SavedItem, error) {
+	params, err := add.edgeParams()
+	if err != nil {
+		return SavedItem{}, err
+	}
+	item, err := browserCall(c, "saved.add", func() (edge.SavedItem, error) {
 		return c.edgeClient.Load().SavedAdd(ctx, params)
 	})
+	return savedItemFromEdge(item), err
 }
 
-func (c *MCPSlackClient) SavedDelete(ctx context.Context, itemType, itemID, ts string) error {
+func (c *MCPSlackClient) SavedDelete(ctx context.Context, ref SavedRef) error {
 	_, err := browserCall(c, "saved.delete", func() (struct{}, error) {
-		return struct{}{}, c.edgeClient.Load().SavedDelete(ctx, itemType, itemID, ts)
+		return struct{}{}, c.edgeClient.Load().SavedDelete(ctx, ref.Type, ref.ID, ref.Ts)
 	})
 	return err
 }

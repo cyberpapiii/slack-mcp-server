@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -134,52 +134,52 @@ func TestUnitParseSavedUpdateParams(t *testing.T) {
 		name    string
 		args    map[string]any
 		wantErr string
-		want    edge.SavedUpdateParams
+		want    provider.SavedUpdate
 	}{
 		{
 			name: "explicit date_due 0 clears the due date",
 			args: with(message, map[string]any{"date_due": 0}),
-			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", DateDue: "0"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "message", ID: "C1", Ts: "1.0"}, DateDue: "0"},
 		},
 		{
 			name: "explicit date_due 0 as json float clears the due date",
 			args: with(message, map[string]any{"date_due": float64(0)}),
-			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", DateDue: "0"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "message", ID: "C1", Ts: "1.0"}, DateDue: "0"},
 		},
 		{
 			name: "mark alone is accepted",
 			args: with(message, map[string]any{"mark": "completed"}),
-			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", Mark: "completed"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "message", ID: "C1", Ts: "1.0"}, Mark: "completed"},
 		},
 		{
 			name: "date_due alone is accepted",
 			args: with(message, map[string]any{"date_due": 1772521200}),
-			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", DateDue: "1772521200"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "message", ID: "C1", Ts: "1.0"}, DateDue: "1772521200"},
 		},
 		{
 			name: "todo_state alone moves the item",
 			args: with(message, map[string]any{"todo_state": "saved"}),
-			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", TodoState: "saved"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "message", ID: "C1", Ts: "1.0"}, TodoState: "saved"},
 		},
 		{
 			name: "reopening goes back to To-dos",
 			args: with(message, map[string]any{"mark": "uncompleted"}),
-			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", Mark: "uncompleted", TodoState: "to_do"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "message", ID: "C1", Ts: "1.0"}, Mark: "uncompleted", TodoState: "to_do"},
 		},
 		{
 			name: "reopening keeps an explicit list",
 			args: with(message, map[string]any{"mark": "uncompleted", "todo_state": "saved"}),
-			want: edge.SavedUpdateParams{ItemType: "message", ItemID: "C1", Ts: "1.0", Mark: "uncompleted", TodoState: "saved"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "message", ID: "C1", Ts: "1.0"}, Mark: "uncompleted", TodoState: "saved"},
 		},
 		{
 			name: "a custom to-do is addressed by item_id",
 			args: map[string]any{"item_id": "Sa0CD69VBVKR", "mark": "completed"},
-			want: edge.SavedUpdateParams{ItemType: "reminder", ItemID: "Sa0CD69VBVKR", Mark: "completed"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "reminder", ID: "Sa0CD69VBVKR"}, Mark: "completed"},
 		},
 		{
 			name: "a file is addressed by item_id",
 			args: map[string]any{"item_id": "F123", "todo_state": "to_do"},
-			want: edge.SavedUpdateParams{ItemType: "file", ItemID: "F123", TodoState: "to_do"},
+			want: provider.SavedUpdate{SavedRef: provider.SavedRef{Type: "file", ID: "F123"}, TodoState: "to_do"},
 		},
 		{name: "no change is rejected", args: message, wantErr: "at least one of mark, todo_state or date_due"},
 		{name: "unknown mark is rejected", args: with(message, map[string]any{"mark": "done"}), wantErr: "mark must be"},
@@ -208,7 +208,7 @@ func TestUnitParseSavedUpdateParams(t *testing.T) {
 }
 
 func TestUnitParseSavedAddParams(t *testing.T) {
-	parse := func(args map[string]any) (edge.SavedAddParams, error) {
+	parse := func(args map[string]any) (provider.SavedAdd, error) {
 		req := mcp.CallToolRequest{}
 		req.Params.Arguments = args
 		return parseSavedAddParams(req)
@@ -216,18 +216,18 @@ func TestUnitParseSavedAddParams(t *testing.T) {
 
 	custom, err := parse(map[string]any{"text": "Call Sam", "date_due": 1772521200})
 	require.NoError(t, err)
-	assert.Equal(t, "reminder", custom.ItemType)
+	assert.Equal(t, "reminder", custom.Type)
 	assert.Equal(t, "to_do", custom.TodoState, "a new item goes to To-dos by default")
 	assert.Equal(t, "1772521200", custom.DateDue)
-	assert.Equal(t, "Call Sam", savedItemText(json.RawMessage(custom.Description)), "the body must round-trip as rich text")
+	assert.Equal(t, "Call Sam", custom.Text)
 
 	message, err := parse(map[string]any{"channel_id": "C1", "timestamp": "1.0", "todo_state": "saved"})
 	require.NoError(t, err)
-	assert.Equal(t, edge.SavedAddParams{ItemType: "message", ItemID: "C1", Ts: "1.0", TodoState: "saved"}, message)
+	assert.Equal(t, provider.SavedAdd{SavedRef: provider.SavedRef{Type: "message", ID: "C1", Ts: "1.0"}, TodoState: "saved"}, message)
 
 	file, err := parse(map[string]any{"file_id": "F1"})
 	require.NoError(t, err)
-	assert.Equal(t, edge.SavedAddParams{ItemType: "file", ItemID: "F1", TodoState: "to_do"}, file)
+	assert.Equal(t, provider.SavedAdd{SavedRef: provider.SavedRef{Type: "file", ID: "F1"}, TodoState: "to_do"}, file)
 
 	for _, args := range []map[string]any{
 		{},
@@ -247,19 +247,21 @@ func TestUnitParseSavedAddParams(t *testing.T) {
 
 func TestUnitListSavedShowsCustomToDosWithoutFetchingMessages(t *testing.T) {
 	var fetched []string
-	page := edge.SavedListResponse{SavedItems: []edge.SavedItem{
-		{ItemID: "Sa1", ItemType: "reminder", State: "in_progress", TodoState: "to_do", Description: json.RawMessage(`[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Call Sam"}]}]}]`)},
-		{ItemID: "F1", ItemType: "file", State: "in_progress", TodoState: "to_do"},
+	var body slack.Blocks
+	require.NoError(t, json.Unmarshal([]byte(`[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Call Sam"}]}]}]`), &body))
+	page := provider.SavedPage{Items: []provider.SavedItem{
+		{SavedRef: provider.SavedRef{ID: "Sa1", Type: "reminder"}, State: "in_progress", TodoState: "to_do", Description: body},
+		{SavedRef: provider.SavedRef{ID: "F1", Type: "file"}, State: "in_progress", TodoState: "to_do"},
 	}}
-	h := newStubSavedHandler([]edge.SavedListResponse{page}, nil, func(item edge.SavedItem) { fetched = append(fetched, item.ItemID) })
+	h := newStubSavedHandler([]provider.SavedPage{page}, nil, func(item provider.SavedItem) { fetched = append(fetched, item.ID) })
 
-	res, err := served(h.listSaved(context.Background(), "todo", 50, "", true, 5, text.ModeStandard))
+	res, err := served(h.listSaved(context.Background(), "todo", 50, "", true, text.ModeStandard))
 	require.NoError(t, err)
 	assert.Empty(t, fetched, "only a message has history to fetch")
 
-	body := csvResultBody(t, res)
-	assert.Contains(t, body, ",,,,in_progress,reminder,to_do,Sa1,Call Sam")
-	assert.Contains(t, body, ",,,,in_progress,file,to_do,F1,")
+	csvBody := csvResultBody(t, res)
+	assert.Contains(t, csvBody, ",,,,in_progress,reminder,to_do,Sa1,Call Sam")
+	assert.Contains(t, csvBody, ",,,,in_progress,file,to_do,F1,")
 }
 
 func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
@@ -287,14 +289,14 @@ func TestSavedHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
 // newStubSavedHandler serves one saved.list page per call from pages and
 // runs onPage after each; itemMessages returns one message per item and runs
 // onItem first.
-func newStubSavedHandler(pages []edge.SavedListResponse, onPage func(n int), onItem func(edge.SavedItem)) *SavedHandler {
+func newStubSavedHandler(pages []provider.SavedPage, onPage func(n int), onItem func(provider.SavedItem)) *SavedHandler {
 	calls := 0
 	return &SavedHandler{
 		apiProvider: &provider.ApiProvider{},
 		logger:      zap.NewNop(),
 		messages:    messagePipeline{api: &provider.ApiProvider{}, logger: zap.NewNop()},
 		pace:        rate.NewLimiter(rate.Inf, 0),
-		listPage: func(context.Context, string, int, string) (edge.SavedListResponse, error) {
+		listPage: func(context.Context, string, int, string) (provider.SavedPage, error) {
 			page := pages[calls]
 			calls++
 			if onPage != nil {
@@ -302,30 +304,30 @@ func newStubSavedHandler(pages []edge.SavedListResponse, onPage func(n int), onI
 			}
 			return page, nil
 		},
-		itemMessages: func(_ context.Context, item edge.SavedItem, _ int, _ text.OutputMode) ([]Message, error) {
+		itemMessages: func(_ context.Context, item provider.SavedItem, _ text.OutputMode) ([]Message, error) {
 			if onItem != nil {
 				onItem(item)
 			}
-			return []Message{{MsgID: item.Ts, Channel: item.ItemID, Text: "saved " + item.Ts}}, nil
+			return []Message{{MsgID: item.Ts, Channel: item.Channel(), Text: "saved " + item.Ts}}, nil
 		},
 	}
 }
 
-func savedPage(nextCursor string, ts ...string) edge.SavedListResponse {
-	var page edge.SavedListResponse
+func savedPage(nextCursor string, ts ...string) provider.SavedPage {
+	var page provider.SavedPage
 	for _, t := range ts {
-		page.SavedItems = append(page.SavedItems, edge.SavedItem{ItemID: "C1", Ts: t, State: "in_progress"})
+		page.Items = append(page.Items, provider.SavedItem{SavedRef: provider.SavedRef{ID: "C1", Ts: t}, State: "in_progress"})
 	}
-	page.ResponseMetadata.Cursor = nextCursor
+	page.NextCursor = nextCursor
 	return page
 }
 
 func TestUnitSavedListKeepsRowsWhenStoppedBetweenPages(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0", "2.0")}, func(int) { cancel() }, nil)
+	h := newStubSavedHandler([]provider.SavedPage{savedPage("c2", "1.0", "2.0")}, func(int) { cancel() }, nil)
 
-	res, err := served(h.listSaved(ctx, "saved", 50, "", false, 5, text.ModeStandard))
+	res, err := served(h.listSaved(ctx, "saved", 50, "", false, text.ModeStandard))
 	require.NoError(t, err)
 	require.False(t, res.IsError, "the first page was listed; a stop before page two must not discard it")
 	out := ResultText(res)
@@ -338,9 +340,9 @@ func TestUnitSavedListKeepsRowsWhenStoppedBetweenPages(t *testing.T) {
 func TestUnitSavedListListsTheRestOfThePageWhenStoppedMidPage(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0", "2.0", "3.0")}, nil, func(edge.SavedItem) { cancel() })
+	h := newStubSavedHandler([]provider.SavedPage{savedPage("c2", "1.0", "2.0", "3.0")}, nil, func(provider.SavedItem) { cancel() })
 
-	res, err := served(h.listSaved(ctx, "saved", 50, "", true, 5, text.ModeStandard))
+	res, err := served(h.listSaved(ctx, "saved", 50, "", true, text.ModeStandard))
 	require.NoError(t, err)
 	require.False(t, res.IsError)
 	out := ResultText(res)
@@ -358,16 +360,16 @@ func TestUnitSavedListStoppedBeforeAnyRowIsCancelled(t *testing.T) {
 	cancel()
 	h := newStubSavedHandler(nil, nil, nil)
 
-	res, err := served(h.listSaved(ctx, "saved", 50, "c1", false, 5, text.ModeStandard))
+	res, err := served(h.listSaved(ctx, "saved", 50, "c1", false, text.ModeStandard))
 	require.NoError(t, err)
 	assert.True(t, res.IsError)
 	assert.Contains(t, ResultText(res), "cancelled")
 }
 
 func TestUnitSavedListCompleteWalkIsNotPartial(t *testing.T) {
-	h := newStubSavedHandler([]edge.SavedListResponse{savedPage("c2", "1.0"), savedPage("", "2.0")}, nil, nil)
+	h := newStubSavedHandler([]provider.SavedPage{savedPage("c2", "1.0"), savedPage("", "2.0")}, nil, nil)
 
-	res, err := served(h.listSaved(context.Background(), "saved", 50, "", true, 5, text.ModeStandard))
+	res, err := served(h.listSaved(context.Background(), "saved", 50, "", true, text.ModeStandard))
 	require.NoError(t, err)
 	out := ResultText(res)
 	assert.NotContains(t, out, "#partial:")

@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge/fasttime"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
@@ -65,15 +63,6 @@ func TestUnitConversationsUnreadsFailsFastWithoutBrowserSession(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "conversations_unreads needs a Slack browser session (xoxc/xoxd)")
-}
-
-// ftime converts a Slack timestamp string into the edge fasttime.Time that
-// ChannelSnapshot carries.
-func ftime(t *testing.T, ts string) fasttime.Time {
-	t.Helper()
-	i, err := fasttime.TS2int(ts)
-	require.NoError(t, err)
-	return fasttime.Time(fasttime.Int2Time(i))
 }
 
 func unreadTypes(channels []UnreadChannel) []string {
@@ -356,15 +345,15 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 	}}
 	dir := provider.NewDirectory(users, channelsCache)
 
-	counts := func() edge.ClientCountsResponse {
-		return edge.ClientCountsResponse{
-			Channels: []edge.ChannelSnapshot{
+	counts := func() provider.UnreadCounts {
+		return provider.UnreadCounts{
+			Channels: []provider.ConversationUnread{
 				{ID: "C_MENTION", HasUnreads: true, MentionCount: 3,
-					LastRead: ftime(t, "1700000000.000100"), Latest: ftime(t, "1700000900.000200")},
+					LastRead: "1700000000.000100"},
 				{ID: "C_SILENT", HasUnreads: true, MentionCount: 0,
-					LastRead: ftime(t, "1700000100.000000"), Latest: ftime(t, "1700000800.000000")},
+					LastRead: "1700000100.000000"},
 				{ID: "C_READ", HasUnreads: false, MentionCount: 0,
-					LastRead: ftime(t, "1700000200.000000"), Latest: ftime(t, "1700000200.000000")},
+					LastRead: "1700000200.000000"},
 			},
 		}
 	}
@@ -385,13 +374,12 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 			"a zero-mention unread channel leaves collect with UnreadCount 0; it is the "+
 				"backfill (summary mode) or the message fetch (include_messages) that fills it in")
 
-		// Timestamps round-trip through fasttime.SlackString().
 		assert.Equal(t, "1700000000.000100", byID["C_MENTION"].LastRead)
 	})
 
 	t.Run("names, types and cache misses", func(t *testing.T) {
-		c := edge.ClientCountsResponse{
-			Channels: []edge.ChannelSnapshot{
+		c := provider.UnreadCounts{
+			Channels: []provider.ConversationUnread{
 				{ID: "C_SILENT", HasUnreads: true},
 				{ID: "C_EXT", HasUnreads: true},
 				{ID: "C_UNKNOWN", HasUnreads: true},
@@ -414,12 +402,12 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 	})
 
 	t.Run("mpim and im naming", func(t *testing.T) {
-		c := edge.ClientCountsResponse{
-			MPIMs: []edge.ChannelSnapshot{
+		c := provider.UnreadCounts{
+			MPIMs: []provider.ConversationUnread{
 				{ID: "G_MPIM", HasUnreads: true, MentionCount: 2},
 				{ID: "G_UNKNOWN", HasUnreads: true},
 			},
-			IMs: []edge.ChannelSnapshot{
+			IMs: []provider.ConversationUnread{
 				{ID: "D_ALICE", HasUnreads: true, MentionCount: 1},
 				{ID: "D_GHOST", HasUnreads: true},
 				{ID: "D_NOUSER", HasUnreads: true},
@@ -467,8 +455,8 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 		p := defaultUnreadsParams()
 		p.mentionsOnly = true
 		c := counts()
-		c.MPIMs = []edge.ChannelSnapshot{{ID: "G_MPIM", HasUnreads: true, MentionCount: 0}}
-		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true, MentionCount: 1}}
+		c.MPIMs = []provider.ConversationUnread{{ID: "G_MPIM", HasUnreads: true, MentionCount: 0}}
+		c.IMs = []provider.ConversationUnread{{ID: "D_ALICE", HasUnreads: true, MentionCount: 1}}
 
 		got, _ := ch.collectUnreadChannels(p, c, dir)
 		assert.Equal(t, []string{"D_ALICE", "C_MENTION"}, unreadIDs(got),
@@ -477,9 +465,9 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 
 	t.Run("channel_types filter", func(t *testing.T) {
 		c := counts()
-		c.Channels = append(c.Channels, edge.ChannelSnapshot{ID: "C_EXT", HasUnreads: true})
-		c.MPIMs = []edge.ChannelSnapshot{{ID: "G_MPIM", HasUnreads: true}}
-		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true}}
+		c.Channels = append(c.Channels, provider.ConversationUnread{ID: "C_EXT", HasUnreads: true})
+		c.MPIMs = []provider.ConversationUnread{{ID: "G_MPIM", HasUnreads: true}}
+		c.IMs = []provider.ConversationUnread{{ID: "D_ALICE", HasUnreads: true}}
 
 		for _, tc := range []struct {
 			channelTypes string
@@ -511,7 +499,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 
 	t.Run("max_channels truncates after sorting", func(t *testing.T) {
 		c := counts()
-		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true}}
+		c.IMs = []provider.ConversationUnread{{ID: "D_ALICE", HasUnreads: true}}
 		p := defaultUnreadsParams()
 		p.maxChannels = 2
 
@@ -523,7 +511,7 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 
 	t.Run("a non-positive max_channels does not panic and truncates nothing", func(t *testing.T) {
 		c := counts()
-		c.IMs = []edge.ChannelSnapshot{{ID: "D_ALICE", HasUnreads: true}}
+		c.IMs = []provider.ConversationUnread{{ID: "D_ALICE", HasUnreads: true}}
 
 		for _, maxChannels := range []int{-1, 0} {
 			p := defaultUnreadsParams()
@@ -537,13 +525,13 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 	})
 
 	t.Run("nothing unread yields a nil slice", func(t *testing.T) {
-		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), edge.ClientCountsResponse{}, dir)
+		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), provider.UnreadCounts{}, dir)
 		assert.Nil(t, got)
 	})
 
 	t.Run("a snapshot with no last_read renders an empty string", func(t *testing.T) {
-		c := edge.ClientCountsResponse{
-			Channels: []edge.ChannelSnapshot{{ID: "C_SILENT", HasUnreads: true}},
+		c := provider.UnreadCounts{
+			Channels: []provider.ConversationUnread{{ID: "C_SILENT", HasUnreads: true}},
 		}
 		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), c, dir)
 		require.Len(t, got, 1)
@@ -755,11 +743,11 @@ func TestUnitBackfillUnreadCountsRetriesARateLimitedChannel(t *testing.T) {
 func TestUnitUnreadsZeroLastReadNeverReachesSlack(t *testing.T) {
 	ch := newUnreadsTestHandler()
 
-	counts := edge.ClientCountsResponse{
-		Channels: []edge.ChannelSnapshot{
-			{ID: "C_NEVER_READ", HasUnreads: true}, // zero LastRead and Latest
+	counts := provider.UnreadCounts{
+		Channels: []provider.ConversationUnread{
+			{ID: "C_NEVER_READ", HasUnreads: true}, // never read: no LastRead
 			{ID: "C_BOUNDED", HasUnreads: true,
-				LastRead: ftime(t, "1700000100.000000"), Latest: ftime(t, "1700000800.000000")},
+				LastRead: "1700000100.000000"},
 		},
 	}
 	p := defaultUnreadsParams()

@@ -11,7 +11,6 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -80,7 +79,7 @@ func (ch *ConversationsHandler) ConversationsUnreadsHandler(ctx context.Context,
 	return ch.processClientCountsResponse(ctx, request, params, counts, mode)
 }
 
-func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, counts edge.ClientCountsResponse, mode text.OutputMode) (*mcp.CallToolResult, error) {
+func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context, request mcp.CallToolRequest, params *unreadsParams, counts provider.UnreadCounts, mode text.OutputMode) (*mcp.CallToolResult, error) {
 	ch.logger.Debug("Got counts data",
 		zap.Int("channels", len(counts.Channels)),
 		zap.Int("mpims", len(counts.MPIMs)),
@@ -238,8 +237,8 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 		case unreadChannels[i].UnreadCount > 0:
 			continue // already counted (mentions)
 		case unreadChannels[i].LastRead == "":
-			// No last-read bound (a zero fasttime.Time renders as ""). Skip
-			// unbounded history query; report 1 since HasUnreads was true.
+			// No last-read bound: skip the unbounded history query and
+			// report 1, since HasUnreads was true.
 			unreadChannels[i].UnreadCount = 1
 			backfilled++
 		case errs[i] != nil:
@@ -263,7 +262,7 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 // collectUnreadChannels turns a client.counts snapshot into the sorted, limited
 // list of unread channels plus the count cut by max_channels. Pure: no API
 // calls. The caller supplies the cache lookups.
-func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts edge.ClientCountsResponse, dir *provider.Directory) ([]UnreadChannel, int) {
+func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts provider.UnreadCounts, dir *provider.Directory) ([]UnreadChannel, int) {
 	var unreadChannels []UnreadChannel
 
 	for _, snap := range counts.Channels {
@@ -293,7 +292,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: unreadChannelName(dir, snap.ID),
 			ChannelType: channelType,
 			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead.SlackString(),
+			LastRead:    snap.LastRead,
 		})
 	}
 
@@ -319,7 +318,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: unreadChannelName(dir, snap.ID),
 			ChannelType: "group_dm",
 			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead.SlackString(),
+			LastRead:    snap.LastRead,
 		})
 	}
 
@@ -345,7 +344,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: unreadChannelName(dir, snap.ID),
 			ChannelType: "dm",
 			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead.SlackString(),
+			LastRead:    snap.LastRead,
 		})
 	}
 

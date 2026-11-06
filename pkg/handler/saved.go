@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -33,37 +31,21 @@ type SavedItemRow struct {
 	Text        string `csv:"Text" json:"text,omitempty"`
 }
 
-func newSavedItemRow(item edge.SavedItem) SavedItemRow {
+func newSavedItemRow(item provider.SavedItem) SavedItemRow {
 	row := SavedItemRow{
+		ChannelID:   item.Channel(),
 		Ts:          item.Ts,
 		DateCreated: unixTimeText(item.DateCreated),
 		DateDue:     unixTimeText(item.DateDue),
 		State:       item.State,
-		Type:        item.ItemType,
+		Type:        item.Type,
 		TodoState:   item.TodoState,
-		Text:        savedItemText(item.Description),
+		Text:        text.BlocksToText(item.Description),
 	}
-	if savedItemIsMessage(item) {
-		row.ChannelID = item.ItemID
-	} else {
-		row.ItemID = item.ItemID
+	if !item.IsMessage() {
+		row.ItemID = item.ID
 	}
 	return row
-}
-
-func savedItemIsMessage(item edge.SavedItem) bool {
-	return item.ItemType == edge.SavedItemMessage || item.ItemType == ""
-}
-
-func savedItemText(description json.RawMessage) string {
-	if len(description) == 0 {
-		return ""
-	}
-	var blocks slack.Blocks
-	if err := json.Unmarshal(description, &blocks); err != nil {
-		return ""
-	}
-	return text.BlocksToText(blocks)
 }
 
 // renderSavedItems is the include_messages=false output: rows keyed by the
@@ -85,13 +67,13 @@ type SavedHandler struct {
 	// pace, listPage and itemMessages are the Slack side of listSaved,
 	// swapped out in tests.
 	pace         *rate.Limiter
-	listPage     func(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error)
-	itemMessages func(ctx context.Context, item edge.SavedItem, maxMsgsPerItem int, mode text.OutputMode) ([]Message, error)
+	listPage     func(ctx context.Context, filter string, limit int, cursor string) (provider.SavedPage, error)
+	itemMessages func(ctx context.Context, item provider.SavedItem, mode text.OutputMode) ([]Message, error)
 }
 
 func NewSavedHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *SavedHandler {
 	h := &SavedHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}, pace: limiter.Tier3}
-	h.listPage = func(ctx context.Context, filter string, limit int, cursor string) (edge.SavedListResponse, error) {
+	h.listPage = func(ctx context.Context, filter string, limit int, cursor string) (provider.SavedPage, error) {
 		return apiProvider.Slack().SavedList(ctx, filter, limit, cursor)
 	}
 	h.itemMessages = h.savedItemMessages
@@ -106,23 +88,19 @@ func (h *SavedHandler) SavedListHandler(ctx context.Context, request mcp.CallToo
 	filter := request.GetString("filter", "saved")
 	limit := pageLimit(request, 50, 0)
 	includeMessages := request.GetBool("include_messages", true)
-	maxMsgsPerItem := request.GetInt("max_messages_per_item", 5)
-	if maxMsgsPerItem <= 0 {
-		maxMsgsPerItem = 5
-	}
 
 	mode, err := h.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
 
-	return h.listSaved(ctx, filter, limit, request.GetString("cursor", ""), includeMessages, maxMsgsPerItem, mode)
+	return h.listSaved(ctx, filter, limit, request.GetString("cursor", ""), includeMessages, mode)
 }
 
 // listSaved walks saved.list pages and, with includeMessages, fetches each
 // saved message. When the call's context ends partway, the rows already
 // listed are returned marked partial instead of being discarded.
-func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, cursor string, includeMessages bool, maxMsgsPerItem int, mode text.OutputMode) (*mcp.CallToolResult, error) {
+func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, cursor string, includeMessages bool, mode text.OutputMode) (*mcp.CallToolResult, error) {
 	var allItems []SavedItemRow
 	var allMessages []Message
 	nextCursor := ""
@@ -153,23 +131,23 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 			h.logger.Debug("SavedList failed", zap.Error(err))
 			return nil, fmt.Errorf("failed to list saved items: %w", err)
 		}
-		nextCursor = resp.ResponseMetadata.Cursor
+		nextCursor = resp.NextCursor
 
-		for _, item := range resp.SavedItems {
+		for _, item := range resp.Items {
 			if fetched >= limit {
 				break
 			}
 			allItems = append(allItems, newSavedItemRow(item))
 			fetched++
 
-			if !includeMessages || stopErr != nil || !savedItemIsMessage(item) {
+			if !includeMessages || stopErr != nil || !item.IsMessage() {
 				continue
 			}
 			if err := h.pace.Wait(ctx); err != nil {
 				stopErr = err
 				continue
 			}
-			msgs, err := h.itemMessages(ctx, item, maxMsgsPerItem, mode)
+			msgs, err := h.itemMessages(ctx, item, mode)
 			if err != nil {
 				stopErr = err
 				continue
@@ -177,10 +155,10 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 			allMessages = append(allMessages, msgs...)
 		}
 
-		if resp.ResponseMetadata.Cursor == "" {
+		if resp.NextCursor == "" {
 			break
 		}
-		cursor = resp.ResponseMetadata.Cursor
+		cursor = resp.NextCursor
 	}
 
 	if stopErr != nil && len(allItems) == 0 {
@@ -208,17 +186,18 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 // savedItemMessages fetches one saved message. A Slack failure is logged and
 // becomes a placeholder row; an error is returned only when ctx is done, so
 // the caller can stop instead of filling the output with placeholders.
-func (h *SavedHandler) savedItemMessages(ctx context.Context, item edge.SavedItem, _ int, mode text.OutputMode) ([]Message, error) {
-	msg, err := h.messages.message(ctx, item.ItemID, item.Ts)
+func (h *SavedHandler) savedItemMessages(ctx context.Context, item provider.SavedItem, mode text.OutputMode) ([]Message, error) {
+	channel := item.Channel()
+	msg, err := h.messages.message(ctx, channel, item.Ts)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 	placeholder := func(text string) []Message {
-		return []Message{{MsgID: item.Ts, Channel: item.ItemID, Text: text, Time: unixTimeText(item.DateCreated)}}
+		return []Message{{MsgID: item.Ts, Channel: channel, Text: text, Time: unixTimeText(item.DateCreated)}}
 	}
 	if err != nil {
 		h.logger.Warn("Failed to fetch saved message",
-			zap.String("channel", item.ItemID),
+			zap.String("channel", channel),
 			zap.String("ts", item.Ts),
 			zap.Error(err))
 		return placeholder("[message content unavailable: channel access denied]"), nil
@@ -226,35 +205,29 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item edge.SavedIte
 	if msg == nil {
 		return placeholder("[saved item: message not found in channel history]"), nil
 	}
-	return h.messages.rows(ctx, []slack.Message{*msg}, item.ItemID, false, mode), nil
+	return h.messages.rows(ctx, []slack.Message{*msg}, channel, false, mode), nil
 }
 
 // parseSavedUpdateParams: schema uses date_due:0 to clear; key presence (not truthiness) gates the required-field check.
-// savedTarget names one existing item. A message is addressed by channel and
-// timestamp; a custom to-do (Sa...) or a file (F...) by its item ID.
-type savedTarget struct {
-	itemType string
-	itemID   string
-	ts       string
-}
-
-func parseSavedTarget(request mcp.CallToolRequest) (savedTarget, error) {
+// parseSavedTarget names one existing item: a message by channel and
+// timestamp, a custom to-do (Sa...) or a file (F...) by its item ID.
+func parseSavedTarget(request mcp.CallToolRequest) (provider.SavedRef, error) {
 	channelID := request.GetString("channel_id", "")
 	ts := request.GetString("timestamp", "")
 	itemID := request.GetString("item_id", "")
 	switch {
 	case itemID != "" && (channelID != "" || ts != ""):
-		return savedTarget{}, invalidArguments("pass either channel_id and timestamp, or item_id, not both")
-	case itemID != "" && strings.HasPrefix(itemID, "Sa"):
-		return savedTarget{edge.SavedItemReminder, itemID, ""}, nil
-	case itemID != "" && strings.HasPrefix(itemID, "F"):
-		return savedTarget{edge.SavedItemFile, itemID, ""}, nil
+		return provider.SavedRef{}, invalidArguments("pass either channel_id and timestamp, or item_id, not both")
+	case itemID != "" && provider.ClassifyID(itemID) == provider.IDReminder:
+		return provider.SavedRef{Type: provider.SavedReminder, ID: itemID}, nil
+	case itemID != "" && provider.ClassifyID(itemID) == provider.IDFile:
+		return provider.SavedRef{Type: provider.SavedFile, ID: itemID}, nil
 	case itemID != "":
-		return savedTarget{}, invalidArguments(fmt.Sprintf("item_id %q is not a custom to-do (Sa...) or a file (F...)", itemID))
+		return provider.SavedRef{}, invalidArguments(fmt.Sprintf("item_id %q is not a custom to-do (Sa...) or a file (F...)", itemID))
 	case channelID == "" || ts == "":
-		return savedTarget{}, invalidArguments("channel_id and timestamp are required for a message; use item_id for a custom to-do or a file")
+		return provider.SavedRef{}, invalidArguments("channel_id and timestamp are required for a message; use item_id for a custom to-do or a file")
 	}
-	return savedTarget{edge.SavedItemMessage, channelID, ts}, nil
+	return provider.SavedRef{Type: provider.SavedMessage, ID: channelID, Ts: ts}, nil
 }
 
 // savedDateDue returns the date_due argument as Slack's form value, or "" when it
@@ -270,27 +243,25 @@ func validSavedTodoState(state string) bool {
 	return state == "" || state == "to_do" || state == "saved"
 }
 
-func parseSavedUpdateParams(request mcp.CallToolRequest) (edge.SavedUpdateParams, error) {
+func parseSavedUpdateParams(request mcp.CallToolRequest) (provider.SavedUpdate, error) {
 	target, err := parseSavedTarget(request)
 	if err != nil {
-		return edge.SavedUpdateParams{}, err
+		return provider.SavedUpdate{}, err
 	}
-	params := edge.SavedUpdateParams{
-		ItemType:  target.itemType,
-		ItemID:    target.itemID,
-		Ts:        target.ts,
+	params := provider.SavedUpdate{
+		SavedRef:  target,
 		Mark:      request.GetString("mark", ""),
 		TodoState: request.GetString("todo_state", ""),
 		DateDue:   savedDateDue(request),
 	}
 	if params.Mark != "" && params.Mark != "completed" && params.Mark != "uncompleted" {
-		return edge.SavedUpdateParams{}, invalidArguments(fmt.Sprintf("mark must be completed or uncompleted, got %q", params.Mark))
+		return provider.SavedUpdate{}, invalidArguments(fmt.Sprintf("mark must be completed or uncompleted, got %q", params.Mark))
 	}
 	if !validSavedTodoState(params.TodoState) {
-		return edge.SavedUpdateParams{}, invalidArguments(fmt.Sprintf("todo_state must be to_do or saved, got %q", params.TodoState))
+		return provider.SavedUpdate{}, invalidArguments(fmt.Sprintf("todo_state must be to_do or saved, got %q", params.TodoState))
 	}
 	if params.Mark == "" && params.TodoState == "" && params.DateDue == "" {
-		return edge.SavedUpdateParams{}, invalidArguments("at least one of mark, todo_state or date_due must be provided")
+		return provider.SavedUpdate{}, invalidArguments("at least one of mark, todo_state or date_due must be provided")
 	}
 	// Without a state, Slack files a reopened item under Saved. It was completed
 	// from To-dos, so that is where it goes back to.
@@ -311,40 +282,36 @@ func (h *SavedHandler) SavedUpdateHandler(ctx context.Context, request mcp.CallT
 	}
 
 	if err := h.apiProvider.Slack().SavedUpdate(ctx, params); err != nil {
-		h.logger.Debug("SavedUpdate failed", zap.String("item_id", params.ItemID), zap.String("ts", params.Ts), zap.Error(err))
+		h.logger.Debug("SavedUpdate failed", zap.String("item_id", params.ID), zap.String("ts", params.Ts), zap.Error(err))
 		return nil, fmt.Errorf("failed to update saved item: %w", err)
 	}
 
-	fallback := fmt.Sprintf("Successfully updated saved item (item_id=%s, ts=%s)", params.ItemID, params.Ts)
-	return NewStructuredResult(savedActionData("update_saved_item", "updated", params.ItemType, params.ItemID, params.Ts), SlackResultMeta("", false, ""), fallback), nil
+	fallback := fmt.Sprintf("Successfully updated saved item (item_id=%s, ts=%s)", params.ID, params.Ts)
+	return NewStructuredResult(savedActionData("update_saved_item", "updated", params.SavedRef), SlackResultMeta("", false, ""), fallback), nil
 }
 
 // parseSavedAddParams builds saved.add arguments from exactly one of text, a
 // message (channel_id and timestamp) or file_id. A new item goes to To-dos unless
 // todo_state says otherwise.
-func parseSavedAddParams(request mcp.CallToolRequest) (edge.SavedAddParams, error) {
+func parseSavedAddParams(request mcp.CallToolRequest) (provider.SavedAdd, error) {
 	body := strings.TrimSpace(request.GetString("text", ""))
 	channelID := request.GetString("channel_id", "")
 	ts := request.GetString("timestamp", "")
 	fileID := request.GetString("file_id", "")
 
-	params := edge.SavedAddParams{TodoState: request.GetString("todo_state", "to_do"), DateDue: savedDateDue(request)}
+	params := provider.SavedAdd{TodoState: request.GetString("todo_state", "to_do"), DateDue: savedDateDue(request)}
 	if !validSavedTodoState(params.TodoState) {
-		return edge.SavedAddParams{}, invalidArguments(fmt.Sprintf("todo_state must be to_do or saved, got %q", params.TodoState))
+		return provider.SavedAdd{}, invalidArguments(fmt.Sprintf("todo_state must be to_do or saved, got %q", params.TodoState))
 	}
 	switch {
 	case body != "" && channelID == "" && ts == "" && fileID == "":
-		description, err := edge.RichTextJSON(body)
-		if err != nil {
-			return edge.SavedAddParams{}, err
-		}
-		params.ItemType, params.Description = edge.SavedItemReminder, description
+		params.SavedRef, params.Text = provider.SavedRef{Type: provider.SavedReminder}, body
 	case body == "" && channelID != "" && ts != "" && fileID == "":
-		params.ItemType, params.ItemID, params.Ts = edge.SavedItemMessage, channelID, ts
+		params.SavedRef = provider.SavedRef{Type: provider.SavedMessage, ID: channelID, Ts: ts}
 	case body == "" && channelID == "" && ts == "" && fileID != "":
-		params.ItemType, params.ItemID = edge.SavedItemFile, fileID
+		params.SavedRef = provider.SavedRef{Type: provider.SavedFile, ID: fileID}
 	default:
-		return edge.SavedAddParams{}, invalidArguments("pass exactly one of: text, channel_id with timestamp, or file_id")
+		return provider.SavedAdd{}, invalidArguments("pass exactly one of: text, channel_id with timestamp, or file_id")
 	}
 	return params, nil
 }
@@ -361,12 +328,12 @@ func (h *SavedHandler) SavedAddHandler(ctx context.Context, request mcp.CallTool
 
 	item, err := h.apiProvider.Slack().SavedAdd(ctx, params)
 	if err != nil {
-		h.logger.Debug("SavedAdd failed", zap.String("item_type", params.ItemType), zap.Error(err))
+		h.logger.Debug("SavedAdd failed", zap.String("item_type", params.Type), zap.Error(err))
 		return nil, fmt.Errorf("failed to add saved item: %w", err)
 	}
 
-	fallback := fmt.Sprintf("Successfully added saved item (item_id=%s, ts=%s)", item.ItemID, item.Ts)
-	return NewStructuredResult(savedActionData("add_saved_item", "added", params.ItemType, item.ItemID, params.Ts), SlackResultMeta("", false, ""), fallback), nil
+	fallback := fmt.Sprintf("Successfully added saved item (item_id=%s, ts=%s)", item.ID, item.Ts)
+	return NewStructuredResult(savedActionData("add_saved_item", "added", provider.SavedRef{Type: params.Type, ID: item.ID, Ts: params.Ts}), SlackResultMeta("", false, ""), fallback), nil
 }
 
 func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -379,21 +346,17 @@ func (h *SavedHandler) SavedDeleteHandler(ctx context.Context, request mcp.CallT
 		return nil, err
 	}
 
-	if err := h.apiProvider.Slack().SavedDelete(ctx, target.itemType, target.itemID, target.ts); err != nil {
-		h.logger.Debug("SavedDelete failed", zap.String("item_id", target.itemID), zap.String("ts", target.ts), zap.Error(err))
+	if err := h.apiProvider.Slack().SavedDelete(ctx, target); err != nil {
+		h.logger.Debug("SavedDelete failed", zap.String("item_id", target.ID), zap.String("ts", target.Ts), zap.Error(err))
 		return nil, fmt.Errorf("failed to delete saved item: %w", err)
 	}
 
-	fallback := fmt.Sprintf("Successfully removed saved item (item_id=%s, ts=%s)", target.itemID, target.ts)
-	return NewStructuredResult(savedActionData("delete_saved_item", "deleted", target.itemType, target.itemID, target.ts), SlackResultMeta("", false, ""), fallback), nil
+	fallback := fmt.Sprintf("Successfully removed saved item (item_id=%s, ts=%s)", target.ID, target.Ts)
+	return NewStructuredResult(savedActionData("delete_saved_item", "deleted", target), SlackResultMeta("", false, ""), fallback), nil
 }
 
-func savedActionData(action, status, itemType, itemID, ts string) ActionData {
-	data := ActionData{Action: action, Status: status, MessageID: ts, ItemID: itemID}
-	if itemType == edge.SavedItemMessage {
-		data.ChannelID = itemID
-	}
-	return data
+func savedActionData(action, status string, ref provider.SavedRef) ActionData {
+	return ActionData{Action: action, Status: status, MessageID: ref.Ts, ItemID: ref.ID, ChannelID: ref.Channel()}
 }
 
 func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
