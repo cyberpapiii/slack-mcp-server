@@ -48,12 +48,12 @@ type FileUploadData struct {
 type MessageMutationData struct {
 	Action string `json:"action"`
 	ApprovalPhase
-	ChannelID          string                    `json:"channel_id"`
-	Timestamp          string                    `json:"timestamp,omitempty"`
-	ScheduledMessageID string                    `json:"scheduled_message_id,omitempty"`
-	PostAt             string                    `json:"post_at,omitempty"`
+	ChannelID          string           `json:"channel_id"`
+	Timestamp          string           `json:"timestamp,omitempty"`
+	ScheduledMessageID string           `json:"scheduled_message_id,omitempty"`
+	PostAt             string           `json:"post_at,omitempty"`
 	Target             *MessageSnapshot `json:"target,omitempty"`
-	Outcome            string                    `json:"outcome"`
+	Outcome            string           `json:"outcome"`
 }
 
 type MessageMutationResult = ToolResult[MessageMutationData]
