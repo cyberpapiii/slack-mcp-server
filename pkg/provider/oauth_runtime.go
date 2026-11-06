@@ -83,24 +83,18 @@ func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 		status.Reason = "stored OAuth login failed to load (" + ap.oauthLoadErr.Error() + "); run slack-mcp-auth login --replace, then restart"
 		return status
 	}
-	client, ok := ap.client.(*MCPSlackClient)
-	if ok && client != nil {
-		if state, loaded := client.oauthRuntimeState.Load().(string); loaded && state != "" {
-			status.State = state
-			if state == "live" {
-				status.Reason = ""
-			}
+	if state, loaded := ap.client.oauthRuntimeState.Load().(string); loaded && state != "" {
+		status.State = state
+		if state == "live" {
+			status.Reason = ""
 		}
 	}
 	return status
 }
 
 func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oauthcred.Record) {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return
-	}
-	expected := oauthcred.IdentityOf(client.AuthResponse())
+	client := &ap.client
+	expected := oauthcred.IdentityOf(&client.authResponse)
 	manager.WithValidator(expected.Validator(func(ctx context.Context, token string) (*slack.AuthTestResponse, error) {
 		_, identity, err := client.managedSlackClient(ctx, token)
 		return identity, err
@@ -126,7 +120,7 @@ func (c *MCPSlackClient) managedSlackClient(ctx context.Context, token string) (
 		}
 	}
 	options := []slack.Option{slack.OptionHTTPClient(httpClient)}
-	if c.authResponse != nil && c.authResponse.URL != "" {
+	if c.authResponse.URL != "" {
 		options = append(options, slack.OptionAPIURL(c.authResponse.URL+"api/"))
 	} else {
 		options = append(options, slack.OptionAPIURL(slackhttp.SlackAPIBase()))

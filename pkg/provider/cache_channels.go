@@ -123,7 +123,7 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 		// CallWithRetry already paces; do not wait again in this loop.
 		page, err := limiter.CallWithRetry(ctx, lim, 2,
 			func() (channelsPageResult, error) {
-				c, cur, err := ap.client.GetConversationsContext(ctx, params)
+				c, cur, err := ap.api.GetConversationsContext(ctx, params)
 				return channelsPageResult{channels: c, cursor: cur}, err
 			})
 		ap.logger.Debug("Fetched channels",

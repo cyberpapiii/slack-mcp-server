@@ -51,7 +51,7 @@ func newRevalidateProvider(t *testing.T, client SlackAPI) *ApiProvider {
 	t.Helper()
 	dir := t.TempDir()
 	ap := &ApiProvider{
-		client:                   client,
+		api:                      client,
 		logger:                   zap.NewNop(),
 		cacheTTL:                 24 * time.Hour,
 		backgroundRefreshTimeout: time.Minute,

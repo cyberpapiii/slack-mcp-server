@@ -41,7 +41,7 @@ func TestUnitFetchAndStoreUsersSurvivesConnectFailure(t *testing.T) {
 	}
 
 	ap := &ApiProvider{
-		client:         &fakeConnectFailureClient{users: users},
+		api:            &fakeConnectFailureClient{users: users},
 		logger:         zap.NewNop(),
 		usersCachePath: filepath.Join(t.TempDir(), "users.json"),
 	}
@@ -93,7 +93,7 @@ func TestUnitSlackConnectUsersAsksOnlyForPeopleTheListLacked(t *testing.T) {
 	client := &connectBootClient{boot: &edge.ClientUserBootResponse{IMs: []edge.Channel{
 		sharedIM("U1", true), sharedIM("U2", true), sharedIM("U2", true), sharedIM("U3", false), sharedIM("", true),
 	}}}
-	ap := &ApiProvider{client: client, logger: zap.NewNop()}
+	ap := &ApiProvider{api: client, logger: zap.NewNop()}
 	ap.usersSnapshot.Store(newUsersCache(nil))
 
 	users, err := ap.slackConnectUsers(context.Background(), []slack.User{{ID: "U1"}})
@@ -114,7 +114,7 @@ func TestUnitSlackConnectUsersBatchesUsersInfo(t *testing.T) {
 		ims[i] = sharedIM(fmt.Sprintf("U%03d", i), true)
 	}
 	client := &connectBootClient{boot: &edge.ClientUserBootResponse{IMs: ims}}
-	ap := &ApiProvider{client: client, logger: zap.NewNop()}
+	ap := &ApiProvider{api: client, logger: zap.NewNop()}
 
 	users, err := ap.slackConnectUsers(context.Background(), nil)
 	require.NoError(t, err)

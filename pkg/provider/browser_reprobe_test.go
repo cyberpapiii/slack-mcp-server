@@ -26,7 +26,7 @@ func degradedBrowserClient(t *testing.T, probe browserProbeFunc) *MCPSlackClient
 	browserDegradationNotifier = func(string, *zap.Logger) {}
 
 	c := &MCPSlackClient{
-		authResponse: &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"},
+		authResponse: slack.AuthTestResponse{TeamID: "T1", UserID: "U1"},
 		logger:       zap.NewNop(),
 		mode:         ModeUserOAuthBrowser,
 		browserProbe: probe,
@@ -123,11 +123,10 @@ func TestUnitMarkBrowserUnavailableRegistersADegradedSession(t *testing.T) {
 	t.Cleanup(func() { browserDegradationNotifier = origNotifier })
 	browserDegradationNotifier = func(string, *zap.Logger) {}
 
-	c := &MCPSlackClient{logger: zap.NewNop(), mode: ModeUserOAuthBrowser}
-	c.initBrowserState()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	ap := &ApiProvider{client: c, ctx: ctx, cancel: cancel}
+	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), mode: ModeUserOAuthBrowser}, ctx: ctx, cancel: cancel}
+	ap.client.initBrowserState()
 	ap.startUserOAuth(nil, oauthcred.Record{}, oauthBrowser{loadErr: errors.New("item not found")})
 
 	assert.True(t, ap.Satisfies(capability.BrowserSession), "browser tools register and explain the failure")

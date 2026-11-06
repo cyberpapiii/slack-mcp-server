@@ -126,11 +126,11 @@ func TestStandardSlackClientUsesOAuthClientWhenBrowserIsAttached(t *testing.T) {
 	c.browserState.Store(int32(browserStateActive))
 
 	assert.Same(t, oauthClient, c.standardSlackClient())
-	assert.True(t, (&ApiProvider{client: c}).Satisfies(capability.BrowserSession))
+	assert.True(t, (&ApiProvider{client: MCPSlackClient{mode: c.mode}}).Satisfies(capability.BrowserSession))
 }
 
 func TestAttachBrowserRejectsProviderIdentityMismatch(t *testing.T) {
-	c := &MCPSlackClient{authResponse: &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"}, logger: zap.NewNop()}
+	c := &MCPSlackClient{authResponse: slack.AuthTestResponse{TeamID: "T1", UserID: "U1"}, logger: zap.NewNop()}
 	browserAuth, err := slackcreds.New("xoxc-browser", "xoxd-cookie")
 	require.NoError(t, err)
 

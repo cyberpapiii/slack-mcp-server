@@ -77,8 +77,8 @@ func TestUnitCloseWaitsForAnInFlightOAuthRefresh(t *testing.T) {
 	manager := oauthcred.NewManager(store, refresher, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client := &MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, managedClientFactory: nil}
-	ap := &ApiProvider{client: client, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
+	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), oauthManager: manager}, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
+	client := &ap.client
 
 	go client.refreshManagedOAuthTick(ctx)
 	<-entered
@@ -112,8 +112,8 @@ func TestUnitCloseDoesNotWaitForeverOnAStuckRefresh(t *testing.T) {
 		<-release
 	}}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	client := &MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, oauthShutdownGrace: 20 * time.Millisecond}
-	ap := &ApiProvider{client: client, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
+	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, oauthShutdownGrace: 20 * time.Millisecond}, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
+	client := &ap.client
 
 	go client.refreshManagedOAuthTick(ctx)
 	<-entered

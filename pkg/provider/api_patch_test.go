@@ -41,7 +41,7 @@ func (m *perUserSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error
 
 func newTestApiProvider(client SlackAPI, snapshot *UsersCache) *ApiProvider {
 	ap := &ApiProvider{
-		client: client,
+		api:    client,
 		logger: zap.NewNop(),
 		// Unlimited pacing: these tests assert pagination and snapshot
 		// semantics, not Slack's Tier2 budget. Sharing the process-wide

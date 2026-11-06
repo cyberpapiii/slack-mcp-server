@@ -212,7 +212,7 @@ type DraftsAPI interface {
 type BrowserDraftsProvider struct{ client *MCPSlackClient }
 
 func (ap *ApiProvider) Drafts() DraftsAPI {
-	return &BrowserDraftsProvider{client: ap.client.(*MCPSlackClient)}
+	return &BrowserDraftsProvider{client: &ap.client}
 }
 
 type draftsListPage struct {

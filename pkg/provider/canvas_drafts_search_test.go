@@ -121,7 +121,7 @@ func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {
 	var form url.Values
 	body := `{"ok":true,"content":"# Plan"}`
 	client := &MCPSlackClient{
-		authResponse: &slack.AuthTestResponse{URL: "https://example.slack.com/"},
+		authResponse: slack.AuthTestResponse{URL: "https://example.slack.com/"},
 		httpClient: &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 			assert.Equal(t, "https://example.slack.com/api/canvases.getContent", request.URL.String())
 			require.NoError(t, request.ParseForm())
@@ -160,10 +160,15 @@ func TestUnitDraftsErrorCarriesSlackCode(t *testing.T) {
 }
 
 func draftsClient(body string) *MCPSlackClient {
-	c := &MCPSlackClient{mode: ModeUserOAuthBrowser, logger: zap.NewNop()}
+	c := &MCPSlackClient{}
+	setUpDraftsClient(c, body)
+	return c
+}
+
+func setUpDraftsClient(c *MCPSlackClient, body string) {
+	c.mode, c.logger = ModeUserOAuthBrowser, zap.NewNop()
 	c.initBrowserState()
 	c.edgeClient.Store(edgeAnswering(body))
-	return c
 }
 
 func edgeAnswering(body string) *edge.Client {
@@ -180,8 +185,10 @@ func TestUnitDraftsFollowARecoveredBrowserSession(t *testing.T) {
 	t.Cleanup(func() { browserDegradationNotifier = origNotifier })
 	browserDegradationNotifier = func(string, *zap.Logger) {}
 
-	client := draftsClient(`{"ok":false,"error":"invalid_auth"}`)
-	drafts := (&ApiProvider{client: client}).Drafts()
+	ap := &ApiProvider{}
+	client := &ap.client
+	setUpDraftsClient(client, `{"ok":false,"error":"invalid_auth"}`)
+	drafts := ap.Drafts()
 
 	_, err := drafts.ListDrafts(context.Background(), "", 10)
 	require.ErrorIs(t, err, ErrBrowserSessionUnavailable, "dead auth degrades the session")

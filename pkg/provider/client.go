@@ -39,6 +39,10 @@ type SlackAPI interface {
 	GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error)
 }
 
+// MCPSlackClient is the server's Slack session: the Web API client for the
+// primary token, the browser session's edge client, and the managed OAuth
+// rotation that replaces the Web API client. ApiProvider holds it by value, so
+// the zero value is a session without credentials.
 type MCPSlackClient struct {
 	slackClient *slack.Client
 	// edgeClient is swapped when a degraded browser session recovers.
@@ -47,7 +51,7 @@ type MCPSlackClient struct {
 	// every direct Web API call reuses it instead of dialing a fresh pool.
 	httpClient *http.Client
 
-	authResponse *slack.AuthTestResponse
+	authResponse slack.AuthTestResponse
 	authProvider slackcreds.Credentials
 	logger       *zap.Logger
 
@@ -106,36 +110,27 @@ func authTest(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger
 	return httpClient, authResp, nil
 }
 
-func newMCPSlackClient(authProvider slackcreds.Credentials, demo, browserConfigured bool, logger *zap.Logger) (*MCPSlackClient, error) {
+// connect authenticates authProvider and sets c up around it.
+func (c *MCPSlackClient) connect(authProvider slackcreds.Credentials, demo, browserConfigured bool, logger *zap.Logger) error {
 	httpClient, authResp, err := authTest(authProvider, demo, logger)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	slackClient := slack.New(authProvider.SlackToken(),
+	token := authProvider.SlackToken()
+	c.httpClient = httpClient
+	c.authResponse = *authResp
+	c.authProvider = authProvider
+	c.logger = logger
+	c.mode = credentialModeFor(token, demo, browserConfigured)
+	c.isEnterprise = authResp.EnterpriseID != ""
+	c.slackClient = slack.New(token,
 		slack.OptionHTTPClient(httpClient),
 		slack.OptionAPIURL(authResp.URL+"api/"),
 	)
-
-	edgeClient := edge.NewWithInfo(authResp, authProvider.SlackToken(),
-		httpClient,
-		edge.OptionLogger(logger),
-	)
-
-	token := authProvider.SlackToken()
-	client := &MCPSlackClient{
-		slackClient:  slackClient,
-		httpClient:   httpClient,
-		authResponse: authResp,
-		authProvider: authProvider,
-		logger:       logger,
-		mode:         credentialModeFor(token, demo, browserConfigured),
-		isEnterprise: authResp.EnterpriseID != "",
-	}
-	client.edgeClient.Store(edgeClient)
-	client.oauthAccessToken.Store(token)
-	client.initBrowserState()
-	return client, nil
+	c.edgeClient.Store(edge.NewWithInfo(authResp, token, httpClient, edge.OptionLogger(logger)))
+	c.oauthAccessToken.Store(token)
+	c.initBrowserState()
+	return nil
 }
 
 func (c *MCPSlackClient) standardSlackClient() *slack.Client {
@@ -144,12 +139,9 @@ func (c *MCPSlackClient) standardSlackClient() *slack.Client {
 	return c.slackClient
 }
 
+// AuthTest answers from the startup auth.test; the identity cannot change.
 func (c *MCPSlackClient) AuthTest() (*slack.AuthTestResponse, error) {
-	if c.authResponse != nil {
-		return c.authResponse, nil
-	}
-
-	return c.slackClient.AuthTest()
+	return &c.authResponse, nil
 }
 
 func (c *MCPSlackClient) GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error) {
@@ -165,8 +157,4 @@ func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, t
 		return ErrUserOAuthRequired
 	}
 	return c.standardSlackClient().MarkConversationContext(ctx, channel, ts)
-}
-
-func (c *MCPSlackClient) AuthResponse() *slack.AuthTestResponse {
-	return c.authResponse
 }

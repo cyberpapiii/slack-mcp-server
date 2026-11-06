@@ -122,7 +122,7 @@ func (ap *ApiProvider) PatchUsers(ctx context.Context, userIDs []string) error {
 }
 
 func (ap *ApiProvider) fetchUsersInfo(userIDs ...string) ([]slack.User, error) {
-	usersInfo, err := ap.client.GetUsersInfo(userIDs...)
+	usersInfo, err := ap.api.GetUsersInfo(userIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func patchSearchIndex(current *UsersCache, users map[string]slack.User, patched 
 }
 
 func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
-	users, err := ap.client.GetUsersContext(ctx, slack.GetUsersOptionLimit(1000))
+	users, err := ap.api.GetUsersContext(ctx, slack.GetUsersOptionLimit(1000))
 	if err != nil {
 		ap.logger.Error("Failed to fetch users", zap.Error(err))
 		return err
@@ -278,7 +278,7 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 // slackConnectUsers returns the people in the browser session's shared DMs
 // that users.list did not return: Slack Connect users from other workspaces.
 func (ap *ApiProvider) slackConnectUsers(ctx context.Context, listed []slack.User) ([]slack.User, error) {
-	boot, err := ap.client.ClientUserBoot(ctx)
+	boot, err := ap.api.ClientUserBoot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("client.userBoot: %w", err)
 	}
@@ -316,7 +316,7 @@ func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
 // browser session when that is preferred, and the local cache on OAuth.
 func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int) ([]slack.User, error) {
 	if ClassifyID(query) == IDUser {
-		users, err := ap.client.GetUsersInfo(query)
+		users, err := ap.api.GetUsersInfo(query)
 		if err != nil {
 			return nil, err
 		}
@@ -326,16 +326,9 @@ func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int)
 		return nil, nil
 	}
 
-	if ap.PrefersBrowser() {
-		users, err := ap.client.UsersSearch(ctx, query, limit)
-		if client, _ := ap.client.(*MCPSlackClient); client == nil || !client.fallsBackToOAuth(err) {
-			return users, err
-		}
-	}
-	if ap.Mode().OAuth() {
-		return ap.searchUsersInCache(query, limit)
-	}
-	return ap.client.UsersSearch(ctx, query, limit)
+	return preferBrowser(&ap.client,
+		func() ([]slack.User, error) { return ap.api.UsersSearch(ctx, query, limit) },
+		func() ([]slack.User, error) { return ap.searchUsersInCache(query, limit) })
 }
 
 // searchUsersInCache matches name, real name, display name and email; results
