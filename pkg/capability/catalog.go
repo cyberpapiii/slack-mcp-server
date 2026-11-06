@@ -177,7 +177,7 @@ var Tools = []Tool{
 
 	{Name: ConversationsSearchMessages, Requires: UserToken, Title: "Search Messages", ReadOnly: true, Scopes: []string{"search:read"}},
 	{Name: ConversationsUnreads, Title: "Get Unread Messages", DailyPower: true, Requires: BrowserSession, CacheReady: true, ReadOnly: true},
-	{Name: ConversationsMark, Title: "Mark Conversation Read", Idempotent: true, Scopes: []string{"channels:write", "groups:write", "im:write", "mpim:write"}},
+	{Name: ConversationsMark, Requires: UserToken, Title: "Mark Conversation Read", Idempotent: true, Scopes: []string{"channels:write", "groups:write", "im:write", "mpim:write"}},
 
 	{Name: ConversationsOpen, Title: "Open Conversation", Idempotent: true, Scopes: []string{"im:write", "mpim:write"}},
 	{Name: ConversationsJoin, Title: "Join Channel", Idempotent: true, Scopes: []string{"channels:write"}},
@@ -216,15 +216,15 @@ var Tools = []Tool{
 	{Name: FilesUpload, ChannelAllowlist: AddMessageAllowlist, Title: "Upload File", Scopes: []string{"files:write"}},
 	{Name: MessagesSchedule, ChannelAllowlist: AddMessageAllowlist, Title: "Schedule Message", Scopes: []string{"chat:write"}},
 	{Name: MessagesUpdate, ChannelAllowlist: AddMessageAllowlist, Title: "Update Message", Destructive: true, Scopes: []string{"chat:write"}},
-	{Name: MessagesDelete, ChannelAllowlist: AddMessageAllowlist, Title: "Delete Message", Destructive: true, Scopes: []string{"chat:write"}},
+	{Name: MessagesDelete, Requires: UserToken, ChannelAllowlist: AddMessageAllowlist, Title: "Delete Message", Destructive: true, Scopes: []string{"chat:write"}},
 
 	{Name: ChannelsCreate, Title: "Create Channel", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsMembers, Title: "List Channel Members", DailyPower: true, ReadOnly: true, Scopes: []string{"channels:read", "groups:read"}},
 	{Name: ChannelsInvite, Title: "Invite Channel Members", Scopes: []string{"channels:write", "channels:write.invites", "groups:write", "groups:write.invites"}},
 	{Name: EmojiList, Title: "List Custom Emoji", DailyPower: true, ReadOnly: true, Scopes: []string{"emoji:read"}},
 	{Name: UsersGetProfile, Title: "Get User Profile", DailyPower: true, ReadOnly: true, Scopes: []string{"users.profile:read"}},
-	{Name: UsersSetProfile, Title: "Update User Profile", Destructive: true, Scopes: []string{"users.profile:write"}},
-	{Name: UsersSetStatus, Title: "Set User Status", Scopes: []string{"users.profile:write"}},
+	{Name: UsersSetProfile, Requires: UserToken, Title: "Update User Profile", Destructive: true, Scopes: []string{"users.profile:write"}},
+	{Name: UsersSetStatus, Requires: UserToken, Title: "Set User Status", Scopes: []string{"users.profile:write"}},
 
 	{Name: CanvasesCreate, Title: "Create Canvas", Scopes: []string{"canvases:write"}},
 	{Name: CanvasesRead, Title: "Read Canvas", DailyPower: true, ReadOnly: true, Scopes: []string{"canvases:read"}},
@@ -232,12 +232,12 @@ var Tools = []Tool{
 	{Name: SearchSemantic, Title: "Search Slack Semantically", DailyPower: true, ReadOnly: true, Scopes: []string{"search:read.files", "search:read.public", "search:read.private", "search:read.im", "search:read.mpim", "search:read.users"}},
 
 	{Name: ScheduledMessagesList, Title: "List Scheduled Messages", DailyPower: true, ReadOnly: true},
-	{Name: ScheduledMessageCancel, Title: "Cancel Scheduled Message", Destructive: true, Scopes: []string{"chat:write"}},
+	{Name: ScheduledMessageCancel, Requires: UserToken, Title: "Cancel Scheduled Message", Destructive: true, Scopes: []string{"chat:write"}},
 
 	{Name: ChannelsRename, ChannelAllowlist: ChannelManagementAllowlist, Title: "Rename Channel", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsSetTopic, ChannelAllowlist: ChannelManagementAllowlist, Title: "Set Channel Topic", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsSetPurpose, ChannelAllowlist: ChannelManagementAllowlist, Title: "Set Channel Purpose", Scopes: []string{"channels:write", "groups:write"}},
-	{Name: ChannelsArchive, ChannelAllowlist: ChannelManagementAllowlist, Title: "Archive Channel", Destructive: true, Scopes: []string{"channels:write", "groups:write"}},
+	{Name: ChannelsArchive, Requires: UserToken, ChannelAllowlist: ChannelManagementAllowlist, Title: "Archive Channel", Destructive: true, Scopes: []string{"channels:write", "groups:write"}},
 
 	{Name: ListsCreate, Requires: UserOAuth, Title: "Create Slack List", Scopes: []string{"lists:write"}},
 	{Name: ListsUpdate, Requires: UserOAuth, Title: "Update Slack List", Scopes: []string{"lists:write"}},

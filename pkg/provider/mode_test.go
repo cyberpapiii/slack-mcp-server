@@ -5,6 +5,7 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnitCredentialModeForPrimaryToken(t *testing.T) {
@@ -30,5 +31,20 @@ func TestUnitCredentialModeMeetsRequirements(t *testing.T) {
 			}
 		}
 		assert.Equal(t, want, got, "mode %d", mode)
+	}
+}
+
+// A bot token is never served the tools only a user identity can call; they
+// used to register and fail on every call.
+func TestUnitBotModeDoesNotServeUserOnlyTools(t *testing.T) {
+	for _, name := range []string{
+		capability.ConversationsMark, capability.MessagesDelete, capability.UsersSetProfile,
+		capability.UsersSetStatus, capability.ScheduledMessageCancel, capability.ChannelsArchive,
+	} {
+		tool, ok := capability.Lookup(name)
+		require.True(t, ok)
+		assert.False(t, tool.Requires.Met(ModeBot), name)
+		assert.True(t, tool.Requires.Met(ModeUserOAuth), name)
+		assert.True(t, tool.Requires.Met(ModeBrowser), name)
 	}
 }

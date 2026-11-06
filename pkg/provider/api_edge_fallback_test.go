@@ -166,9 +166,3 @@ func TestBrowserKeychainFailureDegradesWhenOAuthExists(t *testing.T) {
 	_, err = resolveBrowserStartupCredentials(context.Background(), "workspace-user", "", "", "")
 	assert.EqualError(t, err, "Keychain locked")
 }
-
-func TestPersonalReadProgressRejectsBotOAuth(t *testing.T) {
-	c := &MCPSlackClient{mode: ModeBot}
-	err := c.MarkConversationContext(context.Background(), "C1", "123.456")
-	assert.ErrorIs(t, err, ErrUserOAuthRequired)
-}
