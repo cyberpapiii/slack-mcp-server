@@ -60,3 +60,10 @@ func (m CredentialMode) satisfies(requirement capability.Requirement) bool {
 		return true
 	}
 }
+
+// BrowserRecovers reports whether a degraded browser session comes back by
+// itself: beside OAuth the re-probe reloads it every 5 minutes. A browser-only
+// session has nothing to re-probe with and needs a restart.
+func (m CredentialMode) BrowserRecovers() bool {
+	return m == ModeUserOAuthBrowser
+}

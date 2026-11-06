@@ -34,7 +34,7 @@ func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools [
 	}
 	set.tools = append(set.tools, conversations.Tools()...)
 	set.tools = append(set.tools, channels.Tools()...)
-	set.tools = append(set.tools, handler.NewAuthStatusHandler(api, logger).Tools()...)
+	set.tools = append(set.tools, handler.NewAuthStatusHandler(api, enabledTools, logger).Tools()...)
 	set.tools = append(set.tools, handler.NewUsergroupsHandler(api, logger).Tools()...)
 	set.tools = append(set.tools, handler.NewSavedHandler(api, logger, conversations).Tools()...)
 	set.tools = append(set.tools, handler.NewActivityHandler(api, logger, conversations).Tools()...)

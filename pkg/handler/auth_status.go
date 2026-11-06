@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -11,12 +12,13 @@ import (
 )
 
 type AuthStatusHandler struct {
-	apiProvider *provider.ApiProvider
-	logger      *zap.Logger
+	apiProvider  *provider.ApiProvider
+	enabledTools []string
+	logger       *zap.Logger
 }
 
-func NewAuthStatusHandler(apiProvider *provider.ApiProvider, logger *zap.Logger) *AuthStatusHandler {
-	return &AuthStatusHandler{apiProvider: apiProvider, logger: logger}
+func NewAuthStatusHandler(apiProvider *provider.ApiProvider, enabledTools []string, logger *zap.Logger) *AuthStatusHandler {
+	return &AuthStatusHandler{apiProvider: apiProvider, enabledTools: enabledTools, logger: logger}
 }
 
 type AuthStatusData struct {
@@ -37,28 +39,37 @@ type AuthStatusData struct {
 }
 
 func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
 	usersReady := h.apiProvider.UsersCacheReady()
 	channelsReady := h.apiProvider.ChannelsCacheReady()
 	browserOK := h.apiProvider.BrowserFeaturesAvailable()
 	degradedReason := h.apiProvider.BrowserDegradedReason()
-	browserBlocked := !browserOK && degradedReason != ""
+	mode := h.apiProvider.Mode()
+
+	availability := make(map[string]string, len(capability.Tools))
+	for _, tool := range capability.Tools {
+		availability[tool.Name] = toolAvailability(tool, toolState{
+			enabled:    slices.Contains(h.enabledTools, tool.Name),
+			satisfied:  h.apiProvider.Satisfies(tool.Requires),
+			browserOK:  browserOK,
+			cacheReady: usersReady && channelsReady,
+		})
+	}
 
 	payload := AuthStatusData{
 		ProviderIdentity:         h.apiProvider.Identity(),
 		OAuthCredential:          h.apiProvider.OAuthCredentialStatus(),
-		CapabilityAvailability:   capabilityAvailability(h.apiProvider.Mode().OAuth(), (h.apiProvider.Mode() == provider.ModeBot), browserOK, degradedReason),
+		CapabilityAvailability:   availability,
 		UsersCacheReady:          usersReady,
 		ChannelsCacheReady:       channelsReady,
 		CacheFullyReady:          usersReady && channelsReady,
 		BrowserFeaturesAvailable: browserOK,
 		BrowserCredentialSource:  h.apiProvider.BrowserCredentialSource(),
 		BrowserDegradedReason:    degradedReason,
-		IsOAuth:                  h.apiProvider.Mode().OAuth(),
-		IsBotToken:               (h.apiProvider.Mode() == provider.ModeBot),
+		IsOAuth:                  mode.OAuth(),
+		IsBotToken:               mode == provider.ModeBot,
 		BrowserOnlyTools:         capability.BrowserNames(),
-		BrowserOnlyToolsBlocked:  browserBlocked,
-		Summary:                  buildAuthSummary(usersReady, channelsReady, browserOK, degradedReason),
+		BrowserOnlyToolsBlocked:  !browserOK && degradedReason != "",
+		Summary:                  buildAuthSummary(usersReady, channelsReady, browserOK, degradedReason, mode.BrowserRecovers()),
 	}
 
 	if payload.OAuthCredential.Reason != "" && payload.OAuthCredential.State == "unavailable" {
@@ -68,47 +79,37 @@ func (h *AuthStatusHandler) Handler(_ context.Context, request mcp.CallToolReque
 	return NewStructuredResult(payload, SystemResultMeta(), fallbackJSON(payload)), nil
 }
 
-func capabilityAvailability(standardOAuth, botToken, browserOK bool, degradedReason string) map[string]string {
-	availability := map[string]string{
-		"standard_oauth":            "not_configured",
-		"slack_lists":               "unverified",
-		"host_curation":             "unverified",
-		"persisted_draft_lifecycle": "browser_session_required",
-		"semantic_search":           "available_if_slack_data_access_enabled",
-		"canvas_full_content_read":  "user_oauth_required",
-	}
-	if standardOAuth {
-		availability["standard_oauth"] = "available"
-		availability["canvas_full_content_read"] = "available"
-	}
-	if !standardOAuth || botToken {
-		availability["dnd"] = "user_oauth_required"
-		availability["slack_lists"] = "user_oauth_required"
-	} else {
-		availability["dnd"] = "available_if_enabled"
-		availability["slack_lists"] = "available_if_workspace_supported_and_enabled"
-	}
-	if browserOK {
-		availability["browser_session"] = "available"
-		availability["activity"] = "available_after_cache_warmup"
-		availability["saved_later"] = "available_after_cache_warmup"
-		availability["persisted_draft_lifecycle"] = "available"
-		availability["conversations_unreads"] = "available_after_cache_warmup"
-	} else if degradedReason != "" {
-		availability["browser_session"] = "degraded"
-		availability["activity"] = "browser_session_degraded"
-		availability["saved_later"] = "browser_session_degraded"
-		availability["conversations_unreads"] = "browser_session_degraded"
-	} else {
-		availability["browser_session"] = "not_configured"
-		availability["activity"] = "browser_session_required"
-		availability["saved_later"] = "browser_session_required"
-		availability["conversations_unreads"] = "browser_session_required"
-	}
-	return availability
+type toolState struct {
+	enabled    bool // in the enabled-tools list
+	satisfied  bool // the running credentials meet the tool's requirement
+	browserOK  bool // the browser session is healthy
+	cacheReady bool // the users and channels caches are warm
 }
 
-func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason string) string {
+// toolAvailability says whether a tool can be called now and, if not, why,
+// from the same facts registration and the browser-session gate decide on.
+func toolAvailability(tool capability.Tool, state toolState) string {
+	switch {
+	case !state.enabled:
+		return "not_enabled"
+	case !state.satisfied:
+		return requirementMissing[tool.Requires]
+	case tool.Requires == capability.BrowserSession && !state.browserOK:
+		return "browser_session_degraded"
+	case tool.CacheReady && !state.cacheReady:
+		return "available_after_cache_warmup"
+	default:
+		return "available"
+	}
+}
+
+var requirementMissing = map[capability.Requirement]string{
+	capability.UserToken:      "user_token_required",
+	capability.UserOAuth:      "user_oauth_required",
+	capability.BrowserSession: "browser_session_required",
+}
+
+func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason string, browserRecovers bool) string {
 	var parts []string
 
 	if usersReady && channelsReady {
@@ -120,18 +121,31 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 		if !channelsReady {
 			parts = append(parts, "Channels cache is still loading or failed.")
 		}
-		parts = append(parts, "Cache-dependent tools (channels_list, unreads, activity, saved) are unavailable until caches warm; the server keeps retrying in the background and registers them automatically on success.")
+		parts = append(parts, "Cache-dependent tools ("+strings.Join(cacheReadyNames(), ", ")+") are unavailable until caches warm; the server keeps retrying in the background and registers them automatically on success.")
 	}
 
-	if browserOK {
-		parts = append(parts, "Browser session auth is healthy for Unreads, Activity, Saved, and Draft tools.")
-	} else if degradedReason != "" {
+	switch {
+	case browserOK:
+		parts = append(parts, "Browser session auth is healthy for the browser-session tools.")
+	case degradedReason != "" && browserRecovers:
+		parts = append(parts, "Browser session auth is degraded: "+degradedReason+". Refresh Slack in your browser or the browser Keychain item; the server retries every 5 minutes and recovers without a restart.")
+	case degradedReason != "":
 		parts = append(parts, "Browser session auth is degraded: "+degradedReason+". Refresh Slack in your browser and restart Plug.")
-	} else {
+	default:
 		parts = append(parts, "Browser-only tools require xoxc/xoxd browser session tokens.")
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func cacheReadyNames() []string {
+	var names []string
+	for _, tool := range capability.Tools {
+		if tool.CacheReady {
+			names = append(names, tool.Name)
+		}
+	}
+	return names
 }
 
 // Tools lists the MCP tools this handler serves.
