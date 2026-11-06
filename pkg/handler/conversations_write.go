@@ -72,11 +72,10 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 // Preview for review before conversations_add_message.
 func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	text := request.GetString("text", "")
-	if text == "" {
+	if request.GetString("text", "") == "" {
 		return nil, invalidArguments("text is required and must not be empty")
 	}
-	params, err := ch.parseMessageParams(ctx, capability.ConversationsDraftMessage, request, text)
+	params, err := ch.parseMessageParams(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse draft-message params", zap.Error(err))
 		return nil, err
@@ -228,8 +227,8 @@ func (ch *ConversationsHandler) messageBody(params *addMessageParams) messageBod
 
 // parseMessageParams reads what conversations_add_message and
 // conversations_draft_message share: the destination, thread, text and
-// content type. tool picks the channel allowlist, if the tool has one.
-func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool string, request mcp.CallToolRequest, text string) (*addMessageParams, error) {
+// content type.
+func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
 	if err := signpostFileParam(request, ch.availability); err != nil {
 		return nil, err
 	}
@@ -241,9 +240,6 @@ func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool str
 	channel, err := ch.messages.channelID(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
-		return nil, err
-	}
-	if err := ch.settings.requireChannel(tool, channel); err != nil {
 		return nil, err
 	}
 
@@ -260,14 +256,17 @@ func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool str
 	return &addMessageParams{
 		channel:     channel,
 		threadTs:    threadTs,
-		text:        text,
+		text:        request.GetString("text", ""),
 		contentType: contentType,
 	}, nil
 }
 
 func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
-	params, err := ch.parseMessageParams(ctx, capability.ConversationsAddMessage, request, request.GetString("text", ""))
+	params, err := ch.parseMessageParams(ctx, request)
 	if err != nil {
+		return nil, err
+	}
+	if err := ch.settings.requireChannel(capability.ConversationsAddMessage, params.channel); err != nil {
 		return nil, err
 	}
 

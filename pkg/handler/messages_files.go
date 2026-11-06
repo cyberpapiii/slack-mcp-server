@@ -106,7 +106,7 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 }
 
 func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	channelID, text, _, err := validateMessageMutation(request, false)
+	channelID, text, err := messageMutationText(request)
 	if err != nil {
 		return nil, err
 	}
@@ -131,9 +131,13 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 }
 
 func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	channelID, text, timestamp, err := validateMessageMutation(request, true)
+	channelID, text, err := messageMutationText(request)
 	if err != nil {
 		return nil, err
+	}
+	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
+	if !validSlackTimestamp(timestamp) {
+		return nil, invalidArguments("timestamp must be a Slack timestamp")
 	}
 	if err := h.settings.requireChannel(capability.MessagesUpdate, channelID); err != nil {
 		return nil, err
@@ -223,17 +227,15 @@ func readUploadData(request mcp.CallToolRequest) ([]byte, error) {
 	return data, nil
 }
 
-func validateMessageMutation(request mcp.CallToolRequest, requireTimestamp bool) (string, string, string, error) {
-	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
-	text := request.GetString("text", "")
-	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
+// messageMutationText reads the channel and text messages_schedule and
+// messages_update both take.
+func messageMutationText(request mcp.CallToolRequest) (channelID, text string, err error) {
+	channelID = strings.TrimSpace(request.GetString("channel_id", ""))
+	text = request.GetString("text", "")
 	if channelID == "" || !validMessageText(text, false) {
-		return "", "", "", invalidArguments("channel_id and valid non-empty text up to " + maxRunesText + " are required")
+		return "", "", invalidArguments("channel_id and valid non-empty text up to " + maxRunesText + " are required")
 	}
-	if requireTimestamp && !validSlackTimestamp(timestamp) {
-		return "", "", "", invalidArguments("timestamp must be a Slack timestamp")
-	}
-	return channelID, text, timestamp, nil
+	return channelID, text, nil
 }
 
 func validMessageText(text string, allowEmpty bool) bool {
