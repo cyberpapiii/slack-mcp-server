@@ -189,14 +189,29 @@ func hasImageBlocks(blocks slack.Blocks) bool {
 }
 
 // message fetches one message by channel and timestamp, the same read the
-// delete path makes. nil means Slack has no message at that timestamp.
+// delete path makes. nil means Slack has no message at that timestamp,
+// whether it answered with none or with message_not_found.
 func (p MessagePipeline) message(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
 	msg, err := p.source.GetMessage(ctx, channel, timestamp)
+	var slackErr slack.SlackErrorResponse
+	if errors.As(err, &slackErr) && slackErr.Err == "message_not_found" {
+		return nil, nil
+	}
 	if err != nil {
 		p.logger.Debug("Failed to fetch message", zap.Error(err))
 		return nil, fmt.Errorf("failed to fetch message: %w", err)
 	}
 	return msg, nil
+}
+
+// requireMessage is message for a tool whose answer is that one message: a
+// missing message is not_found.
+func (p MessagePipeline) requireMessage(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
+	msg, err := p.message(ctx, channel, timestamp)
+	if err == nil && msg == nil {
+		return nil, notFound(fmt.Sprintf("no message at timestamp %s in %s; timestamps must match exactly (for example 1712345678.123456)", timestamp, channel))
+	}
+	return msg, err
 }
 
 // channelID resolves a channel reference to an ID. A "#name" or "@user" the

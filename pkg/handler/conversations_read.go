@@ -33,12 +33,9 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 		return nil, err
 	}
 
-	msg, err := ch.messages.message(ctx, channel, timestamp)
+	msg, err := ch.messages.requireMessage(ctx, channel, timestamp)
 	if err != nil {
 		return nil, err
-	}
-	if msg == nil {
-		return nil, notFound(fmt.Sprintf("no message at timestamp %s in %s; timestamps must match exactly (for example 1712345678.123456)", timestamp, channel))
 	}
 
 	messages := ch.messages.rows(ctx, []slack.Message{*msg}, channel, true, mode)

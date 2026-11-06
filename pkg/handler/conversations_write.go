@@ -188,12 +188,9 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		zap.String("timestamp", timestamp),
 	)
 
-	msg, err := ch.messages.message(ctx, channel, timestamp)
+	msg, err := ch.messages.requireMessage(ctx, channel, timestamp)
 	if err != nil {
 		return nil, err
-	}
-	if msg == nil {
-		return mcp.NewToolResultText("No message found at the specified timestamp"), nil
 	}
 
 	rows := make([]reactionRow, 0, len(msg.Reactions))

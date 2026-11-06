@@ -19,11 +19,12 @@ type fakeSlack struct {
 	dir *provider.Directory
 	// messages answers GetMessage by channel and timestamp; a missing key is
 	// no message.
-	messages     map[[2]string]slack.Message
-	onGetMessage func(channel, ts string)
-	counts       provider.UnreadCounts
-	muted        map[string]bool
-	history      func(*slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
+	messages      map[[2]string]slack.Message
+	getMessageErr error
+	onGetMessage  func(channel, ts string)
+	counts        provider.UnreadCounts
+	muted         map[string]bool
+	history       func(*slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
 	// savedPages answers one SavedList call each, running onSavedPage after.
 	savedPages  []provider.SavedPage
 	savedCalls  int
@@ -46,6 +47,9 @@ func (f *fakeSlack) Directory() *provider.Directory {
 func (f *fakeSlack) GetMessage(_ context.Context, channel, ts string) (*slack.Message, error) {
 	if f.onGetMessage != nil {
 		f.onGetMessage(channel, ts)
+	}
+	if f.getMessageErr != nil {
+		return nil, f.getMessageErr
 	}
 	if msg, ok := f.messages[[2]string{channel, ts}]; ok {
 		return &msg, nil
