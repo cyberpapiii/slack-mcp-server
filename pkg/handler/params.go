@@ -78,14 +78,20 @@ func presentString(request mcp.CallToolRequest, name string) (string, error) {
 	return text, nil
 }
 
-// pageLimit reads the limit argument, substituting def when it is missing or
-// non-positive and clamping to max when max is positive. GetInt only applies
-// its default to an absent key, so a negative limit would otherwise pass through.
-func pageLimit(request mcp.CallToolRequest, def, max int) int {
-	limit := request.GetInt("limit", def)
-	if limit <= 0 {
-		limit = def
+// positiveInt reads a count argument, substituting def when it is missing or
+// non-positive. GetInt only applies its default to an absent key, so a
+// negative value would otherwise pass through.
+func positiveInt(request mcp.CallToolRequest, name string, def int) int {
+	if n := request.GetInt(name, def); n > 0 {
+		return n
 	}
+	return def
+}
+
+// pageLimit reads the limit argument like positiveInt, clamped to max when
+// max is positive.
+func pageLimit(request mcp.CallToolRequest, def, max int) int {
+	limit := positiveInt(request, "limit", def)
 	if max > 0 && limit > max {
 		limit = max
 	}

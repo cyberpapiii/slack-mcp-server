@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"fmt"
+
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -285,16 +288,17 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 				mcp.DefaultBool(true),
 			),
 			mcp.WithString("channel_types",
-				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-* channels), 'internal' (other channels)."),
-				mcp.DefaultString("all"),
+				mcp.Description(fmt.Sprintf("Filter by channel type: '%s' (default), '%s' (direct messages), '%s' (group DMs), '%s' (ext-* channels), '%s' (other channels).",
+					unreadsAllTypes, provider.CategoryDM, provider.CategoryGroupDM, provider.CategoryPartner, provider.CategoryInternal)),
+				mcp.DefaultString(unreadsAllTypes),
 			),
 			mcp.WithNumber("max_channels",
-				mcp.Description("Maximum number of channels to fetch unreads from. Default is 50."),
-				mcp.DefaultNumber(50),
+				mcp.Description(fmt.Sprintf("Maximum number of channels to fetch unreads from. Default is %d.", defaultUnreadsMaxChannels)),
+				mcp.DefaultNumber(defaultUnreadsMaxChannels),
 			),
 			mcp.WithNumber("max_messages_per_channel",
-				mcp.Description("Maximum messages to fetch per channel. Default is 10."),
-				mcp.DefaultNumber(10),
+				mcp.Description(fmt.Sprintf("Maximum messages to fetch per channel. Default is %d.", defaultUnreadsMessagesPerChannel)),
+				mcp.DefaultNumber(defaultUnreadsMessagesPerChannel),
 			),
 			mcp.WithBoolean("mentions_only",
 				mcp.Description("If true, only returns channels where you have @mentions. Default is false."),

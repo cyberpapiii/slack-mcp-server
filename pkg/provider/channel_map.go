@@ -43,6 +43,46 @@ func (c *ChannelsCache) add(ch Channel) {
 	}
 }
 
+// Conversation categories, as conversations_unreads and channels_starred
+// report them.
+const (
+	CategoryDM       = "dm"
+	CategoryGroupDM  = "group_dm"
+	CategoryPartner  = "partner"
+	CategoryInternal = "internal"
+)
+
+// Categories lists every category in the order conversations_unreads ranks
+// them.
+var Categories = []string{CategoryDM, CategoryGroupDM, CategoryPartner, CategoryInternal}
+
+// Category says who a conversation is with: one person, a group DM, an
+// external organization (Slack Connect), or the workspace.
+func (c Channel) Category() string {
+	switch {
+	case c.IsIM:
+		return CategoryDM
+	case c.IsMpIM:
+		return CategoryGroupDM
+	case c.IsExtShared:
+		return CategoryPartner
+	}
+	return CategoryInternal
+}
+
+// SlackType is the conversation type as Slack's types parameter names it.
+func (c Channel) SlackType() string {
+	switch {
+	case c.IsIM:
+		return IMChanType
+	case c.IsMpIM:
+		return MpIMChanType
+	case c.IsPrivate:
+		return PrivateChanType
+	}
+	return PubChanType
+}
+
 func MapChannelFromSlack(c slack.Channel, usersMap map[string]slack.User) Channel {
 	ch := Channel{
 		ID:          c.ID,

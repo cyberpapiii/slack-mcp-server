@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -257,46 +258,12 @@ func (ch *ChannelsHandler) ChannelsMeHandler(ctx context.Context, request mcp.Ca
 }
 
 func filterChannelsByTypes(channels map[string]provider.Channel, types []string) []provider.Channel {
-	logger := zap.L()
-
 	result := make([]provider.Channel, 0, len(channels))
-	typeSet := make(map[string]bool)
-
-	for _, t := range types {
-		typeSet[t] = true
-	}
-
-	publicCount := 0
-	privateCount := 0
-	imCount := 0
-	mpimCount := 0
-
 	for _, ch := range channels {
-		switch {
-		case ch.IsIM && typeSet[provider.IMChanType]:
+		if slices.Contains(types, ch.SlackType()) {
 			result = append(result, ch)
-			imCount++
-		case ch.IsMpIM && typeSet[provider.MpIMChanType]:
-			result = append(result, ch)
-			mpimCount++
-		case ch.IsPrivate && !ch.IsIM && !ch.IsMpIM && typeSet[provider.PrivateChanType]:
-			result = append(result, ch)
-			privateCount++
-		case !ch.IsPrivate && !ch.IsIM && !ch.IsMpIM && typeSet[provider.PubChanType]:
-			result = append(result, ch)
-			publicCount++
 		}
 	}
-
-	logger.Debug("Channel filtering complete",
-		zap.Int("total_input", len(channels)),
-		zap.Int("total_output", len(result)),
-		zap.Int("public_channels", publicCount),
-		zap.Int("private_channels", privateCount),
-		zap.Int("ims", imCount),
-		zap.Int("mpims", mpimCount),
-	)
-
 	return result
 }
 
@@ -343,10 +310,10 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 		if cached, err := dir.ChannelByRef(id); err == nil {
 			sc.Name = cached.Name
 			sc.MemberCount = cached.MemberCount
-			sc.ChannelType = classifyChannelType(cached)
+			sc.ChannelType = cached.Category()
 		} else {
 			sc.Name = id
-			sc.ChannelType = "internal"
+			sc.ChannelType = provider.CategoryInternal
 		}
 
 		if channelTypesFilter != "all" && sc.ChannelType != channelTypesFilter {
@@ -367,19 +334,6 @@ func (ch *ChannelsHandler) ChannelsStarredHandler(ctx context.Context, request m
 		return nil, err
 	}
 	return rendered, nil
-}
-
-func classifyChannelType(ch provider.Channel) string {
-	if ch.IsIM {
-		return "dm"
-	}
-	if ch.IsMpIM {
-		return "group_dm"
-	}
-	if ch.IsExtShared {
-		return "partner"
-	}
-	return "internal"
 }
 
 func filterChannelsByQuery(channels []provider.Channel, query string, targetSet map[string]bool) []provider.Channel {

@@ -256,88 +256,34 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 // calls. The caller supplies the cache lookups.
 func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, counts provider.UnreadCounts, dir *provider.Directory) ([]UnreadChannel, int) {
 	var unreadChannels []UnreadChannel
-
-	for _, snap := range counts.Channels {
-		if !snap.HasUnreads {
-			continue
-		}
-
-		if params.mutedChannels[snap.ID] {
-			continue
-		}
-
-		if params.mentionsOnly && snap.MentionCount == 0 {
-			continue
-		}
-
-		channelType := "internal"
-		if cached, err := dir.ChannelByRef(snap.ID); err == nil && cached.IsExtShared {
-			channelType = "partner"
-		}
-
-		if params.channelTypes != "all" && channelType != params.channelTypes {
-			continue
-		}
-
-		unreadChannels = append(unreadChannels, UnreadChannel{
-			ChannelID:   snap.ID,
-			ChannelName: unreadChannelName(dir, snap.ID),
-			ChannelType: channelType,
-			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead,
-		})
+	sections := []struct {
+		snapshots []provider.ConversationUnread
+		category  string
+	}{
+		{counts.Channels, provider.CategoryInternal},
+		{counts.MPIMs, provider.CategoryGroupDM},
+		{counts.IMs, provider.CategoryDM},
 	}
-
-	for _, snap := range counts.MPIMs {
-		if !snap.HasUnreads {
-			continue
+	for _, section := range sections {
+		for _, snap := range section.snapshots {
+			if !snap.HasUnreads || params.mutedChannels[snap.ID] || (params.mentionsOnly && snap.MentionCount == 0) {
+				continue
+			}
+			category := section.category
+			if cached, err := dir.ChannelByRef(snap.ID); err == nil {
+				category = cached.Category()
+			}
+			if params.channelTypes != unreadsAllTypes && category != params.channelTypes {
+				continue
+			}
+			unreadChannels = append(unreadChannels, UnreadChannel{
+				ChannelID:   snap.ID,
+				ChannelName: unreadChannelName(dir, snap.ID),
+				ChannelType: category,
+				UnreadCount: snap.MentionCount,
+				LastRead:    snap.LastRead,
+			})
 		}
-
-		if params.mutedChannels[snap.ID] {
-			continue
-		}
-
-		if params.mentionsOnly && snap.MentionCount == 0 {
-			continue
-		}
-
-		if params.channelTypes != "all" && params.channelTypes != "group_dm" {
-			continue
-		}
-
-		unreadChannels = append(unreadChannels, UnreadChannel{
-			ChannelID:   snap.ID,
-			ChannelName: unreadChannelName(dir, snap.ID),
-			ChannelType: "group_dm",
-			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead,
-		})
-	}
-
-	for _, snap := range counts.IMs {
-		if !snap.HasUnreads {
-			continue
-		}
-
-		if params.mutedChannels[snap.ID] {
-			continue
-		}
-
-		if params.mentionsOnly && snap.MentionCount == 0 {
-			continue
-		}
-
-		if params.channelTypes != "all" && params.channelTypes != "dm" {
-			continue
-		}
-
-		unreadChannels = append(unreadChannels, UnreadChannel{
-			ChannelID:   snap.ID,
-			ChannelName: unreadChannelName(dir, snap.ID),
-			ChannelType: "dm",
-			UnreadCount: snap.MentionCount,
-			LastRead:    snap.LastRead,
-		})
 	}
 
 	ch.sortChannelsByPriority(unreadChannels)
@@ -453,35 +399,25 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully joined %s", channel)), nil
 }
 
-// Keep in sync with the channel_types param docs in pkg/server/server.go.
-var channelTypePriority = map[string]int{
-	"dm":       0,
-	"group_dm": 1,
-	"partner":  2,
-	"internal": 3,
-}
+const (
+	// unreadsAllTypes is the channel_types value that filters nothing.
+	unreadsAllTypes = "all"
 
-// Must exceed all channelTypePriority values.
-const unknownChannelTypePriority = 99
+	defaultUnreadsMaxChannels        = 50
+	defaultUnreadsMessagesPerChannel = 10
+)
 
-// validUnreadsChannelTypes is "all" followed by the channelTypePriority keys in
-// priority order, so the accepted filter values and the sort order cannot drift.
-var validUnreadsChannelTypes = func() []string {
-	types := make([]string, 0, len(channelTypePriority)+1)
-	for channelType := range channelTypePriority {
-		types = append(types, channelType)
-	}
-	sort.Slice(types, func(i, j int) bool { return channelTypePriority[types[i]] < channelTypePriority[types[j]] })
-	return append([]string{"all"}, types...)
-}()
+// validUnreadsChannelTypes is "all" followed by every category in priority
+// order.
+var validUnreadsChannelTypes = append([]string{unreadsAllTypes}, provider.Categories...)
 
 // sortChannelsByPriority: type rank, then UnreadCount desc, ChannelID asc.
 func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel) {
 	rank := func(channelType string) int {
-		if p, ok := channelTypePriority[channelType]; ok {
+		if p := slices.Index(provider.Categories, channelType); p >= 0 {
 			return p
 		}
-		return unknownChannelTypePriority
+		return len(provider.Categories)
 	}
 
 	sort.SliceStable(channels, func(i, j int) bool {
@@ -558,21 +494,12 @@ func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, re
 }
 
 func (ch *ConversationsHandler) parseParamsToolUnreads(request mcp.CallToolRequest) (*unreadsParams, error) {
-	// GetInt only substitutes its default for an absent key, so a caller-supplied
-	// non-positive value survives. maxChannels reaches a slice expression in
-	// collectUnreadChannels, so treat non-positive exactly like absent.
-	maxChannels := request.GetInt("max_channels", 50)
-	if maxChannels <= 0 {
-		maxChannels = 50
-	}
-	maxMessagesPerChannel := request.GetInt("max_messages_per_channel", 10)
-	if maxMessagesPerChannel <= 0 {
-		maxMessagesPerChannel = 10
-	}
+	maxChannels := positiveInt(request, "max_channels", defaultUnreadsMaxChannels)
+	maxMessagesPerChannel := positiveInt(request, "max_messages_per_channel", defaultUnreadsMessagesPerChannel)
 
-	channelTypes := strings.TrimSpace(request.GetString("channel_types", "all"))
+	channelTypes := strings.TrimSpace(request.GetString("channel_types", unreadsAllTypes))
 	if channelTypes == "" {
-		channelTypes = "all"
+		channelTypes = unreadsAllTypes
 	}
 	if !slices.Contains(validUnreadsChannelTypes, channelTypes) {
 		return nil, invalidArguments(fmt.Sprintf("unsupported channel_types %q: must be one of %s",
