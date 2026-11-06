@@ -65,18 +65,8 @@ func (cl *Client) postForm(ctx context.Context, method string, form any, v any) 
 
 func (cl *Client) call(ctx context.Context, method string, req slackhttp.Request, v any) error {
 	req.Header = http.Header{"Accept-Language": {acceptLanguage}}
-	attempt := 0
-	_, err := limiter.Paced(ctx, cl.pacing, method, func() (struct{}, error) {
-		attempt++
-		err := slackhttp.Call(ctx, cl.cl, req, v)
-		if wait, limited := slackhttp.RetryAfter(err); limited {
-			if attempt <= limiter.Retries {
-				cl.logger.Info("Edge call rate limited, waiting", zap.String("url", req.URL), zap.Duration("delay", wait))
-			} else {
-				cl.logger.Debug("Edge call still rate limited after retrying", zap.String("url", req.URL))
-			}
-		}
-		return struct{}{}, err
+	_, err := limiter.Paced(ctx, cl.pacing, method, cl.logger.With(zap.String("url", req.URL)), func() (struct{}, error) {
+		return struct{}{}, slackhttp.Call(ctx, cl.cl, req, v)
 	})
 	return withSlackMessage(err)
 }

@@ -7,13 +7,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-var (
-	ErrChannelMutationGeneral = errors.New("general channel cannot be mutated")
-	ErrChannelMutationShared  = errors.New("shared channel cannot be mutated")
-	ErrChannelArchiveConflict = errors.New("channel changed after archive preparation")
-	ErrChannelAlreadyArchived = errors.New("channel is already archived")
-)
-
 var _ ChannelMutationClient = (*WebClient)(nil)
 
 type ChannelMutationClient interface {
@@ -38,16 +31,21 @@ type ArchivePreparation struct {
 	Expected ChannelMutationState `json:"expected"`
 }
 
+// channelSnapshot is the channels cache a write keeps current.
+type channelSnapshot interface {
+	UpsertChannel(*slack.Channel)
+	forgetChannel(id string)
+}
+
 type ChannelMutationProvider struct {
 	client ChannelMutationClient
+	cache  channelSnapshot
 }
 
-func NewChannelMutationProvider(client ChannelMutationClient) *ChannelMutationProvider {
-	return &ChannelMutationProvider{client: client}
-}
-
+// ChannelMutations keeps the channels cache current: a rename, topic or
+// purpose change is written into it, an archived channel leaves it.
 func (ap *ApiProvider) ChannelMutations() *ChannelMutationProvider {
-	return NewChannelMutationProvider(ap.WebAPI())
+	return &ChannelMutationProvider{client: ap.WebAPI(), cache: ap}
 }
 
 func (p *ChannelMutationProvider) Rename(ctx context.Context, channelID, name string) (ChannelMutationState, error) {
@@ -55,7 +53,7 @@ func (p *ChannelMutationProvider) Rename(ctx context.Context, channelID, name st
 		return ChannelMutationState{}, err
 	}
 	channel, err := p.client.RenameConversationContext(ctx, channelID, name)
-	return mutationResponseState(channel, err)
+	return p.mutated(channel, err)
 }
 
 func (p *ChannelMutationProvider) SetTopic(ctx context.Context, channelID, topic string) (ChannelMutationState, error) {
@@ -63,7 +61,7 @@ func (p *ChannelMutationProvider) SetTopic(ctx context.Context, channelID, topic
 		return ChannelMutationState{}, err
 	}
 	channel, err := p.client.SetTopicOfConversationContext(ctx, channelID, topic)
-	return mutationResponseState(channel, err)
+	return p.mutated(channel, err)
 }
 
 func (p *ChannelMutationProvider) SetPurpose(ctx context.Context, channelID, purpose string) (ChannelMutationState, error) {
@@ -71,7 +69,7 @@ func (p *ChannelMutationProvider) SetPurpose(ctx context.Context, channelID, pur
 		return ChannelMutationState{}, err
 	}
 	channel, err := p.client.SetPurposeOfConversationContext(ctx, channelID, purpose)
-	return mutationResponseState(channel, err)
+	return p.mutated(channel, err)
 }
 
 func (p *ChannelMutationProvider) PrepareArchive(ctx context.Context, channelID string) (ArchivePreparation, error) {
@@ -97,6 +95,7 @@ func (p *ChannelMutationProvider) ArchivePrepared(ctx context.Context, preparati
 	if err := p.client.ArchiveConversationContext(ctx, preparation.Expected.ChannelID); err != nil {
 		return ChannelMutationState{}, err
 	}
+	p.cache.forgetChannel(preparation.Expected.ChannelID)
 	currentState.Archived = true
 	return currentState, nil
 }
@@ -133,12 +132,13 @@ func stateFromChannel(channel *slack.Channel) ChannelMutationState {
 	}
 }
 
-func mutationResponseState(channel *slack.Channel, err error) (ChannelMutationState, error) {
+func (p *ChannelMutationProvider) mutated(channel *slack.Channel, err error) (ChannelMutationState, error) {
 	if err != nil {
 		return ChannelMutationState{}, err
 	}
 	if channel == nil {
 		return ChannelMutationState{}, errors.New("Slack returned no channel after mutation")
 	}
+	p.cache.UpsertChannel(channel)
 	return stateFromChannel(channel), nil
 }

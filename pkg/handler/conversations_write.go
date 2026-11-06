@@ -58,8 +58,9 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 		posted = fmt.Sprintf("Successfully posted message to channel %s in thread %s (ts=%s)", respChannel, params.threadTs, respTimestamp)
 	}
 	// The message is already posted, so a failed mark is reported, not
-	// returned as an error a caller would retry into a duplicate post.
-	if ch.settings.MarkAfterPost {
+	// returned as an error a caller would retry into a duplicate post. A bot
+	// has no read state to mark.
+	if ch.settings.MarkAfterPost && ch.api.Identity().IsUser() {
 		if err := ch.api.MarkConversationContext(ctx, params.channel, respTimestamp); err != nil {
 			ch.logger.Debug("Slack MarkConversationContext failed", zap.Error(err))
 			posted += fmt.Sprintf(". Warning: marking the channel read failed: %v", err)
@@ -187,7 +188,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		zap.String("timestamp", timestamp),
 	)
 
-	msg, err := ch.messages.requireMessage(ctx, channel, timestamp)
+	msg, err := ch.messages.message(ctx, channel, timestamp)
 	if err != nil {
 		return nil, err
 	}

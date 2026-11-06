@@ -83,7 +83,7 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 		if !channelsReady {
 			parts = append(parts, "Channels cache is still loading or failed.")
 		}
-		parts = append(parts, "Cache-dependent tools ("+strings.Join(cacheReadyNames(), ", ")+") are unavailable until caches warm; the server keeps retrying in the background and registers them automatically on success.")
+		parts = append(parts, "Cache-dependent tools ("+strings.Join(capability.CacheReadyNames(), ", ")+") are unavailable until caches warm; the server keeps retrying in the background and registers them automatically on success.")
 	}
 
 	switch {
@@ -98,16 +98,6 @@ func buildAuthSummary(usersReady, channelsReady, browserOK bool, degradedReason 
 	}
 
 	return strings.Join(parts, " ")
-}
-
-func cacheReadyNames() []string {
-	var names []string
-	for _, tool := range capability.Tools {
-		if tool.CacheReady {
-			names = append(names, tool.Name)
-		}
-	}
-	return names
 }
 
 func (h *AuthStatusHandler) Tools() []ToolDef {

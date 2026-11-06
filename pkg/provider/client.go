@@ -156,8 +156,5 @@ func (c *MCPSlackClient) GetUsersInfoContext(ctx context.Context, users ...strin
 }
 
 func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, ts string) error {
-	if c.mode == ModeBot {
-		return ErrUserOAuthRequired
-	}
 	return c.standardSlackClient().MarkConversationContext(ctx, channel, ts)
 }

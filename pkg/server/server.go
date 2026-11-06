@@ -86,7 +86,7 @@ func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.
 		}
 		tool := mcpTool(spec, def.Options)
 		run := def.Run
-		if spec.Requires == capability.BrowserSession {
+		if spec.Requires.Degrades() {
 			run = requireBrowserSession(provider, spec.Name, run)
 		}
 		if spec.CacheReady {

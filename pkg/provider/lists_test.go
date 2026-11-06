@@ -17,15 +17,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testToken() string { return "xoxp-test" }
+// testListsClient sends every Lists call through httpClient with a test token.
+func testListsClient(httpClient *http.Client) *ListsClient {
+	client := &MCPSlackClient{httpClient: httpClient}
+	client.token.Store("xoxp-test")
+	return &ListsClient{web: &WebClient{client: client}}
+}
 
 // listsClientFor sends every Lists call to server instead of slack.com.
 func listsClientFor(server *httptest.Server) *ListsClient {
 	target, _ := url.Parse(server.URL)
-	return &ListsClient{token: testToken, httpClient: &http.Client{Transport: listsRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+	return testListsClient(&http.Client{Transport: listsRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		request.URL.Scheme, request.URL.Host = target.Scheme, target.Host
 		return server.Client().Transport.RoundTrip(request)
-	})}}
+	})})
 }
 
 func TestUnitListsClientExactMethodsAndJSON(t *testing.T) {
@@ -162,13 +167,18 @@ func TestUnitListsClientKeepsSlackErrors(t *testing.T) {
 }
 
 func TestUnitListsRejectUnsupportedFieldTypeBeforeHTTP(t *testing.T) {
-	client := &ListsClient{token: testToken}
+	client := testListsClient(nil)
 	_, _, err := client.CreateList(context.Background(), CreateListRequest{
 		Name: "Bad", Schema: []ListColumn{{Key: "mystery", Name: "Mystery", Type: "quantum"}},
 	})
 	var unsupported *UnsupportedListFieldTypeError
 	require.ErrorAs(t, err, &unsupported)
 	assert.Equal(t, "quantum", unsupported.Type)
+	assert.ErrorIs(t, err, ErrInvalidListInput)
+
+	_, err = client.CreateItem(context.Background(), CreateListItemRequest{ListID: "F1", InitialFields: []ListFieldValue{{}}})
+	assert.ErrorIs(t, err, ErrInvalidListInput)
+	assert.EqualError(t, err, "Slack List field column_id is required")
 }
 
 func TestUnitListsOfficialFixtureCompatibility(t *testing.T) {
@@ -222,7 +232,7 @@ func TestUnitListsMutationResponseFailuresReportUnknownOutcome(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &ListsClient{httpClient: test.client, token: testToken}
+			client := testListsClient(test.client)
 			err := test.invoke(client)
 			assert.ErrorIs(t, err, ErrOutcomeUnknown)
 		})

@@ -27,7 +27,6 @@ const (
 	codeOutcomeUnknown         = "outcome_unknown"
 	codeCancelled              = "cancelled"
 	codeCacheWarming           = "cache_warming"
-	codeUserTokenRequired      = "user_token_required"
 	codeUserOAuthRequired      = "user_oauth_required"
 	codeBrowserSessionRequired = "browser_session_required"
 	codeApprovalRequired       = "approval_required"
@@ -153,6 +152,7 @@ func TypeError(err error, mutationAttempted bool) error {
 		provider.ErrChannelMutationShared:   codePermissionDenied,
 		provider.ErrChannelArchiveConflict:  codeConflict,
 		provider.ErrChannelAlreadyArchived:  codeConflict,
+		provider.ErrInvalidListInput:        codeInvalidArguments,
 	} {
 		if errors.Is(err, sentinel) {
 			return &ToolError{Code: code, Message: err.Error(), Cause: err}

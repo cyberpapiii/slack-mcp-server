@@ -142,6 +142,7 @@ func TestTypeErrorCodes(t *testing.T) {
 		{"shared channel", provider.ErrChannelMutationShared, true, "permission_denied", false},
 		{"archive conflict", provider.ErrChannelArchiveConflict, true, "conflict", false},
 		{"already archived", provider.ErrChannelAlreadyArchived, true, "conflict", false},
+		{"invalid List input", fmt.Errorf("cells: %w", provider.ErrInvalidListInput), true, "invalid_arguments", false},
 		{"wrapped sentinel", fmt.Errorf("x: %w", provider.ErrBrowserSessionUnavailable), false, "browser_session_required", false},
 		{"users warming", fmt.Errorf("resolve %q: %w", "@bob", provider.ErrUsersNotReady), false, "cache_warming", true},
 		{"channels warming", provider.ErrChannelsNotReady, true, "cache_warming", true},

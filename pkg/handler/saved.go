@@ -174,6 +174,9 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item provider.Save
 	placeholder := func(text string) []Message {
 		return []Message{{MsgID: item.Ts, Channel: channel, Text: text, Time: unixTimeText(item.DateCreated)}}
 	}
+	if provider.IsMessageNotFound(err) {
+		return placeholder("[saved item: message not found in channel history]"), nil
+	}
 	if err != nil {
 		h.logger.Warn("Failed to fetch saved message",
 			zap.String("channel", channel),
@@ -181,10 +184,7 @@ func (h *SavedHandler) savedItemMessages(ctx context.Context, item provider.Save
 			zap.Error(err))
 		return placeholder(unavailablePlaceholder(err)), nil
 	}
-	if msg == nil {
-		return placeholder("[saved item: message not found in channel history]"), nil
-	}
-	return h.messages.rows(ctx, []slack.Message{*msg}, channel, false, mode), nil
+	return h.messages.rows(ctx, []slack.Message{msg}, channel, false, mode), nil
 }
 
 // unavailablePlaceholder is the row text for a saved message that could not

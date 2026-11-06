@@ -33,12 +33,12 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 		return nil, err
 	}
 
-	msg, err := ch.messages.requireMessage(ctx, channel, timestamp)
+	msg, err := ch.messages.message(ctx, channel, timestamp)
 	if err != nil {
 		return nil, err
 	}
 
-	messages := ch.messages.rows(ctx, []slack.Message{*msg}, channel, true, mode)
+	messages := ch.messages.rows(ctx, []slack.Message{msg}, channel, true, mode)
 	return marshalMessagesToCSV(messages, ch.messages.render(mode, slackMeta()))
 }
 

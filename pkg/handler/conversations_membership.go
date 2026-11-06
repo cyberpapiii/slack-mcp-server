@@ -66,7 +66,7 @@ func (ch *ConversationsHandler) ConversationsLeaveHandler(ctx context.Context, r
 		return nil, fmt.Errorf("failed to resolve channel: %w", err)
 	}
 
-	notInChannel, err := ch.api.LeaveConversationContext(ctx, channel)
+	notInChannel, err := ch.api.LeaveConversation(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Failed to leave conversation", zap.Error(err))
 		return nil, fmt.Errorf("failed to leave conversation: %w", err)
@@ -93,7 +93,7 @@ func (ch *ConversationsHandler) ConversationsJoinHandler(ctx context.Context, re
 		return nil, fmt.Errorf("failed to resolve channel: %w", err)
 	}
 
-	_, _, _, err = ch.api.JoinConversationContext(ctx, channel)
+	_, err = ch.api.JoinConversation(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Failed to join conversation", zap.Error(err))
 		return nil, fmt.Errorf("failed to join conversation: %w", err)
@@ -146,13 +146,11 @@ func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, re
 		ReturnIM: true,
 	}
 
-	channel, _, _, err := ch.api.OpenConversationContext(ctx, params)
+	channel, err := ch.api.OpenConversation(ctx, params)
 	if err != nil {
-		ch.logger.Debug("Slack OpenConversationContext failed", zap.Error(err))
+		ch.logger.Debug("Slack OpenConversation failed", zap.Error(err))
 		return nil, err
 	}
-
-	ch.api.UpsertChannel(channel)
 
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully opened conversation. Channel ID: %s", channel.Conversation.ID)), nil
 }

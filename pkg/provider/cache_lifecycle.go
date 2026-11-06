@@ -46,11 +46,24 @@ func (ap *ApiProvider) caches() []cacheSpec {
 	}
 }
 
-// StartCacheLifecycle warms the users and channels caches in the background,
+// StartCaches warms the users and channels caches in the background,
 // retrying until they load, then calls onReady once and keeps them within
-// their TTL. Close stops it at any point.
-func (ap *ApiProvider) StartCacheLifecycle(onReady func()) {
-	go ap.runCacheLifecycle(ap.ctx, onReady)
+// their TTL; Close stops it at any point. With skip, or on demo credentials,
+// it marks the caches ready and calls onReady before returning, so name
+// lookups need IDs. Call it once whatever onReady registers exists.
+func (ap *ApiProvider) StartCaches(skip bool, onReady func()) {
+	switch {
+	case skip:
+		ap.SkipCache()
+		onReady()
+		ap.logger.Info("Cache loading disabled via --no-cache flag", zap.String("context", "console"))
+	case ap.Mode() == ModeDemo:
+		ap.SkipCache()
+		onReady()
+		ap.logger.Info("Demo credentials are set, skip cache warm-up", zap.String("context", "console"))
+	default:
+		go ap.runCacheLifecycle(ap.ctx, onReady)
+	}
 }
 
 func (ap *ApiProvider) runCacheLifecycle(ctx context.Context, onReady func()) {

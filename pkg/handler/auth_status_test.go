@@ -47,10 +47,12 @@ type runtimeState struct {
 	satisfied, browserOK, usersReady, channelsReady bool
 }
 
-func (s runtimeState) Satisfies(capability.Requirement) bool { return s.satisfied }
-func (s runtimeState) BrowserFeaturesAvailable() bool        { return s.browserOK }
-func (s runtimeState) UsersCacheReady() bool                 { return s.usersReady }
-func (s runtimeState) ChannelsCacheReady() bool              { return s.channelsReady }
+func (s runtimeState) UserToken() bool                { return s.satisfied }
+func (s runtimeState) UserOAuth() bool                { return s.satisfied }
+func (s runtimeState) BrowserSession() bool           { return s.satisfied }
+func (s runtimeState) BrowserFeaturesAvailable() bool { return s.browserOK }
+func (s runtimeState) UsersCacheReady() bool          { return s.usersReady }
+func (s runtimeState) ChannelsCacheReady() bool       { return s.channelsReady }
 
 func TestUnitToolAvailabilityFollowsTheCatalogRow(t *testing.T) {
 	saved, _ := capability.Lookup(capability.SavedList)

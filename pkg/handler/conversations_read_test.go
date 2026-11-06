@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -129,20 +128,18 @@ func TestUnitConversationsGetMessageParamValidation(t *testing.T) {
 	require.Error(t, err)
 }
 
-// get_message and reactions_get answer a missing message the same way,
-// whether Slack returned no message or message_not_found.
+// get_message and reactions_get answer a missing message the same way.
 func TestUnitMissingMessageIsNotFound(t *testing.T) {
-	for _, slackFake := range []*fakeSlack{{}, {getMessageErr: slack.SlackErrorResponse{Err: "message_not_found"}}} {
-		ch := NewConversationsHandler(slackFake, slackFake.pipeline(), zap.NewNop(), Settings{}, Availability{})
-		for name, run := range map[string]func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error){
-			"get_message":   ch.ConversationsGetMessageHandler,
-			"reactions_get": ch.ReactionsGetHandler,
-		} {
-			_, err := run(context.Background(), toolRequest(map[string]any{"channel_id": "C0123456789", "timestamp": "1234567890.123456"}))
-			var typed *ToolError
-			require.ErrorAs(t, err, &typed, name)
-			assert.Equal(t, "not_found", typed.Code, name)
-			assert.Contains(t, typed.Message, "no message at timestamp 1234567890.123456", name)
-		}
+	slackFake := &fakeSlack{}
+	ch := NewConversationsHandler(slackFake, slackFake.pipeline(), zap.NewNop(), Settings{}, Availability{})
+	for name, run := range map[string]func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error){
+		"get_message":   ch.ConversationsGetMessageHandler,
+		"reactions_get": ch.ReactionsGetHandler,
+	} {
+		_, err := run(context.Background(), toolRequest(map[string]any{"channel_id": "C0123456789", "timestamp": "1234567890.123456"}))
+		var typed *ToolError
+		require.ErrorAs(t, err, &typed, name)
+		assert.Equal(t, "not_found", typed.Code, name)
+		assert.Contains(t, typed.Message, "no message at timestamp 1234567890.123456", name)
 	}
 }

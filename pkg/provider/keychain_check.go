@@ -36,7 +36,7 @@ func checkKeychainAccess(ctx context.Context, store keychain.Store, creds Creden
 			if errors.Is(err, keychain.ErrNotFound) {
 				return read, fmt.Errorf("%s credential named by %s is not in the Keychain", item.label, item.envVar)
 			}
-			return read, fmt.Errorf("read %s credential named by %s: access denied or Keychain unavailable", item.label, item.envVar)
+			return read, fmt.Errorf("read %s credential named by %s: access denied or Keychain unavailable: %w", item.label, item.envVar, err)
 		}
 		read++
 	}

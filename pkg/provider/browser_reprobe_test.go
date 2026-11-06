@@ -129,7 +129,7 @@ func TestUnitMarkBrowserUnavailableRegistersADegradedSession(t *testing.T) {
 	ap.client.initBrowserState()
 	ap.startUserOAuth(nil, oauthcred.Record{}, oauthBrowser{loadErr: errors.New("item not found")})
 
-	assert.True(t, ap.Satisfies(capability.BrowserSession), "browser tools register and explain the failure")
+	assert.True(t, capability.BrowserSession.Met(ap), "browser tools register and explain the failure")
 	assert.False(t, ap.BrowserFeaturesAvailable())
 	assert.Contains(t, ap.BrowserDegradedReason(), "item not found")
 }

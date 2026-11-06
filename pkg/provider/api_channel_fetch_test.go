@@ -150,13 +150,13 @@ func TestUnitEnterpriseMergePropagatesStandardPaginationError(t *testing.T) {
 	calls := 0
 	fetchStd := func(params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
 		calls++
-		if params == nil || params.Cursor == "" {
+		if params.Cursor == "" {
 			return []slack.Channel{testChannel("C001", "general")}, "cur1", nil
 		}
 		return nil, "", errors.New("boom")
 	}
 
-	chans, cursor, err := mergeStandardConversationPages(edge, nil, fetchStd)
+	chans, cursor, err := mergeStandardConversationPages(edge, &slack.GetConversationsParameters{Limit: 999}, fetchStd)
 
 	require.Error(t, err, "a failed conversations.list page must not look like a complete merge")
 	assert.Contains(t, err.Error(), "boom")
@@ -170,13 +170,13 @@ func TestUnitEnterpriseMergePropagatesStandardPaginationError(t *testing.T) {
 func TestUnitEnterpriseMergeCompletesWhenStandardPagesFinish(t *testing.T) {
 	edge := []slack.Channel{testChannel("D001", "im")}
 	fetchStd := func(params *slack.GetConversationsParameters) ([]slack.Channel, string, error) {
-		if params == nil || params.Cursor == "" {
+		if params.Cursor == "" {
 			return []slack.Channel{testChannel("C001", "general")}, "cur1", nil
 		}
 		return []slack.Channel{testChannel("C002", "random")}, "", nil
 	}
 
-	chans, cursor, err := mergeStandardConversationPages(edge, nil, fetchStd)
+	chans, cursor, err := mergeStandardConversationPages(edge, &slack.GetConversationsParameters{Limit: 999}, fetchStd)
 
 	require.NoError(t, err)
 	assert.Empty(t, cursor)

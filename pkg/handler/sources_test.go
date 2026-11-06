@@ -18,13 +18,12 @@ type fakeSlack struct {
 	// warming.
 	dir *provider.Directory
 	// messages answers GetMessage by channel and timestamp; a missing key is
-	// no message.
-	messages      map[[2]string]slack.Message
-	getMessageErr error
-	onGetMessage  func(channel, ts string)
-	counts        provider.UnreadCounts
-	muted         map[string]bool
-	history       func(*slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
+	// message_not_found, as the provider answers.
+	messages     map[[2]string]slack.Message
+	onGetMessage func(channel, ts string)
+	counts       provider.UnreadCounts
+	muted        map[string]bool
+	history      func(*slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
 	// savedPages answers one SavedList call each, running onSavedPage after.
 	savedPages  []provider.SavedPage
 	savedCalls  int
@@ -44,17 +43,14 @@ func (f *fakeSlack) Directory() *provider.Directory {
 	return f.dir
 }
 
-func (f *fakeSlack) GetMessage(_ context.Context, channel, ts string) (*slack.Message, error) {
+func (f *fakeSlack) GetMessage(_ context.Context, channel, ts string) (slack.Message, error) {
 	if f.onGetMessage != nil {
 		f.onGetMessage(channel, ts)
 	}
-	if f.getMessageErr != nil {
-		return nil, f.getMessageErr
-	}
 	if msg, ok := f.messages[[2]string{channel, ts}]; ok {
-		return &msg, nil
+		return msg, nil
 	}
-	return nil, nil
+	return slack.Message{}, slack.SlackErrorResponse{Err: "message_not_found"}
 }
 
 func (f *fakeSlack) PatchUser(context.Context, string) (*slack.User, error) {

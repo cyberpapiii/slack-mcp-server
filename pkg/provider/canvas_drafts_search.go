@@ -103,9 +103,7 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 		CanvasID: request.CanvasID, Title: file.Title, Filetype: file.Filetype,
 		Mimetype: file.Mimetype, Permalink: file.Permalink, Preview: preview,
 	}
-	switch format := request.ContentFormat; format {
-	case "none":
-	case "", "markdown", "html":
+	if format := request.ContentFormat; format != "none" {
 		if format == "" {
 			format = "markdown"
 		}
@@ -118,8 +116,6 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 		default:
 			return CanvasDocument{}, wrapSlack("canvas content read", contentErr)
 		}
-	default:
-		return CanvasDocument{}, fmt.Errorf("unknown canvas content format %q", format)
 	}
 	if len(request.SectionTypes) != 0 || request.ContainsText != "" {
 		sections, lookupErr := p.client.LookupCanvasSectionsContext(ctx, slack.LookupCanvasSectionsParams{
@@ -176,10 +172,9 @@ func (c *WebClient) EditCanvasContext(ctx context.Context, params slack.EditCanv
 // GetCanvasContentContext calls canvases.getContent, which slack-go does not wrap
 // yet. Slack answers not_allowed_token_type to a browser-session token.
 func (c *WebClient) GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error) {
-	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
-		URL:   c.client.apiBase() + "canvases.getContent",
-		Token: c.token(),
-		Form:  url.Values{"canvas_id": {canvasID}, "content_type": {format}},
+	body, err := c.post(ctx, slackhttp.Request{
+		URL:  c.client.apiBase() + "canvases.getContent",
+		Form: url.Values{"canvas_id": {canvasID}, "content_type": {format}},
 	})
 	if err != nil {
 		return "", err
@@ -379,10 +374,9 @@ func (c *WebClient) searchSemantic(ctx context.Context, params SemanticSearchReq
 	if params.Limit > 0 {
 		form.Set("limit", strconv.Itoa(params.Limit))
 	}
-	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
-		URL:   c.client.apiBase() + "assistant.search.context",
-		Token: c.token(),
-		Form:  form,
+	body, err := c.post(ctx, slackhttp.Request{
+		URL:  c.client.apiBase() + "assistant.search.context",
+		Form: form,
 	})
 	if err != nil {
 		return SemanticSearchPage{}, err

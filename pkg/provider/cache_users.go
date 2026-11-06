@@ -66,23 +66,13 @@ func (ap *ApiProvider) RefreshUsers(ctx context.Context) error {
 
 // PatchUser merges one users.info result into the in-memory snapshot (no disk write).
 func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.User, error) {
-	fetched, err := ap.fetchUsersInfo(ctx, userID)
-	if err != nil {
-		ap.logger.Warn("Failed to fetch user for cache patch", zap.String("user_id", userID), zap.Error(err))
+	if err := ap.PatchUsers(ctx, []string{userID}); err != nil {
 		return nil, err
 	}
-	if len(fetched) == 0 {
-		ap.logger.Debug("User not found via API", zap.String("user_id", userID))
+	user, ok := ap.ProvideUsersMap().Users[userID]
+	if !ok {
 		return nil, errors.New("user not found")
 	}
-
-	user := fetched[0]
-	ap.applyUserPatch([]slack.User{user})
-
-	ap.logger.Debug("Patched user into cache",
-		zap.String("user_id", user.ID),
-		zap.String("user_name", user.Name))
-
 	return &user, nil
 }
 
@@ -294,14 +284,7 @@ func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
 // browser session when that is preferred, and the local cache on OAuth.
 func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int) ([]slack.User, error) {
 	if ClassifyID(query) == IDUser {
-		users, err := ap.api.GetUsersInfoContext(ctx, query)
-		if err != nil {
-			return nil, err
-		}
-		if users != nil {
-			return *users, nil
-		}
-		return nil, nil
+		return ap.fetchUsersInfo(ctx, query)
 	}
 
 	return preferBrowser(&ap.client,
@@ -317,9 +300,6 @@ func (ap *ApiProvider) searchUsersInCache(query string, limit int) ([]slack.User
 	}
 
 	query = foldSearchText(query)
-	if limit == 0 {
-		return nil, nil
-	}
 
 	usersCache := ap.usersSnapshot.Load()
 	var results []slack.User
@@ -356,8 +336,8 @@ func (entry userSearchEntry) matches(query string) bool {
 		strings.Contains(entry.email, query)
 }
 
-// regexp's (?i) uses Unicode simple folding. Canonicalize each fold cycle once
-// when building the cache so literal searches keep identical Unicode behavior.
+// foldSearchText maps each rune to the smallest member of its Unicode simple
+// fold cycle, so a substring match on folded text is case-insensitive.
 func foldSearchText(value string) string {
 	var folded strings.Builder
 	folded.Grow(len(value))

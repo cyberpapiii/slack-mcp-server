@@ -3,6 +3,7 @@ package limiter
 import (
 	"context"
 
+	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 )
 
@@ -28,6 +29,8 @@ func SlackPacing() Pacing {
 	}
 }
 
-func Paced[T any](ctx context.Context, pacing Pacing, method string, fn func() (T, error)) (T, error) {
-	return CallWithRetry(ctx, pacing[method], Retries, fn)
+// Paced calls fn on method's bucket under CallWithRetry; logger, when not
+// nil, records the rate limits.
+func Paced[T any](ctx context.Context, pacing Pacing, method string, logger *zap.Logger, fn func() (T, error)) (T, error) {
+	return CallWithRetry(ctx, pacing[method], Retries, logger, fn)
 }
