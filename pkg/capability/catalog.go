@@ -188,7 +188,8 @@ var Tools = []Tool{
 
 	{Name: ReactionsAdd, ChannelAllowlist: ReactionAllowlist, Title: "Add Reaction", Scopes: []string{"reactions:write"}},
 	{Name: ReactionsRemove, ChannelAllowlist: ReactionAllowlist, Title: "Remove Reaction", Destructive: true, Scopes: []string{"reactions:write"}},
-	{Name: ReactionsGet, Title: "Get Message Reactions", ReadOnly: true, Scopes: []string{"reactions:read"}},
+	// reactions_get reads the message through conversations.replies.
+	{Name: ReactionsGet, Title: "Get Message Reactions", ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
 
 	{Name: AttachmentGetData, Title: "Get Attachment Data", ReadOnly: true, Scopes: []string{"files:read"}},
 	{Name: FilesList, Title: "List Files", ReadOnly: true, Scopes: []string{"files:read"}},

@@ -42,7 +42,7 @@ func TestCustomOAuthScopesContainLocalPowerUserScopes(t *testing.T) {
 		"channels:history", "channels:read", "channels:write", "chat:write",
 		"dnd:read", "dnd:write", "files:read", "groups:history", "groups:read",
 		"groups:write", "im:history", "im:read", "im:write", "lists:read",
-		"lists:write", "mpim:history", "mpim:read", "mpim:write", "reactions:read",
+		"lists:write", "mpim:history", "mpim:read", "mpim:write",
 		"reactions:write", "search:read", "stars:read", "usergroups:read",
 		"usergroups:write", "users:read",
 		"files:write", "emoji:read", "users.profile:read", "users.profile:write",
@@ -53,6 +53,7 @@ func TestCustomOAuthScopesContainLocalPowerUserScopes(t *testing.T) {
 	}
 	assert.NotContains(t, scopes, "channels:join")
 	assert.NotContains(t, scopes, "channels:manage")
+	assert.NotContains(t, scopes, "reactions:read", "reactions_get reads through conversations.replies")
 }
 
 func TestDailyPowerOAuthScopesExcludeHiddenWrites(t *testing.T) {
