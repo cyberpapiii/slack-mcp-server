@@ -2,10 +2,8 @@ package transport
 
 import (
 	"bufio"
-	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +16,6 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/envutil"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	utls "github.com/refraction-networking/utls"
 	"go.uber.org/zap"
 	"golang.org/x/net/http2"
@@ -26,16 +23,16 @@ import (
 
 const defaultUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-// UserAgentTransport wraps another RoundTripper to add User-Agent and cookies.
-type UserAgentTransport struct {
+// userAgentTransport wraps another RoundTripper to add User-Agent and cookies.
+type userAgentTransport struct {
 	roundTripper http.RoundTripper
 	userAgent    string
 	cookies      []*http.Cookie
 	logger       *zap.Logger
 }
 
-func NewUserAgentTransport(roundTripper http.RoundTripper, userAgent string, cookies []*http.Cookie, logger *zap.Logger) *UserAgentTransport {
-	return &UserAgentTransport{
+func newUserAgentTransport(roundTripper http.RoundTripper, userAgent string, cookies []*http.Cookie, logger *zap.Logger) *userAgentTransport {
+	return &userAgentTransport{
 		roundTripper: roundTripper,
 		userAgent:    userAgent,
 		cookies:      cookies,
@@ -43,7 +40,7 @@ func NewUserAgentTransport(roundTripper http.RoundTripper, userAgent string, coo
 	}
 }
 
-func (t *UserAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *userAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clonedReq := req.Clone(req.Context())
 	clonedReq.Header.Set("User-Agent", t.userAgent)
 
@@ -63,20 +60,21 @@ func (t *UserAgentTransport) RoundTrip(req *http.Request) (*http.Response, error
 type uTLSTransport struct {
 	dialer         *net.Dialer
 	tlsConfig      *utls.Config
-	proxy          func(*http.Request) (*url.URL, error)
 	clientHelloID  utls.ClientHelloID
 	http2Transport *http2.Transport
 	logger         *zap.Logger
 }
 
-func NewUTLSTransport(tlsConfig *utls.Config, proxy func(*http.Request) (*url.URL, error), clientHelloID utls.ClientHelloID, logger *zap.Logger) *uTLSTransport {
+// newUTLSTransport dials Slack directly: ProvideHTTPClient refuses
+// SLACK_MCP_PROXY together with SLACK_MCP_CUSTOM_TLS, so there is no proxy to
+// tunnel through.
+func newUTLSTransport(tlsConfig *utls.Config, clientHelloID utls.ClientHelloID, logger *zap.Logger) *uTLSTransport {
 	return &uTLSTransport{
 		dialer: &net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 		},
 		tlsConfig:     tlsConfig,
-		proxy:         proxy,
 		clientHelloID: clientHelloID,
 		http2Transport: &http2.Transport{
 			AllowHTTP: false,
@@ -98,28 +96,9 @@ func (t *uTLSTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	var conn net.Conn
-	var err error
-
-	if t.proxy != nil {
-		proxyURL, err := t.proxy(req)
-		if err != nil {
-			return nil, fmt.Errorf("proxy error: %w", err)
-		}
-
-		if proxyURL != nil {
-			conn, err = t.dialProxy(req.Context(), proxyURL, targetAddr)
-			if err != nil {
-				return nil, fmt.Errorf("proxy dial error: %w", err)
-			}
-		}
-	}
-
-	if conn == nil {
-		conn, err = t.dialer.DialContext(req.Context(), "tcp", targetAddr)
-		if err != nil {
-			return nil, fmt.Errorf("dial error: %w", err)
-		}
+	conn, err := t.dialer.DialContext(req.Context(), "tcp", targetAddr)
+	if err != nil {
+		return nil, fmt.Errorf("dial error: %w", err)
 	}
 
 	if req.URL.Scheme == "https" {
@@ -187,77 +166,12 @@ func (c *closeAfterBody) Close() error {
 	return err
 }
 
-func (t *uTLSTransport) dialProxy(ctx context.Context, proxyURL *url.URL, targetAddr string) (net.Conn, error) {
-	proxyAddr := proxyURL.Host
-	if proxyURL.Port() == "" {
-		if proxyURL.Scheme == "https" {
-			proxyAddr += ":443"
-		} else {
-			proxyAddr += ":80"
-		}
-	}
-
-	conn, err := t.dialer.DialContext(ctx, "tcp", proxyAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	if proxyURL.Scheme == "https" {
-		tlsConfig := &tls.Config{
-			ServerName:         proxyURL.Hostname(),
-			InsecureSkipVerify: t.tlsConfig.InsecureSkipVerify,
-			RootCAs:            t.tlsConfig.RootCAs,
-		}
-		tlsConn := tls.Client(conn, tlsConfig)
-		err = tlsConn.Handshake()
-		if err != nil {
-			conn.Close()
-			return nil, err
-		}
-		conn = tlsConn
-	}
-
-	connectReq := &http.Request{
-		Method: "CONNECT",
-		URL:    &url.URL{Opaque: targetAddr},
-		Host:   targetAddr,
-		Header: make(http.Header),
-	}
-
-	if proxyURL.User != nil {
-		username := proxyURL.User.Username()
-		password, _ := proxyURL.User.Password()
-		connectReq.Header.Set("Proxy-Authorization", "Basic "+basicAuth(username, password))
-	}
-
-	err = connectReq.Write(conn)
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	br := bufio.NewReader(conn)
-	resp, err := http.ReadResponse(br, connectReq)
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		conn.Close()
-		return nil, fmt.Errorf("proxy returned status %d", resp.StatusCode)
-	}
-
-	return conn, nil
-}
-
 func (t *uTLSTransport) establishTLS(conn net.Conn, serverName string) (net.Conn, error) {
 	config := t.tlsConfig.Clone()
 	config.ServerName = serverName
 
 	t.logger.Debug("Starting uTLS handshake with server", zap.String("server", serverName))
-	t.logger.Debug("Using ClientHello fingerprint", zap.String("fingerprint", t.getClientHelloName()))
+	t.logger.Debug("Using ClientHello fingerprint", zap.String("fingerprint", clientHelloName(t.clientHelloID)))
 
 	tlsConn := utls.UClient(conn, config, t.clientHelloID)
 
@@ -272,30 +186,38 @@ func (t *uTLSTransport) establishTLS(conn net.Conn, serverName string) (net.Conn
 		zap.String("cipher_suite", fmt.Sprintf("%x", state.CipherSuite)),
 		zap.String("version", fmt.Sprintf("%x", state.Version)),
 		zap.String("negotiated_protocol", fmt.Sprintf("%x", state.NegotiatedProtocol)),
-		zap.String("server_certificates", fmt.Sprintf("%v", text.HumanizeCertificates(state.PeerCertificates))),
+		zap.String("server_certificates", fmt.Sprintf("%v", humanizeCertificates(state.PeerCertificates))),
 	)
 
 	return tlsConn, nil
 }
 
-func (t *uTLSTransport) getClientHelloName() string {
-	switch t.clientHelloID {
+func clientHelloName(id utls.ClientHelloID) string {
+	switch id {
 	case utls.HelloChrome_Auto:
-		return "Chrome (Auto)"
+		return "Chrome"
 	case utls.HelloFirefox_Auto:
-		return "Firefox (Auto)"
+		return "Firefox"
 	case utls.HelloSafari_Auto:
-		return "Safari (Auto)"
+		return "Safari"
 	case utls.HelloEdge_Auto:
-		return "Edge (Auto)"
+		return "Edge"
 	default:
-		return fmt.Sprintf("Unknown (%v)", t.clientHelloID)
+		return fmt.Sprintf("Unknown (%v)", id)
 	}
 }
 
-func basicAuth(username, password string) string {
-	auth := username + ":" + password
-	return base64.StdEncoding.EncodeToString([]byte(auth))
+func humanizeCertificates(certs []*x509.Certificate) string {
+	var descriptions []string
+	for _, cert := range certs {
+		subjectCN := cert.Subject.CommonName
+		issuerCN := cert.Issuer.CommonName
+		expiry := cert.NotAfter.Format("2006-01-02")
+
+		description := fmt.Sprintf("CN=%s (Issuer CN=%s, expires %s)", subjectCN, issuerCN, expiry)
+		descriptions = append(descriptions, description)
+	}
+	return strings.Join(descriptions, ", ")
 }
 
 func detectBrowserFromUserAgent(userAgent string) utls.ClientHelloID {
@@ -337,9 +259,9 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) (*http.Client
 		proxy = http.ProxyURL(parsed)
 	}
 
-	rootCAs, _ := x509.SystemCertPool()
-	if rootCAs == nil {
-		rootCAs = x509.NewCertPool()
+	rootCAs, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("load system certificate pool: %w", err)
 	}
 
 	if os.Getenv("SLACK_MCP_SERVER_CA_TOOLKIT") != "" {
@@ -382,25 +304,13 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) (*http.Client
 
 		clientHelloID := detectBrowserFromUserAgent(userAgent)
 
-		var detectedBrowser string
-		switch clientHelloID {
-		case utls.HelloChrome_Auto:
-			detectedBrowser = "Chrome"
-		case utls.HelloFirefox_Auto:
-			detectedBrowser = "Firefox"
-		case utls.HelloSafari_Auto:
-			detectedBrowser = "Safari"
-		case utls.HelloEdge_Auto:
-			detectedBrowser = "Edge"
-		}
-
 		logger.Debug("TLS Fingerprinting Details",
-			zap.String("detected_browser", detectedBrowser),
+			zap.String("detected_browser", clientHelloName(clientHelloID)),
 			zap.String("client_hello_id", fmt.Sprintf("%v", clientHelloID.Version)),
 			zap.String("user_agent", userAgent),
 		)
 
-		transport = NewUTLSTransport(utlsConfig, proxy, clientHelloID, logger)
+		transport = newUTLSTransport(utlsConfig, clientHelloID, logger)
 	} else {
 		logger.Debug("Using standard TLS handshake")
 
@@ -422,7 +332,7 @@ func ProvideHTTPClient(cookies []*http.Cookie, logger *zap.Logger) (*http.Client
 		}
 	}
 
-	transport = NewUserAgentTransport(transport, userAgent, cookies, logger)
+	transport = newUserAgentTransport(transport, userAgent, cookies, logger)
 
 	client := &http.Client{
 		Transport: transport,

@@ -1,11 +1,9 @@
 package transport
 
 import (
-	"bufio"
 	"crypto/x509"
 	"encoding/pem"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -31,7 +29,7 @@ func (c *captureRT) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func TestUserAgentTransportSetsHeaderAndCookiesWithoutMutatingOriginal(t *testing.T) {
 	inner := &captureRT{}
-	rt := NewUserAgentTransport(inner, "ua/1", []*http.Cookie{{Name: "d", Value: "xoxd-1"}}, zap.NewNop())
+	rt := newUserAgentTransport(inner, "ua/1", []*http.Cookie{{Name: "d", Value: "xoxd-1"}}, zap.NewNop())
 	req, _ := http.NewRequest(http.MethodGet, "https://example.com/x", nil)
 
 	resp, err := rt.RoundTrip(req)
@@ -80,7 +78,7 @@ func TestUTLSTransportHTTP1AgainstTLSServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rt := NewUTLSTransport(&utls.Config{InsecureSkipVerify: true}, nil, utls.HelloChrome_Auto, zap.NewNop())
+	rt := newUTLSTransport(&utls.Config{InsecureSkipVerify: true}, utls.HelloChrome_Auto, zap.NewNop())
 	client := &http.Client{Transport: rt}
 
 	resp, err := client.Get(srv.URL + "/hello")
@@ -101,7 +99,7 @@ func TestUTLSTransportHTTP2AgainstTLSServer(t *testing.T) {
 	srv.StartTLS()
 	defer srv.Close()
 
-	rt := NewUTLSTransport(&utls.Config{InsecureSkipVerify: true}, nil, utls.HelloChrome_Auto, zap.NewNop())
+	rt := newUTLSTransport(&utls.Config{InsecureSkipVerify: true}, utls.HelloChrome_Auto, zap.NewNop())
 	client := &http.Client{Transport: rt}
 
 	resp, err := client.Get(srv.URL + "/")
@@ -112,89 +110,6 @@ func TestUTLSTransportHTTP2AgainstTLSServer(t *testing.T) {
 	assert.Equal(t, "HTTP/2.0", resp.Header.Get("X-Proto"))
 }
 
-// connectProxy is the smallest CONNECT tunnel: it records the auth header and
-// the target, then splices bytes both ways.
-func connectProxy(t *testing.T) (addr string, seen *http.Request) {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	seen = &http.Request{}
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func(conn net.Conn) {
-				defer conn.Close()
-				req, err := http.ReadRequest(bufio.NewReader(conn))
-				if err != nil {
-					return
-				}
-				*seen = *req
-				if req.Method != http.MethodConnect {
-					_, _ = io.WriteString(conn, "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n")
-					return
-				}
-				if req.Header.Get("Proxy-Authorization") == "" {
-					_, _ = io.WriteString(conn, "HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\n\r\n")
-					return
-				}
-				upstream, err := net.Dial("tcp", req.Host)
-				if err != nil {
-					_, _ = io.WriteString(conn, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
-					return
-				}
-				defer upstream.Close()
-				_, _ = io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n")
-				done := make(chan struct{}, 2)
-				go func() { _, _ = io.Copy(upstream, conn); done <- struct{}{} }()
-				go func() { _, _ = io.Copy(conn, upstream); done <- struct{}{} }()
-				<-done
-			}(conn)
-		}
-	}()
-	t.Cleanup(func() { _ = ln.Close() })
-	return ln.Addr().String(), seen
-}
-
-func TestUTLSTransportTunnelsThroughConnectProxyWithBasicAuth(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "via proxy")
-	}))
-	defer srv.Close()
-	proxyAddr, seen := connectProxy(t)
-
-	proxyURL, _ := url.Parse("http://user:pa%3Ass@" + proxyAddr)
-	rt := NewUTLSTransport(&utls.Config{InsecureSkipVerify: true}, http.ProxyURL(proxyURL), utls.HelloChrome_Auto, zap.NewNop())
-	resp, err := (&http.Client{Transport: rt}).Get(srv.URL + "/")
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	assert.Equal(t, "via proxy", string(b))
-
-	assert.Equal(t, http.MethodConnect, seen.Method)
-	assert.Equal(t, strings.TrimPrefix(srv.URL, "https://"), seen.Host)
-	assert.Equal(t, "Basic "+basicAuth("user", "pa:ss"), seen.Header.Get("Proxy-Authorization"))
-}
-
-func TestUTLSTransportProxyRejectionIsAnError(t *testing.T) {
-	proxyAddr, _ := connectProxy(t)
-	proxyURL, _ := url.Parse("http://" + proxyAddr) // no credentials: proxy answers 407
-	rt := NewUTLSTransport(&utls.Config{InsecureSkipVerify: true}, http.ProxyURL(proxyURL), utls.HelloChrome_Auto, zap.NewNop())
-	_, err := (&http.Client{Transport: rt}).Get("https://127.0.0.1:1/")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "proxy returned status 407")
-}
-
-func TestUTLSTransportProxyDialError(t *testing.T) {
-	proxyURL, _ := url.Parse("http://127.0.0.1:1")
-	rt := NewUTLSTransport(&utls.Config{InsecureSkipVerify: true}, http.ProxyURL(proxyURL), utls.HelloChrome_Auto, zap.NewNop())
-	_, err := (&http.Client{Transport: rt}).Get("https://example.invalid/")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "proxy dial error")
-}
-
 func clearTransportEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{"SLACK_MCP_PROXY", "SLACK_MCP_CUSTOM_TLS", "SLACK_MCP_SERVER_CA", "SLACK_MCP_SERVER_CA_INSECURE", "SLACK_MCP_SERVER_CA_TOOLKIT", "SLACK_MCP_USER_AGENT"} {
@@ -202,10 +117,10 @@ func clearTransportEnv(t *testing.T) {
 	}
 }
 
-func unwrapUA(t *testing.T, c *http.Client) *UserAgentTransport {
+func unwrapUA(t *testing.T, c *http.Client) *userAgentTransport {
 	t.Helper()
-	ua, ok := c.Transport.(*UserAgentTransport)
-	require.True(t, ok, "outermost transport must be UserAgentTransport, got %T", c.Transport)
+	ua, ok := c.Transport.(*userAgentTransport)
+	require.True(t, ok, "outermost transport must be userAgentTransport, got %T", c.Transport)
 	return ua
 }
 
@@ -235,7 +150,6 @@ func TestProvideHTTPClientHonorsUserAgentInsecureAndCustomTLS(t *testing.T) {
 	require.True(t, ok, "custom TLS path wraps *uTLSTransport, got %T", ua.roundTripper)
 	assert.Equal(t, utls.HelloFirefox_Auto, inner.clientHelloID)
 	assert.True(t, inner.tlsConfig.InsecureSkipVerify)
-	assert.Nil(t, inner.proxy)
 }
 
 func TestProvideHTTPClientProxyAndServerCA(t *testing.T) {
@@ -270,10 +184,6 @@ func TestProvideHTTPClientUnparsableCAWarnsAndContinues(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c)
 	assert.NotNil(t, unwrapUA(t, c).roundTripper.(*http.Transport).TLSClientConfig)
-}
-
-func TestBasicAuth(t *testing.T) {
-	assert.Equal(t, "dXNlcjpwYXNz", basicAuth("user", "pass"))
 }
 
 func pemEncode(der []byte) []byte {
