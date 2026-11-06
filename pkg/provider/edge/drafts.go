@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/slack-go/slack"
 )
 
 // DraftDestination identifies where Slack will place a native unsent draft.
@@ -19,7 +21,7 @@ type DraftDestination struct {
 // Draft is Slack's browser-session draft representation.
 type Draft struct {
 	ID            string             `json:"id"`
-	Blocks        []map[string]any   `json:"blocks,omitempty"`
+	Blocks        slack.Blocks       `json:"blocks,omitempty"`
 	Destinations  []DraftDestination `json:"destinations,omitempty"`
 	LastUpdatedTS string             `json:"last_updated_ts,omitempty"`
 	DateCreated   int64              `json:"date_created,omitempty"`
@@ -165,13 +167,9 @@ func newDraftContent(channelID, threadTS, text string) (DraftContent, error) {
 // RichTextJSON is plain text as the JSON of a one-section rich_text block
 // list, the body Slack's drafts and custom to-dos store.
 func RichTextJSON(text string) (string, error) {
-	blocks, err := json.Marshal([]map[string]any{{
-		"type": "rich_text",
-		"elements": []map[string]any{{
-			"type":     "rich_text_section",
-			"elements": []map[string]any{{"type": "text", "text": text}},
-		}},
-	}})
+	blocks, err := json.Marshal([]slack.Block{
+		slack.NewRichTextBlock("", slack.NewRichTextSection(slack.NewRichTextSectionTextElement(text, nil))),
+	})
 	return string(blocks), err
 }
 

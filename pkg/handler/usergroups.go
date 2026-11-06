@@ -5,9 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"time"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -67,8 +65,8 @@ func newUserGroupFromSlack(g slack.UserGroup) UserGroup {
 		Description: g.Description,
 		UserCount:   g.UserCount,
 		IsExternal:  g.IsExternal,
-		DateCreate:  formatJSONTime(g.DateCreate),
-		DateUpdate:  formatJSONTime(g.DateUpdate),
+		DateCreate:  unixTimeText(int64(g.DateCreate)),
+		DateUpdate:  unixTimeText(int64(g.DateUpdate)),
 	}
 	if len(g.Users) > 0 {
 		// Semicolon keeps CSV cells unambiguous (IDs never contain ';').
@@ -116,13 +114,7 @@ func (h *UsergroupsHandler) UsergroupsListHandler(ctx context.Context, request m
 		userGroupList = append(userGroupList, newUserGroupFromSlack(g))
 	}
 
-	csvBytes, err := gocsv.MarshalBytes(&userGroupList)
-	if err != nil {
-		h.logger.Error("Failed to marshal user groups to CSV", zap.Error(err))
-		return nil, err
-	}
-
-	return NewCSVResult("", SlackResultMeta("", false, ""), string(csvBytes)), nil
+	return csvResult("", SlackResultMeta("", false, ""), &userGroupList)
 }
 
 func (h *UsergroupsHandler) UsergroupsCreateHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -301,7 +293,7 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 		}
 		newMembers = append(members, currentUserID)
 		resultMessage = "Successfully joined the user group."
-	case membershipLeave:
+	default: // membershipLeave
 		if !isMember {
 			data := UsergroupMeActionResult{Message: "You are not a member of this user group.", GroupID: usergroupID}
 			return NewStructuredResult(data, SlackResultMeta("", false, ""), data.Message), nil
@@ -309,8 +301,6 @@ func (h *UsergroupsHandler) handleMyGroupMembership(ctx context.Context, current
 		newMembers = append([]string(nil), members[:memberIndex]...)
 		newMembers = append(newMembers, members[memberIndex+1:]...)
 		resultMessage = "Successfully left the user group."
-	default:
-		return nil, errors.New("invalid user group membership action")
 	}
 
 	updated, err := h.api.UpdateUserGroupMembersContext(ctx, usergroupID, strings.Join(newMembers, ","))
@@ -367,21 +357,7 @@ func (h *UsergroupsHandler) handleListMyGroups(ctx context.Context, currentUserI
 
 	h.logger.Debug("Filtered to my groups", zap.Int("count", len(userGroupList)))
 
-	csvBytes, err := gocsv.MarshalBytes(&userGroupList)
-	if err != nil {
-		h.logger.Error("Failed to marshal user groups to CSV", zap.Error(err))
-		return nil, err
-	}
-
-	return NewCSVResult("", SlackResultMeta("", false, ""), string(csvBytes)), nil
-}
-
-func formatJSONTime(jt slack.JSONTime) string {
-	if int64(jt) == 0 {
-		return ""
-	}
-	t := time.Unix(int64(jt), 0)
-	return t.Format(time.RFC3339)
+	return csvResult("", SlackResultMeta("", false, ""), &userGroupList)
 }
 
 func parseCommaSeparatedList(s string) []string {

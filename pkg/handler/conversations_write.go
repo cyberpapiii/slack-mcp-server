@@ -1,15 +1,12 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	slackGoUtil "github.com/takara2314/slack-go-util"
@@ -33,7 +30,6 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 	if params.threadTs != "" {
 		options = append(options, slack.MsgOptionTS(params.threadTs))
 	}
-
 	if params.blocks != nil {
 		// Text alongside blocks is notification/fallback only.
 		options = append(options, slack.MsgOptionBlocks(params.blocks...))
@@ -41,25 +37,10 @@ func (ch *ConversationsHandler) ConversationsAddMessageHandler(ctx context.Conte
 			options = append(options, slack.MsgOptionText(params.text, false))
 		}
 	} else {
-		switch params.contentType {
-		case "text/plain":
-			options = append(options, slack.MsgOptionDisableMarkdown())
-			options = append(options, slack.MsgOptionText(params.text, false))
-		case "text/markdown":
-			blocks, err := slackGoUtil.ConvertMarkdownTextToBlocks(params.text)
-			if err != nil {
-				ch.logger.Warn("Markdown parsing error", zap.Error(err))
-				options = append(options, slack.MsgOptionDisableMarkdown())
-				options = append(options, slack.MsgOptionText(params.text, false))
-			} else {
-				options = append(options, slack.MsgOptionBlocks(blocks...))
-			}
-		default:
-			return nil, invalidArguments("content_type must be either 'text/plain' or 'text/markdown'")
-		}
+		options = append(options, ch.messageBody(params).options...)
 	}
 
-	if text.IsUnfurlingEnabled(params.text, ch.settings.Unfurling, ch.logger) {
+	if ch.settings.unfurls(params.text, ch.logger) {
 		options = append(options, slack.MsgOptionEnableLinkUnfurl())
 	} else {
 		options = append(options, slack.MsgOptionDisableLinkUnfurl())
@@ -107,22 +88,7 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 		return nil, err
 	}
 
-	var formatStatus string
-
-	switch params.contentType {
-	case "text/plain":
-		formatStatus = "plain_text"
-	case "text/markdown":
-		blocks, err := slackGoUtil.ConvertMarkdownTextToBlocks(params.text)
-		if err != nil {
-			ch.logger.Warn("Markdown parsing error", zap.Error(err))
-			formatStatus = "plain_text (markdown parse failed, will send as plain text)"
-		} else {
-			formatStatus = fmt.Sprintf("markdown (%d block(s))", len(blocks))
-		}
-	default:
-		return nil, invalidArguments("content_type must be either 'text/plain' or 'text/markdown'")
-	}
+	formatStatus := ch.messageBody(params).format
 
 	sendability := ch.sendStatus(params.channel)
 
@@ -229,7 +195,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 	if rawChannel == "" {
 		return nil, invalidArguments("channel_id is required")
 	}
-	channel, err := ch.resolveChannelID(ctx, rawChannel)
+	channel, err := ch.messages.channelID(ctx, rawChannel)
 	if err != nil {
 		ch.logger.Debug("Channel not found", zap.String("channel", rawChannel), zap.Error(err))
 		return nil, err
@@ -245,7 +211,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		zap.String("timestamp", timestamp),
 	)
 
-	msg, err := ch.fetchMessageByTimestamp(ctx, channel, timestamp)
+	msg, err := ch.messages.message(ctx, channel, timestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -253,11 +219,7 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		return mcp.NewToolResultText("No message found at the specified timestamp"), nil
 	}
 
-	if len(msg.Reactions) == 0 {
-		return mcp.NewToolResultText("No reactions on this message"), nil
-	}
-
-	var rows []reactionRow
+	rows := make([]reactionRow, 0, len(msg.Reactions))
 	for _, r := range msg.Reactions {
 		rows = append(rows, reactionRow{
 			Emoji: r.Name,
@@ -266,120 +228,90 @@ func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request
 		})
 	}
 
-	var buf bytes.Buffer
-	if err := gocsv.Marshal(rows, &buf); err != nil {
-		return nil, fmt.Errorf("failed to marshal reactions: %w", err)
-	}
-
-	return mcp.NewToolResultText(buf.String()), nil
+	return csvResult("", SlackResultMeta("", false, ""), &rows)
 }
 
-// fetchMessageByTimestamp retrieves a single message by timestamp using conversations.replies.
-// Works for top-level messages, thread parents, and thread replies; needs only channels:history.
-func (ch *ConversationsHandler) fetchMessageByTimestamp(ctx context.Context, channel, timestamp string) (*slack.Message, error) {
-	msgs, _, _, err := ch.apiProvider.WebAPI().GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
-		ChannelID: channel,
-		Timestamp: timestamp,
-		Limit:     1,
-		Inclusive: true,
-	})
+// messageBody is how a message's text goes to Slack, and how the draft
+// preview names it: Block Kit blocks for markdown, plain text when the
+// content type is plain or the markdown does not parse.
+type messageBody struct {
+	options []slack.MsgOption
+	format  string
+}
+
+func (ch *ConversationsHandler) messageBody(params *addMessageParams) messageBody {
+	plain := []slack.MsgOption{slack.MsgOptionDisableMarkdown(), slack.MsgOptionText(params.text, false)}
+	if params.contentType == "text/plain" {
+		return messageBody{options: plain, format: "plain_text"}
+	}
+	blocks, err := slackGoUtil.ConvertMarkdownTextToBlocks(params.text)
 	if err != nil {
-		ch.logger.Debug("Failed to fetch message for reactions", zap.Error(err))
-		return nil, fmt.Errorf("failed to fetch message: %w", err)
+		ch.logger.Warn("Markdown parsing error", zap.Error(err))
+		return messageBody{options: plain, format: "plain_text (markdown parse failed, will send as plain text)"}
 	}
-
-	if len(msgs) == 0 {
-		return nil, nil
-	}
-
-	return &msgs[0], nil
+	return messageBody{options: []slack.MsgOption{slack.MsgOptionBlocks(blocks...)}, format: fmt.Sprintf("markdown (%d block(s))", len(blocks))}
 }
 
-func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
+// parseMessageParams reads what conversations_add_message and
+// conversations_draft_message share: the destination, thread, text and
+// content type. tool picks the channel allowlist, if the tool has one.
+func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool string, request mcp.CallToolRequest, text string) (*addMessageParams, error) {
 	if err := signpostFileParam(request); err != nil {
 		return nil, err
 	}
 
 	channel := request.GetString("channel_id", "")
 	if channel == "" {
-		ch.logger.Debug("channel_id missing in draft-message params")
 		return nil, invalidArguments("channel_id must be a string")
 	}
-	channel, err := ch.resolveChannelID(ctx, channel)
+	channel, err := ch.messages.channelID(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
+		return nil, err
+	}
+	if err := ch.settings.requireChannel(tool, channel); err != nil {
 		return nil, err
 	}
 
 	threadTs := request.GetString("thread_ts", "")
 	if threadTs != "" && !strings.Contains(threadTs, ".") {
-		ch.logger.Debug("Invalid thread_ts format", zap.String("thread_ts", threadTs))
 		return nil, invalidArguments("thread_ts must be a valid timestamp in format 1234567890.123456")
 	}
 
-	msgText := request.GetString("text", "")
-	if msgText == "" {
-		ch.logger.Debug("Message text missing")
+	if text == "" && tool == capability.ConversationsDraftMessage {
 		return nil, invalidArguments("text is required and must not be empty")
 	}
 
 	contentType := request.GetString("content_type", "text/markdown")
 	if contentType != "text/plain" && contentType != "text/markdown" {
-		ch.logger.Debug("Invalid content_type", zap.String("content_type", contentType))
 		return nil, invalidArguments("content_type must be either 'text/plain' or 'text/markdown'")
 	}
 
 	return &addMessageParams{
 		channel:     channel,
 		threadTs:    threadTs,
-		text:        msgText,
+		text:        text,
 		contentType: contentType,
 	}, nil
 }
 
+func (ch *ConversationsHandler) parseParamsToolDraftMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
+	return ch.parseMessageParams(ctx, capability.ConversationsDraftMessage, request, request.GetString("text", ""))
+}
+
 func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, request mcp.CallToolRequest) (*addMessageParams, error) {
-	if err := signpostFileParam(request); err != nil {
-		return nil, err
-	}
-
-	channel := request.GetString("channel_id", "")
-	if channel == "" {
-		ch.logger.Debug("channel_id missing in add-message params")
-		return nil, invalidArguments("channel_id must be a string")
-	}
-	channel, err := ch.resolveChannelID(ctx, channel)
-	if err != nil {
-		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
-		return nil, err
-	}
-	if err := ch.settings.requireChannel(capability.ConversationsAddMessage, channel); err != nil {
-		return nil, err
-	}
-
-	threadTs := request.GetString("thread_ts", "")
-	if threadTs != "" && !strings.Contains(threadTs, ".") {
-		ch.logger.Debug("Invalid thread_ts format", zap.String("thread_ts", threadTs))
-		return nil, invalidArguments("thread_ts must be a valid timestamp in format 1234567890.123456")
-	}
-
 	msgText := request.GetString("text", "")
 	if msgText == "" {
 		// Backward compatibility with "payload" parameter
 		msgText = request.GetString("payload", "")
 	}
-
-	contentType := request.GetString("content_type", "text/markdown")
-	if contentType != "text/plain" && contentType != "text/markdown" {
-		ch.logger.Debug("Invalid content_type", zap.String("content_type", contentType))
-		return nil, invalidArguments("content_type must be either 'text/plain' or 'text/markdown'")
+	params, err := ch.parseMessageParams(ctx, capability.ConversationsAddMessage, request, msgText)
+	if err != nil {
+		return nil, err
 	}
 
-	// Parse optional raw blocks JSON. Accepts blocks as either:
-	// - A JSON string containing a blocks array: "blocks": "[{...}]"
-	// - A raw JSON array (parsed by MCP SDK): "blocks": [{...}]
-	var blocks []slack.Block
-	args := request.GetArguments()
-	if rawBlocks, ok := args["blocks"]; ok && rawBlocks != nil {
+	// blocks arrives as a JSON string or, parsed by the MCP SDK, as a raw array.
+	if rawBlocks, ok := request.GetArguments()["blocks"]; ok && rawBlocks != nil {
 		var blocksJSON []byte
 		switch v := rawBlocks.(type) {
 		case string:
@@ -387,36 +319,24 @@ func (ch *ConversationsHandler) parseParamsToolAddMessage(ctx context.Context, r
 				blocksJSON = []byte(v)
 			}
 		default:
-			// Raw JSON array/object passed directly; re-marshal to bytes.
-			var err error
 			blocksJSON, err = json.Marshal(v)
 			if err != nil {
-				ch.logger.Debug("Failed to marshal blocks argument", zap.Error(err))
 				return nil, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
 			}
 		}
 		if blocksJSON != nil {
 			var slackBlocks slack.Blocks
 			if err := json.Unmarshal(blocksJSON, &slackBlocks); err != nil {
-				ch.logger.Debug("Failed to parse blocks JSON", zap.Error(err))
 				return nil, fmt.Errorf("blocks must be valid Slack Block Kit JSON: %w", err)
 			}
-			blocks = slackBlocks.BlockSet
+			params.blocks = slackBlocks.BlockSet
 		}
 	}
 
-	if msgText == "" && blocks == nil {
-		ch.logger.Debug("Message text and blocks both missing")
+	if params.text == "" && params.blocks == nil {
 		return nil, invalidArguments("either text or blocks must be provided")
 	}
-
-	return &addMessageParams{
-		channel:     channel,
-		threadTs:    threadTs,
-		text:        msgText,
-		contentType: contentType,
-		blocks:      blocks,
-	}, nil
+	return params, nil
 }
 
 func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, tool string, request mcp.CallToolRequest) (*addReactionParams, error) {
@@ -424,7 +344,7 @@ func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, too
 	if channel == "" {
 		return nil, invalidArguments("channel_id is required")
 	}
-	channel, err := ch.resolveChannelID(ctx, channel)
+	channel, err := ch.messages.channelID(ctx, channel)
 	if err != nil {
 		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err

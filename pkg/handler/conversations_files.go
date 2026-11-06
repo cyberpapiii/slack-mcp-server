@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
@@ -29,35 +27,18 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 		return nil, err
 	}
 
-	fileInfo, _, _, err := ch.apiProvider.WebAPI().GetFileInfoContext(ctx, params.fileID, 0, 0)
+	fileInfo, err := ch.fileInfo(ctx, params.fileID, maxFileSizeBytes, func(size int) string {
+		return fmt.Sprintf("file size %d bytes exceeds maximum allowed size of %d bytes", size, maxFileSizeBytes)
+	})
 	if err != nil {
-		ch.logger.Debug("Slack GetFileInfoContext failed", zap.Error(err))
 		return nil, err
 	}
-
-	if fileInfo.Size > maxFileSizeBytes {
-		return nil, invalidArguments(fmt.Sprintf("file size %d bytes exceeds maximum allowed size of %d bytes", fileInfo.Size, maxFileSizeBytes))
-	}
-
-	var buf bytes.Buffer
-	downloadURL := fileInfo.URLPrivateDownload
-	if downloadURL == "" {
-		downloadURL = fileInfo.URLPrivate
-	}
-	if downloadURL == "" {
-		return nil, invalidArguments("file has no downloadable URL")
-	}
-
-	err = ch.apiProvider.WebAPI().GetFileContext(ctx, downloadURL, &buf)
+	content, err := ch.fileBytes(ctx, fileInfo, maxFileSizeBytes, func(size int) string {
+		return fmt.Sprintf("downloaded %d bytes, exceeds maximum allowed size of %d bytes", size, maxFileSizeBytes)
+	})
 	if err != nil {
-		ch.logger.Debug("Slack GetFileContext failed", zap.Error(err))
 		return nil, err
 	}
-	if buf.Len() > maxFileSizeBytes {
-		return nil, invalidArguments(fmt.Sprintf("downloaded %d bytes, exceeds maximum allowed size of %d bytes", buf.Len(), maxFileSizeBytes))
-	}
-
-	content := buf.Bytes()
 
 	// Native MCP image avoids base64-in-JSON overflow.
 	if isImageMimetype(fileInfo.Mimetype) {
@@ -111,13 +92,19 @@ type fileResultPayload struct {
 	Content  string `json:"content"`
 }
 
-func (ch *ConversationsHandler) parseParamsToolFilesList(request mcp.CallToolRequest) (*filesListParams, error) {
-	page, err := filesPage(request.GetString("cursor", ""))
+func (ch *ConversationsHandler) parseParamsToolFilesList(ctx context.Context, request mcp.CallToolRequest) (*filesListParams, error) {
+	page, err := decodePageCursor(request.GetString("cursor", ""))
 	if err != nil {
 		return nil, err
 	}
+	channel := request.GetString("channel_id", "")
+	if channel != "" {
+		if channel, err = ch.messages.channelID(ctx, channel); err != nil {
+			return nil, err
+		}
+	}
 	return &filesListParams{
-		channel: request.GetString("channel_id", ""),
+		channel: channel,
 		user:    request.GetString("user_id", ""),
 		types:   request.GetString("types", ""),
 		limit:   pageLimit(request, 50, 200),
@@ -126,24 +113,13 @@ func (ch *ConversationsHandler) parseParamsToolFilesList(request mcp.CallToolReq
 }
 
 // files.list paginates by count/page, not by cursor (Slack ignores `limit`
-// and never returns response_metadata). The cursor this tool hands out is the
-// next page number, so `cursor` round-trips through the shared CSV contract.
-func filesPage(cursor string) (int, error) {
-	if cursor == "" {
-		return 1, nil
-	}
-	page, err := strconv.Atoi(cursor)
-	if err != nil || page < 1 {
-		return 0, invalidArguments("cursor must be a #next_cursor value from a previous files_list call")
-	}
-	return page, nil
-}
-
+// and never returns response_metadata), so the cursor this tool hands out
+// carries the next page number.
 func nextFilesCursor(paging *slack.Paging) string {
 	if paging == nil || paging.Page >= paging.Pages {
 		return ""
 	}
-	return strconv.Itoa(paging.Page + 1)
+	return encodePageCursor(paging.Page + 1)
 }
 
 func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -153,7 +129,7 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 		return nil, err
 	}
 
-	params, err := ch.parseParamsToolFilesList(request)
+	params, err := ch.parseParamsToolFilesList(ctx, request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse files_list params", zap.Error(err))
 		return nil, err
@@ -177,20 +153,13 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 
 	nextCursor := nextFilesCursor(paging)
 
-	resolver := ch.newUserResolver(ctx)
-	userName := func(id string) string {
-		name, realName, _ := resolver.resolve(id)
-		if realName != "" {
-			return realName
-		}
-		return name
-	}
+	resolver := ch.messages.newUserResolver(ctx)
 	rows := make([]fileRow, 0, len(files))
 	for _, f := range files {
-		rows = append(rows, fileRowFromSlack(f, params.channel, userName))
+		rows = append(rows, fileRowFromSlack(f, params.channel, resolver.label))
 	}
 
-	result, err := marshalFilesToCSV(rows, nextCursor, ch.channelDisplayName)
+	result, err := marshalFilesToCSV(rows, nextCursor, ch.apiProvider.ChannelLabel)
 	if err != nil {
 		ch.logger.Error("Failed to marshal files to CSV", zap.Error(err))
 		return nil, err
@@ -218,7 +187,7 @@ func fileRowFromSlack(f slack.File, preferredChannel string, userName func(strin
 		Name:     f.Name,
 		Filetype: f.Filetype,
 		Size:     f.Size,
-		Created:  f.Created.Time().Format(time.RFC3339),
+		Created:  unixTimeText(int64(f.Created)),
 		User:     userName(f.User),
 		Channel:  channel,
 		MsgID:    msgID,
@@ -256,7 +225,7 @@ func marshalFilesToCSV(rows []fileRow, nextCursor string, channelName func(strin
 	for _, r := range rows {
 		ids = append(ids, r.Channel)
 	}
-	return marshalRowsToCSV(channelsLegend(ids, channelName), &rows, nextCursor)
+	return csvResult(channelsLegend(ids, channelName), SlackResultMeta(nextCursor, false, ""), &rows)
 }
 
 // attachmentRef describes a file well enough for a reader to decide whether
@@ -398,15 +367,11 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 		return nil, invalidArguments("file_id is required")
 	}
 
-	fileInfo, _, _, err := ch.apiProvider.WebAPI().GetFileInfoContext(ctx, fileID, 0, 0)
+	fileInfo, err := ch.fileInfo(ctx, fileID, maxDownloadBytes, func(size int) string {
+		return fmt.Sprintf("file size %d bytes exceeds the %d byte download limit", size, maxDownloadBytes)
+	})
 	if err != nil {
-		ch.logger.Debug("Slack GetFileInfoContext failed", zap.Error(err))
 		return nil, err
-	}
-	if fileInfo.Size > maxDownloadBytes {
-		return nil, invalidArguments(fmt.Sprintf(
-			"file size %d bytes exceeds the %d byte download limit", fileInfo.Size, maxDownloadBytes,
-		))
 	}
 
 	dest := downloadPath(root, fileInfo)
@@ -421,30 +386,18 @@ func (ch *ConversationsHandler) FilesDownloadHandler(ctx context.Context, reques
 		return downloadResult(fileInfo, dest, "already_present"), nil
 	}
 
-	downloadURL := fileInfo.URLPrivateDownload
-	if downloadURL == "" {
-		downloadURL = fileInfo.URLPrivate
-	}
-	if downloadURL == "" {
-		return nil, invalidArguments("file has no downloadable URL")
-	}
-
-	var buf bytes.Buffer
-	if err := ch.apiProvider.WebAPI().GetFileContext(ctx, downloadURL, &buf); err != nil {
-		ch.logger.Debug("Slack GetFileContext failed", zap.Error(err))
+	content, err := ch.fileBytes(ctx, fileInfo, maxDownloadBytes, func(size int) string {
+		return fmt.Sprintf("downloaded %d bytes, exceeds the %d byte download limit", size, maxDownloadBytes)
+	})
+	if err != nil {
 		return nil, err
 	}
-	if buf.Len() > maxDownloadBytes {
-		return nil, invalidArguments(fmt.Sprintf(
-			"downloaded %d bytes, exceeds the %d byte download limit", buf.Len(), maxDownloadBytes,
-		))
-	}
-	if err := os.WriteFile(dest, buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(dest, content, 0o644); err != nil {
 		ch.logger.Error("Failed to write downloaded file", zap.Error(err))
 		return nil, err
 	}
 
-	fileInfo.Size = buf.Len()
+	fileInfo.Size = len(content)
 	return downloadResult(fileInfo, dest, "downloaded"), nil
 }
 
@@ -458,4 +411,38 @@ func downloadResult(f *slack.File, path, outcome string) *mcp.CallToolResult {
 		Outcome:  outcome,
 	}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data))
+}
+
+// fileInfo reads a file's metadata and refuses one larger than limit;
+// tooLarge words the refusal for the calling tool.
+func (ch *ConversationsHandler) fileInfo(ctx context.Context, fileID string, limit int, tooLarge func(size int) string) (*slack.File, error) {
+	fileInfo, _, _, err := ch.apiProvider.WebAPI().GetFileInfoContext(ctx, fileID, 0, 0)
+	if err != nil {
+		ch.logger.Debug("Slack GetFileInfoContext failed", zap.Error(err))
+		return nil, err
+	}
+	if fileInfo.Size > limit {
+		return nil, invalidArguments(tooLarge(fileInfo.Size))
+	}
+	return fileInfo, nil
+}
+
+// fileBytes downloads a file's content, refusing more than limit bytes.
+func (ch *ConversationsHandler) fileBytes(ctx context.Context, f *slack.File, limit int, tooLarge func(size int) string) ([]byte, error) {
+	downloadURL := f.URLPrivateDownload
+	if downloadURL == "" {
+		downloadURL = f.URLPrivate
+	}
+	if downloadURL == "" {
+		return nil, invalidArguments("file has no downloadable URL")
+	}
+	var buf bytes.Buffer
+	if err := ch.apiProvider.WebAPI().GetFileContext(ctx, downloadURL, &buf); err != nil {
+		ch.logger.Debug("Slack GetFileContext failed", zap.Error(err))
+		return nil, err
+	}
+	if buf.Len() > limit {
+		return nil, invalidArguments(tooLarge(buf.Len()))
+	}
+	return buf.Bytes(), nil
 }

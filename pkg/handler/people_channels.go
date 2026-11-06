@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -25,7 +24,6 @@ const (
 )
 
 var (
-	userIDPattern    = regexp.MustCompile(`^[UW][A-Z0-9]+$`)
 	emojiNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_+\-]+$`)
 )
 
@@ -66,13 +64,11 @@ type PeopleChannelsHandler struct {
 	service  PeopleChannelsService
 	identity func() provider.ProviderIdentity
 	logger   *zap.Logger
-	// UserName resolves a user ID to a display name for channels_members;
-	// nil or "" leaves the Name column empty.
-	UserName func(userID string) string
+	labels   Labels
 }
 
-func NewPeopleChannelsHandler(service PeopleChannelsService, identity func() provider.ProviderIdentity, logger *zap.Logger) *PeopleChannelsHandler {
-	return &PeopleChannelsHandler{service: service, identity: identityFunc(identity), logger: logger}
+func NewPeopleChannelsHandler(service PeopleChannelsService, labels Labels, identity func() provider.ProviderIdentity, logger *zap.Logger) *PeopleChannelsHandler {
+	return &PeopleChannelsHandler{service: service, labels: labels, identity: identityFunc(identity), logger: logger}
 }
 
 func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -150,11 +146,7 @@ func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallT
 	for i, e := range page.Emoji {
 		rows[i] = EmojiRow{Name: e.Name, URL: e.URL, Alias: e.AliasFor}
 	}
-	csvBytes, err := gocsv.MarshalBytes(&rows)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult("", SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
+	return csvResult("", SlackResultMeta(page.NextCursor, false, ""), &rows)
 }
 
 func (h *PeopleChannelsHandler) CreateChannel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -186,16 +178,9 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 	}
 	rows := make([]ChannelMemberRow, len(page.UserIDs))
 	for i, id := range page.UserIDs {
-		rows[i] = ChannelMemberRow{UserID: id}
-		if h.UserName != nil {
-			rows[i].Name = h.UserName(id)
-		}
+		rows[i] = ChannelMemberRow{UserID: id, Name: h.labels.UserLabel(id)}
 	}
-	csvBytes, err := gocsv.MarshalBytes(&rows)
-	if err != nil {
-		return nil, err
-	}
-	return NewCSVResult("", SlackResultMeta(page.NextCursor, false, ""), string(csvBytes)), nil
+	return csvResult("", SlackResultMeta(page.NextCursor, false, ""), &rows)
 }
 
 func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -309,7 +294,7 @@ func normalizeEmoji(value string) (string, error) {
 }
 
 func validateUserID(userID string) error {
-	if !userIDPattern.MatchString(userID) {
+	if provider.ClassifyID(userID) != provider.IDUser {
 		return invalidArguments("user_id must be a Slack user ID starting with U or W")
 	}
 	return nil

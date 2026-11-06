@@ -29,7 +29,7 @@ func TestDraftBrowserEndpointsUseVerifiedForms(t *testing.T) {
 					t.Fatalf("incomplete create form: %v", form)
 				}
 				assertDraftJSON(t, form, "destinations", "channel_id", "C1")
-				if got := form.Get("blocks"); got != `[{"elements":[{"elements":[{"text":"hello","type":"text"}],"type":"rich_text_section"}],"type":"rich_text"}]` {
+				if got := form.Get("blocks"); got != `[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"hello"}]}]}]` {
 					t.Fatalf("blocks = %s", got)
 				}
 				if got := form.Get("destinations"); got != `[{"channel_id":"C1"}]` {

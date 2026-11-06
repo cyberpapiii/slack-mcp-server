@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -61,7 +62,7 @@ func requiredChannelID(request mcp.CallToolRequest) (string, error) {
 	if channelID == "" {
 		return "", invalidArguments("channel_id is required")
 	}
-	if !strings.HasPrefix(channelID, "C") && !strings.HasPrefix(channelID, "G") {
+	if kind := provider.ClassifyID(channelID); kind != provider.IDChannel && kind != provider.IDGroup {
 		return "", invalidArguments("channel_id must be a public or private channel ID starting with C or G")
 	}
 	return channelID, nil

@@ -2,10 +2,8 @@ package handler
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
@@ -31,13 +29,13 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	channel, err := ch.resolveChannelID(ctx, rawChannel)
+	channel, err := ch.messages.channelID(ctx, rawChannel)
 	if err != nil {
 		ch.logger.Debug("Channel not found", zap.String("channel", rawChannel), zap.Error(err))
 		return nil, err
 	}
 
-	msg, err := ch.fetchMessageByTimestamp(ctx, channel, timestamp)
+	msg, err := ch.messages.message(ctx, channel, timestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -45,8 +43,8 @@ func (ch *ConversationsHandler) ConversationsGetMessageHandler(ctx context.Conte
 		return nil, &ToolError{Code: "message_not_found", Message: fmt.Sprintf("no message at timestamp %s in %s; timestamps must match exactly (for example 1712345678.123456)", timestamp, channel)}
 	}
 
-	messages := ch.convertMessagesFromHistory(ctx, []slack.Message{*msg}, channel, true, mode)
-	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta("", false, "")))
+	messages := ch.messages.rows(ctx, []slack.Message{*msg}, channel, true, mode)
+	return marshalMessagesToCSV(messages, ch.messages.render(mode, SlackResultMeta("", false, "")))
 }
 
 func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -84,13 +82,13 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 
 	ch.logger.Debug("Fetched conversation history", zap.Int("message_count", len(history.Messages)))
 
-	messages := ch.convertMessagesFromHistory(ctx, history.Messages, params.channel, params.activity, mode)
+	messages := ch.messages.rows(ctx, history.Messages, params.channel, params.activity, mode)
 
 	nextCursor := ""
 	if history.HasMore {
 		nextCursor = history.ResponseMetaData.NextCursor
 	}
-	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta(nextCursor, false, "")))
+	return marshalMessagesToCSV(messages, ch.messages.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
 
 // ConversationsRepliesHandler streams thread replies as CSV
@@ -127,11 +125,11 @@ func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context,
 	}
 	ch.logger.Debug("Fetched conversation replies", zap.Int("count", len(replies)))
 
-	messages := ch.convertMessagesFromHistory(ctx, replies, params.channel, params.activity, mode)
+	messages := ch.messages.rows(ctx, replies, params.channel, params.activity, mode)
 	if !hasMore {
 		nextCursor = ""
 	}
-	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta(nextCursor, false, "")))
+	return marshalMessagesToCSV(messages, ch.messages.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
 
 func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -166,12 +164,12 @@ func (ch *ConversationsHandler) ConversationsSearchHandler(ctx context.Context, 
 	}
 	ch.logger.Debug("Search completed", zap.Int("matches", len(messagesRes.Matches)))
 
-	messages := ch.convertMessagesFromSearch(ctx, messagesRes.Matches, mode)
+	messages := ch.messages.searchRows(ctx, messagesRes.Matches, mode)
 	nextCursor := ""
 	if messagesRes.Pagination.Page < messagesRes.Pagination.PageCount {
-		nextCursor = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("page:%d", messagesRes.Pagination.Page+1)))
+		nextCursor = encodePageCursor(messagesRes.Pagination.Page + 1)
 	}
-	return marshalMessagesToCSV(messages, ch.render(mode, SlackResultMeta(nextCursor, false, "")))
+	return marshalMessagesToCSV(messages, ch.messages.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
 
 func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context, request mcp.CallToolRequest) (*conversationParams, error) {
@@ -193,14 +191,13 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 	)
 	isDurationLimit := strings.HasSuffix(limit, "h") || strings.HasSuffix(limit, "d") || strings.HasSuffix(limit, "w") || strings.HasSuffix(limit, "m")
 	if isDurationLimit && cursor != "" {
-		// Schema default limit is "1d" but also forbids limit+cursor. Honour
-		// cursor, drop window (same as numeric branch) so pagination works.
+		// A cursor carries its own position; a time window would fight it.
 		ch.logger.Debug("Ignoring duration limit because a cursor was provided",
 			zap.String("limit", limit),
 			zap.String("cursor", cursor),
 		)
 	} else if isDurationLimit {
-		paramLimit, paramOldest, paramLatest, err = limitByExpression(limit, defaultConversationsExpressionLimit)
+		paramLimit, paramOldest, paramLatest, err = limitByExpression(limit)
 		if err != nil {
 			ch.logger.Debug("Invalid duration limit", zap.String("limit", limit), zap.Error(err))
 			return nil, err
@@ -229,8 +226,7 @@ func (ch *ConversationsHandler) parseParamsToolConversations(ctx context.Context
 			}
 			return nil, fmt.Errorf("channel %q not found in empty cache", channel)
 		}
-		// Use resolveChannelID which includes refresh-on-error logic
-		resolvedChannel, err := ch.resolveChannelID(ctx, channel)
+		resolvedChannel, err := ch.messages.channelID(ctx, channel)
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +254,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		addFilter(filters, "has", has)
 	}
 	if chName := req.GetString("filter_in_channel", ""); chName != "" {
-		f, err := ch.paramFormatChannel(chName)
+		f, err := ch.channelFilter(chName)
 		if err != nil {
 			ch.logger.Debug("Invalid channel filter", zap.String("filter", chName), zap.Error(err))
 			return nil, err
@@ -272,10 +268,10 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		// The tool description documents the 'D1234567890' conversation-ID
 		// form, which is not a user ID and must be resolved via the channels
 		// cache rather than the users map.
-		if isSlackConversationIDPrefix(im) {
-			f, err = formatConversationFilter(ch.apiProvider.ProvideChannelsMaps(), im)
+		if kind := provider.ClassifyID(im); kind == provider.IDDirectMessage || kind == provider.IDGroup {
+			f, err = conversationFilter(ch.apiProvider.Directory(), im)
 		} else {
-			f, err = ch.paramFormatUser(ctx, im)
+			f, err = ch.userFilter(ctx, im)
 		}
 		if err != nil {
 			ch.logger.Debug("Invalid IM/MPIM filter", zap.String("filter", im), zap.Error(err))
@@ -284,7 +280,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		addFilter(filters, "in", f)
 	}
 	if with := req.GetString("filter_users_with", ""); with != "" {
-		f, err := ch.paramFormatUser(ctx, with)
+		f, err := ch.userFilter(ctx, with)
 		if err != nil {
 			ch.logger.Debug("Invalid with-user filter", zap.String("filter", with), zap.Error(err))
 			return nil, err
@@ -292,7 +288,7 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 		addFilter(filters, "with", f)
 	}
 	if from := req.GetString("filter_users_from", ""); from != "" {
-		f, err := ch.paramFormatUser(ctx, from)
+		f, err := ch.userFilter(ctx, from)
 		if err != nil {
 			ch.logger.Debug("Invalid from-user filter", zap.String("filter", from), zap.Error(err))
 			return nil, err
@@ -316,35 +312,15 @@ func (ch *ConversationsHandler) parseParamsToolSearch(ctx context.Context, req m
 
 	finalQuery := buildQuery(freeText, filters)
 	limit := pageLimit(req, defaultSearchMessagesLimit, maxSearchMessagesLimit)
-	cursor := req.GetString("cursor", "")
 
 	sort := req.GetString("sort", "score")
 	if sort != "score" && sort != "timestamp" {
 		return nil, invalidArguments(fmt.Sprintf("invalid sort: %q (must be 'score' or 'timestamp')", sort))
 	}
 
-	var (
-		page          int
-		decodedCursor []byte
-	)
-	if cursor != "" {
-		decodedCursor, err = base64.StdEncoding.DecodeString(cursor)
-		if err != nil {
-			ch.logger.Debug("Invalid cursor decoding", zap.String("cursor", cursor), zap.Error(err))
-			return nil, fmt.Errorf("invalid cursor: %w", err)
-		}
-		parts := strings.Split(string(decodedCursor), ":")
-		if len(parts) != 2 {
-			ch.logger.Debug("Invalid cursor format", zap.String("cursor", cursor))
-			return nil, invalidArguments(fmt.Sprintf("invalid cursor: %v", cursor))
-		}
-		page, err = strconv.Atoi(parts[1])
-		if err != nil || page < 1 {
-			ch.logger.Debug("Invalid cursor page", zap.String("cursor", cursor), zap.Error(err))
-			return nil, fmt.Errorf("invalid cursor page: %w", err)
-		}
-	} else {
-		page = 1
+	page, err := decodePageCursor(req.GetString("cursor", ""))
+	if err != nil {
+		return nil, err
 	}
 
 	ch.logger.Debug("Search parameters built",

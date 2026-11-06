@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -87,8 +86,8 @@ func dndResult(userID string, status *slack.DNDStatus) (*mcp.CallToolResult, err
 	}
 	data := DNDStateData{
 		ActorUserID: userID, DNDEnabled: status.Enabled,
-		NextDNDStart: unixTime(status.NextStartTimestamp), NextDNDEnd: unixTime(status.NextEndTimestamp),
-		SnoozeEnabled: status.SnoozeEnabled, SnoozeEndsAt: unixTime(status.SnoozeEndTime),
+		NextDNDStart: unixTimeText(int64(status.NextStartTimestamp)), NextDNDEnd: unixTimeText(int64(status.NextEndTimestamp)),
+		SnoozeEnabled: status.SnoozeEnabled, SnoozeEndsAt: unixTimeText(int64(status.SnoozeEndTime)),
 		SnoozeMinutesLeft: status.SnoozeRemaining,
 	}
 	fallback, err := json.Marshal(data)
@@ -96,13 +95,6 @@ func dndResult(userID string, status *slack.DNDStatus) (*mcp.CallToolResult, err
 		return nil, err
 	}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), string(fallback)), nil
-}
-
-func unixTime(value int) string {
-	if value <= 0 {
-		return ""
-	}
-	return time.Unix(int64(value), 0).UTC().Format(time.RFC3339)
 }
 
 // Tools lists the MCP tools this handler serves.

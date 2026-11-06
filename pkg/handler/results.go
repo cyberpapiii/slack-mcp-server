@@ -91,18 +91,6 @@ func NewStructuredResult[T any](data T, meta ResultMeta, fallbackText string) *m
 	}, fallbackText)
 }
 
-func ResultText(result *mcp.CallToolResult) string {
-	if result == nil {
-		return ""
-	}
-	for _, content := range result.Content {
-		if text, ok := content.(mcp.TextContent); ok {
-			return text.Text
-		}
-	}
-	return ""
-}
-
 type ToolError struct {
 	Code       string
 	Message    string

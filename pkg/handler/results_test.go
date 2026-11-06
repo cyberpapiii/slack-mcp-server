@@ -16,6 +16,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ResultText is a result's first text content.
+func ResultText(result *mcp.CallToolResult) string {
+	if result == nil {
+		return ""
+	}
+	for _, content := range result.Content {
+		if text, ok := content.(mcp.TextContent); ok {
+			return text.Text
+		}
+	}
+	return ""
+}
+
 func TestNewStructuredResultPreservesFallbackAndProvenance(t *testing.T) {
 	data := ActionData{
 		Action:    "mark",

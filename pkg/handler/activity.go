@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -33,25 +32,22 @@ const activityFeedMaxLimit = 50
 type ActivityHandler struct {
 	apiProvider *provider.ApiProvider
 	logger      *zap.Logger
-	convHandler *ConversationsHandler
+	settings    Settings
+	messages    messagePipeline
 }
 
-func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, convHandler *ConversationsHandler) *ActivityHandler {
-	return &ActivityHandler{apiProvider: apiProvider, logger: logger, convHandler: convHandler}
+func NewActivityHandler(apiProvider *provider.ApiProvider, logger *zap.Logger, settings Settings) *ActivityHandler {
+	return &ActivityHandler{apiProvider: apiProvider, logger: logger, settings: settings, messages: messagePipeline{api: apiProvider, logger: logger}}
 }
 
 // renderActivityItems is the include_messages=false output: rows keyed by the
 // bare channel ID with a "#channels:" legend.
 func renderActivityItems(items []ActivityItem, channelName func(string) string, meta ResultMeta) (*mcp.CallToolResult, error) {
-	csvBytes, err := gocsv.MarshalBytes(&items)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal activity items: %w", err)
-	}
 	ids := make([]string, len(items))
 	for i, item := range items {
 		ids[i] = item.ChannelID
 	}
-	return NewCSVResult(channelsLegend(ids, channelName), meta, string(csvBytes)), nil
+	return csvResult(channelsLegend(ids, channelName), meta, &items)
 }
 
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -62,55 +58,37 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	}
 	limit := pageLimit(request, 30, activityFeedMaxLimit)
 
-	mode, err := h.convHandler.settings.outputMode(request)
+	mode, err := h.settings.outputMode(request)
 	if err != nil {
 		return nil, err
 	}
 
-	feedResp, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
+	feed, err := h.apiProvider.Slack().ActivityFeed(ctx, limit)
 	if err != nil {
 		h.logger.Debug("ActivityFeed failed", zap.Error(err))
 		return nil, fmt.Errorf("failed to get activity feed: %w", err)
 	}
 
 	var items []ActivityItem
-	for _, fi := range feedResp.Items {
-		if !fi.IsUnread {
+	for _, entry := range feed {
+		if !entry.Unread {
 			continue
 		}
-
-		var ai ActivityItem
-		ai.FeedTs = fi.FeedTs
-		ai.Key = fi.Key
-		ai.Type = fi.Item.Type
-
-		switch fi.Item.Type {
-		case "thread_v2":
-			if fi.Item.BundleInfo == nil {
-				continue
-			}
-			te := fi.Item.BundleInfo.Payload.ThreadEntry
-			ai.ChannelID = te.ChannelID
-			ai.ThreadTs = te.ThreadTs
-			ai.UnreadCount = te.UnreadMsgCount
-			ai.MinUnreadTs = te.MinUnreadTs
-		default:
-			if fi.Item.Message == nil {
-				continue
-			}
-			ai.ChannelID = fi.Item.Message.Channel
-			ai.ThreadTs = fi.Item.Message.ThreadTs
-			ai.UnreadCount = 1
-			ai.MinUnreadTs = fi.Item.Message.Ts
-		}
-
-		items = append(items, ai)
+		items = append(items, ActivityItem{
+			Type:        entry.Type,
+			ChannelID:   entry.ChannelID,
+			MinUnreadTs: entry.MinUnreadTs,
+			ThreadTs:    entry.ThreadTs,
+			UnreadCount: entry.UnreadCount,
+			FeedTs:      entry.FeedTs,
+			Key:         entry.Key,
+		})
 	}
 
 	h.logger.Debug("Filtered unread activity items", zap.Int("count", len(items)))
 
 	if !includeMessages {
-		return renderActivityItems(items, h.convHandler.channelDisplayName, SlackResultMeta("", false, ""))
+		return renderActivityItems(items, h.apiProvider.ChannelLabel, SlackResultMeta("", false, ""))
 	}
 
 	type threadKey struct {
@@ -171,7 +149,7 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 			failedThreads++
 			continue
 		}
-		msgs := h.convHandler.convertMessagesFromHistory(ctx, replies[i], t.ChannelID, false, mode)
+		msgs := h.messages.rows(ctx, replies[i], t.ChannelID, false, mode)
 		allMessages = append(allMessages, msgs...)
 	}
 
@@ -187,25 +165,12 @@ func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mc
 	meta := SlackResultMeta("", partialReason != "", partialReason)
 
 	if len(allMessages) == 0 {
-		return renderActivityItems(items, h.convHandler.channelDisplayName, meta)
+		return renderActivityItems(items, h.apiProvider.ChannelLabel, meta)
 	}
 
-	opts := h.convHandler.render(mode, meta)
-	if opts.trailer, err = csvSection("activity_items", &items); err != nil {
-		return nil, err
-	}
+	opts := h.messages.render(mode, meta)
+	opts.sections = []csvSection{{name: "activity_items", rows: &items}}
 	return marshalMessagesToCSV(allMessages, opts)
-}
-
-// csvSection renders a second CSV table under a "#<name>:" comment line, for
-// results whose message rows need a companion table (saved state, activity
-// feed keys) that the agent acts on with another tool.
-func csvSection(name string, rows any) (string, error) {
-	csvBytes, err := gocsv.MarshalBytes(rows)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal %s: %v", name, err)
-	}
-	return "#" + name + ":\n" + string(csvBytes), nil
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
