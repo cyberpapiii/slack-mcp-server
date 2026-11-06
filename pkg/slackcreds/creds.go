@@ -21,12 +21,6 @@ var (
 	ErrNoCookies = errors.New("no cookies")
 )
 
-// Credentials is what a Slack client needs from a credential source.
-type Credentials interface {
-	SlackToken() string
-	Cookies() []*http.Cookie
-}
-
 // Value is a token and its cookies. The zero value is unusable; build one
 // with New.
 type Value struct {

@@ -36,10 +36,11 @@ func newRotatingFixture(t *testing.T, body string) *rotatingFixture {
 	}))
 	t.Cleanup(newServer.Close)
 
-	client := &MCPSlackClient{slackClient: slack.New("old", slack.OptionAPIURL(oldServer.URL+"/"))}
+	provider := &ApiProvider{client: MCPSlackClient{slackClient: slack.New("old", slack.OptionAPIURL(oldServer.URL+"/"))}}
+	client := &provider.client
 	return &rotatingFixture{
 		client:   client,
-		provider: &ApiProvider{client: client},
+		provider: provider,
 		oldCalls: &oldCalls,
 		newCalls: &newCalls,
 		rotate: func() {

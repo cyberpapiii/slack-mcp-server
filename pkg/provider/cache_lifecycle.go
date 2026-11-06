@@ -50,7 +50,7 @@ func (ap *ApiProvider) caches() []cacheSpec {
 // retrying until they load, then calls onReady once and keeps them within
 // their TTL. Close stops it at any point.
 func (ap *ApiProvider) StartCacheLifecycle(onReady func()) {
-	go ap.runCacheLifecycle(ap.lifetime(), onReady)
+	go ap.runCacheLifecycle(ap.ctx, onReady)
 }
 
 func (ap *ApiProvider) runCacheLifecycle(ctx context.Context, onReady func()) {

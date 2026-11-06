@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"testing"
@@ -12,6 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+// noLock runs fn without the cross-process lock; these tests share no store.
+func noLock(_ context.Context, fn func() error) error { return fn() }
 
 // memoryStore is an in-memory oauthcred.Store.
 type memoryStore struct {
@@ -74,11 +78,11 @@ func TestUnitCloseWaitsForAnInFlightOAuthRefresh(t *testing.T) {
 		close(entered)
 		<-release
 	}}
-	manager := oauthcred.NewManager(store, refresher, nil)
+	manager := oauthcred.NewManager(store, refresher, noLock)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	client := &MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, managedClientFactory: nil}
-	ap := &ApiProvider{client: client, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
+	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, httpClient: unreachableSlack()}, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
+	client := &ap.client
 
 	go client.refreshManagedOAuthTick(ctx)
 	<-entered
@@ -110,16 +114,24 @@ func TestUnitCloseDoesNotWaitForeverOnAStuckRefresh(t *testing.T) {
 	manager := oauthcred.NewManager(expiringStore(now), &hookRefresher{now: now, onRefresh: func() {
 		close(entered)
 		<-release
-	}}, nil)
+	}}, noLock)
 	ctx, cancel := context.WithCancel(context.Background())
-	client := &MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, oauthShutdownGrace: 20 * time.Millisecond}
-	ap := &ApiProvider{client: client, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
+	defer cancel()
+	client := &MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, httpClient: unreachableSlack()}
 
 	go client.refreshManagedOAuthTick(ctx)
 	<-entered
 	start := time.Now()
-	ap.Close()
+	client.waitForOAuthRefresh(20 * time.Millisecond)
 	assert.Less(t, time.Since(start), time.Second)
+}
+
+// unreachableSlack fails every request, for refreshes whose auth.test is not
+// what the test is about.
+func unreachableSlack() *http.Client {
+	return &http.Client{Transport: oauthRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("no Slack in this test")
+	})}
 }
 
 // oauthRoundTripFunc stubs an http.Client transport.

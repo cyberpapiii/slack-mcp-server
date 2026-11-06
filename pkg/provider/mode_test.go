@@ -8,12 +8,11 @@ import (
 )
 
 func TestUnitCredentialModeForPrimaryToken(t *testing.T) {
-	assert.Equal(t, ModeDemo, credentialModeFor("demo", true, false))
-	assert.Equal(t, ModeBot, credentialModeFor("xoxb-1", false, true), "a bot token never carries a browser session")
-	assert.Equal(t, ModeBot, credentialModeFor("xoxe.xoxb-1", false, false))
-	assert.Equal(t, ModeUserOAuth, credentialModeFor("xoxe.xoxp-1", false, false))
-	assert.Equal(t, ModeUserOAuthBrowser, credentialModeFor("xoxp-1", false, true))
-	assert.Equal(t, ModeBrowser, credentialModeFor("xoxc-1", false, true))
+	assert.Equal(t, ModeBot, credentialModeFor("xoxb-1", true), "a bot token never carries a browser session")
+	assert.Equal(t, ModeBot, credentialModeFor("xoxe.xoxb-1", false))
+	assert.Equal(t, ModeUserOAuth, credentialModeFor("xoxe.xoxp-1", false))
+	assert.Equal(t, ModeUserOAuthBrowser, credentialModeFor("xoxp-1", true))
+	assert.Equal(t, ModeBrowser, credentialModeFor("xoxc-1", true))
 }
 
 func TestUnitCredentialModeSatisfies(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,7 +15,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 const usersNotReadyMsg = "users cache is not ready yet, sync process is still running... please wait"
@@ -47,8 +45,11 @@ type ApiProvider struct {
 	// continued on the browser session instead. OAuth-only tools are absent.
 	oauthLoadErr error
 
-	creds  CredentialConfig
-	client SlackAPI
+	creds CredentialConfig
+	// client is the Slack session. api is the Slack calls the caches make:
+	// the session itself, or a fake in tests.
+	client MCPSlackClient
+	api    SlackAPI
 	logger *zap.Logger
 
 	// ctx bounds every background goroutine the provider starts; Close cancels it.
@@ -60,11 +61,6 @@ type ApiProvider struct {
 
 	// Test-overridable; production always uses defaultBackgroundRefreshTimeout.
 	backgroundRefreshTimeout time.Duration
-
-	// Test-overridable pacing for conversations.list. Production leaves this
-	// nil and shares the process-wide limiter.Tier2 budget; tests inject an
-	// unlimited limiter so the suite does not sleep on a real 3s token refill.
-	conversationsLimiter *rate.Limiter
 
 	usersSnapshot  atomic.Pointer[UsersCache] // immutable snapshot; atomic load, no copy
 	usersCachePath string
@@ -82,6 +78,13 @@ type ApiProvider struct {
 	revalidateOnce sync.Once // startCacheRevalidation
 }
 
+// ProviderIdentity.ActorType values.
+const (
+	ActorUser    = "user"
+	ActorBot     = "bot"
+	ActorUnknown = "unknown"
+)
+
 type ProviderIdentity struct {
 	TeamID       string `json:"team_id,omitempty"`
 	UserID       string `json:"user_id,omitempty"`
@@ -94,6 +97,7 @@ type ProviderIdentity struct {
 // Every failure is returned; the caller decides whether it is fatal.
 func New(logger *zap.Logger) (*ApiProvider, error) {
 	creds := CredentialConfigFromEnv()
+	cache := cacheConfigFromEnv(logger)
 	xoxpToken, xoxbToken, xoxcToken, xoxdToken := creds.XOXP, creds.XOXB, creds.XOXC, creds.XOXD
 	browserAccount := creds.BrowserKeychainAccount
 	var managedManager *oauthcred.Manager
@@ -150,7 +154,7 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 			xoxc: xoxcToken, xoxd: xoxdToken, loadErr: browserLoadErr,
 			account: browserAccount, envXoxc: envXoxc, envXoxd: envXoxd,
 		}
-		ap, err := newProvider(authProvider, creds, browser.configured(), logger)
+		ap, err := newProvider(authProvider, creds, cache, browser.configured(), logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -172,7 +176,7 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 			zap.String("token_type", "xoxb"),
 		)
 
-		ap, err := newProvider(authProvider, creds, false, logger)
+		ap, err := newProvider(authProvider, creds, cache, false, logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -184,7 +188,7 @@ func New(logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXC/XOXD tokens: %w", err)
 		}
-		ap, err := newProvider(authProvider, creds, true, logger)
+		ap, err := newProvider(authProvider, creds, cache, true, logger)
 		if err != nil {
 			if oauthLoadErr != nil {
 				err = errors.Join(err, oauthLoadErr)
@@ -233,10 +237,7 @@ func (b oauthBrowser) configured() bool {
 // re-probe starts last because it only acts on a session the attach step left
 // degraded.
 func (ap *ApiProvider) startUserOAuth(managed *oauthcred.Manager, record oauthcred.Record, browser oauthBrowser) {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return
-	}
+	client := &ap.client
 	if managed != nil {
 		ap.startManagedOAuth(managed, record)
 	}
@@ -253,45 +254,37 @@ func (ap *ApiProvider) startUserOAuth(managed *oauthcred.Manager, record oauthcr
 	ap.startBrowserReprobe(client, browser.account, browser.envXoxc, browser.envXoxd)
 }
 
-func newProvider(authProvider slackcreds.Credentials, creds CredentialConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
-	client, err := newMCPSlackClient(authProvider, creds.Demo(), browserConfigured, logger)
-	if err != nil {
+func newProvider(authProvider slackcreds.Value, creds CredentialConfig, cache cacheConfig, browserConfigured bool, logger *zap.Logger) (*ApiProvider, error) {
+	mode := credentialModeFor(authProvider.SlackToken(), browserConfigured)
+	if creds.Demo() {
+		mode = ModeDemo
+	}
+	ap := &ApiProvider{creds: creds, logger: logger}
+	if err := ap.client.connect(authProvider, mode, logger); err != nil {
 		return nil, err
 	}
+	ap.api = &ap.client
 
-	teamID := client.AuthResponse().TeamID
-	if creds.Demo() {
-		teamID = "demo"
-	}
+	teamID := ap.client.authResponse.TeamID
 	cacheDir, err := cachedir.Dir()
 	if err != nil {
 		logger.Warn("User cache directory unavailable; caching in the working directory", zap.Error(err))
 	}
-	usersCache := os.Getenv("SLACK_MCP_USERS_CACHE")
+	usersCache := cache.usersPath
 	if usersCache == "" {
 		usersCache = cachePath(cacheDir, teamID, "users_cache.json")
 	}
-	channelsCache := os.Getenv("SLACK_MCP_CHANNELS_CACHE")
+	channelsCache := cache.channelsPath
 	if channelsCache == "" {
 		channelsCache = cachePath(cacheDir, teamID, "channels_cache_v2.json")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	ap := &ApiProvider{
-		creds:  creds,
-		client: client,
-		logger: logger,
-		ctx:    ctx,
-		cancel: cancel,
-
-		cacheTTL:           getCacheTTL(),
-		minRefreshInterval: getMinRefreshInterval(),
-
-		backgroundRefreshTimeout: defaultBackgroundRefreshTimeout,
-
-		usersCachePath:    usersCache,
-		channelsCachePath: channelsCache,
-	}
+	ap.ctx, ap.cancel = context.WithCancel(context.Background())
+	ap.cacheTTL = cache.ttl
+	ap.minRefreshInterval = cache.minRefreshInterval
+	ap.backgroundRefreshTimeout = defaultBackgroundRefreshTimeout
+	ap.usersCachePath = usersCache
+	ap.channelsCachePath = channelsCache
 	ap.usersSnapshot.Store(newUsersCache(nil))
 	ap.channelsSnapshot.Store(newChannelsCache(0))
 	return ap, nil
@@ -304,18 +297,7 @@ func (ap *ApiProvider) Close() {
 	if ap.cancel != nil {
 		ap.cancel()
 	}
-	if client, ok := ap.client.(*MCPSlackClient); ok && client != nil {
-		client.waitForOAuthRefresh()
-	}
-}
-
-// lifetime is the parent context for background work; tests that build an
-// ApiProvider literal without New get context.Background.
-func (ap *ApiProvider) lifetime() context.Context {
-	if ap.ctx == nil {
-		return context.Background()
-	}
-	return ap.ctx
+	ap.client.waitForOAuthRefresh(oauthShutdownGrace)
 }
 
 func (ap *ApiProvider) IsReady() (bool, error) {
@@ -343,7 +325,7 @@ func (ap *ApiProvider) SkipCache() {
 }
 
 func (ap *ApiProvider) Slack() SlackAPI {
-	return ap.client
+	return ap.api
 }
 
 // WebAPI is the Slack Web API client used for ordinary slack-go calls.
@@ -354,56 +336,47 @@ func (ap *ApiProvider) Slack() SlackAPI {
 // *slack.Client itself, which OAuth rotation replaces, and long-lived callers
 // silently kept an access token that later expired.
 func (ap *ApiProvider) WebAPI() *WebClient {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return nil
-	}
-	return &WebClient{client: client}
+	return &WebClient{client: &ap.client}
 }
 
-// Mode is the credential mode New chose; zero for a provider without a Slack
-// client.
+// Mode is the credential mode New chose; zero for a provider without
+// credentials.
 func (ap *ApiProvider) Mode() CredentialMode {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return 0
-	}
-	return client.mode
+	return ap.client.mode
 }
 
 func (ap *ApiProvider) Identity() ProviderIdentity {
-	identity := ProviderIdentity{ActorType: "unknown", TokenMode: "unknown"}
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return identity
-	}
-	if authResponse := client.AuthResponse(); authResponse != nil {
-		identity.TeamID = authResponse.TeamID
-		identity.UserID = authResponse.UserID
-		identity.EnterpriseID = authResponse.EnterpriseID
+	client := &ap.client
+	identity := ProviderIdentity{
+		TeamID:       client.authResponse.TeamID,
+		UserID:       client.authResponse.UserID,
+		EnterpriseID: client.authResponse.EnterpriseID,
 	}
 	switch {
+	case client.mode == 0:
+		identity.ActorType = ActorUnknown
+		identity.TokenMode = "unknown"
 	case client.mode == ModeBot:
-		identity.ActorType = "bot"
+		identity.ActorType = ActorBot
 		identity.TokenMode = "bot-oauth"
 	case client.mode.OAuth():
-		identity.ActorType = "user"
+		identity.ActorType = ActorUser
 		identity.TokenMode = "user-oauth"
 	default:
-		identity.ActorType = "user"
+		identity.ActorType = ActorUser
 		identity.TokenMode = "browser-session"
 	}
 	return identity
 }
 
+// IsUser reports whether the server acts as a Slack user, not a bot.
+func (i ProviderIdentity) IsUser() bool {
+	return i.ActorType == ActorUser
+}
+
 // Auth workspace base URL, or "" if unavailable (omit workspace-dependent output).
 func (ap *ApiProvider) WorkspaceURL() string {
-	if c, ok := ap.client.(*MCPSlackClient); ok {
-		if ar := c.AuthResponse(); ar != nil {
-			return ar.URL
-		}
-	}
-	return ""
+	return ap.client.authResponse.URL
 }
 
 // Satisfies reports whether the running credentials meet a tool's requirement.

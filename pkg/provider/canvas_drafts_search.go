@@ -111,11 +111,16 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 			format = "markdown"
 		}
 		content, contentErr := p.client.GetCanvasContentContext(ctx, request.CanvasID, format)
-		if contentErr != nil {
+		switch {
+		case contentErr == nil:
+			document.Content, document.ContentFormat, document.FullContentAvailable = content, format, true
+		case canvasContentRefused(contentErr):
 			document.Limitation = "full canvas content unavailable (" + contentErr.Error() + "); preview and matching section IDs only"
-			break
+		default:
+			return CanvasDocument{}, wrapSlack("canvas content read", contentErr)
 		}
-		document.Content, document.ContentFormat, document.FullContentAvailable = content, format, true
+	default:
+		return CanvasDocument{}, fmt.Errorf("unknown canvas content format %q", format)
 	}
 	if len(request.SectionTypes) != 0 || request.ContainsText != "" {
 		sections, lookupErr := p.client.LookupCanvasSectionsContext(ctx, slack.LookupCanvasSectionsParams{
@@ -131,6 +136,22 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 		}
 	}
 	return document, nil
+}
+
+// canvasContentRefused reports whether canvases.getContent refused the token
+// itself: a browser-session token, or a user token without the scope. The
+// preview still answers then; any other failure is the read failing.
+func canvasContentRefused(err error) bool {
+	var slackErr slack.SlackErrorResponse
+	if !errors.As(err, &slackErr) {
+		return false
+	}
+	switch slackErr.Err {
+	case "not_allowed_token_type", "missing_scope":
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *CanvasProvider) UpdateCanvas(ctx context.Context, request CanvasUpdateRequest) error {
@@ -156,13 +177,9 @@ func (c *WebClient) EditCanvasContext(ctx context.Context, params slack.EditCanv
 // GetCanvasContentContext calls canvases.getContent, which slack-go does not wrap
 // yet. Slack answers not_allowed_token_type to a browser-session token.
 func (c *WebClient) GetCanvasContentContext(ctx context.Context, canvasID, format string) (string, error) {
-	token := c.oauthToken()
-	if token == "" {
-		return "", ErrUserOAuthRequired
-	}
 	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
-		URL:   strings.TrimRight(c.client.authResponse.URL, "/") + "/api/canvases.getContent",
-		Token: token,
+		URL:   c.client.apiBase() + "canvases.getContent",
+		Token: c.token(),
 		Form:  url.Values{"canvas_id": {canvasID}, "content_type": {format}},
 	})
 	if err != nil {
@@ -185,12 +202,17 @@ func (c *WebClient) LookupCanvasSectionsContext(ctx context.Context, params slac
 	return c.resolve().LookupCanvasSectionsContext(ctx, params)
 }
 
+// Draft is a Slack draft. Blocks is the draft's content as Slack stores it,
+// set on drafts read back from Slack. Text is what CreateDraft and
+// UpdateDraft send; on a draft read back it is Blocks rendered as text, which
+// moves to the handler once it renders Blocks itself.
 type Draft struct {
-	ID        string `json:"id"`
-	ChannelID string `json:"channel_id"`
-	ThreadTS  string `json:"thread_ts,omitempty"`
-	Text      string `json:"text"`
-	UpdatedTS string `json:"updated_ts,omitempty"`
+	ID        string       `json:"id"`
+	ChannelID string       `json:"channel_id"`
+	ThreadTS  string       `json:"thread_ts,omitempty"`
+	Text      string       `json:"text"`
+	Blocks    slack.Blocks `json:"-"`
+	UpdatedTS string       `json:"updated_ts,omitempty"`
 }
 
 type DraftPage struct {
@@ -212,7 +234,7 @@ type DraftsAPI interface {
 type BrowserDraftsProvider struct{ client *MCPSlackClient }
 
 func (ap *ApiProvider) Drafts() DraftsAPI {
-	return &BrowserDraftsProvider{client: ap.client.(*MCPSlackClient)}
+	return &BrowserDraftsProvider{client: &ap.client}
 }
 
 type draftsListPage struct {
@@ -294,7 +316,7 @@ func (p *BrowserDraftsProvider) DeleteDraft(ctx context.Context, id, expectedUpd
 }
 
 func providerDraft(draft edge.Draft) Draft {
-	result := Draft{ID: draft.ID, UpdatedTS: draft.LastUpdatedTS, Text: text.BlocksToText(draft.Blocks)}
+	result := Draft{ID: draft.ID, UpdatedTS: draft.LastUpdatedTS, Blocks: draft.Blocks, Text: text.BlocksToText(draft.Blocks)}
 	if len(draft.Destinations) != 0 {
 		result.ChannelID = draft.Destinations[0].ChannelID
 		result.ThreadTS = draft.Destinations[0].ThreadTS
@@ -335,33 +357,23 @@ type SemanticSearchAPI interface {
 	SearchSemantic(context.Context, SemanticSearchRequest) (SemanticSearchPage, error)
 }
 
-type semanticSlackAPI interface {
-	SearchSemanticContext(context.Context, SemanticSearchRequest) (SemanticSearchPage, error)
+var _ SemanticSearchAPI = (*WebClient)(nil)
+
+// SemanticSearch is the Web API client; handlers take it as SemanticSearchAPI.
+func (ap *ApiProvider) SemanticSearch() SemanticSearchAPI {
+	return ap.WebAPI()
 }
 
-type SemanticSearchProvider struct{ client semanticSlackAPI }
-
-func NewSemanticSearchProvider(client semanticSlackAPI) *SemanticSearchProvider {
-	return &SemanticSearchProvider{client: client}
-}
-
-func (ap *ApiProvider) SemanticSearch() *SemanticSearchProvider {
-	return NewSemanticSearchProvider(ap.WebAPI())
-}
-
-func (p *SemanticSearchProvider) SearchSemantic(ctx context.Context, request SemanticSearchRequest) (SemanticSearchPage, error) {
-	page, err := p.client.SearchSemanticContext(ctx, request)
+// SearchSemantic calls assistant.search.context, which slack-go does not wrap.
+func (c *WebClient) SearchSemantic(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
+	page, err := c.searchSemantic(ctx, params)
 	if err != nil {
 		return SemanticSearchPage{}, wrapSlack("semantic search", err)
 	}
 	return page, nil
 }
 
-func (c *WebClient) SearchSemanticContext(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
-	token := c.oauthToken()
-	if token == "" {
-		return SemanticSearchPage{}, errors.New("OAuth token unavailable")
-	}
+func (c *WebClient) searchSemantic(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
 	form := url.Values{"query": {params.Query}}
 	for _, value := range params.ChannelTypes {
 		form.Add("channel_types", value)
@@ -382,8 +394,8 @@ func (c *WebClient) SearchSemanticContext(ctx context.Context, params SemanticSe
 		form.Set("limit", strconv.Itoa(params.Limit))
 	}
 	body, err := slackhttp.Post(ctx, c.client.httpClient, slackhttp.Request{
-		URL:   strings.TrimRight(c.client.authResponse.URL, "/") + "/api/assistant.search.context",
-		Token: token,
+		URL:   c.client.apiBase() + "assistant.search.context",
+		Token: c.token(),
 		Form:  form,
 	})
 	if err != nil {

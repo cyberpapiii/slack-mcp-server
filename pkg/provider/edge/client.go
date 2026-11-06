@@ -9,7 +9,6 @@ import (
 // client.* API
 
 type clientCountsForm struct {
-	BaseRequest
 	ThreadCountsByChannel bool `json:"thread_counts_by_channel"`
 	OrgWideAware          bool `json:"org_wide_aware"`
 	IncludeFileChannels   bool `json:"include_file_channels"`
@@ -33,7 +32,6 @@ type ChannelSnapshot struct {
 
 func (cl *Client) ClientCounts(ctx context.Context) (ClientCountsResponse, error) {
 	form := clientCountsForm{
-		BaseRequest:           BaseRequest{Token: cl.token},
 		ThreadCountsByChannel: true,
 		OrgWideAware:          true,
 		IncludeFileChannels:   true,
@@ -50,7 +48,6 @@ func (cl *Client) ClientCounts(ctx context.Context) (ClientCountsResponse, error
 // activity.feed API
 
 type activityFeedForm struct {
-	BaseRequest
 	Limit               int    `json:"limit"`
 	Types               string `json:"types"`
 	Mode                string `json:"mode"`
@@ -101,7 +98,6 @@ type ActivityMessage struct {
 
 func (cl *Client) ActivityFeed(ctx context.Context, limit int) (ActivityFeedResponse, error) {
 	form := activityFeedForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		Limit:           limit,
 		Types:           "thread_v2,at_user,at_user_group,at_channel,at_everyone",
 		Mode:            "priority_unreads_v1",
@@ -118,7 +114,6 @@ func (cl *Client) ActivityFeed(ctx context.Context, limit int) (ActivityFeedResp
 // activity.markRead API
 
 type activityMarkReadForm struct {
-	BaseRequest
 	Type   string `json:"type"`
 	FeedTs string `json:"feed_ts"`
 	Key    string `json:"key"`
@@ -127,7 +122,6 @@ type activityMarkReadForm struct {
 
 func (cl *Client) ActivityMarkRead(ctx context.Context, itemType, feedTs, key string) error {
 	form := activityMarkReadForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		Type:            itemType,
 		FeedTs:          feedTs,
 		Key:             key,

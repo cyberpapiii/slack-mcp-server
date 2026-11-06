@@ -8,7 +8,6 @@ import (
 // client.userBoot API
 
 type clientUserBootForm struct {
-	BaseRequest
 	MinChannelUpdated          int64 `json:"min_channel_updated"`
 	IncludeMinVersionBumpCheck int   `json:"include_min_version_bump_check"`
 	VersionTS                  int64 `json:"version_ts"`
@@ -19,7 +18,6 @@ type clientUserBootForm struct {
 func (cl *Client) ClientUserBoot(ctx context.Context) (*ClientUserBootResponse, error) {
 	future := time.Now().Add(24 * time.Hour)
 	form := clientUserBootForm{
-		BaseRequest:                BaseRequest{Token: cl.token},
 		IncludeMinVersionBumpCheck: 1,
 		VersionTS:                  future.Unix(),
 		BuildVersionTS:             future.Unix(),

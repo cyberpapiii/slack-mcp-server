@@ -5,6 +5,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestGetCacheTTL(t *testing.T) {
@@ -53,7 +57,7 @@ func TestGetCacheTTL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("SLACK_MCP_CACHE_TTL", tt.envValue)
-			assert.Equal(t, tt.expected, getCacheTTL())
+			assert.Equal(t, tt.expected, cacheConfigFromEnv(zap.NewNop()).ttl)
 		})
 	}
 }
@@ -104,7 +108,22 @@ func TestGetMinRefreshInterval(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("SLACK_MCP_MIN_REFRESH_INTERVAL", tt.envValue)
-			assert.Equal(t, tt.expected, getMinRefreshInterval())
+			assert.Equal(t, tt.expected, cacheConfigFromEnv(zap.NewNop()).minRefreshInterval)
 		})
 	}
+}
+
+// A value that falls back to the default used to do so silently.
+func TestUnitBadCacheDurationIsLogged(t *testing.T) {
+	t.Setenv("SLACK_MCP_CACHE_TTL", "1 day")
+	t.Setenv("SLACK_MCP_MIN_REFRESH_INTERVAL", "-5s")
+	core, logs := observer.New(zapcore.WarnLevel)
+
+	config := cacheConfigFromEnv(zap.New(core))
+
+	assert.Equal(t, defaultCacheTTL, config.ttl)
+	assert.Equal(t, defaultMinRefreshInterval, config.minRefreshInterval)
+	require.Equal(t, 2, logs.Len())
+	assert.Contains(t, logs.All()[0].Message, "SLACK_MCP_CACHE_TTL")
+	assert.Contains(t, logs.All()[1].Message, "SLACK_MCP_MIN_REFRESH_INTERVAL")
 }

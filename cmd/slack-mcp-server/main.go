@@ -19,6 +19,10 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// defaultPreset is the tool preset when neither an enabled-tools list nor
+// SLACK_MCP_TOOL_PRESET names one.
+const defaultPreset = "daily-power"
+
 var defaultSseHost = "127.0.0.1"
 var defaultSsePort = 13080
 
@@ -63,12 +67,8 @@ func main() {
 	if err != nil {
 		fatal(logger, "error in a channel allowlist", err)
 	}
-	for _, name := range capability.ChannelAllowlists() {
-		if value := os.Getenv(name); envutil.IsFalsy(value) {
-			logger.Warn(name+"="+value+" is treated as a channel allowlist and blocks every channel; unset it, or drop the tool from SLACK_MCP_ENABLED_TOOLS to disable it",
-				zap.String("context", "console"),
-			)
-		}
+	for _, w := range settings.Warnings {
+		logger.Warn(w, zap.String("context", "console"))
 	}
 	warnRemovedGateVars(logger)
 
@@ -91,7 +91,7 @@ func main() {
 		logger.Info("Cache loading disabled via --no-cache flag",
 			zap.String("context", "console"),
 		)
-	} else if provider.IsDemoCredentials() {
+	} else if p.Mode() == provider.ModeDemo {
 		// Register before Serve so early tools/list sees cache-dependent tools.
 		p.SkipCache()
 		s.RegisterCacheDependentTools()
@@ -150,7 +150,7 @@ func main() {
 // without a restart.
 func logStartupAuthStatus(p *provider.ApiProvider, logger *zap.Logger) {
 	if reason := p.BrowserDegradedReason(); reason != "" && !p.BrowserFeaturesAvailable() {
-		logger.Warn("Browser session auth degraded: browser-session tools fail until the browser credential works again; the server retries every 5 minutes",
+		logger.Warn("Browser session auth degraded: browser-session tools fail until the browser credential works again; the server retries every "+provider.BrowserReprobeEvery(),
 			zap.String("context", "console"),
 			zap.Strings("tools", capability.BrowserNames()),
 			zap.String("reason", reason),
@@ -176,7 +176,7 @@ func resolveEnabledTools(explicit, preset string) ([]string, error) {
 		return tools, nil
 	}
 	if preset == "" {
-		preset = "daily-power"
+		preset = defaultPreset
 	}
 	return capability.Preset(preset)
 }
@@ -213,10 +213,10 @@ func listenHostPort() (host, port string) {
 
 func newLogger(transport string) (*zap.Logger, error) {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
-	if envLevel := os.Getenv("SLACK_MCP_LOG_LEVEL"); envLevel != "" {
-		if err := atomicLevel.UnmarshalText([]byte(envLevel)); err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid log level '%s': %v, using 'info'\n", envLevel, err)
-		}
+	envLevel := os.Getenv("SLACK_MCP_LOG_LEVEL")
+	var levelErr error
+	if envLevel != "" {
+		levelErr = atomicLevel.UnmarshalText([]byte(envLevel))
 	}
 
 	useJSON := shouldUseJSONFormat()
@@ -282,8 +282,13 @@ func newLogger(transport string) (*zap.Logger, error) {
 	}
 
 	logger = logger.With(zap.String("app", "slack-mcp-server"))
+	// Plug discards stderr, so the bad value is reported where the rest of
+	// the log goes.
+	if levelErr != nil {
+		logger.Warn("SLACK_MCP_LOG_LEVEL is not a log level; using info", zap.String("value", envLevel), zap.Error(levelErr))
+	}
 
-	return logger, err
+	return logger, nil
 }
 
 func shouldUseJSONFormat() bool {

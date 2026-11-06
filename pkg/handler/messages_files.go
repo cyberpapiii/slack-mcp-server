@@ -14,6 +14,7 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/slack-go/slack"
 )
 
 const (
@@ -33,7 +34,7 @@ type MessageFilesService interface {
 	Schedule(context.Context, string, string, time.Time, string) (provider.MessageMutation, error)
 	Update(context.Context, string, string, string) (provider.MessageMutation, error)
 	Delete(context.Context, string, string) (provider.MessageMutation, error)
-	GetMessage(context.Context, string, string) (provider.MessageSnapshot, error)
+	GetMessage(context.Context, string, string) (slack.Message, error)
 }
 
 type FileUploadData struct {
@@ -47,12 +48,12 @@ type FileUploadData struct {
 type MessageMutationData struct {
 	Action string `json:"action"`
 	ApprovalPhase
-	ChannelID          string                    `json:"channel_id"`
-	Timestamp          string                    `json:"timestamp,omitempty"`
-	ScheduledMessageID string                    `json:"scheduled_message_id,omitempty"`
-	PostAt             string                    `json:"post_at,omitempty"`
-	Target             *provider.MessageSnapshot `json:"target,omitempty"`
-	Outcome            string                    `json:"outcome"`
+	ChannelID          string           `json:"channel_id"`
+	Timestamp          string           `json:"timestamp,omitempty"`
+	ScheduledMessageID string           `json:"scheduled_message_id,omitempty"`
+	PostAt             string           `json:"post_at,omitempty"`
+	Target             *MessageSnapshot `json:"target,omitempty"`
+	Outcome            string           `json:"outcome"`
 }
 
 type MessageMutationResult = ToolResult[MessageMutationData]
@@ -146,6 +147,15 @@ func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.Ca
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
 }
 
+// MessageSnapshot is the message a delete would remove, as its approval shows
+// it.
+type MessageSnapshot struct {
+	ChannelID string `json:"channel_id"`
+	Timestamp string `json:"timestamp"`
+	Text      string `json:"text"`
+	UserID    string `json:"user_id,omitempty"`
+}
+
 func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
@@ -159,10 +169,11 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	if err := h.settings.requireChannel(capability.MessagesDelete, channelID); err != nil {
 		return nil, err
 	}
-	target, err := h.service.GetMessage(ctx, channelID, timestamp)
+	message, err := h.service.GetMessage(ctx, channelID, timestamp)
 	if err != nil {
 		return nil, TypeError(err, false)
 	}
+	target := MessageSnapshot{ChannelID: channelID, Timestamp: message.Timestamp, Text: message.Text, UserID: message.User}
 	arguments := struct {
 		ChannelID string `json:"channel_id"`
 		Timestamp string `json:"timestamp"`

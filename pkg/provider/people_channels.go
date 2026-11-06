@@ -334,16 +334,12 @@ func (c *WebClient) UpdateUserProfileContext(ctx context.Context, update UserPro
 	if err != nil {
 		return nil, err
 	}
-	token := c.oauthToken()
-	if token == "" {
-		token = c.client.authProvider.SlackToken()
-	}
 	var result struct {
 		Profile *slack.UserProfile `json:"profile"`
 	}
 	err = slackhttp.Call(ctx, c.client.httpClient, slackhttp.Request{
 		URL:    slackhttp.SlackAPIBase() + "users.profile.set",
-		Token:  token,
+		Token:  c.token(),
 		Bearer: true,
 		Form:   url.Values{"profile": {string(profileJSON)}},
 	}, &result)

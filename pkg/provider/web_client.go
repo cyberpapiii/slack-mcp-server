@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/slack-go/slack"
 )
 
@@ -19,13 +20,16 @@ import (
 // healthy and every read tool worked. That split cost a day of investigation.
 //
 // Every method here resolves the client at call time, so storing a *WebClient
-// for the life of the process is safe by construction. That is the point of the
+// for the life of the process is safe by construction. The methods Slack
+// throttles hard (conversations.replies, search.messages) wait on their bucket
+// in limiter.SlackPacing, and the reads retry a 429 under limiter.Retries, so
+// callers just call them. That is the point of the
 // type: the old accessor returned a snapshot that looked like a live handle,
 // and nothing in the type system told the two apart.
 //
 // The hand-built calls slack-go does not wrap (users.profile.set,
 // canvases.getContent, assistant.search.context, Lists) live here too, reading
-// the current OAuth access token the same way.
+// the current token the same way.
 type WebClient struct {
 	client *MCPSlackClient
 }
@@ -34,22 +38,30 @@ func (c *WebClient) resolve() *slack.Client {
 	return c.client.standardSlackClient()
 }
 
-// oauthToken is the current OAuth access token, or "" on a browser session.
-func (c *WebClient) oauthToken() string {
-	token, _ := c.client.oauthAccessToken.Load().(string)
+// token is the token the current Web API client carries.
+func (c *WebClient) token() string {
+	token, _ := c.client.token.Load().(string)
 	return token
 }
 
-func (c *WebClient) AuthTest() (*slack.AuthTestResponse, error) {
-	return c.resolve().AuthTest()
+func (c *WebClient) GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
+	return limiter.Paced(ctx, c.client.pacing, "conversations.history", func() (*slack.GetConversationHistoryResponse, error) {
+		return c.resolve().GetConversationHistoryContext(ctx, params)
+	})
 }
 
-func (c *WebClient) GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
-	return c.resolve().GetConversationHistoryContext(ctx, params)
+type repliesPage struct {
+	messages []slack.Message
+	hasMore  bool
+	cursor   string
 }
 
 func (c *WebClient) GetConversationRepliesContext(ctx context.Context, params *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error) {
-	return c.resolve().GetConversationRepliesContext(ctx, params)
+	page, err := limiter.Paced(ctx, c.client.pacing, "conversations.replies", func() (repliesPage, error) {
+		messages, hasMore, cursor, err := c.resolve().GetConversationRepliesContext(ctx, params)
+		return repliesPage{messages, hasMore, cursor}, err
+	})
+	return page.messages, page.hasMore, page.cursor, err
 }
 
 func (c *WebClient) GetConversationInfoContext(ctx context.Context, input *slack.GetConversationInfoInput) (*slack.Channel, error) {
@@ -116,8 +128,17 @@ func (c *WebClient) RemoveReactionContext(ctx context.Context, name string, item
 	return c.resolve().RemoveReactionContext(ctx, name, item)
 }
 
+type searchPage struct {
+	messages *slack.SearchMessages
+	files    *slack.SearchFiles
+}
+
 func (c *WebClient) SearchContext(ctx context.Context, query string, params slack.SearchParameters) (*slack.SearchMessages, *slack.SearchFiles, error) {
-	return c.resolve().SearchContext(ctx, query, params)
+	page, err := limiter.Paced(ctx, c.client.pacing, "search.messages", func() (searchPage, error) {
+		messages, files, err := c.resolve().SearchContext(ctx, query, params)
+		return searchPage{messages, files}, err
+	})
+	return page.messages, page.files, err
 }
 
 func (c *WebClient) GetFilesContext(ctx context.Context, params slack.GetFilesParameters) ([]slack.File, *slack.Paging, error) {

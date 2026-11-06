@@ -66,7 +66,7 @@ func (ap *ApiProvider) spawnBackgroundRefresh(f *refreshFlight, what string, fet
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(ap.lifetime(), ap.backgroundRefreshTimeout)
+		ctx, cancel := context.WithTimeout(ap.ctx, ap.backgroundRefreshTimeout)
 		defer cancel()
 		var err error
 		defer func() { f.finish(call, err) }()

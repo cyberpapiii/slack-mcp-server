@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
-	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
@@ -17,9 +17,8 @@ import (
 )
 
 type SlackAPI interface {
-	AuthTest() (*slack.AuthTestResponse, error)
 	GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error)
-	GetUsersInfo(users ...string) (*[]slack.User, error)
+	GetUsersInfoContext(ctx context.Context, users ...string) (*[]slack.User, error)
 	MarkConversationContext(ctx context.Context, channel, ts string) error
 	LeaveConversationContext(ctx context.Context, channelID string) (bool, error)
 	GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error)
@@ -39,6 +38,10 @@ type SlackAPI interface {
 	GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error)
 }
 
+// MCPSlackClient is the server's Slack session: the Web API client for the
+// primary token, the browser session's edge client, and the managed OAuth
+// rotation that replaces the Web API client. ApiProvider holds it by value, so
+// the zero value is a session without credentials.
 type MCPSlackClient struct {
 	slackClient *slack.Client
 	// edgeClient is swapped when a degraded browser session recovers.
@@ -47,26 +50,28 @@ type MCPSlackClient struct {
 	// every direct Web API call reuses it instead of dialing a fresh pool.
 	httpClient *http.Client
 
-	authResponse *slack.AuthTestResponse
-	authProvider slackcreds.Credentials
+	authResponse slack.AuthTestResponse
 	logger       *zap.Logger
 
 	mode         CredentialMode
 	isEnterprise bool
+	// pacing is limiter.SlackPacing() once connected; nil (no pacing) in
+	// tests that build a client by hand.
+	pacing limiter.Pacing
 
-	browserState         atomic.Int32
-	browserReason        atomic.Value
-	browserNotified      atomic.Bool
-	browserProbe         browserProbeFunc
-	oauthClientMu        sync.RWMutex
-	oauthManager         *oauthcred.Manager
-	oauthGeneration      atomic.Uint64
-	oauthAccessToken     atomic.Value
-	oauthRuntimeState    atomic.Value
-	managedClientFactory func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error)
+	browserState    atomic.Int32
+	browserReason   atomic.Value
+	browserNotified atomic.Bool
+	browserProbe    browserProbeFunc
+	oauthClientMu   sync.RWMutex
+	oauthManager    *oauthcred.Manager
+	oauthGeneration atomic.Uint64
+	// token is the token Web API calls carry: the primary credential's, then
+	// each rotated OAuth access token. On a browser session it is the xoxc.
+	token             atomic.Value
+	oauthRuntimeState atomic.Value
 	// oauthRefreshMu is held for one managed OAuth refresh; Close waits on it.
-	oauthRefreshMu     sync.Mutex
-	oauthShutdownGrace time.Duration // test override for oauthShutdownGrace
+	oauthRefreshMu sync.Mutex
 }
 
 func demoAuthResponse() *slack.AuthTestResponse {
@@ -80,16 +85,12 @@ func demoAuthResponse() *slack.AuthTestResponse {
 }
 
 // authTest builds the HTTP client for authProvider's credentials and proves
-// them against auth.test. Demo credentials skip the network entirely.
-func authTest(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
+// them against auth.test.
+func authTest(authProvider slackcreds.Value, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
 	httpClient, err := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 	if err != nil {
 		return nil, nil, err
 	}
-	if demo {
-		return httpClient, demoAuthResponse(), nil
-	}
-
 	slackClient := slack.New(authProvider.SlackToken(),
 		slack.OptionHTTPClient(httpClient),
 		slack.OptionAPIURL(slackhttp.SlackAPIBase()),
@@ -106,36 +107,41 @@ func authTest(authProvider slackcreds.Credentials, demo bool, logger *zap.Logger
 	return httpClient, authResp, nil
 }
 
-func newMCPSlackClient(authProvider slackcreds.Credentials, demo, browserConfigured bool, logger *zap.Logger) (*MCPSlackClient, error) {
-	httpClient, authResp, err := authTest(authProvider, demo, logger)
+// connect authenticates authProvider and sets c up around it. Demo mode never
+// reaches Slack: it answers auth.test itself.
+func (c *MCPSlackClient) connect(authProvider slackcreds.Value, mode CredentialMode, logger *zap.Logger) error {
+	var httpClient *http.Client
+	var authResp *slack.AuthTestResponse
+	var err error
+	if mode == ModeDemo {
+		httpClient, err = transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
+		authResp = demoAuthResponse()
+	} else {
+		httpClient, authResp, err = authTest(authProvider, logger)
+	}
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	slackClient := slack.New(authProvider.SlackToken(),
-		slack.OptionHTTPClient(httpClient),
-		slack.OptionAPIURL(authResp.URL+"api/"),
-	)
-
-	edgeClient := edge.NewWithInfo(authResp, authProvider.SlackToken(),
-		httpClient,
-		edge.OptionLogger(logger),
-	)
-
 	token := authProvider.SlackToken()
-	client := &MCPSlackClient{
-		slackClient:  slackClient,
-		httpClient:   httpClient,
-		authResponse: authResp,
-		authProvider: authProvider,
-		logger:       logger,
-		mode:         credentialModeFor(token, demo, browserConfigured),
-		isEnterprise: authResp.EnterpriseID != "",
-	}
-	client.edgeClient.Store(edgeClient)
-	client.oauthAccessToken.Store(token)
-	client.initBrowserState()
-	return client, nil
+	c.httpClient = httpClient
+	c.authResponse = *authResp
+	c.logger = logger
+	c.mode = mode
+	c.isEnterprise = authResp.EnterpriseID != ""
+	c.slackClient = slack.New(token,
+		slack.OptionHTTPClient(httpClient),
+		slack.OptionAPIURL(c.apiBase()),
+	)
+	c.pacing = limiter.SlackPacing()
+	c.edgeClient.Store(edge.NewWithInfo(authResp, token, httpClient, logger, c.pacing))
+	c.token.Store(token)
+	c.initBrowserState()
+	return nil
+}
+
+// apiBase is the Web API root on the workspace host.
+func (c *MCPSlackClient) apiBase() string {
+	return slackhttp.WorkspaceAPIBase(c.authResponse.URL)
 }
 
 func (c *MCPSlackClient) standardSlackClient() *slack.Client {
@@ -144,20 +150,12 @@ func (c *MCPSlackClient) standardSlackClient() *slack.Client {
 	return c.slackClient
 }
 
-func (c *MCPSlackClient) AuthTest() (*slack.AuthTestResponse, error) {
-	if c.authResponse != nil {
-		return c.authResponse, nil
-	}
-
-	return c.slackClient.AuthTest()
-}
-
 func (c *MCPSlackClient) GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error) {
 	return c.standardSlackClient().GetUsersContext(ctx, options...)
 }
 
-func (c *MCPSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
-	return c.standardSlackClient().GetUsersInfo(users...)
+func (c *MCPSlackClient) GetUsersInfoContext(ctx context.Context, users ...string) (*[]slack.User, error) {
+	return c.standardSlackClient().GetUsersInfoContext(ctx, users...)
 }
 
 func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, ts string) error {
@@ -165,8 +163,4 @@ func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, t
 		return ErrUserOAuthRequired
 	}
 	return c.standardSlackClient().MarkConversationContext(ctx, channel, ts)
-}
-
-func (c *MCPSlackClient) AuthResponse() *slack.AuthTestResponse {
-	return c.authResponse
 }

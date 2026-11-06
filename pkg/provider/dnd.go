@@ -6,13 +6,8 @@ import (
 	"github.com/slack-go/slack"
 )
 
-type DNDClient interface {
-	GetDNDInfoContext(context.Context, *string) (*slack.DNDStatus, error)
-	SetSnoozeContext(context.Context, int) (*slack.DNDStatus, error)
-	EndSnoozeContext(context.Context) (*slack.DNDStatus, error)
-}
-
-func (ap *ApiProvider) DND() DNDClient {
+// DND is the Web API client; the handler takes it as handler.DNDAPI.
+func (ap *ApiProvider) DND() *WebClient {
 	return ap.WebAPI()
 }
 

@@ -3,14 +3,12 @@ package edge
 import (
 	"context"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/slack-go/slack"
 )
 
 // im.* API
 
 type imListForm struct {
-	BaseRequest
 	GetLatest    bool   `json:"get_latest"`
 	GetReadState bool   `json:"get_read_state"`
 	Cursor       string `json:"cursor,omitempty"`
@@ -24,12 +22,10 @@ type imListResponse struct {
 
 func (cl *Client) imList(ctx context.Context) ([]Channel, error) {
 	form := imListForm{
-		BaseRequest:     BaseRequest{Token: cl.token},
 		GetLatest:       true,
 		GetReadState:    true,
 		WebClientFields: webclientReason("guided-search-people-empty-state"),
 	}
-	lim := limiter.Tier2boost
 	var IMs []Channel
 	for {
 		var r imListResponse
@@ -41,9 +37,6 @@ func (cl *Client) imList(ctx context.Context) ([]Channel, error) {
 			break
 		}
 		form.Cursor = r.ResponseMetadata.Cursor
-		if err := lim.Wait(ctx); err != nil {
-			return nil, err
-		}
 	}
 	return IMs, nil
 }

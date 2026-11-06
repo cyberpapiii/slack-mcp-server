@@ -1,7 +1,9 @@
 // Package edge provides a limited implementation of undocumented Slack Edge
 // API necessary to get the data from a slack workspace.
 //
-// A rate-limited call is retried once, after Slack's Retry-After.
+// Each call waits on its method's bucket in the client's pacing table, and a
+// rate-limited call is retried under limiter.Retries, after Slack's
+// Retry-After.
 package edge
 
 import (
@@ -25,82 +27,53 @@ type Client struct {
 	webclientAPI string
 	token        string
 	logger       *zap.Logger
-}
-
-type Option func(*Client)
-
-func OptionLogger(logger *zap.Logger) Option {
-	return func(cl *Client) {
-		cl.logger = logger
-	}
+	pacing       limiter.Pacing
 }
 
 // NewWithInfo builds a client for the workspace info describes without
 // calling auth.test; the caller must ensure that the token is valid.
-// httpClient carries the proxy and TLS settings.
-func NewWithInfo(info *slack.AuthTestResponse, token string, httpClient slackhttp.Doer, opt ...Option) *Client {
-	c := &Client{
+// httpClient carries the proxy and TLS settings; pacing is
+// limiter.SlackPacing() outside tests.
+func NewWithInfo(info *slack.AuthTestResponse, token string, httpClient slackhttp.Doer, logger *zap.Logger, pacing limiter.Pacing) *Client {
+	return &Client{
 		cl:           httpClient,
 		token:        token,
-		webclientAPI: info.URL + "api/",
+		webclientAPI: slackhttp.WorkspaceAPIBase(info.URL),
 		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", slackhttp.SlackDomain(), info.TeamID),
-		logger:       zap.NewNop(),
+		logger:       logger,
+		pacing:       pacing,
 	}
-
-	for _, o := range opt {
-		o(c)
-	}
-	return c
-}
-
-type BaseRequest struct {
-	Token string `json:"token"`
-}
-
-func (r *BaseRequest) setToken(token string) {
-	r.Token = token
-}
-
-func (r *BaseRequest) isTokenSet() bool {
-	return len(r.Token) > 0
-}
-
-type postRequest interface {
-	setToken(string)
-	isTokenSet() bool
 }
 
 const acceptLanguage = "en-NZ,en-AU;q=0.9,en;q=0.8"
 
 // postJSON posts req as JSON to the edge API and decodes the response into v.
-func (cl *Client) postJSON(ctx context.Context, path string, req postRequest, v any) error {
-	if !req.isTokenSet() {
-		req.setToken(cl.token)
-	}
+// The edge API takes the token in the body, so req carries it.
+func (cl *Client) postJSON(ctx context.Context, path string, req any, v any) error {
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
-	return cl.call(ctx, slackhttp.Request{URL: cl.edgeAPI + path, JSON: data}, v)
+	return cl.call(ctx, path, slackhttp.Request{URL: cl.edgeAPI + path, JSON: data}, v)
 }
 
 // postForm posts form, a struct with json tags, to a webclient API method and
-// decodes the response into v.
+// decodes the response into v. The token joins the form there.
 func (cl *Client) postForm(ctx context.Context, method string, form any, v any) error {
-	return cl.call(ctx, slackhttp.Request{URL: cl.webclientAPI + method, Token: cl.token, Form: values(form)}, v)
+	return cl.call(ctx, method, slackhttp.Request{URL: cl.webclientAPI + method, Token: cl.token, Form: values(form)}, v)
 }
 
-func (cl *Client) call(ctx context.Context, req slackhttp.Request, v any) error {
+func (cl *Client) call(ctx context.Context, method string, req slackhttp.Request, v any) error {
 	req.Header = http.Header{"Accept-Language": {acceptLanguage}}
 	attempt := 0
-	_, err := limiter.CallWithRetry(ctx, nil, 1, func() (struct{}, error) {
+	_, err := limiter.Paced(ctx, cl.pacing, method, func() (struct{}, error) {
 		attempt++
 		err := slackhttp.Call(ctx, cl.cl, req, v)
 		if wait, limited := slackhttp.RetryAfter(err); limited {
-			if attempt == 1 {
+			if attempt <= limiter.Retries {
 				cl.logger.Info("Edge call rate limited, waiting", zap.String("url", req.URL), zap.Duration("delay", wait))
 			} else {
-				cl.logger.Debug("Edge call still rate limited after one retry", zap.String("url", req.URL))
+				cl.logger.Debug("Edge call still rate limited after retrying", zap.String("url", req.URL))
 			}
 		}
 		return struct{}{}, err

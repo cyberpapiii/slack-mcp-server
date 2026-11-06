@@ -11,13 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestUnitMessageAtRequiresTheAskedTimestamp(t *testing.T) {
-	parent := slack.Message{Msg: slack.Msg{Timestamp: "1712345678.000100"}}
-	assert.Nil(t, messageAt(nil, "1712345678.000100"))
-	assert.Nil(t, messageAt([]slack.Message{parent}, "1712345678.000200"), "Slack answered with another message")
-	assert.Equal(t, &parent, messageAt([]slack.Message{parent}, "1712345678.000100"))
-}
-
 func TestUnitAColdCacheFailsOnlyNameLookups(t *testing.T) {
 	p := messagePipeline{api: &provider.ApiProvider{}, logger: zap.NewNop()}
 

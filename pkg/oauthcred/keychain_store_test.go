@@ -60,6 +60,18 @@ func TestUnitOAuthFileLockHonorsCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
+// Without a user cache directory the lock used to fall back to the working
+// directory, where the server and slack-mcp-auth each held their own.
+func TestUnitWithLockFailsWithoutACacheDirectory(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("LocalAppData", "")
+	ran := false
+	err := WithLock(context.Background(), func() error { ran = true; return nil })
+	require.ErrorContains(t, err, "locate OAuth lock")
+	assert.False(t, ran)
+}
+
 func TestUnitKeychainStoreLoadReportsMissingItem(t *testing.T) {
 	store, _ := newTestKeychainStore(t)
 	_, err := store.Load(context.Background())

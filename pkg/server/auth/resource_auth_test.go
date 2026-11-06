@@ -21,11 +21,11 @@ func TestUnitResourceMiddlewareRequiresTheAPIKey(t *testing.T) {
 	}
 	guarded := BuildResourceMiddleware("http", zap.NewNop())(next)
 
-	_, err := guarded(withAuthKey(context.Background(), "Bearer wrong"), mcp.ReadResourceRequest{})
+	_, err := guarded(withToken("Bearer wrong"), mcp.ReadResourceRequest{})
 	require.EqualError(t, err, "unauthorized")
 	assert.False(t, read)
 
-	_, err = guarded(withAuthKey(context.Background(), "Bearer my-secret"), mcp.ReadResourceRequest{})
+	_, err = guarded(withToken("Bearer my-secret"), mcp.ReadResourceRequest{})
 	require.NoError(t, err)
 	assert.True(t, read)
 

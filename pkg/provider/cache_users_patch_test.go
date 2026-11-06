@@ -23,7 +23,7 @@ type countingUsersInfoClient struct {
 	failAt  int // 1-based call number that returns an error; 0 never fails
 }
 
-func (c *countingUsersInfoClient) GetUsersInfo(ids ...string) (*[]slack.User, error) {
+func (c *countingUsersInfoClient) GetUsersInfoContext(_ context.Context, ids ...string) (*[]slack.User, error) {
 	c.calls++
 	c.batches = append(c.batches, append([]string(nil), ids...))
 	if c.failAt == c.calls {

@@ -23,6 +23,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// accountUsage says where the default account comes from. The server has no
+// default of its own, so a login saved under the fallback is used only once
+// the server's environment names it too.
+const accountUsage = "macOS Keychain account; defaults to $" + oauthcred.EnvKeychainAccount + ", else " + defaultAccount + ", which only this tool falls back to: the server uses the account $" + oauthcred.EnvKeychainAccount + " names"
+
+// defaultPreset is the server's default tool preset, whose scopes a login
+// asks for unless --preset names another.
+const defaultPreset = "daily-power"
+
+const presetUsage = "scope preset: " + defaultPreset + " or legacy-full"
+
 const (
 	defaultAccount     = "slack-mcp-local"
 	defaultRedirectURI = "http://127.0.0.1:19453/oauth/callback"
@@ -98,7 +109,7 @@ func runLogin(args []string) error {
 		return err
 	}
 	if options.clientID == "" {
-		return errors.New("Slack OAuth client ID is required; set SLACK_MCP_OAUTH_CLIENT_ID or use --client-id")
+		return errors.New("Slack OAuth client ID is required; set " + oauthcred.EnvClientID + " or use --client-id")
 	}
 	if options.teamID == "" || options.userID == "" {
 		return errors.New("expected Slack team and user IDs are required; use --team and --user")
@@ -181,13 +192,13 @@ func runLogin(args []string) error {
 func parseLoginOptions(args []string) (loginOptions, error) {
 	flags := flag.NewFlagSet("login", flag.ContinueOnError)
 	options := loginOptions{}
-	flags.StringVar(&options.clientID, "client-id", os.Getenv("SLACK_MCP_OAUTH_CLIENT_ID"), "Slack app client ID")
-	options.clientSecret = os.Getenv("SLACK_MCP_OAUTH_CLIENT_SECRET")
-	flags.StringVar(&options.account, "account", envOrDefault("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT", defaultAccount), "macOS Keychain account")
+	flags.StringVar(&options.clientID, "client-id", os.Getenv(oauthcred.EnvClientID), "Slack app client ID")
+	options.clientSecret = os.Getenv(oauthcred.EnvClientSecret)
+	flags.StringVar(&options.account, "account", envOrDefault(oauthcred.EnvKeychainAccount, defaultAccount), accountUsage)
 	options.redirectURI = defaultRedirectURI
 	flags.StringVar(&options.teamID, "team", os.Getenv("SLACK_MCP_OAUTH_TEAM_ID"), "expected Slack team ID")
 	flags.StringVar(&options.userID, "user", os.Getenv("SLACK_MCP_OAUTH_USER_ID"), "expected Slack user ID")
-	flags.StringVar(&options.preset, "preset", "daily-power", "scope preset: daily-power or legacy-full")
+	flags.StringVar(&options.preset, "preset", defaultPreset, presetUsage)
 	flags.BoolVar(&options.replace, "replace", false, "replace existing credential after exact identity validation")
 	flags.BoolVar(&options.noOpen, "no-open", false, "print authorization URL without opening browser")
 	if err := flags.Parse(args); err != nil {
@@ -308,7 +319,7 @@ func saveAuthorizedCredential(ctx context.Context, httpClient *http.Client, opti
 
 func runStatus(args []string) error {
 	flags := flag.NewFlagSet("status", flag.ContinueOnError)
-	account := flags.String("account", envOrDefault("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT", defaultAccount), "macOS Keychain account")
+	account := flags.String("account", envOrDefault(oauthcred.EnvKeychainAccount, defaultAccount), accountUsage)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -338,7 +349,7 @@ func runStatus(args []string) error {
 
 func runLogout(args []string) error {
 	flags := flag.NewFlagSet("logout", flag.ContinueOnError)
-	account := flags.String("account", envOrDefault("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT", defaultAccount), "macOS Keychain account")
+	account := flags.String("account", envOrDefault(oauthcred.EnvKeychainAccount, defaultAccount), accountUsage)
 	yes := flags.Bool("yes", false, "delete credential without another prompt")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -359,7 +370,7 @@ func runLogout(args []string) error {
 
 func runManifest(args []string) error {
 	flags := flag.NewFlagSet("manifest", flag.ContinueOnError)
-	preset := flags.String("preset", "daily-power", "scope preset: daily-power or legacy-full")
+	preset := flags.String("preset", defaultPreset, presetUsage)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

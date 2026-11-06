@@ -2,11 +2,13 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/slack-go/slack"
@@ -68,13 +70,19 @@ func TestCanvasProviderUsesPublicCanvasAPIsTruthfully(t *testing.T) {
 	assert.Equal(t, []string{"S1"}, document.SectionIDs)
 	assert.Empty(t, document.Limitation)
 
-	fake.contentErr = ErrUserOAuthRequired
+	fake.contentErr = slack.SlackErrorResponse{Err: "not_allowed_token_type"}
 	document, err = service.ReadCanvas(context.Background(), CanvasReadRequest{CanvasID: "F123"})
 	require.NoError(t, err)
 	assert.False(t, document.FullContentAvailable)
 	assert.Empty(t, document.Content)
 	assert.Equal(t, "preview", document.Preview)
-	assert.Contains(t, document.Limitation, "requires user OAuth")
+	assert.Contains(t, document.Limitation, "not_allowed_token_type")
+
+	for _, failure := range []error{&slack.RateLimitedError{RetryAfter: time.Second}, errors.New("connection reset"), slack.SlackErrorResponse{Err: "canvas_not_found"}} {
+		fake.contentErr = failure
+		_, err = service.ReadCanvas(context.Background(), CanvasReadRequest{CanvasID: "F123"})
+		require.ErrorContains(t, err, failure.Error(), "only a token refusal falls back to the preview")
+	}
 	fake.contentErr = nil
 
 	fake.contentCalls = 0
@@ -93,35 +101,45 @@ func TestCanvasProviderUsesPublicCanvasAPIsTruthfully(t *testing.T) {
 	assert.Equal(t, "replace", fake.edit.Changes[0].Operation)
 }
 
-type fakeSemanticSlack struct {
-	params SemanticSearchRequest
-	result SemanticSearchPage
-	err    error
-}
+func TestUnitSearchSemanticCallsAssistantSearchContext(t *testing.T) {
+	var form url.Values
+	body := `{"ok":true,"results":{"messages":[{"channel_id":"C1","message_ts":"1.2","content":"launch plan"}],"files":[{"file_id":"F1","uploader_user_id":"U1","content":"launch brief"}]},"response_metadata":{"next_cursor":"next"}}`
+	client := &MCPSlackClient{
+		authResponse: slack.AuthTestResponse{URL: "https://example.slack.com/"},
+		httpClient: &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+			assert.Equal(t, "https://example.slack.com/api/assistant.search.context", request.URL.String())
+			require.NoError(t, request.ParseForm())
+			form = request.PostForm
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		})},
+	}
+	client.token.Store("xoxp-test")
+	web := &WebClient{client: client}
 
-func (f *fakeSemanticSlack) SearchSemanticContext(_ context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
-	f.params = params
-	return f.result, f.err
-}
-
-func TestSemanticSearchProviderMapsAssistantContext(t *testing.T) {
-	response := SemanticSearchPage{Items: []SemanticSearchItem{{Kind: "message", ChannelID: "C1", MessageTS: "1.2", Content: "launch plan", Permalink: "https://example.slack.com/archives/C1/p12"}, {Kind: "file", FileID: "F1", Content: "launch brief"}}, NextCursor: "next"}
-	fake := &fakeSemanticSlack{result: response}
-	service := NewSemanticSearchProvider(fake)
-
-	page, err := service.SearchSemantic(context.Background(), SemanticSearchRequest{Query: "launch", ContentTypes: []string{"messages", "files"}, Limit: 10})
+	page, err := web.SearchSemantic(context.Background(), SemanticSearchRequest{Query: "launch", ContentTypes: []string{"messages", "files"}, Limit: 10})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"messages", "files"}, fake.params.ContentTypes)
+	assert.Equal(t, []string{"messages", "files"}, form["content_types"])
+	assert.Equal(t, "10", form.Get("limit"))
+	assert.Equal(t, "xoxp-test", form.Get("token"))
 	assert.Equal(t, "next", page.NextCursor)
+	require.Len(t, page.Items, 2)
 	assert.Equal(t, "launch plan", page.Items[0].Content)
 	assert.Equal(t, "F1", page.Items[1].FileID)
+	assert.Equal(t, "U1", page.Items[1].AuthorUserID, "a file's uploader stands in for a missing author")
+
+	body = `{"ok":false,"error":"missing_scope"}`
+	_, err = web.SearchSemantic(context.Background(), SemanticSearchRequest{Query: "launch"})
+	var slackErr slack.SlackErrorResponse
+	require.ErrorAs(t, err, &slackErr)
+	assert.Equal(t, "missing_scope", slackErr.Err)
+	assert.ErrorContains(t, err, "Slack semantic search failed")
 }
 
 func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {
 	var form url.Values
 	body := `{"ok":true,"content":"# Plan"}`
 	client := &MCPSlackClient{
-		authResponse: &slack.AuthTestResponse{URL: "https://example.slack.com/"},
+		authResponse: slack.AuthTestResponse{URL: "https://example.slack.com/"},
 		httpClient: &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 			assert.Equal(t, "https://example.slack.com/api/canvases.getContent", request.URL.String())
 			require.NoError(t, request.ParseForm())
@@ -131,13 +149,11 @@ func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {
 	}
 
 	web := &WebClient{client: client}
-	_, err := web.GetCanvasContentContext(context.Background(), "F1", "markdown")
-	require.ErrorIs(t, err, ErrUserOAuthRequired, "a browser-session client has no OAuth token to send")
-
-	client.oauthAccessToken.Store("xoxp-test")
+	client.token.Store("xoxp-test")
 	content, err := web.GetCanvasContentContext(context.Background(), "F1", "html")
 	require.NoError(t, err)
 	assert.Equal(t, "# Plan", content)
+	assert.Equal(t, "xoxp-test", form.Get("token"))
 	assert.Equal(t, "F1", form.Get("canvas_id"))
 	assert.Equal(t, "html", form.Get("content_type"))
 
@@ -160,17 +176,22 @@ func TestUnitDraftsErrorCarriesSlackCode(t *testing.T) {
 }
 
 func draftsClient(body string) *MCPSlackClient {
-	c := &MCPSlackClient{mode: ModeUserOAuthBrowser, logger: zap.NewNop()}
+	c := &MCPSlackClient{}
+	setUpDraftsClient(c, body)
+	return c
+}
+
+func setUpDraftsClient(c *MCPSlackClient, body string) {
+	c.mode, c.logger = ModeUserOAuthBrowser, zap.NewNop()
 	c.initBrowserState()
 	c.edgeClient.Store(edgeAnswering(body))
-	return c
 }
 
 func edgeAnswering(body string) *edge.Client {
 	return edge.NewWithInfo(&slack.AuthTestResponse{TeamID: "T1", URL: "https://example.slack.com/"}, "xoxc-test",
 		&http.Client{Transport: draftsRoundTrip(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-		})})
+		})}, zap.NewNop(), nil)
 }
 
 // Drafts used to capture the edge client once at startup, so a session the
@@ -180,8 +201,10 @@ func TestUnitDraftsFollowARecoveredBrowserSession(t *testing.T) {
 	t.Cleanup(func() { browserDegradationNotifier = origNotifier })
 	browserDegradationNotifier = func(string, *zap.Logger) {}
 
-	client := draftsClient(`{"ok":false,"error":"invalid_auth"}`)
-	drafts := (&ApiProvider{client: client}).Drafts()
+	ap := &ApiProvider{}
+	client := &ap.client
+	setUpDraftsClient(client, `{"ok":false,"error":"invalid_auth"}`)
+	drafts := ap.Drafts()
 
 	_, err := drafts.ListDrafts(context.Background(), "", 10)
 	require.ErrorIs(t, err, ErrBrowserSessionUnavailable, "dead auth degrades the session")

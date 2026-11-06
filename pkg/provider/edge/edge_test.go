@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/slack-go/slack"
+	"go.uber.org/zap"
 )
 
 // doFunc adapts a plain function to the httpClient interface.
@@ -32,7 +33,7 @@ func (c *closeRecorder) Close() error {
 
 func newTestClient(t *testing.T, fn doFunc) *Client {
 	t.Helper()
-	return NewWithInfo(&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"}, "xoxc-test", fn)
+	return NewWithInfo(&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"}, "xoxc-test", fn, zap.NewNop(), nil)
 }
 
 // TestUnitEdgeTransportErrorNilResponse covers the crash path: the transport
@@ -189,11 +190,11 @@ func jsonResponse(status int, body string) *http.Response {
 // newFixtureClient builds a Client whose transport is fake, via NewWithInfo.
 func newFixtureClient(t *testing.T, fake roundTripperFunc) *Client {
 	t.Helper()
-	return NewWithInfo(&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"}, "xoxc-test", &http.Client{Transport: fake})
+	return NewWithInfo(&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"}, "xoxc-test", &http.Client{Transport: fake}, zap.NewNop(), nil)
 }
 
 // TestUnitNewWithInfo pins the constructor's contract: the API bases derive
-// from the auth response and options are applied.
+// from the auth response and the HTTP client is used as given.
 func TestUnitNewWithInfo(t *testing.T) {
 	t.Run("derives API bases", func(t *testing.T) {
 		cl := newFixtureClient(t, nil)
@@ -205,13 +206,13 @@ func TestUnitNewWithInfo(t *testing.T) {
 		}
 	})
 
-	t.Run("applies options", func(t *testing.T) {
+	t.Run("uses the given HTTP client", func(t *testing.T) {
 		fn := doFunc(func(*http.Request) (*http.Response, error) {
 			return nil, errors.New("not called")
 		})
 		cl := newTestClient(t, fn)
 		if _, ok := cl.cl.(doFunc); !ok {
-			t.Fatalf("OptionHTTPClient was not applied, client is %T", cl.cl)
+			t.Fatalf("the HTTP client was not used, client is %T", cl.cl)
 		}
 	})
 }
@@ -262,7 +263,7 @@ func TestUnitPostFormDecode(t *testing.T) {
 			var r struct {
 				ResponseMetadata slack.ResponseMetadata `json:"response_metadata"`
 			}
-			err := cl.postForm(context.Background(), "test.endpoint", struct{ BaseRequest }{}, &r)
+			err := cl.postForm(context.Background(), "test.endpoint", struct{}{}, &r)
 
 			if tt.wantErr == "" {
 				if err != nil {

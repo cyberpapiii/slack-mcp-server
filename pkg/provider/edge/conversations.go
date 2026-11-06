@@ -10,7 +10,6 @@ import (
 // conversations.* API
 
 type conversationsGenericInfoForm struct {
-	BaseRequest
 	UpdatedChannels string `json:"updated_channels"`
 	WebClientFields
 }
@@ -33,9 +32,6 @@ func (cl *Client) conversationsGenericInfo(ctx context.Context, channelID ...str
 		return nil, err
 	}
 	form := conversationsGenericInfoForm{
-		BaseRequest: BaseRequest{
-			Token: cl.token,
-		},
 		UpdatedChannels: string(b),
 		WebClientFields: webclientReason("fallback:UnknownFetchManager"),
 	}
@@ -47,7 +43,6 @@ func (cl *Client) conversationsGenericInfo(ctx context.Context, channelID ...str
 }
 
 type conversationsLeaveRequest struct {
-	BaseRequest
 	Channel string `json:"channel"`
 }
 
@@ -57,8 +52,7 @@ type conversationsLeaveResponse struct {
 
 func (cl *Client) LeaveConversation(ctx context.Context, channelID string) (bool, error) {
 	form := conversationsLeaveRequest{
-		BaseRequest: BaseRequest{Token: cl.token},
-		Channel:     channelID,
+		Channel: channelID,
 	}
 
 	var r conversationsLeaveResponse

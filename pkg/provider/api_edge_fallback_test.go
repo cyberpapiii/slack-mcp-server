@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +27,9 @@ func TestIsBrowserSessionAuthError(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, false},
-		{"invalid_auth", errors.New("invalid_auth"), true},
-		{"not_authed", errors.New("not_authed"), true},
+		{"invalid_auth", slack.SlackErrorResponse{Err: "invalid_auth"}, true},
+		{"not_authed", slack.SlackErrorResponse{Err: "not_authed"}, true},
+		{"code as plain text", errors.New("invalid_auth"), false},
 		{"edge api error code", slack.SlackErrorResponse{Err: "token_revoked"}, true},
 		{"wrapped edge api error", fmt.Errorf("saved.list: %w: [ERROR] detail", slack.SlackErrorResponse{Err: "invalid_auth"}), true},
 		{"edge api non-auth code", slack.SlackErrorResponse{Err: "ratelimited"}, false},
@@ -125,11 +128,11 @@ func TestStandardSlackClientUsesOAuthClientWhenBrowserIsAttached(t *testing.T) {
 	c.browserState.Store(int32(browserStateActive))
 
 	assert.Same(t, oauthClient, c.standardSlackClient())
-	assert.True(t, (&ApiProvider{client: c}).Satisfies(capability.BrowserSession))
+	assert.True(t, (&ApiProvider{client: MCPSlackClient{mode: c.mode}}).Satisfies(capability.BrowserSession))
 }
 
 func TestAttachBrowserRejectsProviderIdentityMismatch(t *testing.T) {
-	c := &MCPSlackClient{authResponse: &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"}, logger: zap.NewNop()}
+	c := &MCPSlackClient{authResponse: slack.AuthTestResponse{TeamID: "T1", UserID: "U1"}, logger: zap.NewNop()}
 	browserAuth, err := slackcreds.New("xoxc-browser", "xoxd-cookie")
 	require.NoError(t, err)
 
@@ -142,20 +145,28 @@ func TestAttachBrowserRejectsProviderIdentityMismatch(t *testing.T) {
 func TestManagedOAuthRefreshReplacesRuntimeClient(t *testing.T) {
 	now := time.Now().UTC()
 	oldClient := slack.New("old")
-	newClient := slack.New("new")
 	store := &memoryStore{record: oauthcred.Record{
 		Version: oauthcred.RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 3,
 	}}
-	manager := oauthcred.NewManager(store, &hookRefresher{now: now}, nil)
-	c := &MCPSlackClient{slackClient: oldClient, oauthManager: manager, logger: zap.NewNop()}
-	c.oauthGeneration.Store(3)
-	c.managedClientFactory = func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error) {
-		return newClient, &slack.AuthTestResponse{TeamID: "T1", UserID: "U1"}, nil
+	manager := oauthcred.NewManager(store, &hookRefresher{now: now}, noLock)
+	var authTestToken string
+	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/auth.test", r.URL.Path)
+		authTestToken = r.FormValue("token")
+		_, _ = w.Write([]byte(`{"ok":true,"team_id":"T1","user_id":"U1"}`))
+	}))
+	t.Cleanup(slackServer.Close)
+	c := &MCPSlackClient{
+		slackClient: oldClient, oauthManager: manager, logger: zap.NewNop(),
+		httpClient: slackServer.Client(), authResponse: slack.AuthTestResponse{URL: slackServer.URL + "/"},
 	}
+	c.oauthGeneration.Store(3)
 
 	require.NoError(t, c.refreshManagedOAuthOnce(context.Background()))
-	assert.Same(t, newClient, c.standardSlackClient())
+	assert.NotSame(t, oldClient, c.standardSlackClient())
+	assert.Equal(t, "rotated-access", authTestToken, "the replacement client carries the rotated token")
+	assert.Equal(t, "rotated-access", (&WebClient{client: c}).token())
 	assert.Equal(t, uint64(4), c.oauthGeneration.Load())
 	assert.Equal(t, "live", c.oauthRuntimeState.Load())
 }

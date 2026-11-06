@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 const savedItemsHeader = "Channel,MsgID,DateCreated,DateDue,State,Type,TodoState,ItemID,Text"
@@ -281,7 +280,6 @@ func newStubSavedHandler(pages []provider.SavedPage, onPage func(n int), onItem 
 		apiProvider: &provider.ApiProvider{},
 		logger:      zap.NewNop(),
 		messages:    messagePipeline{api: &provider.ApiProvider{}, logger: zap.NewNop()},
-		pace:        rate.NewLimiter(rate.Inf, 0),
 		listPage: func(context.Context, string, int, string) (provider.SavedPage, error) {
 			page := pages[calls]
 			calls++

@@ -24,16 +24,12 @@ func TestDemoCredentialsBuildFullClient(t *testing.T) {
 			for k, v := range env {
 				t.Setenv(k, v)
 			}
-			require.True(t, IsDemoCredentials())
-
 			ap, err := New(zap.NewNop())
 			require.NoError(t, err)
 			defer ap.Close()
 			require.NotNil(t, ap.WebAPI(), "demo must expose the Web API surface")
 
-			auth, err := ap.Slack().AuthTest()
-			require.NoError(t, err)
-			assert.Equal(t, "TEAM123456", auth.TeamID)
+			assert.Equal(t, "TEAM123456", ap.Identity().TeamID)
 
 			assert.Equal(t, ModeDemo, ap.Mode())
 			for _, requirement := range []capability.Requirement{capability.UserToken, capability.UserOAuth, capability.BrowserSession} {

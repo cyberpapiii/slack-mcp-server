@@ -9,10 +9,7 @@ import (
 )
 
 func TestUpsertChannelAddsOpenedDMToSnapshot(t *testing.T) {
-	users := &UsersCache{
-		Users:    map[string]slack.User{"U1": {ID: "U1", Name: "alice"}},
-		UsersInv: map[string]string{"alice": "U1"},
-	}
+	users := newUsersCache([]slack.User{{ID: "U1", Name: "alice"}})
 	ap := newTestApiProvider(&fakeChannelsClient{}, users)
 	ap.channelsSnapshot.Store(&ChannelsCache{
 		Channels:    map[string]Channel{"C001": {ID: "C001", Name: "#general"}},

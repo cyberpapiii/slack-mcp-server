@@ -11,6 +11,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// OAuthCredentialStatus.State values.
+const (
+	OAuthStateUnavailable = "unavailable" // no usable OAuth login
+	OAuthStateConfigured  = "configured"  // a Keychain login with rotation, not yet loaded
+	OAuthStateFoundation  = "foundation"  // a Keychain login without a client to rotate it
+	OAuthStateLive        = "live"
+	OAuthStateDegraded    = "degraded" // the last rotation failed
+)
+
 type OAuthCredentialStatus struct {
 	Source             string `json:"source"`
 	RotationConfigured bool   `json:"rotation_configured"`
@@ -20,15 +29,15 @@ type OAuthCredentialStatus struct {
 }
 
 func (c CredentialConfig) oauthStatus() OAuthCredentialStatus {
-	status := OAuthCredentialStatus{Source: "not_configured", Store: "not_configured", State: "unavailable"}
+	status := OAuthCredentialStatus{Source: "not_configured", Store: "not_configured", State: OAuthStateUnavailable}
 	if c.OAuthKeychainAccount != "" {
 		status.Source = "keychain"
 		status.Store = "macos_keychain"
 		if c.OAuthClientID != "" {
 			status.RotationConfigured = true
-			status.State = "configured"
+			status.State = OAuthStateConfigured
 		} else {
-			status.State = "foundation"
+			status.State = OAuthStateFoundation
 			status.Reason = "OAuth client configuration is absent; authorization and rotation are unavailable"
 		}
 		return status
@@ -36,14 +45,14 @@ func (c CredentialConfig) oauthStatus() OAuthCredentialStatus {
 	if c.XOXP != "" {
 		status.Source = "static_user_oauth"
 		status.Store = "environment"
-		status.State = "live"
+		status.State = OAuthStateLive
 		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
 		return status
 	}
 	if c.XOXB != "" {
 		status.Source = "static_bot_oauth"
 		status.Store = "environment"
-		status.State = "live"
+		status.State = OAuthStateLive
 		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
 		return status
 	}
@@ -79,59 +88,36 @@ func loadManagedOAuth(ctx context.Context, creds CredentialConfig, logger *zap.L
 func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 	status := ap.creds.oauthStatus()
 	if ap.oauthLoadErr != nil {
-		status.State = "unavailable"
+		status.State = OAuthStateUnavailable
 		status.Reason = "stored OAuth login failed to load (" + ap.oauthLoadErr.Error() + "); run slack-mcp-auth login --replace, then restart"
 		return status
 	}
-	client, ok := ap.client.(*MCPSlackClient)
-	if ok && client != nil {
-		if state, loaded := client.oauthRuntimeState.Load().(string); loaded && state != "" {
-			status.State = state
-			if state == "live" {
-				status.Reason = ""
-			}
+	if state, loaded := ap.client.oauthRuntimeState.Load().(string); loaded && state != "" {
+		status.State = state
+		if state == OAuthStateLive {
+			status.Reason = ""
 		}
 	}
 	return status
 }
 
 func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oauthcred.Record) {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return
-	}
-	expected := oauthcred.IdentityOf(client.AuthResponse())
+	client := &ap.client
+	expected := oauthcred.IdentityOf(&client.authResponse)
 	manager.WithValidator(expected.Validator(func(ctx context.Context, token string) (*slack.AuthTestResponse, error) {
 		_, identity, err := client.managedSlackClient(ctx, token)
 		return identity, err
 	}))
 	client.oauthManager = manager
 	client.oauthGeneration.Store(record.Generation)
-	client.oauthRuntimeState.Store("live")
-	go client.runManagedOAuthRefresh(ap.lifetime())
+	client.oauthRuntimeState.Store(OAuthStateLive)
+	go client.runManagedOAuthRefresh(ap.ctx)
 }
 
 // managedSlackClient builds a Web API client for a rotated token. Rotated
 // tokens carry no cookies, so the primary HTTP client is shared as-is.
 func (c *MCPSlackClient) managedSlackClient(ctx context.Context, token string) (*slack.Client, *slack.AuthTestResponse, error) {
-	if c.managedClientFactory != nil {
-		return c.managedClientFactory(ctx, token)
-	}
-	httpClient := c.httpClient
-	if httpClient == nil {
-		var err error
-		httpClient, err = transportpkg.ProvideHTTPClient(nil, c.logger)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	options := []slack.Option{slack.OptionHTTPClient(httpClient)}
-	if c.authResponse != nil && c.authResponse.URL != "" {
-		options = append(options, slack.OptionAPIURL(c.authResponse.URL+"api/"))
-	} else {
-		options = append(options, slack.OptionAPIURL(slackhttp.SlackAPIBase()))
-	}
-	client := slack.New(token, options...)
+	client := slack.New(token, slack.OptionHTTPClient(c.httpClient), slack.OptionAPIURL(c.apiBase()))
 	identity, err := client.AuthTestContext(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -145,7 +131,7 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 	}
 	record, err := c.oauthManager.Current(ctx)
 	if err != nil {
-		c.oauthRuntimeState.Store("degraded")
+		c.oauthRuntimeState.Store(OAuthStateDegraded)
 		return err
 	}
 	if record.Generation == c.oauthGeneration.Load() {
@@ -153,15 +139,15 @@ func (c *MCPSlackClient) refreshManagedOAuthOnce(ctx context.Context) error {
 	}
 	replacement, _, err := c.managedSlackClient(ctx, record.AccessToken)
 	if err != nil {
-		c.oauthRuntimeState.Store("degraded")
+		c.oauthRuntimeState.Store(OAuthStateDegraded)
 		return err
 	}
 	c.oauthClientMu.Lock()
 	c.slackClient = replacement
 	c.oauthClientMu.Unlock()
 	c.oauthGeneration.Store(record.Generation)
-	c.oauthAccessToken.Store(record.AccessToken)
-	c.oauthRuntimeState.Store("live")
+	c.token.Store(record.AccessToken)
+	c.oauthRuntimeState.Store(OAuthStateLive)
 	return nil
 }
 
@@ -203,11 +189,7 @@ func (c *MCPSlackClient) refreshManagedOAuthTick(ctx context.Context) error {
 // waitForOAuthRefresh blocks until a refresh in flight finishes, or the grace
 // period ends. Exiting between Slack's answer and the Keychain write would
 // lose the rotated refresh token and force a new login.
-func (c *MCPSlackClient) waitForOAuthRefresh() {
-	grace := c.oauthShutdownGrace
-	if grace <= 0 {
-		grace = oauthShutdownGrace
-	}
+func (c *MCPSlackClient) waitForOAuthRefresh(grace time.Duration) {
 	done := make(chan struct{})
 	go func() {
 		c.oauthRefreshMu.Lock()

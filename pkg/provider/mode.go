@@ -21,10 +21,8 @@ const (
 
 // credentialModeFor classifies the primary token. xoxe.* are the rotating
 // variants of xoxp/xoxb, with the same scopes and a ~12h expiry.
-func credentialModeFor(token string, demo, browserConfigured bool) CredentialMode {
+func credentialModeFor(token string, browserConfigured bool) CredentialMode {
 	switch {
-	case demo:
-		return ModeDemo
 	case strings.HasPrefix(token, "xoxb-") || strings.HasPrefix(token, "xoxe.xoxb-"):
 		return ModeBot
 	case strings.HasPrefix(token, "xoxp-") || strings.HasPrefix(token, "xoxe.xoxp-"):

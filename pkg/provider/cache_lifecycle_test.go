@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 // countingCacheClient counts full users and channels fetches.
@@ -51,8 +50,9 @@ func newRevalidateProvider(t *testing.T, client SlackAPI) *ApiProvider {
 	t.Helper()
 	dir := t.TempDir()
 	ap := &ApiProvider{
-		client:                   client,
+		api:                      client,
 		logger:                   zap.NewNop(),
+		ctx:                      context.Background(),
 		cacheTTL:                 24 * time.Hour,
 		backgroundRefreshTimeout: time.Minute,
 		usersCachePath:           filepath.Join(dir, "users.json"),
@@ -129,7 +129,6 @@ func (c *usersFirstClient) GetConversationsContext(context.Context, *slack.GetCo
 func TestUnitCacheLifecycleWarmsUsersBeforeChannelsThenReportsReady(t *testing.T) {
 	client := &usersFirstClient{}
 	ap := newRevalidateProvider(t, client)
-	ap.conversationsLimiter = rate.NewLimiter(rate.Inf, 1)
 	ready := make(chan struct{})
 
 	ap.runCacheLifecycle(context.Background(), func() { close(ready) })
@@ -146,7 +145,6 @@ func TestUnitCacheLifecycleWarmsUsersBeforeChannelsThenReportsReady(t *testing.T
 // The warm-up loop used to sleep between attempts with no way to stop it.
 func TestUnitCacheLifecycleStopsOnCancelBetweenAttempts(t *testing.T) {
 	ap := newRevalidateProvider(t, &countingCacheClient{})
-	ap.conversationsLimiter = rate.NewLimiter(rate.Inf, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,15 @@ import (
 )
 
 func testToken() string { return "xoxp-test" }
+
+// listsClientFor sends every Lists call to server instead of slack.com.
+func listsClientFor(server *httptest.Server) *ListsClient {
+	target, _ := url.Parse(server.URL)
+	return &ListsClient{token: testToken, httpClient: &http.Client{Transport: listsRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		request.URL.Scheme, request.URL.Host = target.Scheme, target.Host
+		return server.Client().Transport.RoundTrip(request)
+	})}}
+}
 
 func TestUnitListsClientExactMethodsAndJSON(t *testing.T) {
 	tests := []struct {
@@ -84,7 +94,7 @@ func TestUnitListsClientExactMethodsAndJSON(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				assert.Equal(t, http.MethodPost, request.Method)
-				assert.Equal(t, "/"+test.method, request.URL.Path)
+				assert.Equal(t, "/api/"+test.method, request.URL.Path)
 				assert.Equal(t, "Bearer xoxp-test", request.Header.Get("Authorization"))
 				raw, err := io.ReadAll(request.Body)
 				require.NoError(t, err)
@@ -93,8 +103,7 @@ func TestUnitListsClientExactMethodsAndJSON(t *testing.T) {
 				_, _ = writer.Write([]byte(test.response))
 			}))
 			defer server.Close()
-			client := &ListsClient{HTTPClient: server.Client(), TokenProvider: testToken, APIBase: server.URL + "/"}
-			require.NoError(t, test.invoke(context.Background(), client))
+			require.NoError(t, test.invoke(context.Background(), listsClientFor(server)))
 		})
 	}
 }
@@ -111,8 +120,7 @@ func TestUnitListsItemsPaginationAndFieldRoundTrip(t *testing.T) {
 	}))
 	defer server.Close()
 	archived := false
-	client := &ListsClient{HTTPClient: server.Client(), TokenProvider: testToken, APIBase: server.URL + "/"}
-	page, err := client.ListItems(context.Background(), ListItemsRequest{ListID: "F1", Limit: 25, Cursor: "next", Archived: &archived})
+	page, err := listsClientFor(server).ListItems(context.Background(), ListItemsRequest{ListID: "F1", Limit: 25, Cursor: "next", Archived: &archived})
 	require.NoError(t, err)
 	assert.Equal(t, "after", page.NextCursor)
 	assert.Equal(t, "Task", page.Items[0].Fields[0].Text)
@@ -139,8 +147,7 @@ func TestUnitListsClientKeepsSlackErrors(t *testing.T) {
 				_, _ = writer.Write([]byte(test.response))
 			}))
 			defer server.Close()
-			client := &ListsClient{HTTPClient: server.Client(), TokenProvider: testToken, APIBase: server.URL + "/"}
-			_, err := client.ListItems(context.Background(), ListItemsRequest{ListID: "F1"})
+			_, err := listsClientFor(server).ListItems(context.Background(), ListItemsRequest{ListID: "F1"})
 			if test.slackCode != "" {
 				var slackErr slack.SlackErrorResponse
 				require.ErrorAs(t, err, &slackErr)
@@ -155,7 +162,7 @@ func TestUnitListsClientKeepsSlackErrors(t *testing.T) {
 }
 
 func TestUnitListsRejectUnsupportedFieldTypeBeforeHTTP(t *testing.T) {
-	client := &ListsClient{TokenProvider: testToken}
+	client := &ListsClient{token: testToken}
 	_, _, err := client.CreateList(context.Background(), CreateListRequest{
 		Name: "Bad", Schema: []ListColumn{{Key: "mystery", Name: "Mystery", Type: "quantum"}},
 	})
@@ -217,7 +224,7 @@ func TestUnitListsMutationResponseFailuresReportUnknownOutcome(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &ListsClient{HTTPClient: test.client, TokenProvider: testToken, APIBase: "http://127.0.0.1:1/"}
+			client := &ListsClient{httpClient: test.client, token: testToken}
 			err := test.invoke(client)
 			assert.ErrorIs(t, err, ErrOutcomeUnknown)
 		})

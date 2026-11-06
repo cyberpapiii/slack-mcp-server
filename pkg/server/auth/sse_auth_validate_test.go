@@ -27,7 +27,7 @@ func TestUnitValidateToken(t *testing.T) {
 		t.Setenv("SLACK_MCP_SSE_API_KEY", "")
 		t.Setenv("SLACK_MCP_ALLOW_UNAUTHENTICATED", "")
 
-		ok, err := validateToken(context.Background(), logger)
+		ok, err := accessFromEnv().validateToken(context.Background(), logger)
 		assert.False(t, ok)
 		require.Error(t, err)
 		assert.Equal(t, "unauthorized", err.Error())
@@ -38,7 +38,7 @@ func TestUnitValidateToken(t *testing.T) {
 		t.Setenv("SLACK_MCP_SSE_API_KEY", "")
 		t.Setenv("SLACK_MCP_ALLOW_UNAUTHENTICATED", "true")
 
-		ok, err := validateToken(context.Background(), logger)
+		ok, err := accessFromEnv().validateToken(context.Background(), logger)
 		assert.True(t, ok)
 		require.NoError(t, err)
 	})
@@ -47,8 +47,8 @@ func TestUnitValidateToken(t *testing.T) {
 		t.Setenv("SLACK_MCP_API_KEY", "my-secret")
 		t.Setenv("SLACK_MCP_ALLOW_UNAUTHENTICATED", "")
 
-		ctx := withAuthKey(context.Background(), "Bearer my-secret")
-		ok, err := validateToken(ctx, logger)
+		ctx := withToken("Bearer my-secret")
+		ok, err := accessFromEnv().validateToken(ctx, logger)
 		assert.True(t, ok)
 		require.NoError(t, err)
 	})
@@ -57,8 +57,8 @@ func TestUnitValidateToken(t *testing.T) {
 		t.Setenv("SLACK_MCP_API_KEY", "my-secret")
 		t.Setenv("SLACK_MCP_ALLOW_UNAUTHENTICATED", "")
 
-		ctx := withAuthKey(context.Background(), "Bearer wrong")
-		ok, err := validateToken(ctx, logger)
+		ctx := withToken("Bearer wrong")
+		ok, err := accessFromEnv().validateToken(ctx, logger)
 		assert.False(t, ok)
 		require.Error(t, err)
 		assert.Equal(t, "unauthorized", err.Error())
@@ -68,7 +68,7 @@ func TestUnitValidateToken(t *testing.T) {
 		t.Setenv("SLACK_MCP_API_KEY", "my-secret")
 		t.Setenv("SLACK_MCP_ALLOW_UNAUTHENTICATED", "")
 
-		ok, err := validateToken(context.Background(), logger)
+		ok, err := accessFromEnv().validateToken(context.Background(), logger)
 		assert.False(t, ok)
 		require.Error(t, err)
 		assert.Equal(t, "unauthorized", err.Error())
@@ -84,7 +84,7 @@ func TestUnitFailedAuthLogsOnce(t *testing.T) {
 	logger := zap.New(core)
 
 	next := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) { return nil, nil }
-	ctx := withAuthKey(context.Background(), "Bearer wrong")
+	ctx := withToken("Bearer wrong")
 	_, err := BuildMiddleware("sse", logger)(next)(ctx, mcp.CallToolRequest{})
 	require.EqualError(t, err, "unauthorized")
 
@@ -100,4 +100,20 @@ func TestUnitFailedAuthLogsOnce(t *testing.T) {
 	assert.Equal(t, 1, warns, "one warn naming the reason: %v", logs.All())
 	assert.Equal(t, 0, errs, "a client's bad token is not a server error")
 	assert.Equal(t, "Invalid auth token provided", logs.FilterLevelExact(zapcore.WarnLevel).All()[0].Message, "the deprecated-key warning stays at startup, not per request")
+}
+
+func withToken(header string) context.Context {
+	return context.WithValue(context.Background(), authKey{}, header)
+}
+
+// The key is read when the middleware is built, not on every request.
+func TestUnitMiddlewareReadsTheKeyOnce(t *testing.T) {
+	t.Setenv("SLACK_MCP_API_KEY", "my-secret")
+	t.Setenv("SLACK_MCP_ALLOW_UNAUTHENTICATED", "")
+	next := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) { return nil, nil }
+	guarded := BuildMiddleware("http", zap.NewNop())(next)
+
+	t.Setenv("SLACK_MCP_API_KEY", "changed")
+	_, err := guarded(withToken("Bearer my-secret"), mcp.CallToolRequest{})
+	require.NoError(t, err)
 }

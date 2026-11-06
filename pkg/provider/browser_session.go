@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"strings"
+	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
@@ -38,14 +39,20 @@ end run`
 	return []string{"-e", script, reason}
 }
 
+// notifyBrowserDegradation posts a macOS notification; osascript exists
+// nowhere else.
 func notifyBrowserDegradation(reason string, logger *zap.Logger) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
 	if err := exec.Command("osascript", osascriptNotificationArgs(reason)...).Run(); err != nil {
 		logger.Debug("Failed to emit browser degradation notification", zap.Error(err))
 	}
 }
 
 // browserAuthErrorCodes are the Slack error codes that mean the xoxc/xoxd
-// session itself is dead, as opposed to a per-call failure.
+// session itself is dead, as opposed to a per-call failure. The edge client
+// reports them as slack.SlackErrorResponse.
 var browserAuthErrorCodes = map[string]bool{
 	"invalid_auth":     true,
 	"not_authed":       true,
@@ -66,7 +73,7 @@ func isBrowserSessionAuthError(err error) bool {
 	if errors.As(err, &slackErr) {
 		return browserAuthErrorCodes[slackErr.Err]
 	}
-	return browserAuthErrorCodes[strings.TrimSpace(err.Error())]
+	return false
 }
 
 // browserCall runs one browser-session (edge) request. It refuses when the
@@ -108,6 +115,19 @@ func (c *MCPSlackClient) prefersBrowser() bool {
 // retried on OAuth: the call found the session dead and OAuth is there.
 func (c *MCPSlackClient) fallsBackToOAuth(err error) bool {
 	return c.mode == ModeUserOAuthBrowser && errors.Is(err, ErrBrowserSessionUnavailable)
+}
+
+// preferBrowser answers a read Slack serves both ways: through the browser
+// session while it is preferred, else (or once that read finds the session
+// dead) through OAuth. A session that is not preferred always has OAuth.
+func preferBrowser[T any](c *MCPSlackClient, browserRead, oauthRead func() (T, error)) (T, error) {
+	if c.prefersBrowser() {
+		v, err := browserRead()
+		if !c.fallsBackToOAuth(err) {
+			return v, err
+		}
+	}
+	return oauthRead()
 }
 
 func (c *MCPSlackClient) browserDegradedReason() string {
@@ -158,10 +178,10 @@ func (c *MCPSlackClient) ensureBrowserFeature(feature string) error {
 // attachBrowserSession adds browser-only Slack surfaces to an OAuth-primary
 // client. Standard Web API calls continue to use the OAuth client.
 func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, browserIdentity *slack.AuthTestResponse, httpClient *http.Client) error {
-	if err := oauthcred.IdentityOf(c.authResponse).Match(oauthcred.IdentityOf(browserIdentity)); err != nil {
+	if err := oauthcred.IdentityOf(&c.authResponse).Match(oauthcred.IdentityOf(browserIdentity)); err != nil {
 		return fmt.Errorf("browser provider %w", err)
 	}
-	browserEdge := edge.NewWithInfo(browserIdentity, browserAuth.SlackToken(), httpClient, edge.OptionLogger(c.logger))
+	browserEdge := edge.NewWithInfo(browserIdentity, browserAuth.SlackToken(), httpClient, c.logger, c.pacing)
 	c.useBrowserEdge(browserEdge)
 	return nil
 }
@@ -176,10 +196,15 @@ func (c *MCPSlackClient) useBrowserEdge(browserEdge *edge.Client) {
 	c.browserState.Store(int32(browserStateActive))
 }
 
-// browserReprobeInterval is how often a degraded browser session is retried.
+// BrowserReprobeInterval is how often a degraded browser session is retried.
 // Recovery needs the credential to work again (a refreshed Keychain item, or
 // Slack clearing a transient failure), so a slow cadence is enough.
-const browserReprobeInterval = 5 * time.Minute
+const BrowserReprobeInterval = 5 * time.Minute
+
+// BrowserReprobeEvery is BrowserReprobeInterval as status text says it.
+func BrowserReprobeEvery() string {
+	return strconv.Itoa(int(BrowserReprobeInterval/time.Minute)) + " minutes"
+}
 
 // browserProbeFunc loads the browser credential again and checks it with
 // auth.test.
@@ -195,10 +220,10 @@ func (c *MCPSlackClient) reprobeBrowser(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := oauthcred.IdentityOf(c.authResponse).Match(oauthcred.IdentityOf(identity)); err != nil {
+	if err := oauthcred.IdentityOf(&c.authResponse).Match(oauthcred.IdentityOf(identity)); err != nil {
 		return fmt.Errorf("browser provider %w", err)
 	}
-	browserEdge := edge.NewWithInfo(identity, browserAuth.SlackToken(), httpClient, edge.OptionLogger(c.logger))
+	browserEdge := edge.NewWithInfo(identity, browserAuth.SlackToken(), httpClient, c.logger, c.pacing)
 	c.useBrowserEdge(browserEdge)
 	c.logger.Info("Browser-session Slack auth recovered")
 	return nil
@@ -241,10 +266,10 @@ func (ap *ApiProvider) startBrowserReprobe(client *MCPSlackClient, account, xoxc
 		if err != nil {
 			return slackcreds.Value{}, nil, nil, err
 		}
-		httpClient, identity, err := authTest(browserAuth, false, client.logger)
+		httpClient, identity, err := authTest(browserAuth, client.logger)
 		return browserAuth, identity, httpClient, err
 	}
-	go client.runBrowserReprobe(ap.lifetime(), browserReprobeInterval)
+	go client.runBrowserReprobe(ap.ctx, BrowserReprobeInterval)
 }
 
 var loadBrowserCredential = func(ctx context.Context, account string) (BrowserTokenRecord, error) {
@@ -285,7 +310,7 @@ func (c *MCPSlackClient) attachBrowser(xoxcToken, xoxdToken string) {
 			httpClient      *http.Client
 			browserIdentity *slack.AuthTestResponse
 		)
-		httpClient, browserIdentity, err = authTest(browserAuth, false, c.logger)
+		httpClient, browserIdentity, err = authTest(browserAuth, c.logger)
 		if err == nil {
 			err = c.attachBrowserSession(browserAuth, browserIdentity, httpClient)
 		}
@@ -320,39 +345,39 @@ func (c *MCPSlackClient) ActivityMarkRead(ctx context.Context, itemType, feedTs,
 	return err
 }
 
+// GetMutedChannels reads mute state, which only the browser session's
+// users.prefs.get has. Without a preferred browser session it reports nothing
+// muted rather than an error, so OAuth reads go on without mute info.
 func (c *MCPSlackClient) GetMutedChannels(ctx context.Context) (map[string]bool, error) {
+	if !c.prefersBrowser() {
+		return map[string]bool{}, nil
+	}
 	return browserCall(c, "users.prefs.get", func() (map[string]bool, error) { return c.edgeClient.Load().GetMutedChannels(ctx) })
 }
 
 func (c *MCPSlackClient) GetStarredChannelIDs(ctx context.Context, limit int) ([]string, error) {
-	if c.prefersBrowser() {
-		ids, err := c.bootStarredChannelIDs(ctx)
-		if !c.fallsBackToOAuth(err) {
-			return ids, err
-		}
+	return preferBrowser(c,
+		func() ([]string, error) { return c.bootStarredChannelIDs(ctx) },
+		func() ([]string, error) { return c.starredChannelIDs(ctx, limit) })
+}
+
+func (c *MCPSlackClient) starredChannelIDs(ctx context.Context, limit int) ([]string, error) {
+	// v0.29 of slack-go replaced the Count/Page pair with cursor pagination;
+	// an empty cursor is still the first page.
+	items, _, err := c.standardSlackClient().ListStarsContext(ctx, slack.StarsParameters{Limit: limit})
+	if err != nil {
+		return nil, err
 	}
-	if c.mode.OAuth() {
-		// v0.29 of slack-go replaced the Count/Page pair with cursor
-		// pagination; an empty cursor is still the first page.
-		params := slack.StarsParameters{
-			Limit: limit,
-		}
-		items, _, err := c.standardSlackClient().ListStarsContext(ctx, params)
-		if err != nil {
-			return nil, err
-		}
-		var channelIDs []string
-		for _, item := range items {
-			switch item.Type {
-			case slack.TYPE_CHANNEL, slack.TYPE_IM, slack.TYPE_GROUP:
-				if item.Channel != "" {
-					channelIDs = append(channelIDs, item.Channel)
-				}
+	var channelIDs []string
+	for _, item := range items {
+		switch item.Type {
+		case slack.TYPE_CHANNEL, slack.TYPE_IM, slack.TYPE_GROUP:
+			if item.Channel != "" {
+				channelIDs = append(channelIDs, item.Channel)
 			}
 		}
-		return channelIDs, nil
 	}
-	return c.bootStarredChannelIDs(ctx)
+	return channelIDs, nil
 }
 
 func (c *MCPSlackClient) bootStarredChannelIDs(ctx context.Context) ([]string, error) {
@@ -410,21 +435,15 @@ func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
 // PrefersBrowser reports whether reads Slack serves both ways should use the
 // browser session right now.
 func (ap *ApiProvider) PrefersBrowser() bool {
-	client, ok := ap.client.(*MCPSlackClient)
-	return ok && client != nil && client.prefersBrowser()
+	return ap.client.prefersBrowser()
 }
 
 func (ap *ApiProvider) BrowserFeaturesAvailable() bool {
-	client, ok := ap.client.(*MCPSlackClient)
-	return ok && client != nil && client.browserFeaturesAvailable()
+	return ap.client.browserFeaturesAvailable()
 }
 
 func (ap *ApiProvider) BrowserDegradedReason() string {
-	client, ok := ap.client.(*MCPSlackClient)
-	if !ok || client == nil {
-		return ""
-	}
-	return client.browserDegradedReason()
+	return ap.client.browserDegradedReason()
 }
 
 func (ap *ApiProvider) BrowserCredentialSource() string {

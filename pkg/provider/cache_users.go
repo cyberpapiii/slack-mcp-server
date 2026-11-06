@@ -26,15 +26,20 @@ type userSearchEntry struct {
 	email       string
 }
 
+// newUsersCache is the only way a snapshot is built, so its search index
+// always holds exactly one entry per user, sorted by id. A user listed twice
+// keeps its last entry, in the maps and the index alike.
 func newUsersCache(users []slack.User) *UsersCache {
 	snapshot := &UsersCache{
 		Users:    make(map[string]slack.User, len(users)),
 		UsersInv: make(map[string]string, len(users)),
-		search:   make([]userSearchEntry, 0, len(users)),
 	}
 	for _, u := range users {
 		snapshot.Users[u.ID] = u
 		snapshot.UsersInv[u.Name] = u.ID
+	}
+	snapshot.search = make([]userSearchEntry, 0, len(snapshot.Users))
+	for _, u := range snapshot.Users {
 		snapshot.search = append(snapshot.search, newUserSearchEntry(u))
 	}
 	sort.Slice(snapshot.search, func(i, j int) bool { return snapshot.search[i].id < snapshot.search[j].id })
@@ -61,7 +66,7 @@ func (ap *ApiProvider) RefreshUsers(ctx context.Context) error {
 
 // PatchUser merges one users.info result into the in-memory snapshot (no disk write).
 func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.User, error) {
-	fetched, err := ap.fetchUsersInfo(userID)
+	fetched, err := ap.fetchUsersInfo(ctx, userID)
 	if err != nil {
 		ap.logger.Warn("Failed to fetch user for cache patch", zap.String("user_id", userID), zap.Error(err))
 		return nil, err
@@ -96,7 +101,7 @@ func (ap *ApiProvider) PatchUsers(ctx context.Context, userIDs []string) error {
 	var fetchErr error
 	for start := 0; start < len(userIDs); start += usersInfoBatch {
 		end := min(start+usersInfoBatch, len(userIDs))
-		fetched, err := ap.fetchUsersInfo(userIDs[start:end]...)
+		fetched, err := ap.fetchUsersInfo(ctx, userIDs[start:end]...)
 		if err != nil {
 			ap.logger.Debug("Failed to fetch users for cache patch",
 				zap.Strings("user_ids", userIDs[start:end]), zap.Error(err))
@@ -121,8 +126,8 @@ func (ap *ApiProvider) PatchUsers(ctx context.Context, userIDs []string) error {
 	return fetchErr
 }
 
-func (ap *ApiProvider) fetchUsersInfo(userIDs ...string) ([]slack.User, error) {
-	usersInfo, err := ap.client.GetUsersInfo(userIDs...)
+func (ap *ApiProvider) fetchUsersInfo(ctx context.Context, userIDs ...string) ([]slack.User, error) {
+	usersInfo, err := ap.api.GetUsersInfoContext(ctx, userIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -135,38 +140,30 @@ func (ap *ApiProvider) fetchUsersInfo(userIDs ...string) ([]slack.User, error) {
 // applyUserPatch installs a snapshot holding every cached user plus patched,
 // retrying the CAS if a concurrent patch or refresh won the race.
 func (ap *ApiProvider) applyUserPatch(patched []slack.User) {
+	patchedIDs := make(map[string]bool, len(patched))
+	for _, user := range patched {
+		patchedIDs[user.ID] = true
+	}
 	for {
 		current := ap.usersSnapshot.Load()
-		usersLen, invLen := 0, 0
-		if current != nil {
-			usersLen = len(current.Users)
-			invLen = len(current.UsersInv)
-		}
-
 		newSnapshot := &UsersCache{
-			Users:    make(map[string]slack.User, usersLen+len(patched)),
-			UsersInv: make(map[string]string, invLen+len(patched)),
+			Users:    make(map[string]slack.User, len(current.Users)+len(patched)),
+			UsersInv: make(map[string]string, len(current.UsersInv)+len(patched)),
 		}
-		if current != nil {
-			patchedIDs := make(map[string]bool, len(patched))
-			for _, user := range patched {
-				patchedIDs[user.ID] = true
+		for k, v := range current.Users {
+			newSnapshot.Users[k] = v
+		}
+		for k, v := range current.UsersInv {
+			if patchedIDs[v] {
+				continue // drop stale name→ID before rename
 			}
-			for k, v := range current.Users {
-				newSnapshot.Users[k] = v
-			}
-			for k, v := range current.UsersInv {
-				if patchedIDs[v] {
-					continue // drop stale name→ID before rename
-				}
-				newSnapshot.UsersInv[k] = v
-			}
+			newSnapshot.UsersInv[k] = v
 		}
 		for _, user := range patched {
 			newSnapshot.Users[user.ID] = user
 			newSnapshot.UsersInv[user.Name] = user.ID
 		}
-		newSnapshot.search = patchSearchIndex(current, newSnapshot.Users, patched)
+		newSnapshot.search = patchSearchIndex(current.search, patched)
 
 		if ap.usersSnapshot.CompareAndSwap(current, newSnapshot) {
 			return
@@ -174,31 +171,17 @@ func (ap *ApiProvider) applyUserPatch(patched []slack.User) {
 	}
 }
 
-// patchSearchIndex returns the search index for a snapshot that differs from
-// current only by the patched users. The index is sorted by id, so entries are
-// binary-searched into a copy instead of folding and re-sorting every cached
-// user: at 10k cached users the full rebuild cost ~7.7ms and ~11.5MB per
-// patched user, and one history page can patch a dozen.
-//
-// A caller that hand-builds a UsersCache without a matching index (tests do)
-// falls back to the full rebuild so the result is identical either way.
-func patchSearchIndex(current *UsersCache, users map[string]slack.User, patched []slack.User) []userSearchEntry {
-	if current == nil || len(current.search) != len(current.Users) {
-		index := make([]userSearchEntry, 0, len(users))
-		for id, indexedUser := range users {
-			entry := newUserSearchEntry(indexedUser)
-			entry.id = id
-			index = append(index, entry)
-		}
-		sort.Slice(index, func(i, j int) bool { return index[i].id < index[j].id })
-		return index
-	}
-
+// patchSearchIndex returns the search index current becomes once the patched
+// users are in it. The index is sorted by id, so entries are binary-searched
+// into a copy instead of folding and re-sorting every cached user: at 10k
+// cached users the full rebuild cost ~7.7ms and ~11.5MB per patched user, and
+// one history page can patch a dozen.
+func patchSearchIndex(current []userSearchEntry, patched []slack.User) []userSearchEntry {
 	// Users already in the index are replaced where they sit. Only genuinely
 	// new ids change the length, and they are merged in rather than appended
 	// and re-sorted, so a patch never pays O(n log n) over the whole cache.
-	kept := make([]userSearchEntry, len(current.search))
-	copy(kept, current.search)
+	kept := make([]userSearchEntry, len(current))
+	copy(kept, current)
 
 	var inserts []userSearchEntry
 	seen := make(map[string]bool, len(patched))
@@ -237,7 +220,7 @@ func patchSearchIndex(current *UsersCache, users map[string]slack.User, patched 
 }
 
 func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
-	users, err := ap.client.GetUsersContext(ctx, slack.GetUsersOptionLimit(1000))
+	users, err := ap.api.GetUsersContext(ctx, slack.GetUsersOptionLimit(1000))
 	if err != nil {
 		ap.logger.Error("Failed to fetch users", zap.Error(err))
 		return err
@@ -278,7 +261,7 @@ func (ap *ApiProvider) fetchAndStoreUsers(ctx context.Context) error {
 // slackConnectUsers returns the people in the browser session's shared DMs
 // that users.list did not return: Slack Connect users from other workspaces.
 func (ap *ApiProvider) slackConnectUsers(ctx context.Context, listed []slack.User) ([]slack.User, error) {
-	boot, err := ap.client.ClientUserBoot(ctx)
+	boot, err := ap.api.ClientUserBoot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("client.userBoot: %w", err)
 	}
@@ -299,7 +282,7 @@ func (ap *ApiProvider) slackConnectUsers(ctx context.Context, listed []slack.Use
 	}
 	var users []slack.User
 	for start := 0; start < len(missing); start += usersInfoBatch {
-		batch, err := ap.fetchUsersInfo(missing[start:min(start+usersInfoBatch, len(missing))]...)
+		batch, err := ap.fetchUsersInfo(ctx, missing[start:min(start+usersInfoBatch, len(missing))]...)
 		if err != nil {
 			return nil, fmt.Errorf("users.info for shared DMs: %w", err)
 		}
@@ -316,7 +299,7 @@ func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
 // browser session when that is preferred, and the local cache on OAuth.
 func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int) ([]slack.User, error) {
 	if ClassifyID(query) == IDUser {
-		users, err := ap.client.GetUsersInfo(query)
+		users, err := ap.api.GetUsersInfoContext(ctx, query)
 		if err != nil {
 			return nil, err
 		}
@@ -326,16 +309,9 @@ func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int)
 		return nil, nil
 	}
 
-	if ap.PrefersBrowser() {
-		users, err := ap.client.UsersSearch(ctx, query, limit)
-		if client, _ := ap.client.(*MCPSlackClient); client == nil || !client.fallsBackToOAuth(err) {
-			return users, err
-		}
-	}
-	if ap.Mode().OAuth() {
-		return ap.searchUsersInCache(query, limit)
-	}
-	return ap.client.UsersSearch(ctx, query, limit)
+	return preferBrowser(&ap.client,
+		func() ([]slack.User, error) { return ap.api.UsersSearch(ctx, query, limit) },
+		func() ([]slack.User, error) { return ap.searchUsersInCache(query, limit) })
 }
 
 // searchUsersInCache matches name, real name, display name and email; results
@@ -351,39 +327,20 @@ func (ap *ApiProvider) searchUsersInCache(query string, limit int) ([]slack.User
 	}
 
 	usersCache := ap.usersSnapshot.Load()
-	if len(usersCache.search) == len(usersCache.Users) {
-		var results []slack.User
-		for _, entry := range usersCache.search {
-			if entry.matches(query) {
-				user := usersCache.Users[entry.id]
-				if user.Deleted {
-					continue
-				}
-				results = append(results, user)
-				if len(results) == limit {
-					break
-				}
-			}
-		}
-		return results, nil
-	}
-
-	// Hand-built snapshots in tests and older callers may not carry indexes.
 	var results []slack.User
-	for _, user := range usersCache.Users {
+	for _, entry := range usersCache.search {
+		if !entry.matches(query) {
+			continue
+		}
+		user := usersCache.Users[entry.id]
 		if user.Deleted {
 			continue
 		}
-
-		if newUserSearchEntry(user).matches(query) {
-			results = append(results, user)
+		results = append(results, user)
+		if len(results) == limit {
+			break
 		}
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ID < results[j].ID })
-	if len(results) > limit {
-		results = results[:limit]
-	}
-
 	return results, nil
 }
 
