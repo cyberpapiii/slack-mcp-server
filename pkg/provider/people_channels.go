@@ -125,14 +125,15 @@ type ChannelMembersPage struct {
 	NextCursor string   `json:"next_cursor,omitempty"`
 }
 
-type PeopleChannelsProvider struct{ client PeopleChannelsClient }
-
-func NewPeopleChannelsProvider(client PeopleChannelsClient) *PeopleChannelsProvider {
-	return &PeopleChannelsProvider{client: client}
+type PeopleChannelsProvider struct {
+	client PeopleChannelsClient
+	cache  channelSnapshot
 }
 
+// PeopleChannels writes a created channel, and one members were invited to,
+// into the channels cache.
 func (ap *ApiProvider) PeopleChannels() *PeopleChannelsProvider {
-	return NewPeopleChannelsProvider(ap.WebAPI())
+	return &PeopleChannelsProvider{client: ap.WebAPI(), cache: ap}
 }
 
 func (p *PeopleChannelsProvider) GetProfile(ctx context.Context, userID string, includeLabels bool) (UserProfile, error) {
@@ -206,7 +207,7 @@ func (p *PeopleChannelsProvider) ListEmoji(ctx context.Context, query, cursor st
 
 func (p *PeopleChannelsProvider) CreateChannel(ctx context.Context, name string, private bool, teamID string) (ChannelState, error) {
 	channel, err := p.client.CreateConversationContext(ctx, slack.CreateConversationParams{ChannelName: name, IsPrivate: private, TeamID: teamID})
-	return channelState(channel, err)
+	return p.channelWritten(channel, err)
 }
 
 func (p *PeopleChannelsProvider) ListChannelMembers(ctx context.Context, channelID, cursor string, limit int) (ChannelMembersPage, error) {
@@ -219,7 +220,7 @@ func (p *PeopleChannelsProvider) ListChannelMembers(ctx context.Context, channel
 
 func (p *PeopleChannelsProvider) InviteChannelMembers(ctx context.Context, channelID string, userIDs []string) (ChannelState, error) {
 	channel, err := p.client.InviteUsersToConversationContext(ctx, channelID, userIDs...)
-	return channelState(channel, err)
+	return p.channelWritten(channel, err)
 }
 
 func parseOffsetCursor(cursor string) (int, error) {
@@ -233,13 +234,14 @@ func parseOffsetCursor(cursor string) (int, error) {
 	return offset, nil
 }
 
-func channelState(channel *slack.Channel, err error) (ChannelState, error) {
+func (p *PeopleChannelsProvider) channelWritten(channel *slack.Channel, err error) (ChannelState, error) {
 	if err != nil {
 		return ChannelState{}, err
 	}
 	if channel == nil {
 		return ChannelState{}, errors.New("Slack returned no channel")
 	}
+	p.cache.UpsertChannel(channel)
 	return ChannelState{ChannelID: channel.ID, Name: channel.Name, Private: channel.IsPrivate, Archived: channel.IsArchived, Members: channel.NumMembers}, nil
 }
 

@@ -41,6 +41,18 @@ func (c *ChannelsCache) add(ch Channel) {
 	}
 }
 
+// remove drops the conversation with this ID and its name index entry.
+func (c *ChannelsCache) remove(id string) {
+	ch, ok := c.Channels[id]
+	if !ok {
+		return
+	}
+	delete(c.Channels, id)
+	if c.ChannelsInv[ch.Name] == id {
+		delete(c.ChannelsInv, ch.Name)
+	}
+}
+
 // withSigil is name behind its "#" or "@" sigil, or "" when there is no name,
 // so no conversation is ever named by a bare sigil.
 func withSigil(sigil, name string) string {

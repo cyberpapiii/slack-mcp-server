@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -34,4 +35,36 @@ func TestUpsertChannelAddsOpenedDMToSnapshot(t *testing.T) {
 	ap.UpsertChannel(nil)
 	ap.UpsertChannel(&slack.Channel{})
 	assert.Len(t, ap.ProvideChannelsMaps().Channels, 2, "nil and blank channels are ignored")
+}
+
+type leaveClient struct{ SlackAPI }
+
+func (leaveClient) LeaveConversationContext(context.Context, string) (bool, error) { return false, nil }
+
+func TestUnitUpsertKeepsCountAndLeaveForgetsPrivateChannels(t *testing.T) {
+	ap := newTestApiProvider(leaveClient{}, newUsersCache(nil))
+	ap.channelsSnapshot.Store(&ChannelsCache{
+		Channels: map[string]Channel{
+			"C1": {ID: "C1", Name: "#old", MemberCount: 12},
+			"G1": {ID: "G1", Name: "#secret", IsPrivate: true},
+		},
+		ChannelsInv: map[string]string{"#old": "C1", "#secret": "G1"},
+	})
+
+	renamed := &slack.Channel{}
+	renamed.ID, renamed.NameNormalized = "C1", "new"
+	ap.UpsertChannel(renamed)
+	snapshot := ap.ProvideChannelsMaps()
+	assert.Equal(t, 12, snapshot.Channels["C1"].MemberCount, "a write response omits num_members")
+	assert.Equal(t, "C1", snapshot.ChannelsInv["#new"])
+	assert.NotContains(t, snapshot.ChannelsInv, "#old")
+
+	_, err := ap.LeaveConversation(context.Background(), "C1")
+	require.NoError(t, err)
+	_, err = ap.LeaveConversation(context.Background(), "G1")
+	require.NoError(t, err)
+	snapshot = ap.ProvideChannelsMaps()
+	assert.Contains(t, snapshot.Channels, "C1", "a public channel is still listed")
+	assert.NotContains(t, snapshot.Channels, "G1")
+	assert.NotContains(t, snapshot.ChannelsInv, "#secret")
 }
