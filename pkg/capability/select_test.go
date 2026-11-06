@@ -25,5 +25,5 @@ func TestSelectPrefersFlagsOverTheEnvironment(t *testing.T) {
 
 	tools, err = Select("", "", func(string) string { return "" })
 	require.NoError(t, err)
-	assert.Equal(t, DailyPowerNames(), tools)
+	assert.Equal(t, Names(), tools, "every tool by default")
 }

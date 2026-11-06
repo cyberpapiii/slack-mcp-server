@@ -252,7 +252,7 @@ docker-compose up -d
 |-----------------------------|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `--transport` or `-t`       | Yes        | Select transport for the MCP Server, possible values are: `stdio`, `sse`, `http`                                                                                                                                            |
 | `--enabled-tools` or `-e`   | No         | Comma-separated allowlist of tools to register (same as `SLACK_MCP_ENABLED_TOOLS`). Overrides the preset. Tool names: README "Tools". |
-| `--tool-preset`             | No         | `daily-power` (default, read-only) or `legacy-full` (same as `SLACK_MCP_TOOL_PRESET`). |
+| `--tool-preset`             | No         | `legacy-full` (default, every tool) or `daily-power` (read-only; same as `SLACK_MCP_TOOL_PRESET`). |
 | `--no-cache`                | No         | Skip the users/channels cache warm-up; `#channel` and `@user` lookups then need IDs. |
 
 ### Environment variables
@@ -263,7 +263,7 @@ The full table lives in the [README](../README.md#environment-variables); it is 
 
 Canonical rules: **`AGENTS.md` "Tool surface"**. Summary:
 
-- A tool registers iff its name is in `SLACK_MCP_ENABLED_TOOLS` (or, when that is unset, in the `SLACK_MCP_TOOL_PRESET` list; `daily-power` is the read-only default).
+- A tool registers iff its name is in `SLACK_MCP_ENABLED_TOOLS` (or, when that is unset, in the `SLACK_MCP_TOOL_PRESET` list; `legacy-full`, every tool, is the default).
 - `SLACK_MCP_ADD_MESSAGE_TOOL`, `SLACK_MCP_REACTION_TOOL`, and `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` are channel allow/block lists checked per call; they do not enable or disable tools.
 - Usergroups write tools still need the `usergroups:write` OAuth scope.
 

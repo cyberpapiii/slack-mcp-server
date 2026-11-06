@@ -140,10 +140,10 @@ func TestResolveToolList(t *testing.T) {
 		assert.Equal(t, []string{"channels_list", "users_search"}, tools)
 	})
 
-	t.Run("daily power is default", func(t *testing.T) {
+	t.Run("every tool is the default", func(t *testing.T) {
 		tools, err := resolve("", "")
 		require.NoError(t, err)
-		assert.Equal(t, DailyPowerNames(), tools)
+		assert.Equal(t, Names(), tools)
 	})
 
 	t.Run("legacy preset", func(t *testing.T) {
@@ -160,7 +160,7 @@ func TestResolveToolList(t *testing.T) {
 	t.Run("blank explicit list still uses the default preset", func(t *testing.T) {
 		tools, err := resolve("   ", "")
 		require.NoError(t, err)
-		assert.Equal(t, DailyPowerNames(), tools)
+		assert.Equal(t, Names(), tools)
 	})
 
 	t.Run("unknown names are refused", func(t *testing.T) {

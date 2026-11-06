@@ -37,7 +37,7 @@ func main() {
 	flag.StringVar(&transport, "transport", auth.TransportStdio, transportUsage)
 	flag.StringVar(&enabledToolsFlag, "e", "", "Comma-separated list of enabled tools (overrides tool preset)")
 	flag.StringVar(&enabledToolsFlag, "enabled-tools", "", "Comma-separated list of enabled tools (overrides tool preset)")
-	flag.StringVar(&toolPreset, "tool-preset", "", "Tool preset: "+capability.PresetDailyPower+" (default) or "+capability.PresetLegacyFull)
+	flag.StringVar(&toolPreset, "tool-preset", "", "Tool preset: "+capability.DefaultPreset+" (default, every tool) or "+capability.PresetDailyPower)
 	flag.BoolVar(&noCache, "no-cache", false, "Skip user/channel cache loading on startup for faster initialization. Lookups by #channel-name or @username will not work; use channel/user IDs instead.")
 	flag.BoolVar(&checkKeychain, "check-keychain", false, "Read the Keychain items named by SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT and SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT, then exit. make deploy-local uses it to collect the macOS access approval before Plug starts the binary.")
 	flag.Parse()

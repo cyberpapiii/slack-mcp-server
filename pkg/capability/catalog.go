@@ -338,7 +338,7 @@ func OAuthScopesForTools(tools []string) []string {
 const (
 	PresetDailyPower = "daily-power"
 	PresetLegacyFull = "legacy-full"
-	DefaultPreset    = PresetDailyPower
+	DefaultPreset    = PresetLegacyFull
 )
 
 func Preset(name string) ([]string, error) {
@@ -354,7 +354,7 @@ func Preset(name string) ([]string, error) {
 
 // PresetNames lists the presets, the default first.
 func PresetNames() []string {
-	return []string{PresetDailyPower, PresetLegacyFull}
+	return []string{DefaultPreset, PresetDailyPower}
 }
 
 // The environment variables that select the served tools.

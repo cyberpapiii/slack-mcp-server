@@ -19,8 +19,8 @@ Which tools register is decided by one list: `SLACK_MCP_ENABLED_TOOLS` (or `--en
 
 | Preset | Tools | What it is |
 |--------|-------|------------|
-| `daily-power` (default) | 17 | Read-only: unreads, Activity, Saved, drafts, canvases, lists, DND, emoji, user groups, profiles, semantic search, `slack_auth_status`. |
-| `legacy-full` | 73 | Everything, including every write tool. |
+| `legacy-full` (default) | 73 | Every tool, including every write tool. |
+| `daily-power` | 17 | Read-only: unreads, Activity, Saved, drafts, canvases, lists, DND, emoji, user groups, profiles, semantic search, `slack_auth_status`. |
 
 The 73 tools by family:
 
@@ -101,7 +101,7 @@ Fetches a CSV directory of all users in the workspace.
 | `SLACK_MCP_OAUTH_CLIENT_ID` / `SLACK_MCP_OAUTH_CLIENT_SECRET` | | Slack app credentials used to refresh the Keychain credential. Secret is optional for PKCE public clients. |
 | `SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT` | | macOS Keychain item holding xoxc/xoxd; an alternative to the two env vars. |
 | `SLACK_MCP_ENABLED_TOOLS` | unset | Comma-separated allowlist. When set it alone decides which tools register. |
-| `SLACK_MCP_TOOL_PRESET` | `daily-power` | `daily-power` or `legacy-full`; used when `SLACK_MCP_ENABLED_TOOLS` is unset. |
+| `SLACK_MCP_TOOL_PRESET` | `legacy-full` | `legacy-full` (every tool) or `daily-power` (read-only); used when `SLACK_MCP_ENABLED_TOOLS` is unset. |
 | `SLACK_MCP_ADD_MESSAGE_TOOL` | unset = every channel | Channel allow/block list for `conversations_add_message`, `messages_schedule`, `messages_update`, `messages_delete`, `pins_add`, `pins_remove`: `C1,C2` = only those; `!C1,!C2` = all except those. It does not enable or disable tools. |
 | `SLACK_MCP_REACTION_TOOL` | unset = every channel | Same shape, for `reactions_add` / `reactions_remove`. |
 | `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | unset = every channel | Same shape, for `channels_rename`, `channels_set_topic`, `channels_set_purpose`, `channels_archive`. |

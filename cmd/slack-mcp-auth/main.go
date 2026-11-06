@@ -26,7 +26,7 @@ import (
 const accountUsage = "macOS Keychain account; defaults to $" + oauthcred.EnvKeychainAccount + ", else " + defaultAccount + ", which only this tool falls back to: the server uses the account $" + oauthcred.EnvKeychainAccount + " names"
 
 const (
-	presetUsage       = "request the scopes of this tool preset when no enabled-tools list is given: " + capability.PresetDailyPower + " (default) or " + capability.PresetLegacyFull + "; defaults to $" + capability.EnvToolPreset
+	presetUsage       = "request the scopes of this tool preset when no enabled-tools list is given: " + capability.DefaultPreset + " (default, every tool) or " + capability.PresetDailyPower + "; defaults to $" + capability.EnvToolPreset
 	enabledToolsUsage = "request the scopes these comma-separated tools need, as the server's SLACK_MCP_ENABLED_TOOLS serves them; defaults to $" + capability.EnvEnabledTools + " unless --preset is given"
 )
 

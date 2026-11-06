@@ -2,10 +2,10 @@
 
 These presets tune `SLACK_MCP_ENABLED_TOOLS` and related env vars in Plug's `[servers.slack.env]` block. After editing `~/Library/Application Support/plug/config.toml` or changing Go code, run `make deploy-local` from this repo. It builds the binary and restarts Plug's `slack` server. (A bare `plug reload` is not enough. It reloads config but leaves the old server process running.)
 
-`daily-power` is the default when neither `SLACK_MCP_ENABLED_TOOLS` nor
-`SLACK_MCP_TOOL_PRESET` is set. An explicit enabled-tools list always wins.
-Set `SLACK_MCP_TOOL_PRESET=legacy-full` to expose every implemented tool in this
-custom server. The tool table is `pkg/capability/catalog.go`.
+`legacy-full`, every implemented tool, is the default when neither
+`SLACK_MCP_ENABLED_TOOLS` nor `SLACK_MCP_TOOL_PRESET` is set. An explicit
+enabled-tools list always wins. Set `SLACK_MCP_TOOL_PRESET=daily-power` for the
+read-only set. The tool table is `pkg/capability/catalog.go`.
 
 ## Shared settings
 
