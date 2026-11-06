@@ -44,10 +44,6 @@ func (c *WebClient) token() string {
 	return token
 }
 
-func (c *WebClient) AuthTest() (*slack.AuthTestResponse, error) {
-	return c.resolve().AuthTest()
-}
-
 func (c *WebClient) GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
 	return limiter.Paced(ctx, c.client.pacing, "conversations.history", func() (*slack.GetConversationHistoryResponse, error) {
 		return c.resolve().GetConversationHistoryContext(ctx, params)

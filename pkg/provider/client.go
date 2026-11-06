@@ -17,7 +17,6 @@ import (
 )
 
 type SlackAPI interface {
-	AuthTest() (*slack.AuthTestResponse, error)
 	GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error)
 	GetUsersInfoContext(ctx context.Context, users ...string) (*[]slack.User, error)
 	MarkConversationContext(ctx context.Context, channel, ts string) error
@@ -149,11 +148,6 @@ func (c *MCPSlackClient) standardSlackClient() *slack.Client {
 	c.oauthClientMu.RLock()
 	defer c.oauthClientMu.RUnlock()
 	return c.slackClient
-}
-
-// AuthTest answers from the startup auth.test; the identity cannot change.
-func (c *MCPSlackClient) AuthTest() (*slack.AuthTestResponse, error) {
-	return &c.authResponse, nil
 }
 
 func (c *MCPSlackClient) GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error) {
