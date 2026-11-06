@@ -14,26 +14,30 @@ import (
 
 // Error codes a failed tool call carries.
 const (
-	codeToolError              = "tool_error"
-	codeInvalidArguments       = "invalid_arguments"
-	codeNotFound               = "not_found"
-	codePermissionDenied       = "permission_denied"
-	codeConflict               = "conflict"
-	codeInvalidCursor          = "invalid_cursor"
-	codePaidPlanUnavailable    = "paid_plan_unavailable"
-	codeRateLimited            = "rate_limited"
-	codeNetworkError           = "network_error"
-	codeSlackError             = "slack_error"
-	codeOutcomeUnknown         = "outcome_unknown"
-	codeCancelled              = "cancelled"
-	codeCacheWarming           = "cache_warming"
-	codeUserOAuthRequired      = "user_oauth_required"
-	codeBrowserSessionRequired = "browser_session_required"
-	codeApprovalRequired       = "approval_required"
-	codeApprovalInvalid        = "approval_invalid"
-	codeInvalidSnoozeDuration  = "invalid_snooze_duration"
-	codeInvalidSlackResponse   = "invalid_slack_response"
-	codeLookupLimitExceeded    = "lookup_limit_exceeded"
+	codeToolError             = "tool_error"
+	codeInvalidArguments      = "invalid_arguments"
+	codeNotFound              = "not_found"
+	codePermissionDenied      = "permission_denied"
+	codeConflict              = "conflict"
+	codeInvalidCursor         = "invalid_cursor"
+	codePaidPlanUnavailable   = "paid_plan_unavailable"
+	codeRateLimited           = "rate_limited"
+	codeNetworkError          = "network_error"
+	codeSlackError            = "slack_error"
+	codeOutcomeUnknown        = "outcome_unknown"
+	codeCancelled             = "cancelled"
+	codeCacheWarming          = "cache_warming"
+	codeApprovalRequired      = "approval_required"
+	codeApprovalInvalid       = "approval_invalid"
+	codeInvalidSnoozeDuration = "invalid_snooze_duration"
+	codeInvalidSlackResponse  = "invalid_slack_response"
+	codeLookupLimitExceeded   = "lookup_limit_exceeded"
+)
+
+// The missing-credential codes are the capability table's.
+var (
+	codeUserOAuthRequired      = capability.UserOAuth.Missing()
+	codeBrowserSessionRequired = capability.BrowserSession.Missing()
 )
 
 type ToolError struct {
