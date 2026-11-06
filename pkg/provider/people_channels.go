@@ -337,13 +337,15 @@ func (c *WebClient) UpdateUserProfileContext(ctx context.Context, update UserPro
 	var result struct {
 		Profile *slack.UserProfile `json:"profile"`
 	}
-	err = slackhttp.Call(ctx, c.client.httpClient, slackhttp.Request{
+	body, err := c.post(ctx, slackhttp.Request{
 		URL:    slackhttp.SlackAPIBase() + "users.profile.set",
-		Token:  c.token(),
 		Bearer: true,
 		Form:   url.Values{"profile": {string(profileJSON)}},
-	}, &result)
+	})
 	if err != nil {
+		return nil, err
+	}
+	if err := slackhttp.Decode(body, &result); err != nil {
 		return nil, err
 	}
 	return result.Profile, nil

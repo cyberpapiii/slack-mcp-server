@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 )
 
@@ -34,6 +35,13 @@ func (c *WebClient) resolve() *slack.Client {
 func (c *WebClient) token() string {
 	token, _ := c.client.token.Load().(string)
 	return token
+}
+
+// post sends a hand-built call with the current token through the primary
+// HTTP client, for the methods slack-go does not wrap.
+func (c *WebClient) post(ctx context.Context, req slackhttp.Request) ([]byte, error) {
+	req.Token = c.token()
+	return slackhttp.Post(ctx, c.client.httpClient, req)
 }
 
 func (c *WebClient) GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error) {
