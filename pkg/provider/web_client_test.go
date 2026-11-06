@@ -76,7 +76,7 @@ func TestUnitChannelMutationsProviderFollowsClientRotation(t *testing.T) {
 
 	f.rotate()
 
-	_, err := service.client.RenameConversationContext(context.Background(), "C1", "renamed")
+	_, err := service.PrepareArchive(context.Background(), "C1")
 	require.NoError(t, err)
 	f.assertUsedRotatedClient(t)
 }

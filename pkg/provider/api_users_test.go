@@ -50,7 +50,7 @@ func TestUnitFetchAndStoreUsersSurvivesConnectFailure(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ap.usersReady.Load())
 
-	snapshot := ap.usersSnapshot.Load()
+	snapshot := ap.ProvideUsersMap()
 	require.NotNil(t, snapshot)
 	assert.Len(t, snapshot.Users, 2)
 	assert.Equal(t, "alice", snapshot.Users["U001"].Name)

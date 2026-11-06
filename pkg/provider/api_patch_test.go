@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -59,7 +58,7 @@ func TestUnitPatchUser(t *testing.T) {
 		assert.Equal(t, "U002", result.ID)
 		assert.Equal(t, "bob", result.Name)
 
-		snapshot := ap.usersSnapshot.Load()
+		snapshot := ap.ProvideUsersMap()
 		assert.Len(t, snapshot.Users, 2)
 		assert.Equal(t, "bob", snapshot.Users["U002"].Name)
 		assert.Equal(t, "U002", snapshot.UsersInv["bob"])
@@ -78,42 +77,23 @@ func TestUnitPatchUser(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, result)
 
-		snapshot := ap.usersSnapshot.Load()
+		snapshot := ap.ProvideUsersMap()
 		assert.Len(t, snapshot.Users, 1)
 	})
 
-	t.Run("empty API result returns not found", func(t *testing.T) {
-		initial := newUsersCache(nil)
+	for name, result := range map[string]*[]slack.User{"empty API result": {}, "nil API result": nil} {
+		t.Run(name+" returns not found", func(t *testing.T) {
+			ap := newTestApiProvider(&mockSlackClient{usersInfoResult: result}, newUsersCache(nil))
 
-		ap := newTestApiProvider(
-			&mockSlackClient{usersInfoResult: &[]slack.User{}},
-			initial,
-		)
-
-		result, err := ap.PatchUser(context.Background(), "U999")
-		assert.Error(t, err)
-		assert.Nil(t, result)
-		assert.Contains(t, err.Error(), "not found")
-	})
-
-	t.Run("nil API result returns not found", func(t *testing.T) {
-		initial := newUsersCache(nil)
-
-		ap := newTestApiProvider(
-			&mockSlackClient{usersInfoResult: nil},
-			initial,
-		)
-
-		result, err := ap.PatchUser(context.Background(), "U999")
-		assert.Error(t, err)
-		assert.Nil(t, result)
-	})
+			user, err := ap.PatchUser(context.Background(), "U999")
+			require.Error(t, err)
+			assert.Nil(t, user)
+			assert.Contains(t, err.Error(), "not found")
+		})
+	}
 
 	t.Run("does not mutate original snapshot", func(t *testing.T) {
 		initial := newUsersCache([]slack.User{{ID: "U001", Name: "alice"}})
-
-		var snapshotRef atomic.Pointer[UsersCache]
-		snapshotRef.Store(initial)
 
 		newUser := slack.User{ID: "U002", Name: "bob"}
 		ap := newTestApiProvider(
@@ -124,10 +104,9 @@ func TestUnitPatchUser(t *testing.T) {
 		_, err := ap.PatchUser(context.Background(), "U002")
 		require.NoError(t, err)
 
-		orig := snapshotRef.Load()
-		_, hasNew := orig.Users["U002"]
+		_, hasNew := initial.Users["U002"]
 		assert.False(t, hasNew, "original snapshot should not be mutated")
-		assert.Len(t, orig.Users, 1)
+		assert.Len(t, initial.Users, 1)
 	})
 
 	t.Run("overwrites existing user with fresh data", func(t *testing.T) {
@@ -143,7 +122,7 @@ func TestUnitPatchUser(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "alice_new", result.Name)
 
-		snapshot := ap.usersSnapshot.Load()
+		snapshot := ap.ProvideUsersMap()
 		assert.Equal(t, "alice_new", snapshot.Users["U001"].Name)
 		assert.Equal(t, "U001", snapshot.UsersInv["alice_new"])
 	})
@@ -174,7 +153,7 @@ func TestUnitPatchUserConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	snapshot := ap.usersSnapshot.Load()
+	snapshot := ap.ProvideUsersMap()
 	assert.Len(t, snapshot.Users, seedCount+concurrentPatches)
 	assert.Len(t, snapshot.UsersInv, seedCount+concurrentPatches)
 

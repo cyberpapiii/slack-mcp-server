@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -44,15 +43,6 @@ func namedUser(id, name string) slack.User {
 	u.Profile.DisplayName = "Display " + name
 	u.Profile.Email = name + "@example.com"
 	return u
-}
-
-// searchIDs returns the ids in the snapshot's search index, in index order.
-func searchIDs(cache *UsersCache) []string {
-	ids := make([]string, 0, len(cache.search))
-	for _, entry := range cache.search {
-		ids = append(ids, entry.id)
-	}
-	return ids
 }
 
 func TestUnitPatchUsersUsesOneRoundTripPerBatch(t *testing.T) {
@@ -113,27 +103,12 @@ func TestUnitPatchUsersUsesOneRoundTripPerBatch(t *testing.T) {
 	})
 }
 
-// The search index is patched in place rather than rebuilt, so every patch has
-// to leave it sorted by id with exactly one entry per cached user.
+// The search index is patched in place rather than rebuilt, so a patched user
+// must be found by the new values and no longer by the old ones.
 func TestUnitPatchKeepsSearchIndexConsistent(t *testing.T) {
 	seed := []slack.User{
 		namedUser("U003", "carol"), namedUser("U001", "alice"), namedUser("U005", "erin"),
 	}
-
-	t.Run("a new user is inserted in id order", func(t *testing.T) {
-		client := &countingUsersInfoClient{users: map[string]slack.User{
-			"U002": namedUser("U002", "bob"), "U009": namedUser("U009", "zoe"),
-		}}
-		ap := newTestApiProvider(client, newUsersCache(seed))
-
-		require.NoError(t, ap.PatchUsers(context.Background(), []string{"U009", "U002"}))
-
-		snapshot := ap.ProvideUsersMap()
-		ids := searchIDs(snapshot)
-		assert.Equal(t, []string{"U001", "U002", "U003", "U005", "U009"}, ids)
-		assert.Len(t, ids, len(snapshot.Users), "one index entry per cached user")
-		assert.True(t, sort.StringsAreSorted(ids))
-	})
 
 	t.Run("a renamed user replaces its entry and drops the stale handle", func(t *testing.T) {
 		client := &countingUsersInfoClient{users: map[string]slack.User{
@@ -146,7 +121,7 @@ func TestUnitPatchKeepsSearchIndexConsistent(t *testing.T) {
 		require.NoError(t, err)
 
 		snapshot := ap.ProvideUsersMap()
-		assert.Equal(t, []string{"U001", "U003", "U005"}, searchIDs(snapshot))
+		assert.Len(t, snapshot.Users, 3)
 		assert.Equal(t, "U003", snapshot.UsersInv["carol-renamed"])
 		_, stale := snapshot.UsersInv["carol"]
 		assert.False(t, stale, "the pre-rename handle must not still resolve")

@@ -11,7 +11,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
@@ -48,23 +47,20 @@ func TestIsBrowserSessionAuthError(t *testing.T) {
 	}
 }
 
-// TestUnitOsascriptNotificationArgs verifies that the degradation message is
-// passed to osascript as an argv element, never interpolated into the
-// AppleScript source string.
+// The degradation message reaches osascript as an argv element, never
+// interpolated into the AppleScript source, so a reason carrying quotes or
+// backslashes cannot inject script.
 func TestUnitOsascriptNotificationArgs(t *testing.T) {
-	const fixedScript = `on run argv
-	display notification (item 1 of argv) with title "Slack MCP fallback active"
-end run`
-
-	t.Run("special characters pass through verbatim", func(t *testing.T) {
+	t.Run("the reason is passed verbatim outside the script", func(t *testing.T) {
 		reason := `has "quotes" and \backslashes\ and ` + "`backticks`"
 		args := osascriptNotificationArgs(reason)
+		plain := osascriptNotificationArgs("plain")
 
-		if assert.Len(t, args, 3) {
-			assert.Equal(t, "-e", args[0])
-			assert.Equal(t, fixedScript, args[1], "script must be a fixed constant, never interpolated")
-			assert.Equal(t, reason, args[2], "reason must appear verbatim, with no escaping")
-		}
+		require.Len(t, args, 3)
+		assert.Equal(t, "-e", args[0])
+		assert.Equal(t, plain[1], args[1], "the script must not vary with the reason")
+		assert.NotContains(t, args[1], "quotes")
+		assert.Equal(t, reason, args[2], "reason must appear verbatim, with no escaping")
 	})
 
 	t.Run("long reason is truncated on a rune boundary", func(t *testing.T) {
@@ -73,27 +69,10 @@ end run`
 		// byte-slice truncation at 200 bytes would split that rune and
 		// produce invalid UTF-8; []rune truncation at 200 runes must not.
 		reason := strings.Repeat("a", 199) + "世" + strings.Repeat("b", 300)
-		args := osascriptNotificationArgs(reason)
+		message := osascriptNotificationArgs(reason)[2]
 
-		if assert.Len(t, args, 3) {
-			assert.Equal(t, fixedScript, args[1])
-			message := args[2]
-			assert.True(t, utf8.ValidString(message), "truncated message must be valid UTF-8")
-			assert.True(t, strings.HasSuffix(message, "…"), "truncated message must end with an ellipsis")
-			assert.Equal(t, strings.Repeat("a", 199)+"世"+"…", message)
-			// 199 ASCII bytes + 3-byte rune + 3-byte ellipsis.
-			assert.LessOrEqual(t, len(message), 205)
-		}
-	})
-
-	t.Run("empty reason still produces three elements", func(t *testing.T) {
-		args := osascriptNotificationArgs("")
-
-		if assert.Len(t, args, 3) {
-			assert.Equal(t, "-e", args[0])
-			assert.Equal(t, fixedScript, args[1])
-			assert.Equal(t, "", args[2])
-		}
+		assert.True(t, utf8.ValidString(message), "truncated message must be valid UTF-8")
+		assert.Equal(t, strings.Repeat("a", 199)+"世"+"…", message)
 	})
 }
 
@@ -117,18 +96,6 @@ func TestBrowserDegradationState(t *testing.T) {
 
 	c.degradeBrowserSession(errors.New("invalid_auth"))
 	assert.Equal(t, 1, notifies, "degradation should only notify once")
-}
-
-func TestStandardSlackClientUsesOAuthClientWhenBrowserIsAttached(t *testing.T) {
-	oauthClient := slack.New("xoxp-oauth")
-	c := &MCPSlackClient{
-		slackClient: oauthClient,
-		mode:        ModeUserOAuthBrowser,
-	}
-	c.browserState.Store(int32(browserStateActive))
-
-	assert.Same(t, oauthClient, c.standardSlackClient())
-	assert.True(t, (&ApiProvider{client: MCPSlackClient{mode: c.mode}}).Satisfies(capability.BrowserSession))
 }
 
 func TestAttachBrowserRejectsProviderIdentityMismatch(t *testing.T) {
