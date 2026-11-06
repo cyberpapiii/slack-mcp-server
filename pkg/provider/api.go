@@ -22,8 +22,9 @@ import (
 const usersNotReadyMsg = "users cache is not ready yet, sync process is still running... please wait"
 const channelsNotReadyMsg = "channels cache is not ready yet, sync process is still running... please wait"
 
-// Upper bound for background cache refreshes so an orphaned goroutine cannot
-// hold Slack rate-limit budget forever.
+// Upper bound for one cache warm-up or background refresh, so an orphaned
+// goroutine cannot hold Slack rate-limit budget forever. Large workspaces need
+// most of it cold.
 const defaultBackgroundRefreshTimeout = 15 * time.Minute
 
 var AllChanTypes = []string{MpIMChanType, IMChanType, PubChanType, PrivateChanType}
@@ -69,17 +70,17 @@ type ApiProvider struct {
 	usersSnapshot  atomic.Pointer[UsersCache] // immutable snapshot; atomic load, no copy
 	usersCachePath string
 	usersReady     atomic.Bool
-	usersMu        sync.RWMutex // refreshUsersInternal load path
+	usersMu        sync.Mutex // RefreshUsers load path
 	usersFlight    refreshFlight
 
 	channelsSnapshot          atomic.Pointer[ChannelsCache] // immutable snapshot; atomic load, no copy
 	channelsCachePath         string
 	channelsReady             atomic.Bool
 	lastForcedChannelsRefresh time.Time
-	channelsMu                sync.RWMutex // lastForcedChannelsRefresh
+	channelsMu                sync.Mutex // lastForcedChannelsRefresh and the load path
 	channelsFlight            refreshFlight
 
-	revalidateOnce sync.Once // StartCacheRevalidation
+	revalidateOnce sync.Once // startCacheRevalidation
 }
 
 type ProviderIdentity struct {

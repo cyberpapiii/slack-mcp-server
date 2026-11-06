@@ -104,22 +104,34 @@ func loadCacheFile[T any](path string, ttl time.Duration, logger *zap.Logger) (i
 			zap.String("cache_file", path))
 		return nil, false, false
 	}
-	if ttl > 0 {
-		if info, err := os.Stat(path); err == nil {
-			if age := time.Since(info.ModTime()); age > ttl {
-				logger.Info("Serving stale cache, background refresh starting",
-					zap.Duration("cache_age", age),
-					zap.Duration("ttl", ttl),
-					zap.Int("count", len(items)),
-					zap.String("cache_file", path))
-				return items, true, true
-			}
-		}
+	if expired, age := cacheExpired(path, ttl); expired {
+		logger.Info("Serving stale cache, background refresh starting",
+			zap.Duration("cache_age", age),
+			zap.Duration("ttl", ttl),
+			zap.Int("count", len(items)),
+			zap.String("cache_file", path))
+		return items, true, true
 	}
 	logger.Info("Loaded cache file",
 		zap.Int("count", len(items)),
 		zap.String("cache_file", path))
 	return items, false, true
+}
+
+// cacheExpired reports whether the cache file at path is older than ttl, and
+// its age. The file is rewritten on every successful fetch, so its mtime is
+// the time of the last good fetch. A missing file is expired; a ttl of 0 never
+// expires.
+func cacheExpired(path string, ttl time.Duration) (expired bool, age time.Duration) {
+	if ttl <= 0 {
+		return false, 0
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return true, 0
+	}
+	age = time.Since(info.ModTime())
+	return age > ttl, age
 }
 
 // writeCacheFile persists items as compact JSON. Failures are logged rather

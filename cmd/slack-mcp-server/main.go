@@ -99,7 +99,7 @@ func main() {
 			zap.String("context", "console"),
 		)
 	} else {
-		startCacheWarmup(p, s, logger)
+		p.StartCacheLifecycle(s.RegisterCacheDependentTools)
 	}
 
 	if ready, _ := p.IsReady(); !ready {
@@ -141,6 +141,19 @@ func main() {
 			zap.String("context", "console"),
 			zap.String("transport", transport),
 			zap.String("allowed", "stdio, sse, http"),
+		)
+	}
+}
+
+// logStartupAuthStatus warns when the browser session failed at startup. Only a
+// session beside OAuth can start degraded, and its re-probe recovers it
+// without a restart.
+func logStartupAuthStatus(p *provider.ApiProvider, logger *zap.Logger) {
+	if reason := p.BrowserDegradedReason(); reason != "" && !p.BrowserFeaturesAvailable() {
+		logger.Warn("Browser session auth degraded: browser-session tools fail until the browser credential works again; the server retries every 5 minutes",
+			zap.String("context", "console"),
+			zap.Strings("tools", capability.BrowserNames()),
+			zap.String("reason", reason),
 		)
 	}
 }

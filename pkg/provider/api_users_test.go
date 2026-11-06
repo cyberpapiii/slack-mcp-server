@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -56,4 +57,68 @@ func TestUnitFetchAndStoreUsersSurvivesConnectFailure(t *testing.T) {
 	assert.Equal(t, "bob", snapshot.Users["U002"].Name)
 	assert.Equal(t, "U001", snapshot.UsersInv["alice"])
 	assert.Equal(t, "U002", snapshot.UsersInv["bob"])
+}
+
+// connectBootClient answers client.userBoot with shared and unshared DMs and
+// records each users.info call.
+type connectBootClient struct {
+	SlackAPI
+
+	boot  *edge.ClientUserBootResponse
+	calls [][]string
+}
+
+func (c *connectBootClient) ClientUserBoot(context.Context) (*edge.ClientUserBootResponse, error) {
+	return c.boot, nil
+}
+
+func (c *connectBootClient) GetUsersInfo(ids ...string) (*[]slack.User, error) {
+	c.calls = append(c.calls, ids)
+	users := make([]slack.User, len(ids))
+	for i, id := range ids {
+		users[i] = slack.User{ID: id}
+	}
+	return &users, nil
+}
+
+func sharedIM(user string, shared bool) edge.Channel {
+	var ch edge.Channel
+	ch.IsIM, ch.User, ch.IsExtShared = true, user, shared
+	return ch
+}
+
+// Slack Connect enrichment used to check the DMs against the previous users
+// snapshot, so a cold start asked users.info for every listed user too.
+func TestUnitSlackConnectUsersAsksOnlyForPeopleTheListLacked(t *testing.T) {
+	client := &connectBootClient{boot: &edge.ClientUserBootResponse{IMs: []edge.Channel{
+		sharedIM("U1", true), sharedIM("U2", true), sharedIM("U2", true), sharedIM("U3", false), sharedIM("", true),
+	}}}
+	ap := &ApiProvider{client: client, logger: zap.NewNop()}
+	ap.usersSnapshot.Store(newUsersCache(nil))
+
+	users, err := ap.slackConnectUsers(context.Background(), []slack.User{{ID: "U1"}})
+	require.NoError(t, err)
+	assert.Equal(t, [][]string{{"U2"}}, client.calls)
+	require.Len(t, users, 1)
+	assert.Equal(t, "U2", users[0].ID)
+
+	client.boot = nil
+	users, err = ap.slackConnectUsers(context.Background(), nil)
+	require.NoError(t, err, "an empty boot answer is not a crash")
+	assert.Empty(t, users)
+}
+
+func TestUnitSlackConnectUsersBatchesUsersInfo(t *testing.T) {
+	ims := make([]edge.Channel, usersInfoBatch+1)
+	for i := range ims {
+		ims[i] = sharedIM(fmt.Sprintf("U%03d", i), true)
+	}
+	client := &connectBootClient{boot: &edge.ClientUserBootResponse{IMs: ims}}
+	ap := &ApiProvider{client: client, logger: zap.NewNop()}
+
+	users, err := ap.slackConnectUsers(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Len(t, users, usersInfoBatch+1)
+	require.Len(t, client.calls, 2)
+	assert.Len(t, client.calls[0], usersInfoBatch)
 }

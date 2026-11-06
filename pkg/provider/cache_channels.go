@@ -11,6 +11,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// RefreshChannels loads the channels cache file, or fetches the channels when
+// the file is missing or unreadable. An expired file is served while a
+// background fetch replaces it.
 func (ap *ApiProvider) RefreshChannels(ctx context.Context) error {
 	return ap.refreshChannelsInternal(ctx, false)
 }
@@ -46,12 +49,7 @@ func (ap *ApiProvider) refreshChannelsInternal(ctx context.Context, force bool) 
 			newSnapshot := newChannelsCache(len(cached))
 			for _, c := range cached {
 				if c.IsIM {
-					c = mapChannel(
-						c.ID, "", "", c.Topic, c.Purpose,
-						c.User, c.Members, c.MemberCount,
-						c.IsIM, c.IsMpIM, c.IsPrivate, c.IsExtShared,
-						usersMap,
-					)
+					c = withIMPeer(c, usersMap)
 				}
 				newSnapshot.add(c)
 			}
@@ -71,7 +69,7 @@ func (ap *ApiProvider) refreshChannelsInternal(ctx context.Context, force bool) 
 }
 
 func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
-	channels, err := ap.GetChannels(ctx, AllChanTypes)
+	channels, err := ap.fetchChannels(ctx)
 
 	// Prefer the real fetch error over a misleading "zero channels" when page 1 fails.
 	if err != nil {
@@ -153,12 +151,10 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 	return chans, nil
 }
 
-func (ap *ApiProvider) GetChannels(ctx context.Context, channelTypes []string) ([]Channel, error) {
-	if len(channelTypes) == 0 {
-		channelTypes = AllChanTypes
-	}
-
-	chans, err := ap.getChannelsMultiType(ctx, channelTypes)
+// fetchChannels lists every conversation type and installs the result as the
+// channels snapshot.
+func (ap *ApiProvider) fetchChannels(ctx context.Context) ([]Channel, error) {
+	chans, err := ap.getChannelsMultiType(ctx, AllChanTypes)
 	if err != nil {
 		// Incomplete page must not replace a good snapshot.
 		return chans, err
