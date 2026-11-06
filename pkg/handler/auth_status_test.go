@@ -9,11 +9,11 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func TestUnitAuthStatusHandler_ReturnsJSONSummary(t *testing.T) {
-	h := NewAuthStatusHandler(&provider.ApiProvider{}, []string{capability.SavedList}, zap.NewNop())
+	api := &provider.ApiProvider{}
+	h := NewAuthStatusHandler(api, NewAvailability([]string{capability.SavedList}, api))
 	result, err := h.Handler(context.Background(), mcp.CallToolRequest{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -42,26 +42,44 @@ func TestUnitAuthStatusHandler_ReturnsJSONSummary(t *testing.T) {
 	assert.Equal(t, "not_enabled", availability[capability.DNDGet])
 }
 
+// runtimeState is a RuntimeState with every fact set by hand.
+type runtimeState struct {
+	satisfied, browserOK, usersReady, channelsReady bool
+}
+
+func (s runtimeState) Satisfies(capability.Requirement) bool { return s.satisfied }
+func (s runtimeState) BrowserFeaturesAvailable() bool        { return s.browserOK }
+func (s runtimeState) UsersCacheReady() bool                 { return s.usersReady }
+func (s runtimeState) ChannelsCacheReady() bool              { return s.channelsReady }
+
 func TestUnitToolAvailabilityFollowsTheCatalogRow(t *testing.T) {
 	saved, _ := capability.Lookup(capability.SavedList)
 	unreads, _ := capability.Lookup(capability.ConversationsUnreads)
 	dnd, _ := capability.Lookup(capability.DNDGet)
-	ready := toolState{enabled: true, satisfied: true, browserOK: true, cacheReady: true}
+	enabled := []string{saved.Name, unreads.Name, dnd.Name}
+	ready := runtimeState{satisfied: true, browserOK: true, usersReady: true, channelsReady: true}
+	state := func(s runtimeState, tool capability.Tool) string { return NewAvailability(enabled, s).State(tool) }
 
-	assert.Equal(t, "available", toolAvailability(saved, ready))
+	assert.Equal(t, "available", state(ready, saved))
 	cold := ready
-	cold.cacheReady = false
-	assert.Equal(t, "available", toolAvailability(saved, cold), "saved tools do not wait for the cache")
-	assert.Equal(t, "available_after_cache_warmup", toolAvailability(unreads, cold))
+	cold.channelsReady = false
+	assert.Equal(t, "available", state(cold, saved), "saved tools do not wait for the cache")
+	assert.Equal(t, "available_after_cache_warmup", state(cold, unreads))
+	assert.True(t, NewAvailability(enabled, cold).Served(unreads), "a cache-dependent tool is served, after warm-up")
 
 	degraded := ready
 	degraded.browserOK = false
-	assert.Equal(t, "browser_session_degraded", toolAvailability(unreads, degraded))
-	assert.Equal(t, "available", toolAvailability(dnd, degraded), "an OAuth tool is untouched by the browser session")
+	assert.Equal(t, "browser_session_degraded", state(degraded, unreads))
+	assert.True(t, NewAvailability(enabled, degraded).Served(unreads), "a degraded session's tools stay registered")
+	assert.Equal(t, "available", state(degraded, dnd), "an OAuth tool is untouched by the browser session")
 
 	bot := ready
 	bot.satisfied = false
-	assert.Equal(t, "user_oauth_required", toolAvailability(dnd, bot))
+	assert.Equal(t, "user_oauth_required", state(bot, dnd))
+	assert.False(t, NewAvailability(enabled, bot).Served(dnd))
+
+	assert.Equal(t, "not_enabled", NewAvailability(nil, ready).State(dnd))
+	assert.False(t, NewAvailability(nil, ready).Served(dnd))
 }
 
 func TestUnitAuthSummarySaysWhetherADegradedSessionRecoversByItself(t *testing.T) {

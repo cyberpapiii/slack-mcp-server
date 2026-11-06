@@ -62,6 +62,16 @@ func setupMCPClientServer(t *testing.T, opts []server.ServerOption, toolHandler 
 	return c
 }
 
+func TestUnitWorkspaceName(t *testing.T) {
+	ws, err := workspaceName("https://acme.slack.com/")
+	require.NoError(t, err)
+	assert.Equal(t, "acme", ws)
+	_, err = workspaceName("https://localhost/")
+	assert.Error(t, err)
+	_, err = workspaceName("")
+	assert.Error(t, err)
+}
+
 func TestErrorRecoveryMiddleware(t *testing.T) {
 	logger := zap.NewNop()
 

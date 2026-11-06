@@ -14,15 +14,13 @@ import (
 // startup.
 type Settings struct {
 	allowlists map[string]channelAllowlist
+	unfurling  unfurlPolicy
 
-	// AddMessageEnabled says whether conversations_add_message is served, for
-	// the draft preview's "would it send" line.
-	AddMessageEnabled bool
+	// Warnings are settings that parse but likely do not do what the operator
+	// meant, for the startup log.
+	Warnings []string
 	// MarkAfterPost marks the channel read after conversations_add_message posts.
 	MarkAfterPost bool
-	// Unfurling is SLACK_MCP_ADD_MESSAGE_UNFURLING: empty, a truthy value, or a
-	// domain allowlist.
-	Unfurling string
 	// DownloadDir is SLACK_MCP_DOWNLOAD_DIR, the absolute directory
 	// files_download writes into; empty disables the tool.
 	DownloadDir string
@@ -39,7 +37,7 @@ func SettingsFromEnv(getenv func(string) string) (Settings, error) {
 	settings := Settings{
 		allowlists:    map[string]channelAllowlist{},
 		MarkAfterPost: envutil.IsTruthy(getenv("SLACK_MCP_ADD_MESSAGE_MARK")),
-		Unfurling:     getenv("SLACK_MCP_ADD_MESSAGE_UNFURLING"),
+		unfurling:     parseUnfurling(getenv("SLACK_MCP_ADD_MESSAGE_UNFURLING")),
 		DownloadDir:   strings.TrimSpace(getenv("SLACK_MCP_DOWNLOAD_DIR")),
 		LogParams:     strings.EqualFold(getenv("SLACK_MCP_LOG_PARAMS"), "debug"),
 	}
@@ -47,22 +45,43 @@ func SettingsFromEnv(getenv func(string) string) (Settings, error) {
 		settings.Detail = text.ModeFull
 	}
 	for _, variable := range capability.ChannelAllowlists() {
-		allowlist, err := parseChannelAllowlist(getenv(variable))
+		value := getenv(variable)
+		allowlist, err := parseChannelAllowlist(value)
 		if err != nil {
 			return Settings{}, fmt.Errorf("%s: %w", variable, err)
 		}
 		settings.allowlists[variable] = allowlist
+		if envutil.IsFalsy(value) {
+			settings.Warnings = append(settings.Warnings, variable+"="+value+" is treated as a channel allowlist and blocks every channel; unset it, or drop the tool from SLACK_MCP_ENABLED_TOOLS to disable it")
+		}
 	}
 	return settings, nil
 }
 
-// outputMode reads the call's `detail` parameter.
+// The values of a message tool's `detail` parameter.
+const (
+	detailStandard = "standard"
+	detailFull     = "full"
+)
+
+// detailOption declares the `detail` parameter outputMode reads.
+func detailOption() mcp.ToolOption {
+	return mcp.WithString("detail", mcp.Description(toolDetailDescription), mcp.Enum(detailStandard, detailFull))
+}
+
+// outputMode reads the call's `detail` parameter; omitted, it is the server
+// default.
 func (s Settings) outputMode(request mcp.CallToolRequest) (text.OutputMode, error) {
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""), s.Detail)
-	if err != nil {
-		return mode, invalidArguments(err.Error())
+	detail := request.GetString("detail", "")
+	switch strings.ToLower(strings.TrimSpace(detail)) {
+	case "":
+		return s.Detail, nil
+	case detailStandard:
+		return text.ModeStandard, nil
+	case detailFull:
+		return text.ModeFull, nil
 	}
-	return mode, nil
+	return text.ModeStandard, invalidArguments(fmt.Sprintf("invalid detail value %q: must be \"standard\" or \"full\"", detail))
 }
 
 // requireChannel enforces the tool's channel allowlist, if it has one.
@@ -71,7 +90,7 @@ func (s Settings) requireChannel(tool, channel string) error {
 		return nil
 	}
 	spec, _ := capability.Lookup(tool)
-	return &ToolError{Code: "permission_denied", Message: fmt.Sprintf("%s is not allowed for channel %q by %s", tool, channel, spec.ChannelAllowlist)}
+	return permissionDenied(fmt.Sprintf("%s is not allowed for channel %q by %s", tool, channel, spec.ChannelAllowlist))
 }
 
 func (s Settings) channelAllowed(tool, channel string) bool {

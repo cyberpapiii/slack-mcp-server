@@ -133,6 +133,10 @@ func TestTypeErrorCodes(t *testing.T) {
 		{"unknown write outcome", fmt.Errorf("decode: %w", provider.ErrOutcomeUnknown), true, "outcome_unknown", false},
 		{"user OAuth", provider.ErrUserOAuthRequired, false, "user_oauth_required", false},
 		{"wrapped sentinel", fmt.Errorf("x: %w", provider.ErrBrowserSessionUnavailable), false, "browser_session_required", false},
+		{"users warming", fmt.Errorf("resolve %q: %w", "@bob", provider.ErrUsersNotReady), false, "cache_warming", true},
+		{"channels warming", provider.ErrChannelsNotReady, true, "cache_warming", true},
+		{"local channel miss", channelNotFound("#x"), false, "not_found", false},
+		{"local user miss", userNotFound("bob"), false, "not_found", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

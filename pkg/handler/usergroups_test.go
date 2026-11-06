@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gocarina/gocsv"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
@@ -17,13 +18,13 @@ type fakeUsergroupsAPI struct {
 	groups  []slack.UserGroup
 	members []string
 	updated string
-	// authTests counts auth.test calls.
-	authTests int
 }
 
-func (f *fakeUsergroupsAPI) AuthTest() (*slack.AuthTestResponse, error) {
-	f.authTests++
-	return &slack.AuthTestResponse{UserID: "U1"}, nil
+// newTestUsergroupsHandler acts as user U1.
+func newTestUsergroupsHandler(api UsergroupsAPI) *UsergroupsHandler {
+	return NewUsergroupsHandler(api, func() provider.ProviderIdentity {
+		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user"}
+	}, zap.NewNop())
 }
 func (f *fakeUsergroupsAPI) GetUserGroupsContext(context.Context, ...slack.GetUserGroupsOption) ([]slack.UserGroup, error) {
 	return f.groups, nil
@@ -80,7 +81,7 @@ func TestUsergroupsListAndMineReturnCSVOnly(t *testing.T) {
 		{ID: "S1", Name: "eng", Handle: "eng", UserCount: 2, Users: []string{"U1", "U2"}},
 		{ID: "S2", Name: "ops", Handle: "ops", UserCount: 1, Users: []string{"U3"}},
 	}}
-	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
+	handler := newTestUsergroupsHandler(api)
 
 	list, err := handler.UsergroupsListHandler(context.Background(), mcp.CallToolRequest{})
 	require.NoError(t, err)
@@ -95,7 +96,7 @@ func TestUsergroupsListAndMineReturnCSVOnly(t *testing.T) {
 
 func TestUsergroupsJoinAppendsCurrentUser(t *testing.T) {
 	api := &fakeUsergroupsAPI{members: []string{"U2"}}
-	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
+	handler := newTestUsergroupsHandler(api)
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
 	_, err := handler.UsergroupsJoinHandler(context.Background(), request)
 	require.NoError(t, err)
@@ -104,37 +105,22 @@ func TestUsergroupsJoinAppendsCurrentUser(t *testing.T) {
 
 func TestUsergroupsLeaveRemovesOnlyCurrentUser(t *testing.T) {
 	api := &fakeUsergroupsAPI{members: []string{"U2", "U1", "U3"}}
-	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
+	handler := newTestUsergroupsHandler(api)
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"usergroup_id": "S1"}}}
 	_, err := handler.UsergroupsLeaveHandler(context.Background(), request)
 	require.NoError(t, err)
 	assert.Equal(t, "U2,U3", api.updated)
 }
 
-func TestUnitUsergroupsMineUsesCachedIdentity(t *testing.T) {
+func TestUnitUsergroupsMineUsesTheStartupIdentity(t *testing.T) {
 	api := &fakeUsergroupsAPI{groups: []slack.UserGroup{
 		{ID: "S1", Name: "eng", Handle: "eng", UserCount: 1, Users: []string{"U9"}},
 		{ID: "S2", Name: "ops", Handle: "ops", UserCount: 1, Users: []string{"U1"}},
 	}}
-	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
-	handler.cachedUserID = func() string { return "U9" }
+	handler := NewUsergroupsHandler(api, func() provider.ProviderIdentity { return provider.ProviderIdentity{UserID: "U9"} }, zap.NewNop())
 
 	mine, err := handler.UsergroupsMineHandler(context.Background(), mcp.CallToolRequest{})
 	require.NoError(t, err)
-	assert.Zero(t, api.authTests, "the startup auth.test already named the user; do not repeat it per call")
 	assert.Contains(t, ResultText(mine), "S1,eng")
 	assert.NotContains(t, ResultText(mine), "S2,ops")
-}
-
-func TestUnitUsergroupsMineFallsBackToAuthTestWithoutIdentity(t *testing.T) {
-	api := &fakeUsergroupsAPI{groups: []slack.UserGroup{
-		{ID: "S2", Name: "ops", Handle: "ops", UserCount: 1, Users: []string{"U1"}},
-	}}
-	handler := newUsergroupsHandlerWithAPI(api, zap.NewNop())
-	handler.cachedUserID = func() string { return "" }
-
-	mine, err := handler.UsergroupsMineHandler(context.Background(), mcp.CallToolRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, 1, api.authTests)
-	assert.Contains(t, ResultText(mine), "S2,ops")
 }

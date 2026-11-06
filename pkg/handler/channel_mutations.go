@@ -10,7 +10,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"go.uber.org/zap"
 )
 
 var channelNamePattern = regexp.MustCompile(`^[a-z0-9_-]{1,80}$`)
@@ -27,7 +26,6 @@ type ChannelMutationHandler struct {
 	service   ChannelMutationService
 	approvals approvalGate
 	settings  Settings
-	logger    *zap.Logger
 }
 
 type ChannelMutationData struct {
@@ -38,8 +36,8 @@ type ChannelMutationData struct {
 
 type ChannelMutationResult = ToolResult[ChannelMutationData]
 
-func NewChannelMutationHandler(service ChannelMutationService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings, logger *zap.Logger) *ChannelMutationHandler {
-	return &ChannelMutationHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, settings: settings, logger: logger}
+func NewChannelMutationHandler(service ChannelMutationService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings) *ChannelMutationHandler {
+	return &ChannelMutationHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}, settings: settings}
 }
 
 func (h *ChannelMutationHandler) ConversationsRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

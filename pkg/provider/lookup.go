@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"strings"
 	"sync"
 
@@ -74,15 +75,6 @@ func isAlnum(s string) bool {
 	return true
 }
 
-// IsConversationID reports whether id names a channel, group or DM.
-func IsConversationID(id string) bool {
-	switch ClassifyID(id) {
-	case IDChannel, IDGroup, IDDirectMessage:
-		return true
-	}
-	return false
-}
-
 // ParseChannelRef splits a channel reference into the ID it names directly
 // (a conversation ID or a "<#C123|name>" mention) or the cache name it has to
 // be looked up by ("#name", "@user"). Exactly one of the results is set for
@@ -130,17 +122,25 @@ func mentionID(ref, open string) (string, bool) {
 	return body, true
 }
 
+// ErrNotCached means a warm cache does not know the reference.
+var ErrNotCached = errors.New("not in the cache")
+
 // Directory answers name and ID lookups against one pair of cache snapshots.
-// It never fetches; a miss means the cache does not know the reference.
+// It never fetches. A miss is ErrUsersNotReady or ErrChannelsNotReady while
+// the cache that would know the reference is still warming, ErrNotCached
+// once it is warm.
 type Directory struct {
-	users    *UsersCache
-	channels *ChannelsCache
+	users         *UsersCache
+	channels      *ChannelsCache
+	usersReady    bool
+	channelsReady bool
 
 	dmOnce sync.Once
 	dms    map[string]string
 }
 
-// NewDirectory builds a Directory over the given snapshots; nil means empty.
+// NewDirectory builds a Directory over the given snapshots, treated as warm;
+// nil means empty.
 func NewDirectory(users *UsersCache, channels *ChannelsCache) *Directory {
 	if users == nil {
 		users = newUsersCache(nil)
@@ -148,20 +148,22 @@ func NewDirectory(users *UsersCache, channels *ChannelsCache) *Directory {
 	if channels == nil {
 		channels = newChannelsCache(0)
 	}
-	return &Directory{users: users, channels: channels}
+	return &Directory{users: users, channels: channels, usersReady: true, channelsReady: true}
 }
 
 // Directory returns lookups over the current users and channels snapshots.
 // A user installed by PatchUser is visible to the next call.
 func (ap *ApiProvider) Directory() *Directory {
-	return NewDirectory(ap.usersSnapshot.Load(), ap.channelsSnapshot.Load())
+	d := NewDirectory(ap.usersSnapshot.Load(), ap.channelsSnapshot.Load())
+	d.usersReady, d.channelsReady = ap.usersReady.Load(), ap.channelsReady.Load()
+	return d
 }
 
-func (ap *ApiProvider) ChannelByRef(ref string) (Channel, bool) {
+func (ap *ApiProvider) ChannelByRef(ref string) (Channel, error) {
 	return ap.Directory().ChannelByRef(ref)
 }
 
-func (ap *ApiProvider) UserByRef(ref string) (slack.User, bool) {
+func (ap *ApiProvider) UserByRef(ref string) (slack.User, error) {
 	return ap.Directory().UserByRef(ref)
 }
 
@@ -169,28 +171,32 @@ func (ap *ApiProvider) ChannelLabel(id string) string { return ap.Directory().Ch
 
 func (ap *ApiProvider) UserLabel(id string) string { return ap.Directory().UserLabel(id) }
 
-func (ap *ApiProvider) DMChannelFor(userID string) (Channel, bool) {
-	return ap.Directory().DMChannelFor(userID)
-}
-
 // ChannelByRef finds a cached conversation by ID, "#name", "@user" (the DM
 // with that user, by username or user ID) or "<#C123|name>" mention.
-func (d *Directory) ChannelByRef(ref string) (Channel, bool) {
+func (d *Directory) ChannelByRef(ref string) (Channel, error) {
 	id, name := ParseChannelRef(ref)
-	if id != "" {
-		ch, ok := d.channels.Channels[id]
-		return ch, ok
-	}
-	if cached, ok := d.channels.ChannelsInv[name]; ok {
-		ch, ok := d.channels.Channels[cached]
-		return ch, ok
-	}
-	if strings.HasPrefix(name, "@") {
-		if user, ok := d.UserByRef(name); ok {
-			return d.DMChannelFor(user.ID)
+	if id == "" {
+		if cached, ok := d.channels.ChannelsInv[name]; ok {
+			id = cached
+		} else if strings.HasPrefix(name, "@") {
+			user, err := d.UserByRef(name)
+			if errors.Is(err, ErrUsersNotReady) {
+				return Channel{}, err
+			}
+			if err == nil {
+				if ch, ok := d.DMChannelFor(user.ID); ok {
+					return ch, nil
+				}
+			}
 		}
 	}
-	return Channel{}, false
+	if ch, ok := d.channels.Channels[id]; ok {
+		return ch, nil
+	}
+	if !d.channelsReady {
+		return Channel{}, ErrChannelsNotReady
+	}
+	return Channel{}, ErrNotCached
 }
 
 // User finds a cached user by exact ID.
@@ -201,7 +207,17 @@ func (d *Directory) User(id string) (slack.User, bool) {
 
 // UserByRef finds a cached user by ID, "@name" or bare username, "<@U123>"
 // mention, or email address.
-func (d *Directory) UserByRef(ref string) (slack.User, bool) {
+func (d *Directory) UserByRef(ref string) (slack.User, error) {
+	if u, ok := d.userByRef(ref); ok {
+		return u, nil
+	}
+	if !d.usersReady {
+		return slack.User{}, ErrUsersNotReady
+	}
+	return slack.User{}, ErrNotCached
+}
+
+func (d *Directory) userByRef(ref string) (slack.User, bool) {
 	id, name := ParseUserRef(ref)
 	if id != "" {
 		u, ok := d.users.Users[id]
@@ -246,13 +262,7 @@ func (d *Directory) ChannelLabel(id string) string {
 		return ""
 	}
 	if ch.IsIM && ch.User != "" {
-		if u, ok := d.users.Users[ch.User]; ok && u.Name != "" {
-			return "@" + u.Name
-		}
-		return "@" + ch.User
-	}
-	if ch.Name == "@" || ch.Name == "#" {
-		return ""
+		return dmName(ch.User, d.users.Users)
 	}
 	return ch.Name
 }

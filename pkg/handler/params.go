@@ -5,15 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 )
-
-func invalidArguments(message string) *ToolError {
-	return &ToolError{Code: "invalid_arguments", Message: message}
-}
 
 // fileParamHints are the substrings that show up in a parameter name an agent
 // invented while trying to attach something. Matching substrings rather than an
@@ -82,14 +79,63 @@ func presentString(request mcp.CallToolRequest, name string) (string, error) {
 	return text, nil
 }
 
-// pageLimit reads the limit argument, substituting def when it is missing or
-// non-positive and clamping to max when max is positive. GetInt only applies
-// its default to an absent key, so a negative limit would otherwise pass through.
-func pageLimit(request mcp.CallToolRequest, def, max int) int {
-	limit := request.GetInt("limit", def)
-	if limit <= 0 {
-		limit = def
+// parseChoices reads raw, the comma-separated argument name, whose values
+// must come from allowed. An empty argument gives def.
+func parseChoices(name, raw string, allowed, def []string) ([]string, error) {
+	var values []string
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if !slices.Contains(allowed, value) {
+			return nil, unsupportedChoice(name, value, allowed)
+		}
+		if !slices.Contains(values, value) {
+			values = append(values, value)
+		}
 	}
+	if len(values) == 0 {
+		return def, nil
+	}
+	return values, nil
+}
+
+// parseChoice is parseChoices for an argument that takes one value.
+func parseChoice(name, raw string, allowed []string, def string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return def, nil
+	}
+	if !slices.Contains(allowed, value) {
+		return "", unsupportedChoice(name, value, allowed)
+	}
+	return value, nil
+}
+
+func unsupportedChoice(name, value string, allowed []string) error {
+	return invalidArguments(fmt.Sprintf("unsupported %s %q: must be one of %s", name, value, strings.Join(allowed, ", ")))
+}
+
+// quotedList renders values as 'a', 'b', 'c' for a schema description.
+func quotedList(values []string) string {
+	return "'" + strings.Join(values, "', '") + "'"
+}
+
+// positiveInt reads a count argument, substituting def when it is missing or
+// non-positive. GetInt only applies its default to an absent key, so a
+// negative value would otherwise pass through.
+func positiveInt(request mcp.CallToolRequest, name string, def int) int {
+	if n := request.GetInt(name, def); n > 0 {
+		return n
+	}
+	return def
+}
+
+// pageLimit reads the limit argument like positiveInt, clamped to max when
+// max is positive.
+func pageLimit(request mcp.CallToolRequest, def, max int) int {
+	limit := positiveInt(request, "limit", def)
 	if max > 0 && limit > max {
 		limit = max
 	}

@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"fmt"
+
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -32,10 +35,7 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 				mcp.DefaultString("50"),
 				mcp.Description("How much history to fetch: a number of messages (default 50) or a time range ('6h' for the last 6 hours, '1d' for 1 day, '1w' for 1 week, '30d', '90d' which is the free-tier history limit). Ignored when 'cursor' is set."),
 			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 		{Name: capability.ConversationsReplies, Run: ch.ConversationsRepliesHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Fetch a thread's messages by channel_id and thread_ts. Returns CSV; a #next_cursor line means more messages exist."),
@@ -58,10 +58,7 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 				mcp.DefaultString("50"),
 				mcp.Description("How many replies to fetch: a number of messages (default 50) or a time range ('6h' for the last 6 hours, '1d' for 1 day, '30d', '90d' which is the free-tier history limit). Ignored when 'cursor' is set."),
 			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 		{Name: capability.ReactionsGet, Run: ch.ReactionsGetHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Get detailed reaction data for a specific message, including which users reacted with each emoji. Returns CSV with Emoji, Count, and Users (semicolon-separated user IDs) columns."),
@@ -84,10 +81,7 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 				mcp.Required(),
 				mcp.Description("Timestamp of the message to fetch, in format 1234567890.123456."),
 			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 		{Name: capability.ConversationsAddMessage, Run: ch.ConversationsAddMessageHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Post a text-only message to a channel or DM by channel_id. Pass thread_ts to reply in a thread. This tool cannot attach files; to post a message with a file, use files_upload with channel_id and initial_comment instead."),
@@ -158,7 +152,7 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 			),
 		}},
 		{Name: capability.AttachmentGetData, Run: ch.FilesGetHandler, Options: []mcp.ToolOption{
-			mcp.WithDescription("Download an attachment's content by file ID. Images come back as viewable image content, so use this to read a screenshot rather than guessing at it from the message text. Text files come back as readable text; other types come back as base64. Maximum file size is 5MB."),
+			mcp.WithDescription("Download an attachment's content by file ID. Images come back as viewable image content, so use this to read a screenshot rather than guessing at it from the message text. Text files come back as readable text; other types come back as base64. Maximum file size is " + megabytes(maxFileSizeBytes) + "."),
 			mcp.WithString("file_id",
 				mcp.Required(),
 				mcp.Description("Attachment ID in format Fxxxxxxxxxx. Message rows list them in the AttachmentIDs column as `FileID (name, kind, size)` when the Files column is non-zero; files_list reports them in its FileID column."),
@@ -211,10 +205,7 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 				mcp.DefaultString("score"),
 				mcp.Description("Sort order: 'score' (default, relevance) or 'timestamp' (most recent first)."),
 			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 		{Name: capability.UsersSearch, Run: ch.UsersSearchHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Search for users by name, email, display name, or Slack user ID. If a Slack user ID is provided (e.g. U07VCEPP4N5), the user is looked up directly. Returns user details and DM channel ID if available."),
@@ -285,16 +276,17 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 				mcp.DefaultBool(true),
 			),
 			mcp.WithString("channel_types",
-				mcp.Description("Filter by channel type: 'all' (default), 'dm' (direct messages), 'group_dm' (group DMs), 'partner' (ext-* channels), 'internal' (other channels)."),
-				mcp.DefaultString("all"),
+				mcp.Description(fmt.Sprintf("Filter by channel type: '%s' (default), '%s' (direct messages), '%s' (group DMs), '%s' (ext-* channels), '%s' (other channels).",
+					allCategories, provider.CategoryDM, provider.CategoryGroupDM, provider.CategoryPartner, provider.CategoryInternal)),
+				mcp.DefaultString(allCategories),
 			),
 			mcp.WithNumber("max_channels",
-				mcp.Description("Maximum number of channels to fetch unreads from. Default is 50."),
-				mcp.DefaultNumber(50),
+				mcp.Description(fmt.Sprintf("Maximum number of channels to fetch unreads from. Default is %d.", defaultUnreadsMaxChannels)),
+				mcp.DefaultNumber(defaultUnreadsMaxChannels),
 			),
 			mcp.WithNumber("max_messages_per_channel",
-				mcp.Description("Maximum messages to fetch per channel. Default is 10."),
-				mcp.DefaultNumber(10),
+				mcp.Description(fmt.Sprintf("Maximum messages to fetch per channel. Default is %d.", defaultUnreadsMessagesPerChannel)),
+				mcp.DefaultNumber(defaultUnreadsMessagesPerChannel),
 			),
 			mcp.WithBoolean("mentions_only",
 				mcp.Description("If true, only returns channels where you have @mentions. Default is false."),
@@ -304,10 +296,7 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 				mcp.Description("If true, includes muted channels in results. Default is false (muted channels are excluded, matching Slack app behavior)."),
 				mcp.DefaultBool(false),
 			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 	}
 }

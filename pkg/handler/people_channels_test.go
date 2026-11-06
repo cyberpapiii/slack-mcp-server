@@ -8,7 +8,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 type fakePeopleChannelsService struct {
@@ -66,7 +65,7 @@ func peopleRequest(arguments map[string]any) mcp.CallToolRequest {
 func newPeopleHandler(service PeopleChannelsService) *PeopleChannelsHandler {
 	return NewPeopleChannelsHandler(service, mapLabels{}, func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user", TokenMode: "user-oauth"}
-	}, zap.NewNop())
+	})
 }
 
 func TestPeopleHandlerProfileReadDefaultsToActor(t *testing.T) {

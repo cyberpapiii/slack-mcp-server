@@ -54,13 +54,13 @@ func TestUnitChannelByRef(t *testing.T) {
 		"@mpdm-alice--bob-1": "G400",
 		" #general ":         "C100",
 	} {
-		ch, ok := d.ChannelByRef(ref)
-		assert.True(t, ok, ref)
+		ch, err := d.ChannelByRef(ref)
+		assert.NoError(t, err, ref)
 		assert.Equal(t, want, ch.ID, ref)
 	}
 	for _, ref := range []string{"#missing", "@nobody", "C999", "@bob"} {
-		_, ok := d.ChannelByRef(ref)
-		assert.False(t, ok, ref)
+		_, err := d.ChannelByRef(ref)
+		assert.ErrorIs(t, err, ErrNotCached, ref)
 	}
 }
 
@@ -75,14 +75,32 @@ func TestUnitUserByRef(t *testing.T) {
 		"ALICE@example.com": "U001",
 		"W003":              "W003",
 	} {
-		u, ok := d.UserByRef(ref)
-		assert.True(t, ok, ref)
+		u, err := d.UserByRef(ref)
+		assert.NoError(t, err, ref)
 		assert.Equal(t, want, u.ID, ref)
 	}
 	for _, ref := range []string{"U999", "@nobody", "", "<@>"} {
-		_, ok := d.UserByRef(ref)
-		assert.False(t, ok, ref)
+		_, err := d.UserByRef(ref)
+		assert.ErrorIs(t, err, ErrNotCached, ref)
 	}
+}
+
+func TestUnitAMissOnAWarmingCacheSaysSo(t *testing.T) {
+	d := testDirectory()
+	d.usersReady, d.channelsReady = false, false
+
+	_, err := d.ChannelByRef("#general")
+	assert.NoError(t, err, "a cached name resolves while warming")
+	_, err = d.ChannelByRef("#missing")
+	assert.ErrorIs(t, err, ErrChannelsNotReady)
+	_, err = d.ChannelByRef("@nobody")
+	assert.ErrorIs(t, err, ErrUsersNotReady, "the DM lookup needs the user first")
+	_, err = d.UserByRef("nobody")
+	assert.ErrorIs(t, err, ErrUsersNotReady)
+
+	d.usersReady = true
+	_, err = d.ChannelByRef("@bob")
+	assert.ErrorIs(t, err, ErrChannelsNotReady, "a known user whose DM is not cached yet")
 }
 
 func TestUnitLabels(t *testing.T) {
