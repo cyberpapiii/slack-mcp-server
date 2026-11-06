@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// Tool names.
 const (
 	ActivityMarkRead            = "activity_mark_read"
 	ActivityUnreads             = "activity_unreads"
@@ -93,7 +92,6 @@ const (
 	ChannelManagementAllowlist = "SLACK_MCP_CHANNEL_MANAGEMENT_TOOL"
 )
 
-// ChannelAllowlists lists every channel allow/block list variable.
 func ChannelAllowlists() []string {
 	return []string{AddMessageAllowlist, ReactionAllowlist, ChannelManagementAllowlist}
 }
@@ -125,26 +123,22 @@ type Tool struct {
 }
 
 var Tools = []Tool{
-	// Messages.
 	{Name: ConversationsHistory, Title: "Get Conversation History", ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
 	{Name: ConversationsReplies, Title: "Get Thread Replies", ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
 	{Name: ConversationsGetMessage, Title: "Get Single Message", DailyPower: true, ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
 	{Name: ConversationsAddMessage, ChannelAllowlist: AddMessageAllowlist, Title: "Send Message", Scopes: []string{"chat:write"}},
 	{Name: ConversationsDraftMessage, Title: "Draft Message", ReadOnly: true},
 
-	// Persisted drafts (browser session).
 	{Name: DraftsList, Title: "List Drafts", DailyPower: true, Requires: BrowserSession, ReadOnly: true},
 	{Name: DraftsGet, Title: "Get Draft", DailyPower: true, Requires: BrowserSession, ReadOnly: true},
 	{Name: DraftsCreate, Title: "Create Draft", Requires: BrowserSession},
 	{Name: DraftsUpdate, Title: "Update Draft", Requires: BrowserSession, Destructive: true},
 	{Name: DraftsDelete, Title: "Delete Draft", Requires: BrowserSession, Destructive: true},
 
-	// Search and unreads.
 	{Name: ConversationsSearchMessages, Requires: UserToken, Title: "Search Messages", ReadOnly: true, Scopes: []string{"search:read"}},
 	{Name: ConversationsUnreads, Title: "Get Unread Messages", DailyPower: true, Requires: BrowserSession, CacheReady: true, ReadOnly: true},
 	{Name: ConversationsMark, Title: "Mark Conversation Read", Idempotent: true, Scopes: []string{"channels:write", "groups:write", "im:write", "mpim:write"}},
 
-	// Conversation membership.
 	{Name: ConversationsOpen, Title: "Open Conversation", Idempotent: true, Scopes: []string{"im:write", "mpim:write"}},
 	{Name: ConversationsJoin, Title: "Join Channel", Idempotent: true, Scopes: []string{"channels:write"}},
 	{Name: ConversationsLeave, Title: "Leave Channel", Destructive: true, Scopes: []string{"channels:write", "groups:write"}},
@@ -152,18 +146,15 @@ var Tools = []Tool{
 	{Name: ChannelsStarred, Requires: UserToken, Title: "List Starred Channels", CacheReady: true, ReadOnly: true, Scopes: []string{"stars:read"}},
 	{Name: ChannelsMe, Title: "My Channels", CacheReady: true, ReadOnly: true, Scopes: []string{"channels:read", "groups:read", "im:read", "mpim:read"}},
 
-	// Reactions.
 	{Name: ReactionsAdd, ChannelAllowlist: ReactionAllowlist, Title: "Add Reaction", Scopes: []string{"reactions:write"}},
 	{Name: ReactionsRemove, ChannelAllowlist: ReactionAllowlist, Title: "Remove Reaction", Destructive: true, Scopes: []string{"reactions:write"}},
 	{Name: ReactionsGet, Title: "Get Message Reactions", ReadOnly: true, Scopes: []string{"reactions:read"}},
 
-	// Files and users.
 	{Name: AttachmentGetData, Title: "Get Attachment Data", ReadOnly: true, Scopes: []string{"files:read"}},
 	{Name: FilesList, Title: "List Files", ReadOnly: true, Scopes: []string{"files:read"}},
 	{Name: FilesDownload, Title: "Download File To Disk", Idempotent: true, Scopes: []string{"files:read"}},
 	{Name: UsersSearch, Title: "Search Users", ReadOnly: true, Scopes: []string{"users:read"}},
 
-	// User groups.
 	{Name: UsergroupsList, Title: "List User Groups", DailyPower: true, ReadOnly: true, Scopes: []string{"usergroups:read"}},
 	{Name: UsergroupsMine, Title: "List My User Groups", DailyPower: true, ReadOnly: true, Scopes: []string{"usergroups:read"}},
 	{Name: UsergroupsJoin, Title: "Join User Group", Idempotent: true, Scopes: []string{"usergroups:read", "usergroups:write"}},
@@ -172,7 +163,6 @@ var Tools = []Tool{
 	{Name: UsergroupsUpdate, Title: "Update User Group", Scopes: []string{"usergroups:write"}},
 	{Name: UsergroupsUsersUpdate, Title: "Replace User Group Members", Destructive: true, Idempotent: true, Scopes: []string{"usergroups:write"}},
 
-	// Activity and saved items (browser session).
 	{Name: ActivityUnreads, Title: "Get Activity Unreads", DailyPower: true, Requires: BrowserSession, CacheReady: true, ReadOnly: true},
 	{Name: ActivityMarkRead, Title: "Mark Activity Read", Requires: BrowserSession, CacheReady: true, Idempotent: true},
 	{Name: SavedList, Title: "List To-dos and Saved Items", DailyPower: true, Requires: BrowserSession, ReadOnly: true},
@@ -181,16 +171,13 @@ var Tools = []Tool{
 	{Name: SavedDelete, Title: "Remove To-do or Saved Item", Requires: BrowserSession, Destructive: true, Idempotent: true},
 	{Name: SavedClearCompleted, Title: "Clear Completed To-dos", Requires: BrowserSession, Destructive: true, Idempotent: true},
 
-	// Diagnostics.
 	{Name: SlackAuthStatus, Title: "Auth & Cache Status", DailyPower: true, ReadOnly: true},
 
-	// File and message mutations.
 	{Name: FilesUpload, ChannelAllowlist: AddMessageAllowlist, Title: "Upload File", Scopes: []string{"files:write"}},
 	{Name: MessagesSchedule, ChannelAllowlist: AddMessageAllowlist, Title: "Schedule Message", Scopes: []string{"chat:write"}},
 	{Name: MessagesUpdate, ChannelAllowlist: AddMessageAllowlist, Title: "Update Message", Destructive: true, Scopes: []string{"chat:write"}},
 	{Name: MessagesDelete, ChannelAllowlist: AddMessageAllowlist, Title: "Delete Message", Destructive: true, Scopes: []string{"chat:write"}},
 
-	// Channels, people and profiles.
 	{Name: ChannelsCreate, Title: "Create Channel", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsMembers, Title: "List Channel Members", DailyPower: true, ReadOnly: true, Scopes: []string{"channels:read", "groups:read"}},
 	{Name: ChannelsInvite, Title: "Invite Channel Members", Scopes: []string{"channels:write", "channels:write.invites", "groups:write", "groups:write.invites"}},
@@ -199,23 +186,19 @@ var Tools = []Tool{
 	{Name: UsersSetProfile, Title: "Update User Profile", Destructive: true, Scopes: []string{"users.profile:write"}},
 	{Name: UsersSetStatus, Title: "Set User Status", Scopes: []string{"users.profile:write"}},
 
-	// Canvases and semantic search.
 	{Name: CanvasesCreate, Title: "Create Canvas", Scopes: []string{"canvases:write"}},
 	{Name: CanvasesRead, Title: "Read Canvas", DailyPower: true, ReadOnly: true, Scopes: []string{"canvases:read"}},
 	{Name: CanvasesUpdate, Title: "Update Canvas", Destructive: true, Scopes: []string{"canvases:write"}},
 	{Name: SearchSemantic, Title: "Search Slack Semantically", DailyPower: true, ReadOnly: true, Scopes: []string{"search:read.files", "search:read.public", "search:read.private", "search:read.im", "search:read.mpim", "search:read.users"}},
 
-	// Scheduled messages.
 	{Name: ScheduledMessagesList, Title: "List Scheduled Messages", DailyPower: true, ReadOnly: true},
 	{Name: ScheduledMessageCancel, Title: "Cancel Scheduled Message", Destructive: true, Scopes: []string{"chat:write"}},
 
-	// Channel mutations.
 	{Name: ChannelsRename, ChannelAllowlist: ChannelManagementAllowlist, Title: "Rename Channel", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsSetTopic, ChannelAllowlist: ChannelManagementAllowlist, Title: "Set Channel Topic", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsSetPurpose, ChannelAllowlist: ChannelManagementAllowlist, Title: "Set Channel Purpose", Scopes: []string{"channels:write", "groups:write"}},
 	{Name: ChannelsArchive, ChannelAllowlist: ChannelManagementAllowlist, Title: "Archive Channel", Destructive: true, Scopes: []string{"channels:write", "groups:write"}},
 
-	// Slack Lists.
 	{Name: ListsCreate, Requires: UserOAuth, Title: "Create Slack List", Scopes: []string{"lists:write"}},
 	{Name: ListsUpdate, Requires: UserOAuth, Title: "Update Slack List", Scopes: []string{"lists:write"}},
 	{Name: ListsItemsList, Requires: UserOAuth, Title: "List Slack List Items", DailyPower: true, ReadOnly: true, Scopes: []string{"lists:read"}},
@@ -223,7 +206,6 @@ var Tools = []Tool{
 	{Name: ListsItemsUpdate, Requires: UserOAuth, Title: "Update Slack List Items", Scopes: []string{"lists:write"}},
 	{Name: ListsItemDelete, Requires: UserOAuth, Title: "Delete Slack List Item", Destructive: true, Scopes: []string{"lists:read", "lists:write"}},
 
-	// Do Not Disturb.
 	{Name: DNDGet, Requires: UserOAuth, Title: "Get Do Not Disturb", DailyPower: true, ReadOnly: true, Scopes: []string{"dnd:read"}},
 	{Name: DNDSetSnooze, Requires: UserOAuth, Title: "Set Do Not Disturb", Scopes: []string{"dnd:write"}},
 	{Name: DNDEndSnooze, Requires: UserOAuth, Title: "End Do Not Disturb", Scopes: []string{"dnd:write"}},
@@ -306,7 +288,6 @@ const (
 	DefaultPreset    = PresetDailyPower
 )
 
-// Preset returns the tool names a named preset enables.
 func Preset(name string) ([]string, error) {
 	switch name {
 	case PresetDailyPower:

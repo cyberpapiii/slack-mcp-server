@@ -6,8 +6,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// im.* API
-
 type imListForm struct {
 	GetLatest    bool   `json:"get_latest"`
 	GetReadState bool   `json:"get_read_state"`

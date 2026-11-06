@@ -28,7 +28,6 @@ type Value struct {
 	cookies []*http.Cookie
 }
 
-// SlackToken returns the token these credentials authenticate with.
 func (v Value) SlackToken() string { return v.token }
 
 // Cookies returns the browser session cookies, nil for token-only credentials.
@@ -38,7 +37,6 @@ func (v Value) Cookies() []*http.Cookie { return v.cookies }
 // alongside the browser session cookie.
 var clientTokenRE = regexp.MustCompile(`xoxc-[0-9]+-[0-9]+-[0-9]+-[0-9a-z]{64}`)
 
-// IsClientToken reports whether tok is a web-client token.
 func IsClientToken(tok string) bool { return clientTokenRE.MatchString(tok) }
 
 // New builds credentials from a token and, for xoxc tokens, the xoxd cookie

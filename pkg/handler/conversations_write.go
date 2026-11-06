@@ -106,7 +106,6 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 	return mcp.NewToolResultText(preview), nil
 }
 
-// ReactionsAddHandler adds an emoji reaction to a message
 func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
 	params, err := ch.parseParamsToolReaction(ctx, capability.ReactionsAdd, request)
@@ -135,7 +134,6 @@ func (ch *ConversationsHandler) ReactionsAddHandler(ctx context.Context, request
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully added :%s: reaction to message %s in channel %s", params.emoji, params.timestamp, params.channel)), nil
 }
 
-// ReactionsRemoveHandler removes an emoji reaction from a message
 func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
 	params, err := ch.parseParamsToolReaction(ctx, capability.ReactionsRemove, request)

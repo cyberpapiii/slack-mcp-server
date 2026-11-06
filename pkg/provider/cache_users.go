@@ -137,8 +137,6 @@ func (ap *ApiProvider) fetchUsersInfo(ctx context.Context, userIDs ...string) ([
 	return *usersInfo, nil
 }
 
-// applyUserPatch installs a snapshot holding every cached user plus patched,
-// retrying the CAS if a concurrent patch or refresh won the race.
 func (ap *ApiProvider) applyUserPatch(patched []slack.User) {
 	patchedIDs := make(map[string]bool, len(patched))
 	for _, user := range patched {
@@ -177,9 +175,6 @@ func (ap *ApiProvider) applyUserPatch(patched []slack.User) {
 // cached users the full rebuild cost ~7.7ms and ~11.5MB per patched user, and
 // one history page can patch a dozen.
 func patchSearchIndex(current []userSearchEntry, patched []slack.User) []userSearchEntry {
-	// Users already in the index are replaced where they sit. Only genuinely
-	// new ids change the length, and they are merged in rather than appended
-	// and re-sorted, so a patch never pays O(n log n) over the whole cache.
 	kept := make([]userSearchEntry, len(current))
 	copy(kept, current)
 

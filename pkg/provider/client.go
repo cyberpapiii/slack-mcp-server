@@ -84,8 +84,6 @@ func demoAuthResponse() *slack.AuthTestResponse {
 	}
 }
 
-// authTest builds the HTTP client for authProvider's credentials and proves
-// them against auth.test.
 func authTest(authProvider slackcreds.Value, logger *zap.Logger) (*http.Client, *slack.AuthTestResponse, error) {
 	httpClient, err := transportpkg.ProvideHTTPClient(authProvider.Cookies(), logger)
 	if err != nil {
@@ -139,7 +137,6 @@ func (c *MCPSlackClient) connect(authProvider slackcreds.Value, mode CredentialM
 	return nil
 }
 
-// apiBase is the Web API root on the workspace host.
 func (c *MCPSlackClient) apiBase() string {
 	return slackhttp.WorkspaceAPIBase(c.authResponse.URL)
 }

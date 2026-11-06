@@ -13,8 +13,6 @@ type handlerSet struct {
 	channels      *handler.ChannelsHandler
 }
 
-// buildHandlers wires every handler family to the provider and collects the
-// tools they serve.
 func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, availability handler.Availability, settings handler.Settings, sendEnabled bool) handlerSet {
 	approvals := approval.NewStore()
 	conversations := handler.NewConversationsHandler(api, logger, settings, sendEnabled)

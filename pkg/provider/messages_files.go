@@ -9,8 +9,7 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// MessageFilesClient is the narrow, testable Slack surface for outbound files
-// and message mutations. Each method is called at most once per operation.
+// MessageFilesClient methods are called at most once per operation.
 var _ MessageFilesClient = (*WebClient)(nil)
 
 type MessageFilesClient interface {
@@ -53,7 +52,6 @@ func NewMessageFilesProvider(client MessageFilesClient) *MessageFilesProvider {
 	return &MessageFilesProvider{client: client}
 }
 
-// MessageFiles returns the custom local provider. No official MCP dependency.
 func (ap *ApiProvider) MessageFiles() *MessageFilesProvider {
 	return NewMessageFilesProvider(ap.WebAPI())
 }

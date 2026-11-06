@@ -242,8 +242,6 @@ func (m *Manager) Current(ctx context.Context) (Record, error) {
 	return current, err
 }
 
-// commitValidated clears a rotated record's pending flag once it still has
-// every scope it had before rotation and passes the identity validator.
 func (m *Manager) commitValidated(ctx context.Context, record Record) (Record, error) {
 	if missing := missingScopes(record.RequiredScopes, record.Scopes); len(missing) != 0 {
 		return Record{}, fmt.Errorf("validate rotated OAuth credential: lost required scopes: %s", strings.Join(missing, ","))
@@ -418,8 +416,6 @@ func ExchangeCode(
 	return record, nil
 }
 
-// oauthAccess posts to oauth.v2.access, which both the code exchange and the
-// refresh use.
 func oauthAccess(ctx context.Context, client slackhttp.Doer, form url.Values) (slack.OAuthV2Response, error) {
 	var response slack.OAuthV2Response
 	err := slackhttp.Call(ctx, client, slackhttp.Request{URL: slackhttp.SlackAPIBase() + "oauth.v2.access", Form: form}, &response)

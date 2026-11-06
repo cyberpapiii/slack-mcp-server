@@ -25,7 +25,6 @@ type ApprovalPhase struct {
 	ExpiresAt     string `json:"expires_at,omitempty"`
 }
 
-// Prepared reports whether this call only previewed the change.
 func (p ApprovalPhase) Prepared() bool { return p.Phase == "prepared" }
 
 // approvalAction reads the action argument; prepare previews, execute acts.

@@ -95,7 +95,6 @@ func dndResult(userID string, status *slack.DNDStatus) (*mcp.CallToolResult, err
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), string(fallback)), nil
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *DNDHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.DNDGet, Run: h.Get, Options: []mcp.ToolOption{

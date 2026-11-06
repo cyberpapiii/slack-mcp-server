@@ -111,8 +111,6 @@ func (c *MCPSlackClient) prefersBrowser() bool {
 	}
 }
 
-// fallsBackToOAuth reports whether a browser read that failed with err can be
-// retried on OAuth: the call found the session dead and OAuth is there.
 func (c *MCPSlackClient) fallsBackToOAuth(err error) bool {
 	return c.mode == ModeUserOAuthBrowser && errors.Is(err, ErrBrowserSessionUnavailable)
 }
@@ -432,8 +430,6 @@ func (c *MCPSlackClient) SavedClearCompleted(ctx context.Context) error {
 	return err
 }
 
-// PrefersBrowser reports whether reads Slack serves both ways should use the
-// browser session right now.
 func (ap *ApiProvider) PrefersBrowser() bool {
 	return ap.client.prefersBrowser()
 }

@@ -9,8 +9,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// BlocksToText converts Slack block kit structures into plain text.
-// Returns empty string if no text content is found in blocks.
 func BlocksToText(blocks slack.Blocks) string {
 	if len(blocks.BlockSet) == 0 {
 		return ""

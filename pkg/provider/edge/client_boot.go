@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// client.userBoot API
-
 type clientUserBootForm struct {
 	MinChannelUpdated          int64 `json:"min_channel_updated"`
 	IncludeMinVersionBumpCheck int   `json:"include_min_version_bump_check"`
@@ -30,8 +28,6 @@ func (cl *Client) ClientUserBoot(ctx context.Context) (*ClientUserBootResponse, 
 	return &ub, nil
 }
 
-// ClientUserBootResponse keeps the fields this server actually reads.
-// encoding/json ignores the rest of the client.userBoot payload.
 type ClientUserBootResponse struct {
 	IMs      []Channel `json:"ims"`
 	Starred  []any     `json:"starred"`

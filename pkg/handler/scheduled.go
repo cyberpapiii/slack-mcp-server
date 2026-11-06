@@ -173,7 +173,6 @@ func scheduledError(err error, mutationAttempted bool) error {
 	return TypeError(err, mutationAttempted)
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *ScheduledHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.ScheduledMessagesList, Run: h.List, Options: []mcp.ToolOption{

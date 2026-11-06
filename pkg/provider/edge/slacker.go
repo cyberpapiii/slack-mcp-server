@@ -45,7 +45,6 @@ func collectChannels(results <-chan channelResult, logger *zap.Logger) (channels
 // see from client.userBoot, im.list and the channel browser, plus the MPIMs
 // client.counts knows of. It is not paginated.
 func (cl *Client) GetConversationsContext(ctx context.Context) ([]slack.Channel, error) {
-	// Buffer matches pipeline length so producers never block if collect lags.
 	resultC := make(chan channelResult, 3)
 	var pipeline = []func(){
 		func() {

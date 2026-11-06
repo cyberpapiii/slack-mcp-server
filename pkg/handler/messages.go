@@ -140,7 +140,6 @@ func (p messagePipeline) rows(ctx context.Context, slackMessages []slack.Message
 	return messages
 }
 
-// searchRows converts search.messages matches through the same rows path.
 func (p messagePipeline) searchRows(ctx context.Context, matches []slack.SearchMessage, mode text.OutputMode) []Message {
 	msgs := make([]slack.Message, len(matches))
 	for i, m := range matches {
@@ -149,7 +148,6 @@ func (p messagePipeline) searchRows(ctx context.Context, matches []slack.SearchM
 	return p.rows(ctx, msgs, "", true, mode)
 }
 
-// searchMatchMessage carries a search match into the history message shape.
 func searchMatchMessage(m slack.SearchMessage) slack.Message {
 	var msg slack.Message
 	msg.Type = m.Type
@@ -227,9 +225,6 @@ func (p messagePipeline) channelID(ctx context.Context, ref string) (string, err
 	return ch.ID, nil
 }
 
-// renderOptions carries the per-call rendering context through
-// marshalMessagesToCSV: output mode, the legend inputs, the result meta and
-// any companion tables.
 type renderOptions struct {
 	mode         text.OutputMode
 	workspaceURL string
@@ -254,7 +249,6 @@ func marshalMessagesToCSV(messages []Message, opts renderOptions) (*mcp.CallTool
 	return csvResult(buildChannelsLegend(messages, opts.channelName), opts.meta, &messages, opts.sections...)
 }
 
-// marshalMessagesToCompactCSV converts messages to the default agent CSV format.
 func marshalMessagesToCompactCSV(messages []Message, opts renderOptions) (*mcp.CallToolResult, error) {
 	compact := make([]CompactMessage, len(messages))
 	for i, m := range messages {

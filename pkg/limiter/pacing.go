@@ -28,8 +28,6 @@ func SlackPacing() Pacing {
 	}
 }
 
-// Paced calls fn for a Slack method under its pacing and the one retry
-// policy.
 func Paced[T any](ctx context.Context, pacing Pacing, method string, fn func() (T, error)) (T, error) {
 	return CallWithRetry(ctx, pacing[method], Retries, fn)
 }

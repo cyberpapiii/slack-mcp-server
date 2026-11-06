@@ -89,7 +89,6 @@ func (ch *ConversationsHandler) ConversationsHistoryHandler(ctx context.Context,
 	return marshalMessagesToCSV(messages, ch.messages.render(mode, SlackResultMeta(nextCursor, false, "")))
 }
 
-// ConversationsRepliesHandler streams thread replies as CSV
 func (ch *ConversationsHandler) ConversationsRepliesHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
 	params, err := ch.parseParamsToolConversations(ctx, request)

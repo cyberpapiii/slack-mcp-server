@@ -364,7 +364,6 @@ func (h *SavedHandler) SavedClearCompletedHandler(ctx context.Context, request m
 	return NewStructuredResult(ActionData{Action: "clear_completed_saved_items", Status: "cleared"}, SlackResultMeta("", false, ""), "Successfully cleared all completed saved items"), nil
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *SavedHandler) Tools() []ToolDef {
 	savedTargetChannel := mcp.WithString("channel_id", mcp.Description("Channel or DM ID of a message (Channel column in saved_list). Use with timestamp."))
 	savedTargetTimestamp := mcp.WithString("timestamp", mcp.Description("Message timestamp (MsgID column in saved_list). Use with channel_id."))

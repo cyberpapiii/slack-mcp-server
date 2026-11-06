@@ -354,7 +354,6 @@ func parseCommaSeparatedList(s string) []string {
 	return result
 }
 
-// Tools lists the MCP tools this handler serves.
 func (h *UsergroupsHandler) Tools() []ToolDef {
 	return []ToolDef{
 		{Name: capability.UsergroupsList, Run: h.UsergroupsListHandler, Options: []mcp.ToolOption{

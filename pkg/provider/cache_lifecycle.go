@@ -120,8 +120,7 @@ func (ap *ApiProvider) warmCaches(ctx context.Context) {
 }
 
 // startCacheRevalidation keeps the caches within their TTL for the life of
-// the provider. Before it, a process refetched them only at startup, so a
-// server that ran for days kept stale names and titles.
+// the provider.
 func (ap *ApiProvider) startCacheRevalidation(ctx context.Context) {
 	if ap.cacheTTL <= 0 {
 		return

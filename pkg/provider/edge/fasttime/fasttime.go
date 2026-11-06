@@ -53,8 +53,6 @@ func TS2int(ts string) (int64, error) {
 	return strconv.ParseInt(ts[:i]+ts[i+1:], 10, 64)
 }
 
-// Int2TS converts an int64 to a slack timestamp by inserting a dot in the
-// right place.
 func Int2TS(ts int64) string {
 	const cut = 6
 	s := strconv.FormatInt(ts, 10)
