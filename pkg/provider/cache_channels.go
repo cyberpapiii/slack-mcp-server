@@ -71,13 +71,13 @@ func (ap *ApiProvider) refreshChannelsInternal(ctx context.Context, force bool) 
 func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
 	channels, err := ap.fetchChannels(ctx)
 
-	// Prefer the real fetch error over a misleading "zero channels" when page 1 fails.
+	// Prefer the real fetch error over a misleading "zero channels" when page 1
+	// fails. The existing snapshot stays in service either way; the error still
+	// reaches the caller, which would otherwise report a channel the refresh
+	// never saw as not found.
 	if err != nil {
 		if ap.channelsReady.Load() {
-			ap.logger.Warn("Channel fetch incomplete, keeping existing cache",
-				zap.Int("partialCount", len(channels)),
-				zap.Error(err))
-			return nil
+			return fmt.Errorf("channel fetch incomplete after %d channels; keeping the existing cache: %w", len(channels), err)
 		}
 		return fmt.Errorf("channel fetch incomplete and no existing cache is available: %w", err)
 	}

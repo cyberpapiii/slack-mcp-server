@@ -103,6 +103,11 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 		_, err := ap.fetchChannels(context.Background())
 		require.Error(t, err)
 
+		ap.channelsReady.Store(true)
+		client.calls = 0
+		err = ap.fetchAndStoreChannels(context.Background())
+		require.ErrorContains(t, err, "boom", "a stale cache stays in service, but the refresh failure is not hidden")
+
 		// The regression: the truncated one-channel result must not have
 		// atomically replaced the good two-channel cache.
 		snapshot := ap.ProvideChannelsMaps()
