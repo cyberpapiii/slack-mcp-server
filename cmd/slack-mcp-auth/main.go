@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -387,34 +386,11 @@ func runManifest(args []string) error {
 }
 
 func customOAuthScopes(preset string) ([]string, error) {
-	var tools []string
-	switch preset {
-	case "daily-power":
-		tools = capability.DailyPowerNames()
-	case "legacy-full":
-		tools = capability.Names()
-	default:
-		return nil, fmt.Errorf("unknown preset %q (valid: daily-power, legacy-full)", preset)
+	tools, err := capability.Preset(preset)
+	if err != nil {
+		return nil, err
 	}
-	scopes := capability.OAuthScopesForTools(tools)
-	// Normal server startup warms user and conversation caches before serving
-	// name-based tools, so these read scopes are runtime dependencies.
-	scopes = append(scopes, "channels:read", "groups:read", "im:read", "mpim:read", "users:read")
-	scopes = uniqueStrings(scopes)
-	sort.Strings(scopes)
-	return scopes, nil
-}
-
-func uniqueStrings(values []string) []string {
-	seen := make(map[string]bool, len(values))
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if !seen[value] {
-			seen[value] = true
-			result = append(result, value)
-		}
-	}
-	return result
+	return capability.OAuthScopesForTools(tools), nil
 }
 
 func envOrDefault(key, fallback string) string {

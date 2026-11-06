@@ -75,8 +75,9 @@ func TestOAuthScopesForToolsDedupsAndSorts(t *testing.T) {
 		"groups:history", "groups:read",
 		"im:history", "im:read",
 		"mpim:history", "mpim:read",
+		"users:read",
 	}, scopes)
-	assert.Empty(t, OAuthScopesForTools(nil))
+	assert.Equal(t, cacheScopes, OAuthScopesForTools(nil), "the cache warm-up scopes are always needed")
 }
 
 func TestPresets(t *testing.T) {

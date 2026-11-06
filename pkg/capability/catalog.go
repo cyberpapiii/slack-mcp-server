@@ -248,8 +248,12 @@ func names(include func(Tool) bool) []string {
 	return result
 }
 
-// OAuthScopesForTools returns the deduplicated, sorted union of the scopes the
-// named tools need.
+// cacheScopes are what the users and channels caches need to warm
+// (users.list, conversations.list); every name-resolving tool reads them.
+var cacheScopes = []string{"channels:read", "groups:read", "im:read", "mpim:read", "users:read"}
+
+// OAuthScopesForTools returns the deduplicated, sorted scopes a server serving
+// these tools needs: each tool's own plus the cache warm-up scopes.
 func OAuthScopesForTools(tools []string) []string {
 	wanted := make(map[string]bool, len(tools))
 	for _, tool := range tools {
@@ -257,14 +261,19 @@ func OAuthScopesForTools(tools []string) []string {
 	}
 	seen := map[string]bool{}
 	var scopes []string
-	for _, tool := range Tools {
-		if !wanted[tool.Name] {
-			continue
+	add := func(scope string) {
+		if !seen[scope] {
+			seen[scope] = true
+			scopes = append(scopes, scope)
 		}
-		for _, scope := range tool.Scopes {
-			if !seen[scope] {
-				seen[scope] = true
-				scopes = append(scopes, scope)
+	}
+	for _, scope := range cacheScopes {
+		add(scope)
+	}
+	for _, tool := range Tools {
+		if wanted[tool.Name] {
+			for _, scope := range tool.Scopes {
+				add(scope)
 			}
 		}
 	}
