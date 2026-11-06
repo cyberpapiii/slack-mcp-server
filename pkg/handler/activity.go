@@ -215,10 +215,7 @@ func (h *ActivityHandler) Tools() []ToolDef {
 				mcp.Description(fmt.Sprintf("Max Activity items to return, 1 to %d; larger values return %d. Default is %d.", activityFeedMaxLimit, activityFeedMaxLimit, defaultActivityLimit)),
 				mcp.DefaultNumber(defaultActivityLimit),
 			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 		{Name: capability.ActivityMarkRead, Run: h.ActivityMarkReadHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Mark an Activity item as read. Use the Key, FeedTs and Type values from the activity_unreads item table."),

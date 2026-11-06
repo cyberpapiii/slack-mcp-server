@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
+	"github.com/korotovsky/slack-mcp-server/pkg/text"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,6 +41,24 @@ func TestChannelAllowlistGrammar(t *testing.T) {
 			assert.Contains(t, toolErr.Message, capability.AddMessageAllowlist)
 		}
 	}
+}
+
+func TestUnitOutputModeReadsDetail(t *testing.T) {
+	request := func(detail string) mcp.CallToolRequest {
+		r := mcp.CallToolRequest{}
+		r.Params.Arguments = map[string]any{"detail": detail}
+		return r
+	}
+	full := Settings{Detail: text.ModeFull}
+	for detail, want := range map[string]text.OutputMode{"": text.ModeFull, "standard": text.ModeStandard, " FULL ": text.ModeFull} {
+		got, err := full.outputMode(request(detail))
+		require.NoError(t, err, detail)
+		assert.Equal(t, want, got, detail)
+	}
+	_, err := full.outputMode(request("bogus"))
+	var typed *ToolError
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "invalid_arguments", typed.Code)
 }
 
 func TestAFalsyAllowlistIsWarnedAbout(t *testing.T) {

@@ -327,33 +327,6 @@ func TestBlocksToText(t *testing.T) {
 	}
 }
 
-func TestUnitResolveOutputMode(t *testing.T) {
-	tests := []struct {
-		detail   string
-		fallback OutputMode
-		want     OutputMode
-		wantErr  bool
-	}{
-		{detail: "", fallback: ModeStandard, want: ModeStandard},
-		{detail: "", fallback: ModeFull, want: ModeFull},
-		{detail: "standard", fallback: ModeFull, want: ModeStandard},
-		{detail: "FULL", fallback: ModeStandard, want: ModeFull},
-		{detail: "bogus", wantErr: true},
-	}
-	for _, tt := range tests {
-		got, err := ResolveOutputMode(tt.detail, tt.fallback)
-		if tt.wantErr {
-			if err == nil {
-				t.Errorf("ResolveOutputMode(%q) expected error", tt.detail)
-			}
-			continue
-		}
-		if err != nil || got != tt.want {
-			t.Errorf("ResolveOutputMode(%q, %v) = %v, %v; want %v", tt.detail, tt.fallback, got, err, tt.want)
-		}
-	}
-}
-
 func TestUnitAttachmentToTextModeSelection(t *testing.T) {
 	// The body is longer than attachmentCompactBudget so the two modes must
 	// diverge: standard truncates with a receipt, full renders everything.

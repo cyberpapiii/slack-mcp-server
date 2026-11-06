@@ -20,21 +20,6 @@ const (
 	ModeFull                       // verbose legacy format, all columns
 )
 
-// ResolveOutputMode maps a tool's `detail` parameter to an OutputMode; an
-// empty parameter takes the fallback.
-func ResolveOutputMode(detailParam string, fallback OutputMode) (OutputMode, error) {
-	switch strings.ToLower(strings.TrimSpace(detailParam)) {
-	case "":
-		return fallback, nil
-	case "standard":
-		return ModeStandard, nil
-	case "full":
-		return ModeFull, nil
-	default:
-		return ModeStandard, fmt.Errorf("invalid detail value %q: must be \"standard\" or \"full\"", detailParam)
-	}
-}
-
 func attachmentToText(att slack.Attachment, mode OutputMode) string {
 	if mode == ModeFull {
 		return attachmentToFullText(att)

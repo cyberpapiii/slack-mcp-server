@@ -58,13 +58,30 @@ func SettingsFromEnv(getenv func(string) string) (Settings, error) {
 	return settings, nil
 }
 
-// outputMode reads the call's `detail` parameter.
+// The values of a message tool's `detail` parameter.
+const (
+	detailStandard = "standard"
+	detailFull     = "full"
+)
+
+// detailOption declares the `detail` parameter outputMode reads.
+func detailOption() mcp.ToolOption {
+	return mcp.WithString("detail", mcp.Description(toolDetailDescription), mcp.Enum(detailStandard, detailFull))
+}
+
+// outputMode reads the call's `detail` parameter; omitted, it is the server
+// default.
 func (s Settings) outputMode(request mcp.CallToolRequest) (text.OutputMode, error) {
-	mode, err := text.ResolveOutputMode(request.GetString("detail", ""), s.Detail)
-	if err != nil {
-		return mode, invalidArguments(err.Error())
+	detail := request.GetString("detail", "")
+	switch strings.ToLower(strings.TrimSpace(detail)) {
+	case "":
+		return s.Detail, nil
+	case detailStandard:
+		return text.ModeStandard, nil
+	case detailFull:
+		return text.ModeFull, nil
 	}
-	return mode, nil
+	return text.ModeStandard, invalidArguments(fmt.Sprintf("invalid detail value %q: must be \"standard\" or \"full\"", detail))
 }
 
 // requireChannel enforces the tool's channel allowlist, if it has one.

@@ -398,10 +398,7 @@ func (h *SavedHandler) Tools() []ToolDef {
 				mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
 				mcp.DefaultNumber(5),
 			),
-			mcp.WithString("detail",
-				mcp.Description(toolDetailDescription),
-				mcp.Enum("standard", "full"),
-			),
+			detailOption(),
 		}},
 		{Name: capability.SavedAdd, Run: h.SavedAddHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Add a to-do or saved item: a custom to-do from text, a message, or a file. Pass exactly one of text, channel_id with timestamp, or file_id. Private to the user; nothing is posted."),
