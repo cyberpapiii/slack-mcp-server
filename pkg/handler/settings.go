@@ -140,7 +140,7 @@ func parseChannelAllowlist(value string) (channelAllowlist, error) {
 		} else {
 			positive = true
 		}
-		id := strings.TrimPrefix(item, "!")
+		id := strings.TrimSpace(strings.TrimPrefix(item, "!"))
 		if !isConversationID(id) {
 			return channelAllowlist{}, fmt.Errorf("%q is not a channel ID (C…, G… or D…)", id)
 		}

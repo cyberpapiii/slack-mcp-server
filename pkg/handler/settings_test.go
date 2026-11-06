@@ -24,6 +24,7 @@ func TestChannelAllowlistGrammar(t *testing.T) {
 		{"true", []string{"C1", "C9"}, nil},
 		{" C1 , C2 ", []string{"C1", "C2"}, []string{"C9"}},
 		{"!C1,!C2", []string{"C9"}, []string{"C1", "C2"}},
+		{"! C1", []string{"C9"}, []string{"C1"}},
 		// false allows no channel; startup warns.
 		{"false", nil, []string{"C1"}},
 	}
