@@ -326,7 +326,7 @@ func buildChannelsLegend(messages []Message, channelName func(string) string) st
 func buildAttachmentsLegend(messages []Message) string {
 	for _, m := range messages {
 		if m.AttachmentIDs != "" {
-			return "#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, 5MB cap\n"
+			return "#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, " + megabytes(maxFileSizeBytes) + " cap\n"
 		}
 	}
 	return ""

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -244,6 +245,11 @@ func attachmentKind(f slack.File) string {
 	default:
 		return "binary"
 	}
+}
+
+// megabytes renders a whole-megabyte limit, e.g. 5MB.
+func megabytes(n int) string {
+	return strconv.Itoa(n>>20) + "MB"
 }
 
 func humanBytes(n int) string {

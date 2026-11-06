@@ -105,7 +105,7 @@ func (h *DNDHandler) Tools() []ToolDef {
 		}},
 		{Name: capability.DNDSetSnooze, Run: h.SetSnooze, Options: []mcp.ToolOption{
 			mcp.WithDescription("Set a bounded Do Not Disturb snooze for the authenticated user."),
-			mcp.WithNumber("minutes", mcp.Required(), mcp.Min(1), mcp.Max(maxSnoozeMinutes), mcp.Description("Snooze length in minutes, 1 to 10080 (7 days).")),
+			mcp.WithNumber("minutes", mcp.Required(), mcp.Min(1), mcp.Max(maxSnoozeMinutes), mcp.Description(fmt.Sprintf("Snooze length in minutes, 1 to %d (%d days).", maxSnoozeMinutes, maxSnoozeMinutes/(24*60)))),
 		}},
 		{Name: capability.DNDEndSnooze, Run: h.EndSnooze, Options: []mcp.ToolOption{
 			mcp.WithDescription("End the authenticated user's current Do Not Disturb snooze."),

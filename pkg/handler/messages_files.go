@@ -18,8 +18,13 @@ import (
 )
 
 const (
-	maxUploadBytes  = 50 * 1024 * 1024
+	maxUploadBytes  = 50 << 20
 	maxMessageRunes = 40000
+)
+
+var (
+	maxUploadSize = strconv.Itoa(maxUploadBytes>>20) + " MiB"
+	maxRunesText  = strconv.Itoa(maxMessageRunes) + " characters"
 )
 
 var slackTimestampPattern = regexp.MustCompile(`^[0-9]+\.[0-9]{6}$`)
@@ -91,7 +96,7 @@ func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallT
 	}
 	comment := request.GetString("initial_comment", "")
 	if !validMessageText(comment, true) {
-		return nil, invalidArguments("initial_comment must be valid UTF-8 and at most 40000 characters")
+		return nil, invalidArguments("initial_comment must be valid UTF-8 and at most " + maxRunesText)
 	}
 	uploaded, err := h.service.Upload(ctx, provider.FileUploadRequest{
 		Filename: filename, Title: strings.TrimSpace(request.GetString("title", "")), Data: data,
@@ -208,7 +213,7 @@ func readUploadData(request mcp.CallToolRequest) ([]byte, error) {
 		return nil, &ToolError{Code: codeInvalidArguments, Message: "content_base64 could not be decoded", Cause: err}
 	}
 	if len(data) == 0 || len(data) > maxUploadBytes {
-		return nil, invalidArguments("file must contain 1 byte to 50 MiB")
+		return nil, invalidArguments("file must contain 1 byte to " + maxUploadSize)
 	}
 	return data, nil
 }
@@ -218,7 +223,7 @@ func validateMessageMutation(request mcp.CallToolRequest, requireTimestamp bool)
 	text := request.GetString("text", "")
 	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
 	if channelID == "" || !validMessageText(text, false) {
-		return "", "", "", invalidArguments("channel_id and valid non-empty text up to 40000 characters are required")
+		return "", "", "", invalidArguments("channel_id and valid non-empty text up to " + maxRunesText + " are required")
 	}
 	if requireTimestamp && !validSlackTimestamp(timestamp) {
 		return "", "", "", invalidArguments("timestamp must be a Slack timestamp")
@@ -246,11 +251,11 @@ func (h *MessageFilesHandler) Tools() []ToolDef {
 		{Name: capability.FilesUpload, Run: h.FilesUpload, Options: []mcp.ToolOption{
 			mcp.WithDescription("Upload a file to Slack, and post it as a message when shared into a channel. This is also how you send a message with an attachment: pass channel_id plus initial_comment and the file and text post together as one message. Uses Slack's supported external-upload flow."),
 			mcp.WithString("filename", mcp.Required(), mcp.Description("File name including extension, e.g. report.csv; no directory path.")),
-			mcp.WithString("content_base64", mcp.Description("Base64-encoded file bytes; use this or content, not both. Max 50 MiB decoded.")),
-			mcp.WithString("content", mcp.Description("Plain-text file contents; use this or content_base64, not both. Max 50 MiB.")),
+			mcp.WithString("content_base64", mcp.Description("Base64-encoded file bytes; use this or content, not both. Max "+maxUploadSize+" decoded.")),
+			mcp.WithString("content", mcp.Description("Plain-text file contents; use this or content_base64, not both. Max "+maxUploadSize+".")),
 			mcp.WithString("title", mcp.Description("Title shown in Slack; defaults to filename.")),
 			mcp.WithString("channel_id", mcp.Description("Channel ID (Cxxxxxxxxxx) to share the file into; omit to upload without sharing.")),
-			mcp.WithString("initial_comment", mcp.Description("Message text posted with the file when sharing; up to 40000 characters.")),
+			mcp.WithString("initial_comment", mcp.Description("Message text posted with the file when sharing; up to "+maxRunesText+".")),
 			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to share into a thread; needs channel_id.")),
 			mcp.WithString("alt_text", mcp.Description("Screen-reader description for image files; up to 1000 characters.")),
 			mcp.WithString("snippet_type", mcp.Description("Syntax type for text snippets, e.g. python or javascript; unsupported types fail.")),
@@ -258,7 +263,7 @@ func (h *MessageFilesHandler) Tools() []ToolDef {
 		{Name: capability.MessagesSchedule, Run: h.MessagesSchedule, Options: []mcp.ToolOption{
 			mcp.WithDescription("Schedule a Slack message for a future time."),
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) to post into; names are not resolved.")),
-			mcp.WithString("text", mcp.Required(), mcp.Description("Message text, non-empty and up to 40000 characters.")),
+			mcp.WithString("text", mcp.Required(), mcp.Description("Message text, non-empty and up to "+maxRunesText+".")),
 			mcp.WithString("post_at", mcp.Required(), mcp.Description("Unix seconds or RFC 3339 time between 5 seconds and 120 days in the future.")),
 			mcp.WithString("thread_ts", mcp.Description("Parent message timestamp (e.g. 1712345678.123456) to schedule a thread reply.")),
 		}},
@@ -266,7 +271,7 @@ func (h *MessageFilesHandler) Tools() []ToolDef {
 			mcp.WithDescription("Edit a Slack message that the authenticated user owns."),
 			mcp.WithString("channel_id", mcp.Required(), mcp.Description("Channel ID (Cxxxxxxxxxx) containing the message; names are not resolved.")),
 			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Slack message timestamp of the message to edit, e.g. 1712345678.123456.")),
-			mcp.WithString("text", mcp.Required(), mcp.Description("Replacement message text, non-empty and up to 40000 characters.")),
+			mcp.WithString("text", mcp.Required(), mcp.Description("Replacement message text, non-empty and up to "+maxRunesText+".")),
 		}},
 		{Name: capability.MessagesDelete, Run: h.MessagesDelete, Options: []mcp.ToolOption{
 			mcp.WithOutputSchema[MessageMutationResult](),

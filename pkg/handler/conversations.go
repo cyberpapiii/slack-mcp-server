@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ import (
 
 const (
 	defaultConversationsNumericLimit = 50
-	maxFileSizeBytes                 = 5 * 1024 * 1024 // 5MB limit
+	maxFileSizeBytes                 = 5 << 20
 
 	// Search `limit` bounds. Default and max are both 100, matching the tool
 	// schema's DefaultNumber(100) and its "between 1 and 100" description.
@@ -27,17 +28,9 @@ const (
 	maxSearchMessagesLimit     = 100
 )
 
-var validFilterKeys = map[string]struct{}{
-	"is":     {},
-	"in":     {},
-	"from":   {},
-	"with":   {},
-	"before": {},
-	"after":  {},
-	"on":     {},
-	"during": {},
-	"has":    {},
-}
+// searchFilterKeys are Slack's search modifiers, in the order the rebuilt
+// query lists them.
+var searchFilterKeys = []string{"is", "in", "from", "with", "before", "after", "on", "during", "has"}
 
 var (
 	flexibleDateStandardFormats = [...]string{
@@ -453,8 +446,7 @@ func buildDateFilters(before, after, on, during string) (map[string]string, erro
 }
 
 func isFilterKey(key string) bool {
-	_, ok := validFilterKeys[strings.ToLower(key)]
-	return ok
+	return slices.Contains(searchFilterKeys, strings.ToLower(key))
 }
 
 func splitQuery(q string) (freeText []string, filters map[string][]string) {
@@ -483,7 +475,7 @@ func addFilter(filters map[string][]string, key, val string) {
 func buildQuery(freeText []string, filters map[string][]string) string {
 	var out []string
 	out = append(out, freeText...)
-	for _, key := range []string{"is", "in", "from", "with", "before", "after", "on", "during", "has"} {
+	for _, key := range searchFilterKeys {
 		for _, val := range filters[key] {
 			out = append(out, fmt.Sprintf("%s:%s", key, val))
 		}
