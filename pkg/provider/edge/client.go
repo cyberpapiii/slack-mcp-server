@@ -2,10 +2,8 @@ package edge
 
 import (
 	"context"
-	"runtime/trace"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge/fasttime"
-	"github.com/rusq/slack"
 )
 
 // client.* API
@@ -19,7 +17,6 @@ type clientCountsForm struct {
 }
 
 type ClientCountsResponse struct {
-	baseResponse
 	Channels []ChannelSnapshot `json:"channels,omitempty"`
 	MPIMs    []ChannelSnapshot `json:"mpims,omitempty"`
 	IMs      []ChannelSnapshot `json:"ims,omitempty"`
@@ -35,9 +32,6 @@ type ChannelSnapshot struct {
 }
 
 func (cl *Client) ClientCounts(ctx context.Context) (ClientCountsResponse, error) {
-	ctx, task := trace.NewTask(ctx, "ClientCounts")
-	defer task.End()
-
 	form := clientCountsForm{
 		BaseRequest:           BaseRequest{Token: cl.token},
 		ThreadCountsByChannel: true,
@@ -46,61 +40,11 @@ func (cl *Client) ClientCounts(ctx context.Context) (ClientCountsResponse, error
 		WebClientFields:       webclientReason("client-counts-api/fetchClientCounts"),
 	}
 
-	resp, err := cl.postForm(ctx, "client.counts", values(form, true))
-	if err != nil {
-		return ClientCountsResponse{}, err
-	}
 	r := ClientCountsResponse{}
-	if err := cl.parseResponse(&r, resp); err != nil {
-		return ClientCountsResponse{}, err
-	}
-	if err := r.validate("client.counts"); err != nil {
+	if err := cl.postForm(ctx, "client.counts", form, &r); err != nil {
 		return ClientCountsResponse{}, err
 	}
 	return r, nil
-}
-
-type IM struct {
-	ID               string         `json:"id"`
-	Created          slack.JSONTime `json:"created"`
-	IsFrozen         bool           `json:"is_frozen"`
-	IsArchived       bool           `json:"is_archived"`
-	IsIM             bool           `json:"is_im"`
-	IsMpim           bool           `json:"is_mpim"`
-	IsOrgShared      bool           `json:"is_org_shared"`
-	ContextTeamID    string         `json:"context_team_id"`
-	Updated          slack.JSONTime `json:"updated"`
-	IsShared         bool           `json:"is_shared"`
-	IsExtShared      bool           `json:"is_ext_shared"`
-	User             string         `json:"user"`
-	LastRead         fasttime.Time  `json:"last_read"`
-	Latest           fasttime.Time  `json:"latest"`
-	IsOpen           bool           `json:"is_open"`
-	SharedTeamIds    []string       `json:"shared_team_ids"`
-	ConnectedTeamIds []string       `json:"connected_team_ids"`
-}
-
-func (c IM) slackChannel() slack.Channel {
-	var members []string
-	if c.User != "" {
-		members = []string{c.User}
-	}
-
-	return slack.Channel{
-		GroupConversation: slack.GroupConversation{
-			Conversation: slack.Conversation{
-				ID:          c.ID,
-				Created:     c.Created,
-				IsIM:        c.IsIM,
-				IsMpIM:      c.IsMpim,
-				IsOrgShared: c.IsOrgShared,
-				User:        c.User,
-				LastRead:    c.LastRead.SlackString(),
-			},
-			IsArchived: c.IsArchived,
-			Members:    members,
-		},
-	}
 }
 
 // activity.feed API
@@ -119,7 +63,6 @@ type activityFeedForm struct {
 }
 
 type ActivityFeedResponse struct {
-	baseResponse
 	Items []ActivityFeedItem `json:"items,omitempty"`
 }
 
@@ -157,9 +100,6 @@ type ActivityMessage struct {
 }
 
 func (cl *Client) ActivityFeed(ctx context.Context, limit int) (ActivityFeedResponse, error) {
-	ctx, task := trace.NewTask(ctx, "ActivityFeed")
-	defer task.End()
-
 	form := activityFeedForm{
 		BaseRequest:     BaseRequest{Token: cl.token},
 		Limit:           limit,
@@ -168,15 +108,8 @@ func (cl *Client) ActivityFeed(ctx context.Context, limit int) (ActivityFeedResp
 		WebClientFields: webclientReason("fetchActivityFeed"),
 	}
 
-	resp, err := cl.postForm(ctx, "activity.feed", values(form, true))
-	if err != nil {
-		return ActivityFeedResponse{}, err
-	}
 	r := ActivityFeedResponse{}
-	if err := cl.parseResponse(&r, resp); err != nil {
-		return ActivityFeedResponse{}, err
-	}
-	if err := r.validate("activity.feed"); err != nil {
+	if err := cl.postForm(ctx, "activity.feed", form, &r); err != nil {
 		return ActivityFeedResponse{}, err
 	}
 	return r, nil
@@ -193,9 +126,6 @@ type activityMarkReadForm struct {
 }
 
 func (cl *Client) ActivityMarkRead(ctx context.Context, itemType, feedTs, key string) error {
-	ctx, task := trace.NewTask(ctx, "ActivityMarkRead")
-	defer task.End()
-
 	form := activityMarkReadForm{
 		BaseRequest:     BaseRequest{Token: cl.token},
 		Type:            itemType,
@@ -204,16 +134,5 @@ func (cl *Client) ActivityMarkRead(ctx context.Context, itemType, feedTs, key st
 		WebClientFields: webclientReason("mark-as-read-v2"),
 	}
 
-	resp, err := cl.postForm(ctx, "activity.markRead", values(form, true))
-	if err != nil {
-		return err
-	}
-	r := baseResponse{}
-	if err := cl.parseResponse(&r, resp); err != nil {
-		return err
-	}
-	if err := r.validate("activity.markRead"); err != nil {
-		return err
-	}
-	return nil
+	return cl.postForm(ctx, "activity.markRead", form, nil)
 }

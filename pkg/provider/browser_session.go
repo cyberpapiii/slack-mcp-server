@@ -58,10 +58,6 @@ func isBrowserSessionAuthError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var apiErr *edge.APIError
-	if errors.As(err, &apiErr) {
-		return browserAuthErrorCodes[apiErr.Err]
-	}
 	var statusErr slack.StatusCodeError
 	if errors.As(err, &statusErr) {
 		return statusErr.Code == http.StatusUnauthorized || statusErr.Code == http.StatusForbidden
@@ -151,10 +147,7 @@ func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, brow
 	if err := oauthcred.IdentityOf(c.authResponse).Match(oauthcred.IdentityOf(browserIdentity)); err != nil {
 		return fmt.Errorf("browser provider %w", err)
 	}
-	browserEdge, err := edge.NewWithInfo(browserIdentity, browserAuth, edge.OptionHTTPClient(httpClient))
-	if err != nil {
-		return fmt.Errorf("create browser provider: %w", err)
-	}
+	browserEdge := edge.NewWithInfo(browserIdentity, browserAuth.SlackToken(), httpClient, edge.OptionLogger(c.logger))
 	c.browserConfigured = true
 	c.useBrowserEdge(browserEdge)
 	return nil
@@ -192,10 +185,7 @@ func (c *MCPSlackClient) reprobeBrowser(ctx context.Context) error {
 	if err := oauthcred.IdentityOf(c.authResponse).Match(oauthcred.IdentityOf(identity)); err != nil {
 		return fmt.Errorf("browser provider %w", err)
 	}
-	browserEdge, err := edge.NewWithInfo(identity, browserAuth, edge.OptionHTTPClient(httpClient))
-	if err != nil {
-		return fmt.Errorf("create browser provider: %w", err)
-	}
+	browserEdge := edge.NewWithInfo(identity, browserAuth.SlackToken(), httpClient, edge.OptionLogger(c.logger))
 	c.useBrowserEdge(browserEdge)
 	c.logger.Info("Browser-session Slack auth recovered")
 	return nil

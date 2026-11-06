@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/transport"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 )
 
@@ -44,7 +44,7 @@ type AuthTestFunc func(ctx context.Context, token string) (*slack.AuthTestRespon
 // settings.
 func SlackAuthTest(httpClient *http.Client) AuthTestFunc {
 	return func(ctx context.Context, token string) (*slack.AuthTestResponse, error) {
-		client := slack.New(token, slack.OptionHTTPClient(httpClient), slack.OptionAPIURL(transport.SlackAPIBase()))
+		client := slack.New(token, slack.OptionHTTPClient(httpClient), slack.OptionAPIURL(slackhttp.SlackAPIBase()))
 		return client.AuthTestContext(ctx)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
@@ -128,7 +129,7 @@ func (c *MCPSlackClient) managedSlackClient(ctx context.Context, token string) (
 	if c.authResponse != nil && c.authResponse.URL != "" {
 		options = append(options, slack.OptionAPIURL(c.authResponse.URL+"api/"))
 	} else {
-		options = append(options, slack.OptionAPIURL(transportpkg.SlackAPIBase()))
+		options = append(options, slack.OptionAPIURL(slackhttp.SlackAPIBase()))
 	}
 	client := slack.New(token, options...)
 	identity, err := client.AuthTestContext(ctx)
@@ -228,7 +229,7 @@ func managedOAuthRefreshInterval(err error) time.Duration {
 		base = time.Minute
 		max  = 15 * time.Minute
 	)
-	retryAfter := SlackRetryAfter(err)
+	retryAfter, _ := slackhttp.RetryAfter(err)
 	if retryAfter <= base {
 		return base
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"net/url"
 	"os"
 	"sync"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/cachedir"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/keychain"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"

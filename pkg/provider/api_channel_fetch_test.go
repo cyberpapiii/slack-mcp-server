@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -159,22 +158,6 @@ func TestUnitChannelFetchPartialResult(t *testing.T) {
 		assert.Empty(t, chans)
 		// Initial attempt plus two retries, per the maxRetries of 2.
 		assert.Equal(t, 3, client.calls)
-	})
-}
-
-func TestUnitSlackRetryAfter(t *testing.T) {
-	t.Run("rate limit error yields its retry after", func(t *testing.T) {
-		err := &slack.RateLimitedError{RetryAfter: 7 * time.Second}
-		assert.Equal(t, 7*time.Second, SlackRetryAfter(err))
-	})
-
-	t.Run("wrapped rate limit error yields its retry after", func(t *testing.T) {
-		err := fmt.Errorf("fetching page: %w", &slack.RateLimitedError{RetryAfter: 2 * time.Second})
-		assert.Equal(t, 2*time.Second, SlackRetryAfter(err))
-	})
-
-	t.Run("unrelated error is not retryable", func(t *testing.T) {
-		assert.Equal(t, time.Duration(0), SlackRetryAfter(errors.New("boom")))
 	})
 }
 

@@ -98,16 +98,6 @@ func (ap *ApiProvider) fetchAndStoreChannels(ctx context.Context) error {
 	return nil
 }
 
-// SlackRetryAfter is the limiter.CallWithRetry callback for Slack errors:
-// the server's Retry-After for rate limits, 0 for anything else.
-func SlackRetryAfter(err error) time.Duration {
-	var rle *slack.RateLimitedError
-	if errors.As(err, &rle) {
-		return rle.RetryAfter
-	}
-	return 0
-}
-
 // Wraps channels+cursor so CallWithRetry (one T) can paginate GetConversationsContext.
 type channelsPageResult struct {
 	channels []slack.Channel
@@ -128,12 +118,12 @@ func (ap *ApiProvider) getChannelsMultiType(ctx context.Context, channelTypes []
 	// Tier2 matches conversations.list; faster budgets caused 429 truncations.
 	lim := ap.conversationsLimiter
 	if lim == nil {
-		lim = limiter.Tier2.Limiter()
+		lim = limiter.Tier2
 	}
 
 	for {
 		// CallWithRetry already paces; do not wait again in this loop.
-		page, err := limiter.CallWithRetry(ctx, lim, 2, SlackRetryAfter,
+		page, err := limiter.CallWithRetry(ctx, lim, 2,
 			func() (channelsPageResult, error) {
 				c, cur, err := ap.client.GetConversationsContext(ctx, params)
 				return channelsPageResult{channels: c, cursor: cur}, err

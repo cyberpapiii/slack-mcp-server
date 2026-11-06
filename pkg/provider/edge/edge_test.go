@@ -14,13 +14,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// fakeAuthProvider satisfies slackcreds.Credentials without any real
-// credentials. The HTTP client always comes from OptionHTTPClient.
-type fakeAuthProvider struct{}
-
-func (fakeAuthProvider) SlackToken() string      { return "xoxc-test" }
-func (fakeAuthProvider) Cookies() []*http.Cookie { return nil }
-
 // doFunc adapts a plain function to the httpClient interface.
 type doFunc func(*http.Request) (*http.Response, error)
 
@@ -39,44 +32,23 @@ func (c *closeRecorder) Close() error {
 
 func newTestClient(t *testing.T, fn doFunc) *Client {
 	t.Helper()
-	cl, err := NewWithInfo(
-		&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"},
-		fakeAuthProvider{},
-		OptionHTTPClient(fn),
-	)
-	if err != nil {
-		t.Fatalf("NewWithInfo: %v", err)
-	}
-	return cl
+	return NewWithInfo(&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"}, "xoxc-test", fn)
 }
 
-// TestUnitEdgeCallEdgeAPINilResponse covers the crash path: the transport
+// TestUnitEdgeTransportErrorNilResponse covers the crash path: the transport
 // returns (nil, io.EOF-wrapped error) when the server closes a pooled
-// keep-alive connection.  callEdgeAPI must not forward the nil response.
-func TestUnitEdgeCallEdgeAPINilResponse(t *testing.T) {
+// keep-alive connection, and the call must surface that error.
+func TestUnitEdgeTransportErrorNilResponse(t *testing.T) {
 	cl := newTestClient(t, func(r *http.Request) (*http.Response, error) {
 		return nil, &url.Error{Op: "Post", URL: r.URL.String(), Err: io.EOF}
 	})
 
-	var out struct {
-		Ok bool `json:"ok"`
-	}
-	err := cl.callEdgeAPI(context.Background(), &out, "test", &BaseRequest{})
+	_, err := cl.UsersSearch(context.Background(), "q", 1)
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("expected the transport error to be wrapped, got %v", err)
-	}
-}
-
-func TestUnitEdgeParseResponseNil(t *testing.T) {
-	cl := newTestClient(t, func(*http.Request) (*http.Response, error) {
-		return nil, errors.New("should not be called")
-	})
-
-	if err := cl.parseResponse(&struct{}{}, nil); err == nil {
-		t.Fatal("expected an error for a nil response, got nil")
 	}
 }
 
@@ -114,15 +86,13 @@ func TestUnitEdgeRetryRebuildsBody(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true,"results":[{"id":"U1"}]}`)),
 		}, nil
 	})
 
-	var out struct {
-		Ok bool `json:"ok"`
-	}
-	if err := cl.callEdgeAPI(context.Background(), &out, "test", &BaseRequest{}); err != nil {
-		t.Fatalf("callEdgeAPI: %v", err)
+	users, err := cl.UsersSearch(context.Background(), "q", 1)
+	if err != nil {
+		t.Fatalf("UsersSearch: %v", err)
 	}
 
 	if calls != 2 {
@@ -140,8 +110,8 @@ func TestUnitEdgeRetryRebuildsBody(t *testing.T) {
 	if rateLimited.closed != 1 {
 		t.Fatalf("expected the 429 body to be closed exactly once, got %d closes", rateLimited.closed)
 	}
-	if !out.Ok {
-		t.Fatal("expected the successful response to be parsed as ok=true")
+	if len(users) != 1 || users[0].ID != "U1" {
+		t.Fatalf("expected the successful response to be decoded, got %+v", users)
 	}
 }
 
@@ -172,8 +142,8 @@ func TestUnitEdgeRetryContextCancel(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		var out struct{}
-		done <- cl.callEdgeAPI(ctx, &out, "test", &BaseRequest{})
+		_, err := cl.UsersSearch(ctx, "q", 1)
+		done <- err
 	}()
 
 	select {
@@ -182,7 +152,7 @@ func TestUnitEdgeRetryContextCancel(t *testing.T) {
 			t.Fatalf("expected context.Canceled, got %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("callEdgeAPI did not return within 1s; the retry wait ignored cancellation")
+		t.Fatal("UsersSearch did not return within 1s; the retry wait ignored cancellation")
 	}
 
 	if calls != 1 {
@@ -194,12 +164,12 @@ func TestUnitEdgeRetryContextCancel(t *testing.T) {
 // Fixture-driven tests for the constructor, response parsing and the three
 // endpoints the fork's tools depend on.
 //
-// These build their clients through NewWithInfo with a fake auth provider
-// whose *http.Client carries a fake transport.
+// These build their clients through NewWithInfo with an *http.Client that
+// carries a fake transport.
 // ---------------------------------------------------------------------------
 
 // roundTripperFunc adapts a plain function to http.RoundTripper so a real
-// *http.Client can be handed to the fake auth provider.
+// *http.Client can be handed to NewWithInfo.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
@@ -207,7 +177,7 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { r
 // jsonResponse builds a canned response with the given status and body.
 func jsonResponse(status int, body string) *http.Response {
 	h := make(http.Header)
-	h.Set(hdrContentType, "application/json")
+	h.Set("Content-Type", "application/json")
 	return &http.Response{
 		StatusCode: status,
 		Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
@@ -219,15 +189,7 @@ func jsonResponse(status int, body string) *http.Response {
 // newFixtureClient builds a Client whose transport is fake, via NewWithInfo.
 func newFixtureClient(t *testing.T, fake roundTripperFunc) *Client {
 	t.Helper()
-	cl, err := NewWithInfo(
-		&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"},
-		fakeAuthProvider{},
-		OptionHTTPClient(&http.Client{Transport: fake}),
-	)
-	if err != nil {
-		t.Fatalf("NewWithInfo: %v", err)
-	}
-	return cl
+	return NewWithInfo(&slack.AuthTestResponse{TeamID: "T123", URL: "https://testws.slack.com/"}, "xoxc-test", &http.Client{Transport: fake})
 }
 
 // TestUnitNewWithInfo pins the constructor's contract: the API bases derive
@@ -254,60 +216,60 @@ func TestUnitNewWithInfo(t *testing.T) {
 	})
 }
 
-// TestUnitParseResponse tables the decode contract.  parseResponse itself only
-// guards the status and unmarshals; turning `"ok":false` into an error is
-// baseResponse.validate's job and every endpoint calls the pair, so the table
-// runs the pair too.  The nil-response row lives in
-// TestUnitEdgeParseResponseNil.
-func TestUnitParseResponse(t *testing.T) {
-	cl := newFixtureClient(t, func(*http.Request) (*http.Response, error) {
-		return nil, errors.New("ParseResponse must not make requests")
-	})
-
+// TestUnitPostFormDecode tables the decode contract every webclient call
+// shares: "ok":false is a slack.SlackErrorResponse carrying Slack's code and
+// first message, and a non-2xx status is a slack.StatusCodeError.
+func TestUnitPostFormDecode(t *testing.T) {
 	tests := []struct {
-		name    string
-		status  int
-		body    string
-		wantErr string // substring; empty means no error expected
-		wantOk  bool
+		name     string
+		status   int
+		body     string
+		wantErr  string // substring; empty means no error expected
+		wantCode string
 	}{
 		{
 			name:   "ok true decodes cleanly",
 			status: http.StatusOK,
 			body:   `{"ok":true,"response_metadata":{"next_cursor":"c2"}}`,
-			wantOk: true,
 		},
 		{
-			name:    "ok false surfaces the api error",
-			status:  http.StatusOK,
-			body:    `{"ok":false,"error":"invalid_auth"}`,
-			wantErr: "invalid_auth",
+			name:     "ok false surfaces the api error",
+			status:   http.StatusOK,
+			body:     `{"ok":false,"error":"invalid_auth"}`,
+			wantErr:  "invalid_auth",
+			wantCode: "invalid_auth",
+		},
+		{
+			name:     "ok false keeps Slack's message",
+			status:   http.StatusOK,
+			body:     `{"ok":false,"error":"invalid_arguments","response_metadata":{"messages":["[ERROR] missing channel"]}}`,
+			wantErr:  "invalid_arguments: [ERROR] missing channel",
+			wantCode: "invalid_arguments",
 		},
 		{
 			name:    "non-2xx status is an error",
 			status:  http.StatusInternalServerError,
 			body:    `{"ok":true}`,
-			wantErr: "status code",
+			wantErr: "500",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var r baseResponse
-			err := cl.parseResponse(&r, jsonResponse(tt.status, tt.body))
-			if err == nil {
-				err = r.validate("test.endpoint")
+			cl := newFixtureClient(t, func(*http.Request) (*http.Response, error) {
+				return jsonResponse(tt.status, tt.body), nil
+			})
+			var r struct {
+				ResponseMetadata slack.ResponseMetadata `json:"response_metadata"`
 			}
+			err := cl.postForm(context.Background(), "test.endpoint", struct{ BaseRequest }{}, &r)
 
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
-				if r.Ok != tt.wantOk {
-					t.Fatalf("ok = %v, want %v", r.Ok, tt.wantOk)
-				}
-				if r.ResponseMetadata.NextCursor != "c2" {
-					t.Fatalf("next_cursor = %q, want %q", r.ResponseMetadata.NextCursor, "c2")
+				if r.ResponseMetadata.Cursor != "c2" {
+					t.Fatalf("next_cursor = %q, want %q", r.ResponseMetadata.Cursor, "c2")
 				}
 				return
 			}
@@ -316,6 +278,10 @@ func TestUnitParseResponse(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error %q does not contain %q", err, tt.wantErr)
+			}
+			var slackErr slack.SlackErrorResponse
+			if tt.wantCode != "" && (!errors.As(err, &slackErr) || slackErr.Err != tt.wantCode) {
+				t.Fatalf("error %v does not carry Slack code %q", err, tt.wantCode)
 			}
 		})
 	}
@@ -346,7 +312,7 @@ func TestUnitClientCounts(t *testing.T) {
 
 	cl := newFixtureClient(t, func(r *http.Request) (*http.Response, error) {
 		gotURL = r.URL.String()
-		gotContentType = r.Header.Get(hdrContentType)
+		gotContentType = r.Header.Get("Content-Type")
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			return nil, err

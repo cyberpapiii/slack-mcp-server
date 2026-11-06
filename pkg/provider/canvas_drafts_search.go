@@ -2,18 +2,15 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
-	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 )
 
@@ -196,31 +193,23 @@ func (c *MCPSlackClient) GetCanvasContentContext(ctx context.Context, canvasID, 
 	if token == "" {
 		return "", ErrUserOAuthRequired
 	}
-	form := url.Values{"token": {token}, "canvas_id": {canvasID}, "content_type": {format}}
-	endpoint := strings.TrimRight(c.authResponse.URL, "/") + "/api/canvases.getContent"
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	body, err := slackhttp.Post(ctx, c.httpClient, slackhttp.Request{
+		URL:   strings.TrimRight(c.authResponse.URL, "/") + "/api/canvases.getContent",
+		Token: token,
+		Form:  url.Values{"canvas_id": {canvasID}, "content_type": {format}},
+	})
 	if err != nil {
 		return "", err
-	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return "", err
-	}
-	defer response.Body.Close()
-	if rateLimited := transportpkg.RateLimited(response); rateLimited != nil {
-		return "", rateLimited
 	}
 	var payload struct {
-		OK      bool   `json:"ok"`
-		Error   string `json:"error"`
 		Content string `json:"content"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&payload); err != nil {
+	if err := slackhttp.Decode(body, &payload); err != nil {
+		var slackErr slack.SlackErrorResponse
+		if errors.As(err, &slackErr) {
+			return "", err
+		}
 		return "", fmt.Errorf("decode canvases.getContent response: %w", err)
-	}
-	if !payload.OK {
-		return "", slack.SlackErrorResponse{Err: payload.Error}
 	}
 	return payload.Content, nil
 }
@@ -470,7 +459,7 @@ func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params Seman
 	if token == "" {
 		return SemanticSearchPage{}, errors.New("OAuth token unavailable")
 	}
-	form := url.Values{"token": {token}, "query": {params.Query}}
+	form := url.Values{"query": {params.Query}}
 	for _, value := range params.ChannelTypes {
 		form.Add("channel_types", value)
 	}
@@ -489,27 +478,15 @@ func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params Seman
 	if params.Limit > 0 {
 		form.Set("limit", strconv.Itoa(params.Limit))
 	}
-	endpoint := strings.TrimRight(c.authResponse.URL, "/") + "/api/assistant.search.context"
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	body, err := slackhttp.Post(ctx, c.httpClient, slackhttp.Request{
+		URL:   strings.TrimRight(c.authResponse.URL, "/") + "/api/assistant.search.context",
+		Token: token,
+		Form:  form,
+	})
 	if err != nil {
 		return SemanticSearchPage{}, err
-	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return SemanticSearchPage{}, err
-	}
-	defer response.Body.Close()
-	if rateLimited := transportpkg.RateLimited(response); rateLimited != nil {
-		return SemanticSearchPage{}, rateLimited
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-		return SemanticSearchPage{}, fmt.Errorf("Slack semantic search HTTP %d", response.StatusCode)
 	}
 	var payload struct {
-		OK      bool   `json:"ok"`
-		Error   string `json:"error"`
 		Results struct {
 			Messages []struct {
 				AuthorUserID string `json:"author_user_id"`
@@ -535,12 +512,14 @@ func (c *MCPSlackClient) SearchSemanticContext(ctx context.Context, params Seman
 			NextCursor string `json:"next_cursor"`
 		} `json:"response_metadata"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 8<<20))
-	if err := decoder.Decode(&payload); err != nil {
+	if err := slackhttp.Decode(body, &payload); err != nil {
+		// A Slack error code stays a plain error here, so the tool keeps
+		// reporting slack_api_error rather than the code itself.
+		var slackErr slack.SlackErrorResponse
+		if errors.As(err, &slackErr) {
+			return SemanticSearchPage{}, errors.New(slackErr.Err)
+		}
 		return SemanticSearchPage{}, err
-	}
-	if !payload.OK {
-		return SemanticSearchPage{}, errors.New(payload.Error)
 	}
 	page := SemanticSearchPage{NextCursor: payload.ResponseMetadata.NextCursor, Items: make([]SemanticSearchItem, 0, len(payload.Results.Messages)+len(payload.Results.Files))}
 	for _, item := range payload.Results.Messages {

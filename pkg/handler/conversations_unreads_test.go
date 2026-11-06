@@ -548,32 +548,12 @@ func TestUnitCollectUnreadChannels(t *testing.T) {
 	})
 
 	t.Run("a snapshot with no last_read renders an empty string", func(t *testing.T) {
-		// Zero fasttime -> "" via slackTS (not year-1 SlackString).
 		c := edge.ClientCountsResponse{
 			Channels: []edge.ChannelSnapshot{{ID: "C_SILENT", HasUnreads: true}},
 		}
 		got, _ := ch.collectUnreadChannels(defaultUnreadsParams(), c, users, channelsCache)
 		require.Len(t, got, 1)
 		assert.Equal(t, "", got[0].LastRead)
-	})
-}
-
-// TestUnitSlackTS pins the zero-value plaster over fasttime.Time: a never-read
-// channel must render as "" so callers can tell "no bound available" apart from
-// a real timestamp, instead of fasttime's literal year-1 rendering.
-func TestUnitSlackTS(t *testing.T) {
-	t.Run("the zero value renders as an empty string", func(t *testing.T) {
-		var zero fasttime.Time
-		require.True(t, time.Time(zero).IsZero())
-		assert.Equal(t, "-62135596800.000000", zero.SlackString(),
-			"the raw fasttime rendering this helper exists to suppress")
-		assert.Equal(t, "", slackTS(zero))
-	})
-
-	t.Run("a real timestamp round-trips unchanged", func(t *testing.T) {
-		ts := fasttime.Time(time.UnixMicro(1710632873037269))
-		assert.Equal(t, "1710632873.037269", slackTS(ts))
-		assert.Equal(t, ts.SlackString(), slackTS(ts))
 	})
 }
 

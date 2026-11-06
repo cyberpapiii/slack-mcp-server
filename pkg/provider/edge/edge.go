@@ -1,88 +1,60 @@
 // Package edge provides a limited implementation of undocumented Slack Edge
 // API necessary to get the data from a slack workspace.
 //
-// It handles rate limit retries internally (but only once).
+// A rate-limited call is retried once, after Slack's Retry-After.
 package edge
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
-	"runtime/trace"
-	"strings"
-	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
-	"github.com/korotovsky/slack-mcp-server/pkg/transport"
+	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/rusq/tagops"
 	"github.com/slack-go/slack"
+	"go.uber.org/zap"
 )
 
-type httpClient interface {
-	Do(*http.Request) (*http.Response, error)
-}
-
 type Client struct {
-	cl           httpClient
+	cl           slackhttp.Doer
 	edgeAPI      string
 	webclientAPI string
 	token        string
-	teamID       string
+	logger       *zap.Logger
 }
 
 type Option func(*Client)
 
-func OptionHTTPClient(client httpClient) func(*Client) {
+func OptionLogger(logger *zap.Logger) Option {
 	return func(cl *Client) {
-		cl.cl = client
+		cl.logger = logger
 	}
 }
 
-// NewWithInfo is the same as New, but doesn't call the AuthTest on
-// initialisation.  Caller must ensure that the token is valid.
-func NewWithInfo(info *slack.AuthTestResponse, prov slackcreds.Credentials, opt ...Option) (*Client, error) {
+// NewWithInfo builds a client for the workspace info describes without
+// calling auth.test; the caller must ensure that the token is valid.
+// httpClient carries the proxy and TLS settings.
+func NewWithInfo(info *slack.AuthTestResponse, token string, httpClient slackhttp.Doer, opt ...Option) *Client {
 	c := &Client{
-		// Every caller passes OptionHTTPClient below, which is what carries the
-		// proxy and TLS settings; this is only a non-nil floor.
-		cl:           http.DefaultClient,
-		token:        prov.SlackToken(),
-		teamID:       info.TeamID,
+		cl:           httpClient,
+		token:        token,
 		webclientAPI: info.URL + "api/",
-		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", transport.SlackDomain(), info.TeamID),
+		edgeAPI:      fmt.Sprintf("https://edgeapi.%s/cache/%s/", slackhttp.SlackDomain(), info.TeamID),
+		logger:       zap.NewNop(),
 	}
 
 	for _, o := range opt {
 		o(c)
 	}
-	return c, nil
+	return c
 }
 
 type BaseRequest struct {
 	Token string `json:"token"`
-}
-
-type baseResponse struct {
-	Ok               bool             `json:"ok"`
-	Error            string           `json:"error,omitempty"`
-	ResponseMetadata ResponseMetadata `json:"response_metadata,omitempty"`
-}
-
-func (r baseResponse) validate(ep string) error {
-	if !r.Ok {
-		return &APIError{Err: r.Error, Metadata: r.ResponseMetadata, Endpoint: ep}
-	}
-	return nil
-}
-
-type ResponseMetadata struct {
-	Messages   []string `json:"messages,omitempty"`
-	NextCursor string   `json:"next_cursor,omitempty"`
 }
 
 func (r *BaseRequest) setToken(token string) {
@@ -98,167 +70,63 @@ type postRequest interface {
 	isTokenSet() bool
 }
 
-const (
-	hdrContentType = "Content-Type"
-)
+const acceptLanguage = "en-NZ,en-AU;q=0.9,en;q=0.8"
 
-// postJSON posts a request to the edge API.  The request is marshalled to
-// JSON and the response is unmarshalled to the req, which must be a pointer
-// to a struct.
-func (cl *Client) postJSON(ctx context.Context, path string, req postRequest) (*http.Response, error) {
+// postJSON posts req as JSON to the edge API and decodes the response into v.
+func (cl *Client) postJSON(ctx context.Context, path string, req postRequest, v any) error {
 	if !req.isTokenSet() {
 		req.setToken(cl.token)
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
-	}
-	r, err := http.NewRequestWithContext(ctx, http.MethodPost, cl.edgeAPI+path, bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	r.Header.Set(hdrContentType, "application/json")
-
-	return do(ctx, cl.cl, r)
-}
-
-// callEdgeAPI calls the edge API.
-func (cl *Client) callEdgeAPI(ctx context.Context, v any, endpoint string, req postRequest) error {
-	r, err := cl.postJSON(ctx, endpoint, req)
-	// A transport error may yield a nil response; io.EOF in particular is
-	// returned whenever the server closes a pooled keep-alive connection.
-	// Forwarding nil to parseResponse would panic on its first dereference.
-	if r == nil {
-		if err != nil {
-			return fmt.Errorf("edge %s: no response: %w", endpoint, err)
-		}
-		return fmt.Errorf("edge %s: no response and no error", endpoint)
-	}
-	if err != nil && !errors.Is(err, io.EOF) {
-		_ = r.Body.Close()
 		return err
 	}
-	return cl.parseResponse(v, r)
+	return cl.call(ctx, slackhttp.Request{URL: cl.edgeAPI + path, JSON: data}, v)
 }
 
-// postForm sends a POST request to a webclient API with form values.
-func (cl *Client) postForm(ctx context.Context, path string, form url.Values) (*http.Response, error) {
-	return cl.postFormRaw(ctx, cl.webclientAPI+path, form)
+// postForm posts form, a struct with json tags, to a webclient API method and
+// decodes the response into v.
+func (cl *Client) postForm(ctx context.Context, method string, form any, v any) error {
+	return cl.call(ctx, slackhttp.Request{URL: cl.webclientAPI + method, Token: cl.token, Form: values(form)}, v)
 }
 
-func (cl *Client) postFormRaw(ctx context.Context, url string, form url.Values) (*http.Response, error) {
-	if form["token"] == nil {
-		form.Set("token", cl.token)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return do(ctx, cl.cl, req)
-}
-
-func (cl *Client) parseResponse(req any, r *http.Response) error {
-	if r == nil {
-		return errors.New("nil response")
-	}
-	defer r.Body.Close()
-	if r.StatusCode < http.StatusOK || http.StatusMultipleChoices <= r.StatusCode {
-		return fmt.Errorf("error: status code: %s", r.Status)
-	}
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(bodyBytes, req); err != nil {
-		return err
-	}
-	return nil
-}
-
-// do is a helper function to do the request and handle rate limiting.  it
-// tries to handle the rate limiting by waiting for the Retry-After only once,
-// if it receives another rate limit error, it returns slack.RateLimitedError
-// to let the caller handle it.
-func do(ctx context.Context, cl httpClient, req *http.Request) (*http.Response, error) {
-	ctx, task := trace.NewTask(ctx, "edge.do")
-	defer task.End()
-
-	lg := slog.Default()
-	req.Header.Set("Accept-Language", "en-NZ,en-AU;q=0.9,en;q=0.8")
-	req.Header.Set("User-Agent", slackcreds.UserAgent)
-
-	rgn := trace.StartRegion(ctx, "http.Do")
-	resp, err := cl.Do(req)
-	rgn.End()
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		// Drain and close the rate-limited response so the connection can be
-		// reused instead of leaked.
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		wait := transport.RateLimited(resp).RetryAfter
-		lg.InfoContext(ctx, "got rate limited, waiting", "delay", wait)
-
-		// The first attempt consumed the one-shot body reader; rebuild it, or
-		// the retry would post an empty body.
-		if req.GetBody != nil {
-			rc, gerr := req.GetBody()
-			if gerr != nil {
-				return nil, gerr
+func (cl *Client) call(ctx context.Context, req slackhttp.Request, v any) error {
+	req.Header = http.Header{"Accept-Language": {acceptLanguage}}
+	attempt := 0
+	_, err := limiter.CallWithRetry(ctx, nil, 1, func() (struct{}, error) {
+		attempt++
+		err := slackhttp.Call(ctx, cl.cl, req, v)
+		if wait, limited := slackhttp.RetryAfter(err); limited {
+			if attempt == 1 {
+				cl.logger.Info("Edge call rate limited, waiting", zap.String("url", req.URL), zap.Duration("delay", wait))
+			} else {
+				cl.logger.Debug("Edge call still rate limited after one retry", zap.String("url", req.URL))
 			}
-			req.Body = rc
 		}
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(wait):
-		}
-
-		resp, err = cl.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode == http.StatusTooManyRequests {
-			lg.DebugContext(ctx, "edge.do: still rate limited after one retry")
-			_, _ = io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-			return nil, transport.RateLimited(resp)
-		}
-	}
-	if resp.StatusCode < http.StatusOK || http.StatusMultipleChoices <= resp.StatusCode {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return nil, slack.StatusCodeError{Code: resp.StatusCode, Status: string(body)}
-	}
-	return resp, err
+		return struct{}{}, err
+	})
+	return withSlackMessage(err)
 }
 
-// values returns url.Values from a struct.  If omitempty is true, then the
-// empty values are omitted for the fields that have the `omitempty` tag.
-func values(s any, omitempty bool) url.Values {
+// withSlackMessage appends Slack's first response_metadata message to an
+// "ok":false error, which names what was wrong with the request.
+func withSlackMessage(err error) error {
+	var slackErr slack.SlackErrorResponse
+	if errors.As(err, &slackErr) && len(slackErr.ResponseMetadata.Messages) > 0 {
+		return fmt.Errorf("%w: %s", err, slackErr.ResponseMetadata.Messages[0])
+	}
+	return err
+}
+
+// values returns url.Values from a struct, omitting the empty values of
+// fields tagged omitempty.
+func values(s any) url.Values {
 	var v = make(url.Values)
-	m := tagops.ToMap(s, "json", omitempty, true)
+	m := tagops.ToMap(s, "json", true, true)
 	for k, val := range m {
 		v.Set(k, fmt.Sprint(val))
 	}
 	return v
-}
-
-type APIError struct {
-	Err      string
-	Metadata ResponseMetadata
-	Endpoint string
-}
-
-func (e *APIError) Error() string {
-	if len(e.Metadata.Messages) > 0 {
-		return e.Err + ": " + e.Metadata.Messages[0]
-	}
-	return e.Err
 }
 
 type WebClientFields struct {
@@ -286,11 +154,5 @@ func webclientReason(reason string) WebClientFields {
 //
 // For now, this doesn't work as a replacement for conversation.list (202403).
 type pagination struct {
-	TotalCount int64  `json:"total_count"`
-	Page       int    `json:"page"`
-	PerPage    int    `json:"per_page"`
-	PageCount  int    `json:"page_count"`
-	First      int64  `json:"first"`
-	Last       int64  `json:"last"`
 	NextCursor string `json:"next_cursor,omitempty"`
 }

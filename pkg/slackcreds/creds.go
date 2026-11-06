@@ -1,10 +1,10 @@
 // Package slackcreds holds the Slack credentials the server authenticates
 // with: an API token plus, for browser sessions, the session cookies.
 //
-// This replaces github.com/rusq/slackdump/v3/auth, which supplied the same
-// three values through a package that also links a headless browser stack
-// (go-rod, playwright, charmbracelet). Only the token, the cookies and the
-// user agent were ever used here.
+// This replaces github.com/rusq/slackdump/v3/auth, which supplied them
+// through a package that also links a headless browser stack
+// (go-rod, playwright, charmbracelet). Only the token and the cookies were
+// ever used here.
 package slackcreds
 
 import (
@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"runtime"
 	"time"
 )
 
@@ -91,22 +90,4 @@ var reURLsafe = regexp.MustCompile(`[-._~%a-zA-Z0-9]+`)
 // so it can go into a cookie without escaping.
 func urlsafe(s string) bool {
 	return reURLsafe.ReplaceAllString(s, "") == ""
-}
-
-// UserAgent is the browser user agent Slack's private endpoints expect. The
-// platform tracks the build target, as a real desktop client's would.
-var UserAgent = fmt.Sprintf(
-	"Mozilla/5.0 (%s) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-	userAgentOS(runtime.GOOS),
-)
-
-func userAgentOS(goos string) string {
-	switch goos {
-	case "darwin":
-		return "Macintosh; Intel Mac OS X 10_15_7"
-	case "windows":
-		return "Windows NT 10.0; Win64; x64"
-	default:
-		return "X11; Linux x86_64"
-	}
 }

@@ -9,7 +9,6 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/openai/openai-go v1.12.0
 	github.com/refraction-networking/utls v1.8.2
-	github.com/rusq/slack v0.9.6-0.20250408103104-dd80d1b6337f
 	github.com/rusq/tagops v0.1.1
 	github.com/slack-go/slack v0.33.0
 	github.com/stretchr/testify v1.12.1

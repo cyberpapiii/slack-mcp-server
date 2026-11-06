@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/rusq/slack"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 )
 

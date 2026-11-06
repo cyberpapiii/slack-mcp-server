@@ -17,8 +17,7 @@ LOCAL_SIGNING_IDENTIFIER ?= com.robdezendorf.slack-mcp.oauth
 LD_FLAGS = -s -w \
 	-X '$(PACKAGE)/pkg/version.CommitHash=$(GIT_COMMIT_HASH)' \
 	-X '$(PACKAGE)/pkg/version.Version=$(GIT_VERSION)' \
-	-X '$(PACKAGE)/pkg/version.BuildTime=$(BUILD_TIME)' \
-	-X '$(PACKAGE)/pkg/version.BinaryName=$(BINARY_NAME)'
+	-X '$(PACKAGE)/pkg/version.BuildTime=$(BUILD_TIME)'
 COMMON_BUILD_ARGS = -ldflags "$(LD_FLAGS)"
 
 NPM_VERSION = $(shell git describe --tags --always | sed 's/^v//' | cut -d- -f1)

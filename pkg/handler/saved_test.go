@@ -318,7 +318,7 @@ func savedPage(nextCursor string, ts ...string) edge.SavedListResponse {
 	for _, t := range ts {
 		page.SavedItems = append(page.SavedItems, edge.SavedItem{ItemID: "C1", Ts: t, State: "in_progress"})
 	}
-	page.ResponseMetadata.NextCursor = nextCursor
+	page.ResponseMetadata.Cursor = nextCursor
 	return page
 }
 

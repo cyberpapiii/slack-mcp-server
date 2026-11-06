@@ -8,18 +8,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge/fasttime"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
-	"golang.org/x/time/rate"
 )
 
 // UnreadChannel is one summary row of conversations_unreads. LastRead is the
@@ -199,11 +196,6 @@ type historyFetcher interface {
 	GetConversationHistoryContext(ctx context.Context, params *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
 }
 
-// unpaced lets CallWithRetry retry a 429 without adding proactive pacing:
-// these history reads never had a limiter, and Slack's Retry-After is the
-// signal that matters.
-var unpaced = rate.NewLimiter(rate.Inf, 0)
-
 // fetchUnreadHistories reads each channel's messages newer than its LastRead,
 // fanOutWorkers at a time, retrying once on a 429. Channels skip selects get a
 // nil history and a nil error. Results are in channel order.
@@ -213,7 +205,7 @@ func fetchUnreadHistories(ctx context.Context, api historyFetcher, channels []Un
 		if skip(c) {
 			return nil, nil
 		}
-		return limiter.CallWithRetry(ctx, unpaced, 1, provider.SlackRetryAfter, func() (*slack.GetConversationHistoryResponse, error) {
+		return limiter.CallWithRetry(ctx, nil, 1, func() (*slack.GetConversationHistoryResponse, error) {
 			return api.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
 				ChannelID: c.ChannelID,
 				Oldest:    c.LastRead,
@@ -250,7 +242,7 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 		case unreadChannels[i].UnreadCount > 0:
 			continue // already counted (mentions)
 		case unreadChannels[i].LastRead == "":
-			// No last-read bound (slackTS maps zero fasttime.Time to ""). Skip
+			// No last-read bound (a zero fasttime.Time renders as ""). Skip
 			// unbounded history query; report 1 since HasUnreads was true.
 			unreadChannels[i].UnreadCount = 1
 			backfilled++
@@ -270,17 +262,6 @@ func (ch *ConversationsHandler) backfillUnreadCounts(ctx context.Context, reques
 			zap.Int("backfilled", backfilled))
 	}
 	return true
-}
-
-// slackTS renders an edge-API timestamp, mapping the zero value to "" rather
-// than to fasttime's literal rendering of year 1 ("-62135596800.000000").
-// A zero LastRead means "never read"; callers treat "" as "no bound available"
-// and must not pass it to conversations.history as Oldest.
-func slackTS(t fasttime.Time) string {
-	if time.Time(t).IsZero() {
-		return ""
-	}
-	return t.SlackString()
 }
 
 // collectUnreadChannels turns a client.counts snapshot into the sorted, limited
@@ -325,7 +306,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: channelName,
 			ChannelType: channelType,
 			UnreadCount: snap.MentionCount,
-			LastRead:    slackTS(snap.LastRead),
+			LastRead:    snap.LastRead.SlackString(),
 		})
 	}
 
@@ -361,7 +342,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: channelName,
 			ChannelType: "group_dm",
 			UnreadCount: snap.MentionCount,
-			LastRead:    slackTS(snap.LastRead),
+			LastRead:    snap.LastRead.SlackString(),
 		})
 	}
 
@@ -398,7 +379,7 @@ func (ch *ConversationsHandler) collectUnreadChannels(params *unreadsParams, cou
 			ChannelName: channelName,
 			ChannelType: "dm",
 			UnreadCount: snap.MentionCount,
-			LastRead:    slackTS(snap.LastRead),
+			LastRead:    snap.LastRead.SlackString(),
 		})
 	}
 

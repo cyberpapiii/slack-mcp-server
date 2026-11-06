@@ -1,18 +1,17 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
-	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
+	"github.com/slack-go/slack"
 )
 
 type ListsErrorKind string
@@ -302,62 +301,43 @@ func (c *ListsClient) call(ctx context.Context, method string, requestBody any, 
 	}
 	base := c.APIBase
 	if base == "" {
-		base = transportpkg.SlackAPIBase()
+		base = slackhttp.SlackAPIBase()
 	}
-	if base != transportpkg.SlackAPIBase() && !strings.HasPrefix(base, "http://127.0.0.1:") {
+	if base != slackhttp.SlackAPIBase() && !strings.HasPrefix(base, "http://127.0.0.1:") {
 		return errors.New("Slack Lists API base must be Slack or loopback test server")
 	}
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, base+method, bytes.NewReader(encoded))
-	if err != nil {
-		return fmt.Errorf("build %s request: %w", method, err)
-	}
-	httpRequest.Header.Set("Authorization", "Bearer "+token)
-	httpRequest.Header.Set("Content-Type", "application/json; charset=utf-8")
 	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	response, err := client.Do(httpRequest)
+	mutates := listsMethodMutates(method)
+	body, err := slackhttp.Post(ctx, client, slackhttp.Request{
+		URL:    base + method,
+		Token:  token,
+		Bearer: true,
+		JSON:   encoded,
+		Header: http.Header{"Content-Type": {"application/json; charset=utf-8"}},
+	})
 	if err != nil {
-		if listsMethodMutates(method) {
-			return &ListsAPIError{Kind: ListsErrorAPI, SlackCode: "outcome_unknown", MayHaveMutated: true}
+		var limited *slack.RateLimitedError
+		if errors.As(err, &limited) {
+			return &ListsAPIError{Kind: ListsErrorRateLimit, StatusCode: http.StatusTooManyRequests, RetryAfter: limited.RetryAfter}
+		}
+		var status slack.StatusCodeError
+		if errors.As(err, &status) {
+			return &ListsAPIError{Kind: ListsErrorAPI, StatusCode: status.Code, MayHaveMutated: mutates && status.Code >= 500}
+		}
+		if mutates {
+			return listsOutcomeUnknown()
 		}
 		return fmt.Errorf("call %s: %w", method, err)
 	}
-	defer response.Body.Close()
-	if limited := transportpkg.RateLimited(response); limited != nil {
-		return &ListsAPIError{Kind: ListsErrorRateLimit, StatusCode: response.StatusCode, RetryAfter: limited.RetryAfter}
-	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
-	if err != nil {
-		if listsMethodMutates(method) {
-			return listsOutcomeUnknown()
+	if err := slackhttp.Decode(body, output); err != nil {
+		var slackErr slack.SlackErrorResponse
+		if errors.As(err, &slackErr) {
+			return classifyListsError(slackErr.Err)
 		}
-		return fmt.Errorf("read %s response: %w", method, err)
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return &ListsAPIError{Kind: ListsErrorAPI, StatusCode: response.StatusCode, MayHaveMutated: listsMethodMutates(method) && response.StatusCode >= 500}
-	}
-	var envelope struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		if listsMethodMutates(method) {
+		if mutates {
 			return listsOutcomeUnknown()
 		}
 		return fmt.Errorf("decode %s response: %w", method, err)
-	}
-	if !envelope.OK {
-		return classifyListsError(envelope.Error)
-	}
-	if output != nil {
-		if err := json.Unmarshal(raw, output); err != nil {
-			if listsMethodMutates(method) {
-				return listsOutcomeUnknown()
-			}
-			return fmt.Errorf("decode %s result: %w", method, err)
-		}
 	}
 	return nil
 }

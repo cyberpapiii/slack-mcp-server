@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/rusq/slack"
+	"github.com/slack-go/slack"
 )
 
 type channelResult struct {
@@ -35,7 +35,10 @@ func collectChannels(results <-chan channelResult) (channels []slack.Channel, se
 	return channels, seen, nil
 }
 
-func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConversationsParameters) (channels []slack.Channel, _ string, err error) {
+// GetConversationsContext collects every conversation the browser session can
+// see from client.userBoot, im.list and the channel browser, plus the MPIMs
+// client.counts knows of. It is not paginated.
+func (cl *Client) GetConversationsContext(ctx context.Context) ([]slack.Channel, error) {
 	// Buffer matches pipeline length so producers never block if collect lags.
 	resultC := make(chan channelResult, 3)
 	var pipeline = []func(){
@@ -45,19 +48,11 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 				resultC <- channelResult{Err: err}
 				return
 			}
-			var ch = make([]slack.Channel, 0, len(ub.Channels))
-			for _, c := range ub.Channels {
-				ch = append(ch, c.slackChannel())
-			}
-			resultC <- channelResult{Channels: ch, Err: err}
+			resultC <- channelResult{Channels: slackChannels(ub.Channels)}
 		},
 		func() {
 			ims, err := cl.imList(ctx)
-			var ch = make([]slack.Channel, 0, len(ims))
-			for _, c := range ims {
-				ch = append(ch, c.slackChannel())
-			}
-			resultC <- channelResult{Channels: ch, Err: err}
+			resultC <- channelResult{Channels: slackChannels(ims), Err: err}
 		},
 		func() {
 			ch, err := cl.searchChannels(ctx, "")
@@ -78,16 +73,15 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 		close(resultC)
 	}()
 
-	var seenChannels map[string]struct{}
-	channels, seenChannels, err = collectChannels(resultC)
+	channels, seenChannels, err := collectChannels(resultC)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	// Supplementary MPIM IDs from ClientCounts; failure keeps boot/IM/search results.
 	cr, err := cl.ClientCounts(ctx)
 	if err != nil {
-		return channels, "", nil
+		return channels, nil
 	}
 
 	var fetchIDs = make([]string, 0, len(cr.MPIMs))
@@ -99,8 +93,7 @@ func (cl *Client) GetConversationsContext(ctx context.Context, _ *slack.GetConve
 
 	mpims, err := cl.conversationsGenericInfo(ctx, fetchIDs...)
 	if err != nil {
-		return channels, "", nil
+		return channels, nil
 	}
-	channels = append(channels, mpims...)
-	return channels, "", nil
+	return append(channels, mpims...), nil
 }

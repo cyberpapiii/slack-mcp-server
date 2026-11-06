@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/slack-go/slack"
 )
 
@@ -97,27 +96,8 @@ func (r *SlackRefresher) Refresh(ctx context.Context, refreshToken string) (Refr
 	if r.ClientSecret != "" {
 		form.Set("client_secret", r.ClientSecret)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, transportpkg.SlackAPIBase()+"oauth.v2.access", strings.NewReader(form.Encode()))
+	response, err := oauthAccess(ctx, r.HTTPClient, form)
 	if err != nil {
-		return RefreshResult{}, errors.New("build Slack OAuth refresh request")
-	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	responseHTTP, err := r.HTTPClient.Do(request)
-	if err != nil {
-		return RefreshResult{}, fmt.Errorf("refresh Slack OAuth token: %w", err)
-	}
-	defer responseHTTP.Body.Close()
-	if rateLimited := transportpkg.RateLimited(responseHTTP); rateLimited != nil {
-		return RefreshResult{}, rateLimited
-	}
-	if responseHTTP.StatusCode != http.StatusOK {
-		return RefreshResult{}, fmt.Errorf("refresh Slack OAuth token: HTTP %d", responseHTTP.StatusCode)
-	}
-	var response slack.OAuthV2Response
-	if err := json.NewDecoder(responseHTTP.Body).Decode(&response); err != nil {
-		return RefreshResult{}, errors.New("decode Slack OAuth refresh response")
-	}
-	if err := response.Err(); err != nil {
 		return RefreshResult{}, fmt.Errorf("refresh Slack OAuth token: %w", err)
 	}
 	now := r.now
@@ -403,24 +383,8 @@ func ExchangeCode(
 	if clientSecret != "" {
 		form.Set("client_secret", clientSecret)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, transportpkg.SlackAPIBase()+"oauth.v2.access", strings.NewReader(form.Encode()))
+	exchanged, err := oauthAccess(ctx, client, form)
 	if err != nil {
-		return Record{}, errors.New("build Slack OAuth exchange request")
-	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response, err := client.Do(request)
-	if err != nil {
-		return Record{}, fmt.Errorf("exchange Slack OAuth code: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return Record{}, fmt.Errorf("exchange Slack OAuth code: HTTP %d", response.StatusCode)
-	}
-	var exchanged slack.OAuthV2Response
-	if err := json.NewDecoder(response.Body).Decode(&exchanged); err != nil {
-		return Record{}, errors.New("decode Slack OAuth exchange response")
-	}
-	if err := exchanged.Err(); err != nil {
 		return Record{}, fmt.Errorf("exchange Slack OAuth code: %w", err)
 	}
 	accessToken := exchanged.AuthedUser.AccessToken
@@ -446,4 +410,12 @@ func ExchangeCode(
 		return Record{}, errors.New("Slack OAuth exchange did not return rotating credentials")
 	}
 	return record, nil
+}
+
+// oauthAccess posts to oauth.v2.access, which both the code exchange and the
+// refresh use.
+func oauthAccess(ctx context.Context, client slackhttp.Doer, form url.Values) (slack.OAuthV2Response, error) {
+	var response slack.OAuthV2Response
+	err := slackhttp.Call(ctx, client, slackhttp.Request{URL: slackhttp.SlackAPIBase() + "oauth.v2.access", Form: form}, &response)
+	return response, err
 }

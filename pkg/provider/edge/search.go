@@ -2,15 +2,13 @@ package edge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"log/slog"
-	"runtime/trace"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/korotovsky/slack-mcp-server/pkg/limiter"
-	"github.com/rusq/slack"
+	"github.com/slack-go/slack"
+	"go.uber.org/zap"
 )
 
 // search.* API
@@ -19,23 +17,9 @@ const perPage = 100
 
 var errPagination = errors.New("pagination fault")
 
-type searchChannel struct {
-	slack.GroupConversation
-	IsChannel  bool              `json:"is_channel"`
-	IsGeneral  bool              `json:"is_general"`
-	IsMember   bool              `json:"is_member"`
-	NumMembers int               `json:"member_count"`
-	Locale     string            `json:"locale"`
-	Properties *slack.Properties `json:"properties"`
-}
-
-type searchResponse[T any] struct {
-	baseResponse
-	Module     string          `json:"module"`
-	Query      string          `json:"query"`
-	Filters    json.RawMessage `json:"filters"`
-	Pagination pagination      `json:"pagination"`
-	Items      []T             `json:"items"`
+type searchChannelsResponse struct {
+	Pagination pagination `json:"pagination"`
+	Items      []Channel  `json:"items"`
 }
 
 type searchForm struct {
@@ -79,11 +63,7 @@ type searchSortType string
 const sstName searchSortType = "name"
 
 func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Channel, error) {
-	ctx, task := trace.NewTask(ctx, "SearchChannels")
-	defer task.End()
-	lg := slog.With("in", "SearchChannels", "query", query)
-
-	trace.Logf(ctx, "params", "query=%q", query)
+	lg := cl.logger.With(zap.String("in", "SearchChannels"), zap.String("query", query))
 
 	clientReq, err := uuid.NewRandom()
 	if err != nil {
@@ -111,12 +91,7 @@ func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Cha
 		SortDir:              ssdAsc,
 		ChannelType:          scpAll,
 		RecommendSource:      "channel-browser",
-		WebClientFields: WebClientFields{
-			XReason:  "browser-query",
-			XMode:    "online",
-			XSonic:   true,
-			XAppName: "client",
-		},
+		WebClientFields:      webclientReason("browser-query"),
 	}
 
 	const (
@@ -128,37 +103,15 @@ func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Cha
 	if query == "" {
 		maxPages = maxEmptyQueryPages
 	}
-	lim := limiter.Tier2boost.Limiter()
+	lim := limiter.Tier2boost
 	var cc []slack.Channel
 	seenCursor := make(map[string]struct{})
 	for page := 0; page < maxPages; page++ {
-		resp, err := cl.postForm(ctx, ep, values(form, true))
-		if err != nil {
+		var sr searchChannelsResponse
+		if err := cl.postForm(ctx, ep, form, &sr); err != nil {
 			return nil, err
 		}
-		var sr searchResponse[searchChannel]
-		if err := cl.parseResponse(&sr, resp); err != nil {
-			return nil, err
-		}
-		if err := sr.validate(ep); err != nil {
-			return nil, err
-		}
-
-		for _, c := range sr.Items {
-			obj := slack.Channel{
-				GroupConversation: c.GroupConversation,
-				IsChannel:         c.IsChannel,
-				IsGeneral:         c.IsGeneral,
-				IsMember:          c.IsMember,
-				Locale:            c.Locale,
-				Properties:        c.Properties,
-			}
-			if !obj.IsChannel && !obj.IsPrivate && !obj.IsIM && !obj.IsMpIM {
-				obj.IsChannel = true
-			}
-			obj.NumMembers = c.NumMembers
-			cc = append(cc, obj)
-		}
+		cc = append(cc, slackChannels(sr.Items)...)
 		if sr.Pagination.NextCursor == "" {
 			lg.Debug("no more channels")
 			break
@@ -167,14 +120,14 @@ func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Cha
 			return nil, errPagination
 		}
 		seenCursor[sr.Pagination.NextCursor] = struct{}{}
-		lg.DebugContext(ctx, "pagination", "next_cursor", sr.Pagination.NextCursor)
+		lg.Debug("pagination", zap.String("next_cursor", sr.Pagination.NextCursor))
 		form.Cursor = sr.Pagination.NextCursor
 		if page == maxPages-1 {
-			lg.WarnContext(ctx, "SearchChannels page cap reached with remaining cursor; results may be incomplete",
-				"max_pages", maxPages,
-				"channels", len(cc),
-				"next_cursor", sr.Pagination.NextCursor,
-				"empty_query", query == "",
+			lg.Warn("SearchChannels page cap reached with remaining cursor; results may be incomplete",
+				zap.Int("max_pages", maxPages),
+				zap.Int("channels", len(cc)),
+				zap.String("next_cursor", sr.Pagination.NextCursor),
+				zap.Bool("empty_query", query == ""),
 			)
 			break
 		}
@@ -182,7 +135,6 @@ func (cl *Client) searchChannels(ctx context.Context, query string) ([]slack.Cha
 			return nil, err
 		}
 	}
-	trace.Logf(ctx, "info", "channels found=%d", len(cc))
-	lg.DebugContext(ctx, "channels", "count", len(cc))
+	lg.Debug("channels", zap.Int("count", len(cc)))
 	return cc, nil
 }
