@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
@@ -148,12 +149,8 @@ func (c *MCPSlackClient) ConfiguredWithBrowserSession() bool {
 // attachBrowserSession adds browser-only Slack surfaces to an OAuth-primary
 // client. Standard Web API calls continue to use the OAuth client.
 func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, browserIdentity *slack.AuthTestResponse, httpClient *http.Client) error {
-	if browserIdentity == nil || c.authResponse == nil {
-		return errors.New("cannot verify OAuth and browser provider identities")
-	}
-	if browserIdentity.TeamID != c.authResponse.TeamID || browserIdentity.UserID != c.authResponse.UserID {
-		return fmt.Errorf("browser provider identity mismatch: OAuth team/user %s/%s, browser team/user %s/%s",
-			c.authResponse.TeamID, c.authResponse.UserID, browserIdentity.TeamID, browserIdentity.UserID)
+	if err := oauthcred.IdentityOf(c.authResponse).Match(oauthcred.IdentityOf(browserIdentity)); err != nil {
+		return fmt.Errorf("browser provider %w", err)
 	}
 	browserEdge, err := edge.NewWithInfo(browserIdentity, browserAuth, edge.OptionHTTPClient(httpClient))
 	if err != nil {
@@ -193,8 +190,8 @@ func (c *MCPSlackClient) reprobeBrowser(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if identity == nil || c.authResponse == nil || identity.TeamID != c.authResponse.TeamID || identity.UserID != c.authResponse.UserID {
-		return errors.New("browser provider identity does not match the OAuth user")
+	if err := oauthcred.IdentityOf(c.authResponse).Match(oauthcred.IdentityOf(identity)); err != nil {
+		return fmt.Errorf("browser provider %w", err)
 	}
 	browserEdge, err := edge.NewWithInfo(identity, browserAuth, edge.OptionHTTPClient(httpClient))
 	if err != nil {

@@ -19,7 +19,8 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
-	"github.com/slack-go/slack"
+	"github.com/korotovsky/slack-mcp-server/pkg/transport"
+	"go.uber.org/zap"
 )
 
 const (
@@ -103,6 +104,10 @@ func runLogin(args []string) error {
 		return errors.New("expected Slack team and user IDs are required; use --team and --user")
 	}
 
+	httpClient, err := transport.ProvideHTTPClient(nil, zap.NewNop())
+	if err != nil {
+		return err
+	}
 	authorization, err := oauthcred.NewPKCE(options.redirectURI)
 	if err != nil {
 		return err
@@ -154,11 +159,11 @@ func runLogin(args []string) error {
 			return err
 		}
 		record, err := oauthcred.ExchangeCode(
-			ctx, http.DefaultClient, options.clientID, options.clientSecret, result.code,
+			ctx, httpClient, options.clientID, options.clientSecret, result.code,
 			result.state, options.redirectURI, authorization, time.Now().UTC(),
 		)
 		if err == nil {
-			err = saveAuthorizedCredential(ctx, options, scopes, record)
+			err = saveAuthorizedCredential(ctx, httpClient, options, scopes, record)
 		}
 		result.done <- err
 		if err != nil {
@@ -269,7 +274,9 @@ func callbackServer(results chan<- callbackResult, expectedState string) *http.S
 	return &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 }
 
-func saveAuthorizedCredential(ctx context.Context, options loginOptions, scopes []string, record oauthcred.Record) error {
+func saveAuthorizedCredential(ctx context.Context, httpClient *http.Client, options loginOptions, scopes []string, record oauthcred.Record) error {
+	want := oauthcred.Identity{TeamID: options.teamID, UserID: options.userID}
+	validateToken := want.Validator(oauthcred.SlackAuthTest(httpClient))
 	return oauthcred.WithLock(ctx, func() error {
 		store, err := oauthcred.NewKeychainStore(options.account)
 		if err != nil {
@@ -288,15 +295,11 @@ func saveAuthorizedCredential(ctx context.Context, options loginOptions, scopes 
 		record.Generation = expectedGeneration + 1
 		return oauthcred.CommitAuthorized(ctx, store, expectedGeneration, record, scopes,
 			func(ctx context.Context, candidate oauthcred.Record) error {
-				identity, err := slack.New(candidate.AccessToken).AuthTestContext(ctx)
-				if err != nil {
+				if err := validateToken(ctx, candidate); err != nil {
 					return err
 				}
-				if identity.TeamID != options.teamID || identity.UserID != options.userID {
-					return fmt.Errorf("expected team %s user %s; received team %s user %s", options.teamID, options.userID, identity.TeamID, identity.UserID)
-				}
-				if candidate.TeamID != identity.TeamID || candidate.UserID != identity.UserID {
-					return errors.New("OAuth response identity does not match auth.test")
+				if err := want.Match(candidate.Identity()); err != nil {
+					return fmt.Errorf("OAuth response does not match auth.test: %w", err)
 				}
 				return nil
 			})

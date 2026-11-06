@@ -104,7 +104,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		var managedErr error
 		stop := keychain.WarnWhileWaiting(logger, keychain.PromptAfter, "oauth")
-		managedManager, managedRecord, managedErr = loadManagedOAuth(ctx)
+		managedManager, managedRecord, managedErr = loadManagedOAuth(ctx, logger)
 		stop()
 		cancel()
 		switch {

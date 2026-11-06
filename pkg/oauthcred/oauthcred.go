@@ -75,6 +75,9 @@ type Refresher interface {
 	Refresh(context.Context, string) (RefreshResult, error)
 }
 
+// SlackRefresher rotates the credential through oauth.v2.access. HTTPClient
+// is required; build it with transport.ProvideHTTPClient so the call honors
+// the proxy, CA and GovSlack settings.
 type SlackRefresher struct {
 	HTTPClient   *http.Client
 	ClientID     string
@@ -85,10 +88,6 @@ type SlackRefresher struct {
 func (r *SlackRefresher) Refresh(ctx context.Context, refreshToken string) (RefreshResult, error) {
 	if r.ClientID == "" {
 		return RefreshResult{}, ErrRefreshUnavailable
-	}
-	client := r.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
 	}
 	form := url.Values{
 		"client_id":     {r.ClientID},
@@ -103,7 +102,7 @@ func (r *SlackRefresher) Refresh(ctx context.Context, refreshToken string) (Refr
 		return RefreshResult{}, errors.New("build Slack OAuth refresh request")
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	responseHTTP, err := client.Do(request)
+	responseHTTP, err := r.HTTPClient.Do(request)
 	if err != nil {
 		return RefreshResult{}, fmt.Errorf("refresh Slack OAuth token: %w", err)
 	}
@@ -377,6 +376,8 @@ func CommitAuthorized(
 	return store.SaveIfGeneration(ctx, expectedGeneration, record)
 }
 
+// ExchangeCode trades the callback's authorization code for a credential.
+// client is required, as for SlackRefresher.
 func ExchangeCode(
 	ctx context.Context,
 	client *http.Client,
@@ -392,9 +393,6 @@ func ExchangeCode(
 	}
 	if clientID == "" || code == "" {
 		return Record{}, errors.New("OAuth client ID and authorization code are required")
-	}
-	if client == nil {
-		client = http.DefaultClient
 	}
 	form := url.Values{
 		"client_id":     {clientID},

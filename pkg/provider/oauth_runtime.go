@@ -2,8 +2,6 @@ package provider
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -53,7 +51,7 @@ func OAuthStatusFromEnvironment() OAuthCredentialStatus {
 	return status
 }
 
-func loadManagedOAuth(ctx context.Context) (*oauthcred.Manager, oauthcred.Record, error) {
+func loadManagedOAuth(ctx context.Context, logger *zap.Logger) (*oauthcred.Manager, oauthcred.Record, error) {
 	account := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"))
 	if account == "" {
 		return nil, oauthcred.Record{}, nil
@@ -62,27 +60,22 @@ func loadManagedOAuth(ctx context.Context) (*oauthcred.Manager, oauthcred.Record
 	if err != nil {
 		return nil, oauthcred.Record{}, err
 	}
+	httpClient, err := transportpkg.ProvideHTTPClient(nil, logger)
+	if err != nil {
+		return nil, oauthcred.Record{}, err
+	}
 	var refresher oauthcred.Refresher
 	clientID := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_CLIENT_ID"))
 	clientSecret := strings.TrimSpace(getenv("SLACK_MCP_OAUTH_CLIENT_SECRET"))
 	if clientID != "" {
-		refresher = &oauthcred.SlackRefresher{ClientID: clientID, ClientSecret: clientSecret}
+		refresher = &oauthcred.SlackRefresher{HTTPClient: httpClient, ClientID: clientID, ClientSecret: clientSecret}
 	}
 	manager := oauthcred.NewManager(store, refresher, oauthcred.WithLock)
 	expected, err := store.Load(ctx)
 	if err != nil {
 		return nil, oauthcred.Record{}, err
 	}
-	manager.WithValidator(func(ctx context.Context, rotated oauthcred.Record) error {
-		identity, err := slack.New(rotated.AccessToken).AuthTestContext(ctx)
-		if err != nil {
-			return err
-		}
-		if expected.TeamID == "" || expected.UserID == "" || identity.TeamID != expected.TeamID || identity.UserID != expected.UserID {
-			return errors.New("rotated OAuth identity does not match persisted workspace and user")
-		}
-		return nil
-	})
+	manager.WithValidator(expected.Identity().Validator(oauthcred.SlackAuthTest(httpClient)))
 	record, err := manager.Current(ctx)
 	if err != nil {
 		return nil, oauthcred.Record{}, err
@@ -116,17 +109,11 @@ func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oaut
 	if !ok || client == nil {
 		return
 	}
-	expected := client.AuthResponse()
-	manager.WithValidator(func(ctx context.Context, rotated oauthcred.Record) error {
-		_, identity, err := client.managedSlackClient(ctx, rotated.AccessToken)
-		if err != nil {
-			return err
-		}
-		if expected == nil || identity.TeamID != expected.TeamID || identity.UserID != expected.UserID {
-			return fmt.Errorf("rotated OAuth identity mismatch")
-		}
-		return nil
-	})
+	expected := oauthcred.IdentityOf(client.AuthResponse())
+	manager.WithValidator(expected.Validator(func(ctx context.Context, token string) (*slack.AuthTestResponse, error) {
+		_, identity, err := client.managedSlackClient(ctx, token)
+		return identity, err
+	}))
 	client.oauthManager = manager
 	client.oauthGeneration.Store(record.Generation)
 	client.oauthRuntimeState.Store("live")

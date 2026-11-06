@@ -334,6 +334,39 @@ func TestUnitSlackRefresherRejectsMissingExpiry(t *testing.T) {
 	assert.Contains(t, err.Error(), "incomplete rotated credential")
 }
 
+func TestUnitIdentityMatchRequiresTeamAndUser(t *testing.T) {
+	want := Identity{TeamID: "T1", UserID: "U1"}
+	require.NoError(t, want.Match(Identity{TeamID: "T1", UserID: "U1"}))
+	assert.ErrorContains(t, want.Match(Identity{TeamID: "T1", UserID: "U2"}), "identity mismatch")
+	assert.Error(t, Identity{}.Match(Identity{}), "an unknown expected identity matches nothing")
+	assert.Error(t, want.Match(IdentityOf(nil)))
+}
+
+func TestUnitIdentityValidatorAuthTestsTheRecordToken(t *testing.T) {
+	var sawToken string
+	validate := Identity{TeamID: "T1", UserID: "U1"}.Validator(func(_ context.Context, token string) (*slack.AuthTestResponse, error) {
+		sawToken = token
+		return &slack.AuthTestResponse{TeamID: "T1", UserID: "U2"}, nil
+	})
+
+	err := validate(context.Background(), Record{AccessToken: "candidate"})
+	assert.ErrorContains(t, err, "identity mismatch")
+	assert.Equal(t, "candidate", sawToken)
+}
+
+func TestUnitSlackAuthTestUsesTheGivenClientAndGovSlack(t *testing.T) {
+	t.Setenv("SLACK_MCP_GOVSLACK", "true")
+	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		assert.Equal(t, "https://slack-gov.com/api/auth.test", request.URL.String())
+		body := `{"ok":true,"team_id":"T1","user_id":"U1"}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+
+	response, err := SlackAuthTest(client)(context.Background(), "token")
+	require.NoError(t, err)
+	assert.Equal(t, Identity{TeamID: "T1", UserID: "U1"}, IdentityOf(response))
+}
+
 type oauthRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f oauthRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
