@@ -216,5 +216,19 @@ Observable changes:
 - Mark-after-post is skipped for a bot identity. Config warnings (bad cache TTL, log level, allowlists) reach the
   log file. The OAuth refresh lock refuses a cwd-relative path.
 
+Review rounds 3–5 (fixed directly on `refactor/untangle`):
+- Unfurl allowlist covers links in blocks and `messages_schedule`, fails closed on a URL it cannot parse, counts
+  private-suffix domains (`*.github.io`), and normalizes hosts one way.
+- With a channel allow/block list set, its tools require a conversation ID (C/G/D); names and user IDs return
+  `invalid_arguments`. A list entry that is not a conversation ID fails at startup. The draft preview uses the
+  same gate.
+- Bad cursors are `invalid_cursor` everywhere. `files_list` with no files returns a header-only CSV.
+- The HTTP client fails a call only after 30s without progress (was: any call over 30s), so large transfers
+  finish; the custom-TLS path now honors cancellation.
+- `slack_auth_status` reports a failed managed OAuth load on every credential path.
+- One tool-selection rule (`capability.Select`) for both binaries; a preset flag beats an inherited tool list.
+- Search queries never reach logs; failed requests log at Debug.
+- `auth.test` takes a context (browser re-probe cancels on shutdown).
+
 Still open (product decisions for Rob): `activity_unreads` skips top-level mentions; `reactions_add` returns text
 while its siblings return structured content.
