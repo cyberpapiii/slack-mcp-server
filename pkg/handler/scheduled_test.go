@@ -15,7 +15,7 @@ import (
 )
 
 func newTestScheduledHandler(service ScheduledService) *ScheduledHandler {
-	return NewScheduledHandler(service, approval.NewStore(time.Minute), userIdentity, zap.NewNop())
+	return NewScheduledHandler(service, approval.NewStore(), userIdentity, zap.NewNop())
 }
 
 type fakeScheduledService struct {

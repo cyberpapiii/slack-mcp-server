@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/gocarina/gocsv"
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
@@ -109,8 +108,7 @@ func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 
 type DraftsHandler struct {
 	api       provider.DraftsAPI
-	approvals *approval.Store
-	identity  func() provider.ProviderIdentity
+	approvals approvalGate
 	logger    *zap.Logger
 	// ChannelName resolves a conversation ID to its cached "#name" or "@user"
 	// label for the #channels legend. nil leaves the legend out.
@@ -118,15 +116,13 @@ type DraftsHandler struct {
 }
 
 func NewDraftsHandler(api provider.DraftsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *DraftsHandler {
-	return &DraftsHandler{api: api, approvals: approvals, identity: identityFunc(identity), logger: logger}
+	return &DraftsHandler{api: api, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
 }
 
 type DraftMutationData struct {
-	Phase         string          `json:"phase"`
-	Status        string          `json:"status"`
-	Draft         *provider.Draft `json:"draft,omitempty"`
-	ApprovalToken string          `json:"approval_token,omitempty"`
-	ExpiresAt     string          `json:"expires_at,omitempty"`
+	ApprovalPhase
+	Status string          `json:"status"`
+	Draft  *provider.Draft `json:"draft,omitempty"`
 }
 
 type DraftMutationResult = ToolResult[DraftMutationData]
@@ -193,7 +189,7 @@ func (h *DraftsHandler) Create(ctx context.Context, request mcp.CallToolRequest)
 	if err != nil {
 		return nil, TypeError(err, true)
 	}
-	data := DraftMutationData{Phase: "executed", Status: "created", Draft: &created}
+	data := DraftMutationData{ApprovalPhase: ApprovalPhase{Phase: "executed"}, Status: "created", Draft: &created}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
@@ -207,37 +203,39 @@ func (h *DraftsHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 	if err != nil {
 		return nil, TypeError(err, true)
 	}
-	data := DraftMutationData{Phase: "executed", Status: "updated", Draft: &updated}
+	data := DraftMutationData{ApprovalPhase: ApprovalPhase{Phase: "executed"}, Status: "updated", Draft: &updated}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
 func (h *DraftsHandler) Delete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DraftsDelete called", request)
-	action := strings.TrimSpace(request.GetString("action", "prepare"))
 	id := strings.TrimSpace(request.GetString("draft_id", ""))
-	if id == "" || (action != "prepare" && action != "execute") {
-		return nil, invalidArguments("draft_id is required and action must be prepare or execute")
+	if id == "" {
+		return nil, invalidArguments("draft_id is required")
+	}
+	prepare, err := approvalAction(request)
+	if err != nil {
+		return nil, err
 	}
 	current, err := h.api.GetDraft(ctx, id)
 	if err != nil {
 		return nil, TypeError(err, false)
 	}
-	binding, err := draftDeleteBinding(h.identity(), current)
+	arguments := struct {
+		DraftID string `json:"draft_id"`
+	}{current.ID}
+	phase, err := h.approvals.check(request, capability.DraftsDelete, prepare, arguments, current)
 	if err != nil {
 		return nil, err
 	}
-	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
-	if err != nil {
-		return nil, err
-	}
-	if !execute {
-		data := DraftMutationData{Phase: "prepared", Status: "awaiting_confirmation", Draft: &current, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339)}
+	if phase.Prepared() {
+		data := DraftMutationData{ApprovalPhase: phase, Status: "awaiting_confirmation", Draft: &current}
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 	}
 	if err := h.api.DeleteDraft(ctx, id, current.UpdatedTS); err != nil {
 		return nil, TypeError(err, true)
 	}
-	data := DraftMutationData{Phase: "executed", Status: "deleted", Draft: &current}
+	data := DraftMutationData{ApprovalPhase: phase, Status: "deleted", Draft: &current}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
@@ -256,23 +254,6 @@ func decodeDraft(request mcp.CallToolRequest, requireID bool) (provider.Draft, e
 		return provider.Draft{}, invalidArguments("channel_id and text are required")
 	}
 	return draft, nil
-}
-
-func draftDeleteBinding(actor provider.ProviderIdentity, draft provider.Draft) (approval.Binding, error) {
-	if actor.TeamID == "" || actor.UserID == "" || actor.ActorType != "user" {
-		return approval.Binding{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
-	}
-	arguments, err := approval.CanonicalJSON(struct {
-		DraftID string `json:"draft_id"`
-	}{DraftID: draft.ID})
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	observed, err := approval.CanonicalJSON(draft)
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	return approval.Binding{TeamID: actor.TeamID, UserID: actor.UserID, Provider: "local-browser", Tool: "drafts_delete", Arguments: arguments, ObservedState: observed}, nil
 }
 
 type SemanticSearchHandler struct {

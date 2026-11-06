@@ -6,7 +6,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
@@ -30,23 +29,20 @@ type ChannelMutationService interface {
 
 type ChannelMutationHandler struct {
 	service   ChannelMutationService
-	approvals *approval.Store
-	identity  func() provider.ProviderIdentity
+	approvals approvalGate
 	logger    *zap.Logger
 }
 
 type ChannelMutationData struct {
-	Action        string                         `json:"action" jsonschema:"Mutation performed"`
-	Phase         string                         `json:"phase"`
-	Channel       *provider.ChannelMutationState `json:"channel,omitempty" jsonschema:"Observed or resulting channel state"`
-	ApprovalToken string                         `json:"approval_token,omitempty"`
-	ExpiresAt     string                         `json:"expires_at,omitempty"`
+	Action string `json:"action" jsonschema:"Mutation performed"`
+	ApprovalPhase
+	Channel *provider.ChannelMutationState `json:"channel,omitempty" jsonschema:"Observed or resulting channel state"`
 }
 
 type ChannelMutationResult = ToolResult[ChannelMutationData]
 
 func NewChannelMutationHandler(service ChannelMutationService, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ChannelMutationHandler {
-	return &ChannelMutationHandler{service: service, approvals: approvals, identity: identityFunc(identity), logger: logger}
+	return &ChannelMutationHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
 }
 
 func (h *ChannelMutationHandler) ConversationsRenameHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -118,35 +114,33 @@ func (h *ChannelMutationHandler) ConversationsArchiveHandler(ctx context.Context
 	if err := requireChannelMutationAllowed("channels_archive", channelID); err != nil {
 		return nil, err
 	}
-	action := strings.TrimSpace(request.GetString("action", "prepare"))
-	if action != "prepare" && action != "execute" {
-		return nil, invalidArguments("action must be prepare or execute")
+	prepare, err := approvalAction(request)
+	if err != nil {
+		return nil, err
 	}
-	identity := h.identity()
-	if identity.TeamID == "" || identity.UserID == "" || identity.ActorType != "user" {
-		return nil, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
+	if _, err := requireUserActor(h.approvals.identity()); err != nil {
+		return nil, err
 	}
 	preparation, err := h.service.PrepareArchive(ctx, channelID)
 	if err != nil {
 		return nil, err
 	}
-	binding, err := archiveBinding(identity, preparation)
+	arguments := struct {
+		ChannelID string `json:"channel_id"`
+	}{preparation.Expected.ChannelID}
+	phase, err := h.approvals.check(request, capability.ChannelsArchive, prepare, arguments, preparation.Expected)
 	if err != nil {
 		return nil, err
 	}
-	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
-	if err != nil {
-		return nil, err
-	}
-	if !execute {
-		data := ChannelMutationData{Action: "archive", Phase: "prepared", Channel: &preparation.Expected, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339)}
+	if phase.Prepared() {
+		data := ChannelMutationData{Action: "archive", ApprovalPhase: phase, Channel: &preparation.Expected}
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 	}
 	state, err := h.service.ArchivePrepared(ctx, preparation)
 	if err != nil {
 		return nil, TypeError(err, true)
 	}
-	data := ChannelMutationData{Action: "archive", Phase: "executed", Channel: &state}
+	data := ChannelMutationData{Action: "archive", ApprovalPhase: phase, Channel: &state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 }
 
@@ -161,22 +155,8 @@ func mutationResult(action string, state provider.ChannelMutationState, err erro
 	if err != nil {
 		return nil, err
 	}
-	data := ChannelMutationData{Action: action, Phase: "executed", Channel: &state}
+	data := ChannelMutationData{Action: action, ApprovalPhase: ApprovalPhase{Phase: "executed"}, Channel: &state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
-}
-
-func archiveBinding(identity provider.ProviderIdentity, preparation provider.ArchivePreparation) (approval.Binding, error) {
-	arguments, err := approval.CanonicalJSON(struct {
-		ChannelID string `json:"channel_id"`
-	}{ChannelID: preparation.Expected.ChannelID})
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	observed, err := approval.CanonicalJSON(preparation.Expected)
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "channels_archive", Arguments: arguments, ObservedState: observed}, nil
 }
 
 // Tools lists the MCP tools this handler serves.

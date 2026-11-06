@@ -43,7 +43,7 @@ func NewDNDHandler(api DNDAPI, identity func() provider.ProviderIdentity, logger
 
 func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DNDGetHandler called", request)
-	identity, err := h.userIdentity()
+	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp
 
 func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DNDSetSnoozeHandler called", request)
-	identity, err := h.userIdentity()
+	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest)
 
 func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "DNDEndSnoozeHandler called", request)
-	identity, err := h.userIdentity()
+	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
 	}
@@ -82,14 +82,6 @@ func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest)
 		return nil, TypeError(err, true)
 	}
 	return dndResult(identity.UserID, status)
-}
-
-func (h *DNDHandler) userIdentity() (provider.ProviderIdentity, error) {
-	identity := h.identity()
-	if identity.ActorType != "user" || identity.TeamID == "" || identity.UserID == "" {
-		return provider.ProviderIdentity{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
-	}
-	return identity, nil
 }
 
 func dndResult(userID string, status *slack.DNDStatus) (*mcp.CallToolResult, error) {

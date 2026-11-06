@@ -55,7 +55,7 @@ func messageFilesRequest(args map[string]any) mcp.CallToolRequest {
 }
 
 func newTestMessageFilesHandler(service MessageFilesService) *MessageFilesHandler {
-	return NewMessageFilesHandler(service, approval.NewStore(time.Minute), func() provider.ProviderIdentity {
+	return NewMessageFilesHandler(service, approval.NewStore(), func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user", TokenMode: "oauth"}
 	}, zap.NewNop())
 }

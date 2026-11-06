@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -24,13 +23,12 @@ type ListsAPI interface {
 
 type ListsHandler struct {
 	api       ListsAPI
-	approvals *approval.Store
-	identity  func() provider.ProviderIdentity
+	approvals approvalGate
 	logger    *zap.Logger
 }
 
 func NewListsHandler(api ListsAPI, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ListsHandler {
-	return &ListsHandler{api: api, approvals: approvals, identity: identityFunc(identity), logger: logger}
+	return &ListsHandler{api: api, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
 }
 
 type ListCreateData struct {
@@ -50,13 +48,11 @@ type ListItemMutationData struct {
 }
 
 type ListItemDeleteData struct {
-	Phase         string             `json:"phase"`
-	ApprovalToken string             `json:"approval_token,omitempty"`
-	ListID        string             `json:"list_id"`
-	ItemID        string             `json:"item_id"`
-	Item          *provider.ListItem `json:"item,omitempty"`
-	ExpiresAt     string             `json:"expires_at,omitempty"`
-	Status        string             `json:"status"`
+	ApprovalPhase
+	ListID string             `json:"list_id"`
+	ItemID string             `json:"item_id"`
+	Item   *provider.ListItem `json:"item,omitempty"`
+	Status string             `json:"status"`
 }
 
 type ListItemDeleteResult = ToolResult[ListItemDeleteData]
@@ -142,74 +138,38 @@ func (h *ListsHandler) UpdateItems(ctx context.Context, request mcp.CallToolRequ
 	return NewStructuredResult(ListItemMutationData{ListID: input.ListID, Status: "updated"}, SlackResultMeta("", false, ""), "Updated Slack List items"), nil
 }
 
-func (h *ListsHandler) PrepareDeleteItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsPrepareDeleteItem called", request)
-	listID := request.GetString("list_id", "")
-	itemID := request.GetString("item_id", "")
+func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	logToolCall(h.logger, "ListsDeleteItem called", request)
+	listID := strings.TrimSpace(request.GetString("list_id", ""))
+	itemID := strings.TrimSpace(request.GetString("item_id", ""))
 	if listID == "" || itemID == "" {
 		return nil, invalidArguments("list_id and item_id are required")
+	}
+	prepare, err := approvalAction(request)
+	if err != nil {
+		return nil, err
 	}
 	item, err := h.api.GetItem(ctx, listID, itemID)
 	if err != nil {
 		return nil, TypeError(err, false)
 	}
-	binding, err := listDeleteBinding(h.identity(), listID, itemID, item)
+	arguments := struct {
+		ListID string `json:"list_id"`
+		ItemID string `json:"item_id"`
+	}{listID, itemID}
+	phase, err := h.approvals.check(request, capability.ListsItemDelete, prepare, arguments, item)
 	if err != nil {
 		return nil, err
 	}
-	prepared, _, err := prepareOrExecute(h.approvals, "prepare", "", binding)
-	if err != nil {
-		return nil, err
-	}
-	data := ListItemDeleteData{
-		Phase: "prepared", ApprovalToken: prepared.Token, ListID: listID, ItemID: itemID, Item: &item,
-		ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339), Status: "awaiting_confirmation",
-	}
-	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Prepared deletion of Slack List item "+itemID), nil
-}
-
-func (h *ListsHandler) DeleteItem(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	logToolCall(h.logger, "ListsDeleteItem called", request)
-	token := strings.TrimSpace(request.GetString("approval_token", ""))
-	listID := strings.TrimSpace(request.GetString("list_id", ""))
-	itemID := strings.TrimSpace(request.GetString("item_id", ""))
-	if token == "" || listID == "" || itemID == "" {
-		return nil, &ToolError{Code: "approval_required", Message: "approval_token, list_id, and item_id are required"}
-	}
-	current, err := h.api.GetItem(ctx, listID, itemID)
-	if err != nil {
-		return nil, TypeError(err, false)
-	}
-	binding, err := listDeleteBinding(h.identity(), listID, itemID, current)
-	if err != nil {
-		return nil, err
-	}
-	if _, _, err := prepareOrExecute(h.approvals, "execute", token, binding); err != nil {
-		return nil, err
+	if phase.Prepared() {
+		data := ListItemDeleteData{ApprovalPhase: phase, ListID: listID, ItemID: itemID, Item: &item, Status: "awaiting_confirmation"}
+		return NewStructuredResult(data, SlackResultMeta("", false, ""), "Prepared deletion of Slack List item "+itemID), nil
 	}
 	if err := h.api.DeleteItem(ctx, listID, itemID); err != nil {
 		return nil, TypeError(err, true)
 	}
-	data := ListItemDeleteData{Phase: "executed", ListID: listID, ItemID: itemID, Status: "deleted"}
+	data := ListItemDeleteData{ApprovalPhase: phase, ListID: listID, ItemID: itemID, Status: "deleted"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), "Deleted Slack List item "+itemID), nil
-}
-
-func listDeleteBinding(identity provider.ProviderIdentity, listID, itemID string, item provider.ListItem) (approval.Binding, error) {
-	if identity.TeamID == "" || identity.UserID == "" || identity.ActorType != "user" {
-		return approval.Binding{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
-	}
-	arguments, err := approval.CanonicalJSON(struct {
-		ListID string `json:"list_id"`
-		ItemID string `json:"item_id"`
-	}{ListID: listID, ItemID: itemID})
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	observed, err := approval.CanonicalJSON(item)
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "lists_item_delete", Arguments: arguments, ObservedState: observed}, nil
 }
 
 // Tools lists the MCP tools this handler serves.
@@ -250,7 +210,7 @@ func (h *ListsHandler) Tools() []ToolDef {
 			mcp.WithString("list_id", mcp.Required(), mcp.Description("Slack List ID containing the items (starts with F, e.g. F1234567890).")),
 			mcp.WithArray("cells", mcp.Required(), mcp.MinItems(1), mcp.Items(listFieldItemSchema(true)), mcp.Description("Cells to set; each has column_id, row_id (the item ID), and one typed value key such as rich_text or select.")),
 		}},
-		{Name: capability.ListsItemDelete, Run: h.deleteItemAction, Options: []mcp.ToolOption{
+		{Name: capability.ListsItemDelete, Run: h.DeleteItem, Options: []mcp.ToolOption{
 			mcp.WithOutputSchema[ListItemDeleteResult](),
 			mcp.WithDescription("Preview or delete one Slack List item. Prepare first, then confirm the exact item before execute."),
 			mcp.WithString("action", mcp.Required(), mcp.Enum("prepare", "execute"), mcp.Description(descPrepareAction)),
@@ -258,17 +218,6 @@ func (h *ListsHandler) Tools() []ToolDef {
 			mcp.WithString("item_id", mcp.Required(), mcp.Description("ID of the List item to delete, from lists_items_list or lists_items_create.")),
 			mcp.WithString("approval_token", mcp.Description(descApprovalToken)),
 		}},
-	}
-}
-
-func (h *ListsHandler) deleteItemAction(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	switch request.GetString("action", "") {
-	case "prepare":
-		return h.PrepareDeleteItem(ctx, request)
-	case "execute":
-		return h.DeleteItem(ctx, request)
-	default:
-		return nil, invalidArguments("action must be prepare or execute")
 	}
 }
 

@@ -94,7 +94,7 @@ func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.
 
 func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsersSetProfileHandler called", request)
-	identity, err := h.requireUserIdentity()
+	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (h *PeopleChannelsHandler) SetUserProfile(ctx context.Context, request mcp.
 
 func (h *PeopleChannelsHandler) SetUserStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "UsersSetStatusHandler called", request)
-	identity, err := h.requireUserIdentity()
+	identity, err := requireUserActor(h.identity())
 	if err != nil {
 		return nil, err
 	}
@@ -236,14 +236,6 @@ func (h *PeopleChannelsHandler) InviteChannelMembers(ctx context.Context, reques
 	}
 	data := ChannelData{Channel: state}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
-}
-
-func (h *PeopleChannelsHandler) requireUserIdentity() (provider.ProviderIdentity, error) {
-	identity := h.identity()
-	if identity.ActorType != "user" || identity.UserID == "" || identity.TeamID == "" {
-		return provider.ProviderIdentity{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
-	}
-	return identity, nil
 }
 
 func parseProfileUpdate(request mcp.CallToolRequest) (provider.UserProfileUpdate, error) {

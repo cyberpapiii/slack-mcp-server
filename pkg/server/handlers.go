@@ -2,7 +2,6 @@ package server
 
 import (
 	"slices"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -20,7 +19,7 @@ type handlerSet struct {
 // buildHandlers wires every handler family to the provider and collects the
 // tools they serve. A family whose provider service is unavailable serves none.
 func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools []string) handlerSet {
-	approvals := approval.NewStore(5 * time.Minute)
+	approvals := approval.NewStore()
 	conversations := handler.NewConversationsHandler(api, logger, slices.Contains(enabledTools, capability.ConversationsAddMessage))
 	channels := handler.NewChannelsHandler(api, logger)
 	set := handlerSet{conversations: conversations, channels: channels}

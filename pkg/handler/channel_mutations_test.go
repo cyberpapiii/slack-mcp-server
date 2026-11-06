@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -15,7 +14,7 @@ import (
 )
 
 func newTestChannelMutationHandler(service ChannelMutationService) *ChannelMutationHandler {
-	return NewChannelMutationHandler(service, approval.NewStore(time.Minute), userIdentity, zap.NewNop())
+	return NewChannelMutationHandler(service, approval.NewStore(), userIdentity, zap.NewNop())
 }
 
 type fakeChannelMutationService struct {
@@ -196,7 +195,7 @@ func TestArchiveHandlerDoesNotCallArchiveWhenPreparationFails(t *testing.T) {
 	t.Setenv(channelManagementGate, "true")
 	service := &fakeChannelMutationService{err: errors.New("state unavailable")}
 	_, err := newTestChannelMutationHandler(service).ConversationsArchiveHandler(
-		context.Background(), mutationRequest(map[string]any{"channel_id": "C123"}),
+		context.Background(), mutationRequest(map[string]any{"action": "execute", "approval_token": "t", "channel_id": "C123"}),
 	)
 	require.ErrorContains(t, err, "state unavailable")
 	assert.Equal(t, 1, service.prepareCalls)

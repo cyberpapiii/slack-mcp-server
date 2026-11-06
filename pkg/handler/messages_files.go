@@ -42,15 +42,13 @@ type FileUploadData struct {
 }
 
 type MessageMutationData struct {
-	Action             string                    `json:"action"`
-	Phase              string                    `json:"phase"`
+	Action string `json:"action"`
+	ApprovalPhase
 	ChannelID          string                    `json:"channel_id"`
 	Timestamp          string                    `json:"timestamp,omitempty"`
 	ScheduledMessageID string                    `json:"scheduled_message_id,omitempty"`
 	PostAt             string                    `json:"post_at,omitempty"`
 	Target             *provider.MessageSnapshot `json:"target,omitempty"`
-	ApprovalToken      string                    `json:"approval_token,omitempty"`
-	ExpiresAt          string                    `json:"expires_at,omitempty"`
 	Outcome            string                    `json:"outcome"`
 }
 
@@ -58,8 +56,7 @@ type MessageMutationResult = ToolResult[MessageMutationData]
 
 type MessageFilesHandler struct {
 	service   MessageFilesService
-	approvals *approval.Store
-	identity  func() provider.ProviderIdentity
+	approvals approvalGate
 	logger    *zap.Logger
 	now       func() time.Time
 }
@@ -68,10 +65,7 @@ func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Sto
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	if approvals == nil {
-		approvals = approval.NewStore(5 * time.Minute)
-	}
-	return &MessageFilesHandler{service: service, approvals: approvals, identity: identityFunc(identity), logger: logger, now: time.Now}
+	return &MessageFilesHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger, now: time.Now}
 }
 
 func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -134,7 +128,7 @@ func (h *MessageFilesHandler) MessagesSchedule(ctx context.Context, request mcp.
 	if err != nil {
 		return nil, TypeError(err, true)
 	}
-	result := MessageMutationData{Action: "schedule", Phase: "executed", ChannelID: mutation.ChannelID, ScheduledMessageID: mutation.ScheduledMessageID, PostAt: postAt.UTC().Format(time.RFC3339), Outcome: "scheduled"}
+	result := MessageMutationData{Action: "schedule", ApprovalPhase: ApprovalPhase{Phase: "executed"}, ChannelID: mutation.ChannelID, ScheduledMessageID: mutation.ScheduledMessageID, PostAt: postAt.UTC().Format(time.RFC3339), Outcome: "scheduled"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
 }
 
@@ -151,17 +145,20 @@ func (h *MessageFilesHandler) MessagesUpdate(ctx context.Context, request mcp.Ca
 	if err != nil {
 		return nil, TypeError(err, true)
 	}
-	result := MessageMutationData{Action: "update", Phase: "executed", ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Outcome: "updated"}
+	result := MessageMutationData{Action: "update", ApprovalPhase: ApprovalPhase{Phase: "executed"}, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Outcome: "updated"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
 }
 
 func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "MessagesDeleteHandler called", request)
-	action := strings.TrimSpace(request.GetString("action", ""))
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	timestamp := strings.TrimSpace(request.GetString("timestamp", ""))
-	if (action != "prepare" && action != "execute") || channelID == "" || !validSlackTimestamp(timestamp) {
-		return nil, invalidArguments("action must be prepare or execute; channel_id and valid timestamp are required")
+	if channelID == "" || !validSlackTimestamp(timestamp) {
+		return nil, invalidArguments("channel_id and valid timestamp are required")
+	}
+	prepare, err := approvalAction(request)
+	if err != nil {
+		return nil, err
 	}
 	if err := requireMessageLifecycleTool("messages_delete", channelID); err != nil {
 		return nil, err
@@ -170,23 +167,23 @@ func (h *MessageFilesHandler) MessagesDelete(ctx context.Context, request mcp.Ca
 	if err != nil {
 		return nil, TypeError(err, false)
 	}
-	binding, err := deleteMessageBinding(h.identity(), target)
+	arguments := struct {
+		ChannelID string `json:"channel_id"`
+		Timestamp string `json:"timestamp"`
+	}{target.ChannelID, target.Timestamp}
+	phase, err := h.approvals.check(request, capability.MessagesDelete, prepare, arguments, target)
 	if err != nil {
 		return nil, err
 	}
-	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
-	if err != nil {
-		return nil, err
-	}
-	if !execute {
-		result := MessageMutationData{Action: "delete", Phase: "prepared", ChannelID: channelID, Timestamp: timestamp, Target: &target, ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339), Outcome: "awaiting_confirmation"}
+	if phase.Prepared() {
+		result := MessageMutationData{Action: "delete", ApprovalPhase: phase, ChannelID: channelID, Timestamp: timestamp, Target: &target, Outcome: "awaiting_confirmation"}
 		return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
 	}
 	mutation, err := h.service.Delete(ctx, channelID, timestamp)
 	if err != nil {
 		return nil, TypeError(err, true)
 	}
-	result := MessageMutationData{Action: "delete", Phase: "executed", ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Target: &target, Outcome: "deleted"}
+	result := MessageMutationData{Action: "delete", ApprovalPhase: phase, ChannelID: mutation.ChannelID, Timestamp: mutation.Timestamp, Target: &target, Outcome: "deleted"}
 	return NewStructuredResult(result, SlackResultMeta("", false, ""), fallbackJSON(result)), nil
 }
 
@@ -252,24 +249,6 @@ func parsePostAt(value string) (time.Time, error) {
 		return time.Unix(unix, 0).UTC(), nil
 	}
 	return time.Parse(time.RFC3339, value)
-}
-
-func deleteMessageBinding(identity provider.ProviderIdentity, target provider.MessageSnapshot) (approval.Binding, error) {
-	if identity.TeamID == "" || identity.UserID == "" || identity.ActorType != "user" {
-		return approval.Binding{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
-	}
-	arguments, err := approval.CanonicalJSON(struct {
-		ChannelID string `json:"channel_id"`
-		Timestamp string `json:"timestamp"`
-	}{target.ChannelID, target.Timestamp})
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	observed, err := approval.CanonicalJSON(target)
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "messages_delete", Arguments: arguments, ObservedState: observed}, nil
 }
 
 // Tools lists the MCP tools this handler serves.

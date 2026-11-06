@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// TTL is how long a prepared token stays valid.
+const TTL = 5 * time.Minute
+
 var (
 	ErrInvalid = errors.New("approval token is invalid")
 	ErrExpired = errors.New("approval token expired")
@@ -16,22 +19,32 @@ var (
 	ErrBinding = errors.New("approval token does not match this action")
 )
 
-// Binding is the complete server-observed identity and action authorized by a
-// token. Arguments must be the canonical, user-visible representation of the
-// pending Slack change.
+// Binding is what a token authorizes: who acts, with which tool, on which
+// arguments, against which observed Slack state.
 type Binding struct {
-	TeamID        string          `json:"team_id"`
-	UserID        string          `json:"user_id"`
-	Provider      string          `json:"provider"`
-	Tool          string          `json:"tool"`
-	Arguments     json.RawMessage `json:"arguments"`
-	ObservedState json.RawMessage `json:"observed_state,omitempty"`
+	teamID, userID, tool string
+	arguments, observed  string
 }
 
-type Prepared struct {
-	Token     string    `json:"approval_token"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Binding   Binding   `json:"binding"`
+// NewBinding encodes the arguments and observed state the token binds. A nil
+// observed state binds none: the tool does not re-check Slack before executing.
+func NewBinding(teamID, userID, tool string, arguments, observed any) (Binding, error) {
+	if teamID == "" || userID == "" || tool == "" {
+		return Binding{}, ErrBinding
+	}
+	args, err := json.Marshal(arguments)
+	if err != nil {
+		return Binding{}, errors.New("encode approval arguments")
+	}
+	binding := Binding{teamID: teamID, userID: userID, tool: tool, arguments: string(args)}
+	if observed != nil {
+		state, err := json.Marshal(observed)
+		if err != nil {
+			return Binding{}, errors.New("encode approval observed state")
+		}
+		binding.observed = string(state)
+	}
+	return binding, nil
 }
 
 type record struct {
@@ -45,105 +58,55 @@ type record struct {
 type Store struct {
 	mu      sync.Mutex
 	records map[string]record
-	ttl     time.Duration
 	now     func() time.Time
 }
 
-// CanonicalJSON provides the byte-stable representation handlers must show to
-// the user and bind into a token. Structs preserve explicit field semantics;
-// maps are encoded with sorted keys by encoding/json.
-func CanonicalJSON(value any) (json.RawMessage, error) {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return nil, errors.New("encode canonical approval view")
-	}
-	return raw, nil
+func NewStore() *Store {
+	return NewStoreWithClock(time.Now)
 }
 
-func NewStore(ttl time.Duration) *Store {
-	return NewStoreWithClock(ttl, time.Now)
+func NewStoreWithClock(clock func() time.Time) *Store {
+	return &Store{records: make(map[string]record), now: clock}
 }
 
-func NewStoreWithClock(ttl time.Duration, clock func() time.Time) *Store {
-	if ttl <= 0 {
-		ttl = 5 * time.Minute
-	}
-	if clock == nil {
-		clock = time.Now
-	}
-	return &Store{records: make(map[string]record), ttl: ttl, now: clock}
-}
-
-func (s *Store) Prepare(binding Binding) (Prepared, error) {
-	if err := validateBinding(binding); err != nil {
-		return Prepared{}, err
-	}
+// Prepare issues a token for the binding and reports when it expires.
+func (s *Store) Prepare(binding Binding) (string, time.Time, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		return Prepared{}, errors.New("generate approval token")
+		return "", time.Time{}, errors.New("generate approval token")
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	expiresAt := s.now().Add(s.ttl).UTC()
-	binding = cloneBinding(binding)
+	expiresAt := s.now().Add(TTL).UTC()
 
 	s.mu.Lock()
 	s.records[token] = record{binding: binding, expiresAt: expiresAt}
 	s.pruneLocked(s.now())
 	s.mu.Unlock()
-	return Prepared{Token: token, ExpiresAt: expiresAt, Binding: binding}, nil
+	return token, expiresAt, nil
 }
 
-// Consume validates and burns a token atomically. Callers must re-read Slack
-// state after this succeeds and compare it with Binding.ObservedState before
-// executing the mutation.
-func (s *Store) Consume(token string, expected Binding) (Binding, error) {
-	if token == "" {
-		return Binding{}, ErrInvalid
-	}
-	if err := validateBinding(expected); err != nil {
-		return Binding{}, err
-	}
-
+// Consume spends a token if it was issued for exactly this binding. A token
+// checked against a different binding stays unspent.
+func (s *Store) Consume(token string, expected Binding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, ok := s.records[token]
 	if !ok {
-		return Binding{}, ErrInvalid
+		return ErrInvalid
 	}
 	if rec.used {
-		return Binding{}, ErrReplay
+		return ErrReplay
 	}
 	if !s.now().Before(rec.expiresAt) {
 		delete(s.records, token)
-		return Binding{}, ErrExpired
+		return ErrExpired
 	}
-	if !equalBinding(rec.binding, expected) {
-		return Binding{}, ErrBinding
+	if rec.binding != expected {
+		return ErrBinding
 	}
 	rec.used = true
 	s.records[token] = rec
-	return cloneBinding(rec.binding), nil
-}
-
-func validateBinding(binding Binding) error {
-	if binding.TeamID == "" || binding.UserID == "" || binding.Provider == "" || binding.Tool == "" || !json.Valid(binding.Arguments) {
-		return ErrBinding
-	}
-	if len(binding.ObservedState) != 0 && !json.Valid(binding.ObservedState) {
-		return ErrBinding
-	}
 	return nil
-}
-
-func equalBinding(a, b Binding) bool {
-	return a.TeamID == b.TeamID && a.UserID == b.UserID && a.Provider == b.Provider && a.Tool == b.Tool &&
-		string(a.Arguments) == string(b.Arguments) && string(a.ObservedState) == string(b.ObservedState)
-}
-
-func cloneBinding(binding Binding) Binding {
-	binding.Arguments = append(json.RawMessage(nil), binding.Arguments...)
-	binding.ObservedState = append(json.RawMessage(nil), binding.ObservedState...)
-	return binding
 }
 
 func (s *Store) pruneLocked(now time.Time) {

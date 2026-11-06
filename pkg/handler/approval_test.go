@@ -2,37 +2,66 @@ package handler
 
 import (
 	"testing"
-	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
+	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnitPrepareOrExecute(t *testing.T) {
-	store := approval.NewStore(time.Minute)
-	binding := approval.Binding{TeamID: "T1", UserID: "U1", Provider: "local", Tool: "messages_delete", Arguments: []byte(`{"channel_id":"C1"}`)}
+func approvalRequest(args map[string]any) mcp.CallToolRequest {
+	request := mcp.CallToolRequest{}
+	request.Params.Arguments = args
+	return request
+}
 
-	_, _, err := prepareOrExecute(store, "nope", "", binding)
-	var toolErr *ToolError
-	require.ErrorAs(t, err, &toolErr)
-	assert.Equal(t, "invalid_arguments", toolErr.Code)
+func TestApprovalGateIssuesAndSpendsOneToken(t *testing.T) {
+	gate := approvalGate{store: approval.NewStore(), identity: userIdentity}
+	args := map[string]string{"channel_id": "C1"}
 
-	prepared, execute, err := prepareOrExecute(store, "prepare", "", binding)
+	phase, err := gate.check(approvalRequest(nil), capability.MessagesDelete, true, args, "observed")
 	require.NoError(t, err)
-	assert.False(t, execute)
-	require.NotNil(t, prepared)
-	assert.NotEmpty(t, prepared.Token)
+	assert.True(t, phase.Prepared())
+	require.NotEmpty(t, phase.ApprovalToken)
+	assert.NotEmpty(t, phase.ExpiresAt)
 
-	_, _, err = prepareOrExecute(store, "execute", "", binding)
+	var toolErr *ToolError
+	_, err = gate.check(approvalRequest(nil), capability.MessagesDelete, false, args, "observed")
 	require.ErrorAs(t, err, &toolErr)
 	assert.Equal(t, "approval_required", toolErr.Code)
 
-	_, execute, err = prepareOrExecute(store, "execute", prepared.Token, binding)
-	require.NoError(t, err)
-	assert.True(t, execute)
+	execute := approvalRequest(map[string]any{"approval_token": phase.ApprovalToken})
+	_, err = gate.check(execute, capability.MessagesDelete, false, args, "changed")
+	require.ErrorAs(t, err, &toolErr)
+	assert.Equal(t, "approval_invalid", toolErr.Code, "a changed target must not spend the token")
 
-	_, _, err = prepareOrExecute(store, "execute", prepared.Token, binding)
+	executed, err := gate.check(execute, capability.MessagesDelete, false, args, "observed")
+	require.NoError(t, err)
+	assert.False(t, executed.Prepared())
+
+	_, err = gate.check(execute, capability.MessagesDelete, false, args, "observed")
 	require.ErrorAs(t, err, &toolErr)
 	assert.Equal(t, "approval_invalid", toolErr.Code)
+}
+
+func TestApprovalGateNeedsAUser(t *testing.T) {
+	bot := func() provider.ProviderIdentity {
+		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "bot"}
+	}
+	gate := approvalGate{store: approval.NewStore(), identity: bot}
+	_, err := gate.check(approvalRequest(nil), capability.MessagesDelete, true, nil, nil)
+	var toolErr *ToolError
+	require.ErrorAs(t, err, &toolErr)
+	assert.Equal(t, "user_oauth_required", toolErr.Code)
+}
+
+func TestApprovalActionIsRequired(t *testing.T) {
+	_, err := approvalAction(approvalRequest(map[string]any{"action": "maybe"}))
+	var toolErr *ToolError
+	require.ErrorAs(t, err, &toolErr)
+	assert.Equal(t, "invalid_arguments", toolErr.Code)
+	_, err = approvalAction(approvalRequest(nil))
+	require.ErrorAs(t, err, &toolErr)
 }

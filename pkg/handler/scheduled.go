@@ -43,25 +43,22 @@ type ScheduledRow struct {
 }
 
 type ScheduledCancelData struct {
-	Phase         string            `json:"phase"`
-	ApprovalToken string            `json:"approval_token,omitempty"`
-	ExpiresAt     string            `json:"expires_at,omitempty"`
-	Target        *ScheduledMessage `json:"target,omitempty"`
-	Cancelled     bool              `json:"cancelled"`
-	Outcome       string            `json:"outcome"`
+	ApprovalPhase
+	Target    *ScheduledMessage `json:"target,omitempty"`
+	Cancelled bool              `json:"cancelled"`
+	Outcome   string            `json:"outcome"`
 }
 
 type ScheduledCancelResult = ToolResult[ScheduledCancelData]
 
 type ScheduledHandler struct {
 	service   ScheduledService
-	approvals *approval.Store
-	identity  func() provider.ProviderIdentity
+	approvals approvalGate
 	logger    *zap.Logger
 }
 
 func NewScheduledHandler(service ScheduledService, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ScheduledHandler {
-	return &ScheduledHandler{service: service, approvals: approvals, identity: identityFunc(identity), logger: logger}
+	return &ScheduledHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
 }
 
 func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -99,55 +96,43 @@ func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest
 
 func (h *ScheduledHandler) Cancel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	logToolCall(h.logger, "ScheduledCancelHandler called", request)
-	action := strings.TrimSpace(request.GetString("action", ""))
 	channelID := strings.TrimSpace(request.GetString("channel_id", ""))
 	scheduledMessageID := strings.TrimSpace(request.GetString("scheduled_message_id", ""))
-	if channelID == "" || scheduledMessageID == "" || (action != "prepare" && action != "execute") {
-		return nil, invalidArguments("action, channel_id, and scheduled_message_id are required")
+	if channelID == "" || scheduledMessageID == "" {
+		return nil, invalidArguments("channel_id and scheduled_message_id are required")
 	}
-
-	binding, err := scheduledBinding(h.identity(), channelID, scheduledMessageID)
+	prepare, err := approvalAction(request)
 	if err != nil {
-		return nil, scheduledError(err, false)
+		return nil, err
 	}
 	// The token binds team, user, channel and message ID, and Slack's own
 	// not-found answer covers a message that was posted or cancelled in between,
 	// so only prepare pays for the lookup.
 	var target provider.ScheduledMessage
-	if action == "prepare" {
+	if prepare {
 		if target, err = h.findScheduled(ctx, channelID, scheduledMessageID); err != nil {
 			return nil, scheduledError(err, false)
 		}
 	}
-	prepared, execute, err := prepareOrExecute(h.approvals, action, request.GetString("approval_token", ""), binding)
+	arguments := struct {
+		ChannelID          string `json:"channel_id"`
+		ScheduledMessageID string `json:"scheduled_message_id"`
+	}{channelID, scheduledMessageID}
+	phase, err := h.approvals.check(request, capability.ScheduledMessageCancel, prepare, arguments, nil)
 	if err != nil {
 		return nil, err
 	}
-	if !execute {
+	if phase.Prepared() {
 		preview := scheduledResultMessage(target)
-		data := ScheduledCancelData{Phase: "prepared", ApprovalToken: prepared.Token, ExpiresAt: prepared.ExpiresAt.Format(time.RFC3339), Target: &preview, Outcome: "awaiting_confirmation"}
+		data := ScheduledCancelData{ApprovalPhase: phase, Target: &preview, Outcome: "awaiting_confirmation"}
 		return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
 	}
 	if err := h.service.CancelScheduled(ctx, channelID, scheduledMessageID); err != nil {
 		return nil, scheduledError(err, true)
 	}
 	resultTarget := ScheduledMessage{ScheduledMessageID: scheduledMessageID, ChannelID: channelID}
-	data := ScheduledCancelData{Phase: "executed", Target: &resultTarget, Cancelled: true, Outcome: "cancelled"}
+	data := ScheduledCancelData{ApprovalPhase: phase, Target: &resultTarget, Cancelled: true, Outcome: "cancelled"}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
-}
-
-func scheduledBinding(identity provider.ProviderIdentity, channelID, scheduledMessageID string) (approval.Binding, error) {
-	if identity.TeamID == "" || identity.UserID == "" || identity.ActorType != "user" {
-		return approval.Binding{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
-	}
-	arguments, err := approval.CanonicalJSON(struct {
-		ChannelID          string `json:"channel_id"`
-		ScheduledMessageID string `json:"scheduled_message_id"`
-	}{ChannelID: channelID, ScheduledMessageID: scheduledMessageID})
-	if err != nil {
-		return approval.Binding{}, err
-	}
-	return approval.Binding{TeamID: identity.TeamID, UserID: identity.UserID, Provider: "local", Tool: "scheduled_message_cancel", Arguments: arguments}, nil
 }
 
 func (h *ScheduledHandler) findScheduled(ctx context.Context, channelID, scheduledMessageID string) (provider.ScheduledMessage, error) {
