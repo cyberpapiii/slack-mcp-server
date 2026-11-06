@@ -18,6 +18,7 @@ import (
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
+	"github.com/korotovsky/slack-mcp-server/pkg/slackhttp"
 	"github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"go.uber.org/zap"
 )
@@ -199,7 +200,7 @@ func buildAuthorizationURL(clientID, teamID string, scopes []string, authorizati
 	if authorization == nil {
 		return "", errors.New("PKCE authorization is required")
 	}
-	target, err := url.Parse("https://slack.com/oauth/v2/authorize")
+	target, err := url.Parse("https://" + slackhttp.SlackDomain() + "/oauth/v2/authorize")
 	if err != nil {
 		return "", err
 	}

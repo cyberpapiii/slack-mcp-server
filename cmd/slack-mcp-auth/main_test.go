@@ -115,3 +115,14 @@ func TestCallbackAcceptsOnlyOneValidRequest(t *testing.T) {
 		t.Fatal("first callback did not finish")
 	}
 }
+
+func TestBuildAuthorizationURLFollowsGovSlack(t *testing.T) {
+	t.Setenv("SLACK_MCP_GOVSLACK", "true")
+	authorization, err := oauthcred.NewPKCE(defaultRedirectURI)
+	require.NoError(t, err)
+	raw, err := buildAuthorizationURL("client-id", "", nil, authorization)
+	require.NoError(t, err)
+	parsed, err := url.Parse(raw)
+	require.NoError(t, err)
+	assert.Equal(t, "slack-gov.com", parsed.Host)
+}
