@@ -59,7 +59,7 @@ func (h *DNDHandler) SetSnooze(ctx context.Context, request mcp.CallToolRequest)
 	}
 	minutes := request.GetInt("minutes", 0)
 	if minutes < 1 || minutes > maxSnoozeMinutes {
-		return nil, &ToolError{Code: "invalid_snooze_duration", Message: fmt.Sprintf("minutes must be between 1 and %d", maxSnoozeMinutes)}
+		return nil, &ToolError{Code: codeInvalidSnoozeDuration, Message: fmt.Sprintf("minutes must be between 1 and %d", maxSnoozeMinutes)}
 	}
 	status, err := h.api.SetSnoozeContext(ctx, minutes)
 	if err != nil {
@@ -82,7 +82,7 @@ func (h *DNDHandler) EndSnooze(ctx context.Context, request mcp.CallToolRequest)
 
 func dndResult(userID string, status *slack.DNDStatus) (*mcp.CallToolResult, error) {
 	if status == nil {
-		return nil, &ToolError{Code: "invalid_slack_response", Message: "Slack returned no DND state"}
+		return nil, &ToolError{Code: codeInvalidSlackResponse, Message: "Slack returned no DND state"}
 	}
 	data := DNDStateData{
 		ActorUserID: userID, DNDEnabled: status.Enabled,

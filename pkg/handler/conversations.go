@@ -495,11 +495,3 @@ func cacheMiss(ref string, err error, notFound func(string) error) error {
 	}
 	return fmt.Errorf("resolve %q: %w", ref, err)
 }
-
-func channelNotFound(channel string) error {
-	return &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found; pass the channel ID (Cxxxxxxxxxx) or look the name up with channels_list", channel)}
-}
-
-func userNotFound(user string) error {
-	return &ToolError{Code: "user_not_found", Message: fmt.Sprintf("user %q not found; pass the user ID (Uxxxxxxxxxx) or look the name up with users_search", user)}
-}

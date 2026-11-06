@@ -308,10 +308,7 @@ const maxDownloadBytes = 100 * 1024 * 1024
 // names the variable so a caller can tell the operator what to set.
 func downloadRoot(root string) (string, error) {
 	if root == "" {
-		return "", &ToolError{
-			Code:    "permission_denied",
-			Message: "files_download is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into",
-		}
+		return "", permissionDenied("files_download is disabled: set SLACK_MCP_DOWNLOAD_DIR to the directory the server may write files into")
 	}
 	if !filepath.IsAbs(root) {
 		return "", invalidArguments("SLACK_MCP_DOWNLOAD_DIR must be an absolute path")

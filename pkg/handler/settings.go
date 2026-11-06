@@ -71,7 +71,7 @@ func (s Settings) requireChannel(tool, channel string) error {
 		return nil
 	}
 	spec, _ := capability.Lookup(tool)
-	return &ToolError{Code: "permission_denied", Message: fmt.Sprintf("%s is not allowed for channel %q by %s", tool, channel, spec.ChannelAllowlist)}
+	return permissionDenied(fmt.Sprintf("%s is not allowed for channel %q by %s", tool, channel, spec.ChannelAllowlist))
 }
 
 func (s Settings) channelAllowed(tool, channel string) bool {

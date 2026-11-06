@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
@@ -23,22 +22,12 @@ type browserSession interface {
 func requireBrowserSession(session browserSession, tool string, next server.ToolHandlerFunc) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if !session.BrowserFeaturesAvailable() {
-			return nil, browserSessionRequired(tool, session.BrowserDegradedReason())
+			return nil, handler.BrowserSessionRequired(tool, session.BrowserDegradedReason())
 		}
 		result, err := next(ctx, request)
 		if errors.Is(err, provider.ErrBrowserSessionUnavailable) {
-			return nil, browserSessionRequired(tool, session.BrowserDegradedReason())
+			return nil, handler.BrowserSessionRequired(tool, session.BrowserDegradedReason())
 		}
 		return result, err
-	}
-}
-
-func browserSessionRequired(tool, reason string) error {
-	if reason == "" {
-		reason = "browser-session credentials are missing or expired"
-	}
-	return &handler.ToolError{
-		Code:    "browser_session_required",
-		Message: fmt.Sprintf("%s needs a Slack browser session (xoxc/xoxd): %s. Check slack_auth_status; token-only tools still work.", tool, reason),
 	}
 }

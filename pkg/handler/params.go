@@ -11,10 +11,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func invalidArguments(message string) *ToolError {
-	return &ToolError{Code: "invalid_arguments", Message: message}
-}
-
 // fileParamHints are the substrings that show up in a parameter name an agent
 // invented while trying to attach something. Matching substrings rather than an
 // exact list keeps the signpost working for names nobody predicted.

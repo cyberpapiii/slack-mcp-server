@@ -23,7 +23,7 @@ func identityFunc(identity func() provider.ProviderIdentity) func() provider.Pro
 // approval tokens are bound to a team and user.
 func requireUserActor(identity provider.ProviderIdentity) (provider.ProviderIdentity, error) {
 	if identity.ActorType != "user" || identity.TeamID == "" || identity.UserID == "" {
-		return provider.ProviderIdentity{}, &ToolError{Code: "user_oauth_required", Message: provider.ErrUserOAuthRequired.Error()}
+		return provider.ProviderIdentity{}, &ToolError{Code: codeUserOAuthRequired, Message: provider.ErrUserOAuthRequired.Error()}
 	}
 	return identity, nil
 }
@@ -77,10 +77,10 @@ func (g approvalGate) check(request mcp.CallToolRequest, tool string, prepare bo
 	}
 	token := strings.TrimSpace(request.GetString("approval_token", ""))
 	if token == "" {
-		return ApprovalPhase{}, &ToolError{Code: "approval_required", Message: "approval_token is required for execute"}
+		return ApprovalPhase{}, &ToolError{Code: codeApprovalRequired, Message: "approval_token is required for execute"}
 	}
 	if err := g.store.Consume(token, binding); err != nil {
-		return ApprovalPhase{}, &ToolError{Code: "approval_invalid", Message: err.Error(), Cause: err}
+		return ApprovalPhase{}, &ToolError{Code: codeApprovalInvalid, Message: err.Error(), Cause: err}
 	}
 	return ApprovalPhase{Phase: "executed"}, nil
 }

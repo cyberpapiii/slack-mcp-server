@@ -205,7 +205,7 @@ func readUploadData(request mcp.CallToolRequest) ([]byte, error) {
 		data = []byte(content)
 	}
 	if err != nil {
-		return nil, &ToolError{Code: "invalid_arguments", Message: "content_base64 could not be decoded", Cause: err}
+		return nil, &ToolError{Code: codeInvalidArguments, Message: "content_base64 could not be decoded", Cause: err}
 	}
 	if len(data) == 0 || len(data) > maxUploadBytes {
 		return nil, invalidArguments("file must contain 1 byte to 50 MiB")

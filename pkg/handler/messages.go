@@ -239,11 +239,11 @@ func (p messagePipeline) channelID(ctx context.Context, ref string) (string, err
 	refreshErr := p.api.ForceRefreshChannels(ctx)
 	if errors.Is(refreshErr, provider.ErrRefreshRateLimited) {
 		p.logger.Warn("Channel not found; cache refresh was rate-limited", zap.String("channel", name))
-		return "", &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found and the cache refresh was rate-limited; retry shortly or pass the channel ID (Cxxxxxxxxxx)", name), Retryable: true}
+		return "", &ToolError{Code: codeNotFound, Message: fmt.Sprintf("channel %q not found and the cache refresh was rate-limited; retry shortly or pass the channel ID (Cxxxxxxxxxx)", name), Retryable: true}
 	}
 	if refreshErr != nil {
 		p.logger.Warn("Failed to refresh channels cache", zap.String("channel", name), zap.Error(refreshErr))
-		return "", &ToolError{Code: "channel_not_found", Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", name), Cause: refreshErr}
+		return "", &ToolError{Code: codeNotFound, Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", name), Cause: refreshErr}
 	}
 	if ch, err = p.api.ChannelByRef(name); err != nil {
 		return "", cacheMiss(name, err, channelNotFound)
