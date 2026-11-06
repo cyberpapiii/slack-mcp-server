@@ -14,7 +14,28 @@ import (
 // the file is missing or unreadable. An expired file is served while a
 // background fetch replaces it.
 func (ap *ApiProvider) RefreshChannels(ctx context.Context) error {
-	return ap.refreshChannelsInternal(ctx, false)
+	ap.channelsMu.Lock()
+	if cached, expired, ok := loadCacheFile[Channel](ap.channelsCachePath, ap.cacheTTL, ap.logger); ok {
+		// Re-map IMs against current users so @names stay fresh after user cache updates.
+		usersMap := ap.ProvideUsersMap().Users
+		newSnapshot := newChannelsCache(len(cached))
+		for _, c := range cached {
+			if c.IsIM {
+				c = withIMPeer(c, usersMap)
+			}
+			newSnapshot.add(c)
+		}
+		ap.channelsSnapshot.Store(newSnapshot)
+		ap.channelsReady.Store(true)
+		ap.channelsMu.Unlock()
+
+		if expired {
+			ap.spawnBackgroundRefresh(&ap.channelsFlight, "channels", ap.fetchAndStoreChannels)
+		}
+		return nil
+	}
+	ap.channelsMu.Unlock()
+	return ap.channelsFlight.do(ctx, ap.fetchAndStoreChannels)
 }
 
 // ForceRefreshChannels bypasses cache; rate-limited by minRefreshInterval (ErrRefreshRateLimited).
@@ -34,35 +55,6 @@ func (ap *ApiProvider) ForceRefreshChannels(ctx context.Context) error {
 	}
 
 	ap.logger.Info("Force refreshing channels cache")
-	return ap.refreshChannelsInternal(ctx, true)
-}
-
-func (ap *ApiProvider) refreshChannelsInternal(ctx context.Context, force bool) error {
-	ap.channelsMu.Lock()
-
-	if !force {
-		if cached, expired, ok := loadCacheFile[Channel](ap.channelsCachePath, ap.cacheTTL, ap.logger); ok {
-			// Re-map IMs against current users so @names stay fresh after user cache updates.
-			usersMap := ap.ProvideUsersMap().Users
-			newSnapshot := newChannelsCache(len(cached))
-			for _, c := range cached {
-				if c.IsIM {
-					c = withIMPeer(c, usersMap)
-				}
-				newSnapshot.add(c)
-			}
-			ap.channelsSnapshot.Store(newSnapshot)
-			ap.channelsReady.Store(true)
-			ap.channelsMu.Unlock()
-
-			if expired {
-				ap.spawnBackgroundRefresh(&ap.channelsFlight, "channels", ap.fetchAndStoreChannels)
-			}
-			return nil
-		}
-	}
-
-	ap.channelsMu.Unlock()
 	return ap.channelsFlight.do(ctx, ap.fetchAndStoreChannels)
 }
 

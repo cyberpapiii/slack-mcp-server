@@ -103,9 +103,7 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 		CanvasID: request.CanvasID, Title: file.Title, Filetype: file.Filetype,
 		Mimetype: file.Mimetype, Permalink: file.Permalink, Preview: preview,
 	}
-	switch format := request.ContentFormat; format {
-	case "none":
-	case "", "markdown", "html":
+	if format := request.ContentFormat; format != "none" {
 		if format == "" {
 			format = "markdown"
 		}
@@ -118,8 +116,6 @@ func (p *CanvasProvider) ReadCanvas(ctx context.Context, request CanvasReadReque
 		default:
 			return CanvasDocument{}, wrapSlack("canvas content read", contentErr)
 		}
-	default:
-		return CanvasDocument{}, fmt.Errorf("unknown canvas content format %q", format)
 	}
 	if len(request.SectionTypes) != 0 || request.ContainsText != "" {
 		sections, lookupErr := p.client.LookupCanvasSectionsContext(ctx, slack.LookupCanvasSectionsParams{
