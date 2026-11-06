@@ -54,12 +54,13 @@ func TestStoreRejectsTamperingAndCrossIdentityReplay(t *testing.T) {
 }
 
 func TestStoreRejectsExpiryAndRestart(t *testing.T) {
-	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	now := start
 	store := NewStoreWithClock(func() time.Time { return now })
 	token, expiresAt, err := store.Prepare(testBinding(t))
 	require.NoError(t, err)
-	assert.Equal(t, now.Add(TTL), expiresAt)
-	store.now = func() time.Time { return now.Add(TTL) }
+	assert.Equal(t, start.Add(TTL), expiresAt)
+	now = start.Add(TTL)
 	assert.ErrorIs(t, store.Consume(token, testBinding(t)), ErrExpired)
 
 	assert.ErrorIs(t, NewStore().Consume(token, testBinding(t)), ErrInvalid)
