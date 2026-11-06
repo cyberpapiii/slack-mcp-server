@@ -16,6 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// toolRequest is a tool call carrying args.
+func toolRequest(args map[string]any) mcp.CallToolRequest {
+	return mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: args}}
+}
+
 // ResultText is a result's first text content.
 func ResultText(result *mcp.CallToolResult) string {
 	if result == nil {

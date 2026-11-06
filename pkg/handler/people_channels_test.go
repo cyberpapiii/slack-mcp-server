@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,10 +57,6 @@ func (f *fakePeopleChannelsService) InviteChannelMembers(_ context.Context, _ st
 	return f.channel, f.err
 }
 
-func peopleRequest(arguments map[string]any) mcp.CallToolRequest {
-	return mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: arguments}}
-}
-
 func newPeopleHandler(service PeopleChannelsService) *PeopleChannelsHandler {
 	return NewPeopleChannelsHandler(service, mapLabels{}, func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user", TokenMode: "user-oauth"}
@@ -70,7 +65,7 @@ func newPeopleHandler(service PeopleChannelsService) *PeopleChannelsHandler {
 
 func TestPeopleHandlerProfileReadDefaultsToActor(t *testing.T) {
 	service := &fakePeopleChannelsService{profile: provider.UserProfile{UserID: "U1", DisplayName: "Rob"}}
-	result, err := served(newPeopleHandler(service).GetUserProfile(context.Background(), peopleRequest(map[string]any{})))
+	result, err := served(newPeopleHandler(service).GetUserProfile(context.Background(), toolRequest(map[string]any{})))
 	require.NoError(t, err)
 	structured := result.StructuredContent.(ToolResult[ProfileData])
 	assert.Equal(t, "Rob", structured.Data.Profile.DisplayName)
@@ -79,7 +74,7 @@ func TestPeopleHandlerProfileReadDefaultsToActor(t *testing.T) {
 
 func TestPeopleHandlerProfileUpdateSupportsExplicitClears(t *testing.T) {
 	service := &fakePeopleChannelsService{profile: provider.UserProfile{UserID: "U1"}}
-	result, err := served(newPeopleHandler(service).SetUserProfile(context.Background(), peopleRequest(map[string]any{
+	result, err := served(newPeopleHandler(service).SetUserProfile(context.Background(), toolRequest(map[string]any{
 		"display_name": "", "custom_fields": map[string]any{"X1": map[string]any{"value": "blue"}},
 	})))
 	require.NoError(t, err)
@@ -92,7 +87,7 @@ func TestPeopleHandlerProfileUpdateSupportsExplicitClears(t *testing.T) {
 
 func TestPeopleHandlerRejectsEmptyProfileMutation(t *testing.T) {
 	service := &fakePeopleChannelsService{}
-	result, err := served(newPeopleHandler(service).SetUserProfile(context.Background(), peopleRequest(map[string]any{})))
+	result, err := served(newPeopleHandler(service).SetUserProfile(context.Background(), toolRequest(map[string]any{})))
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	assert.Equal(t, 0, service.updateCalls)
@@ -102,7 +97,7 @@ func TestPeopleHandlerRejectsEmptyProfileMutation(t *testing.T) {
 
 func TestPeopleHandlerStatusNormalizesEmojiAndDoesNotRetry(t *testing.T) {
 	service := &fakePeopleChannelsService{err: context.DeadlineExceeded}
-	result, err := served(newPeopleHandler(service).SetUserStatus(context.Background(), peopleRequest(map[string]any{
+	result, err := served(newPeopleHandler(service).SetUserStatus(context.Background(), toolRequest(map[string]any{
 		"status_text": "Heads down", "status_emoji": "focus", "status_expiration": 123,
 	})))
 	require.NoError(t, err)
@@ -115,7 +110,7 @@ func TestPeopleHandlerStatusNormalizesEmojiAndDoesNotRetry(t *testing.T) {
 
 func TestPeopleHandlerStatusRejectsHalfWrappedEmoji(t *testing.T) {
 	service := &fakePeopleChannelsService{}
-	result, err := served(newPeopleHandler(service).SetUserStatus(context.Background(), peopleRequest(map[string]any{
+	result, err := served(newPeopleHandler(service).SetUserStatus(context.Background(), toolRequest(map[string]any{
 		"status_text": "Heads down", "status_emoji": "focus:",
 	})))
 	require.NoError(t, err)
@@ -131,12 +126,12 @@ func TestPeopleHandlerEmojiAndMembersReturnCSVWithNextCursor(t *testing.T) {
 	handler := newPeopleHandler(service)
 	handler.labels = mapLabels{users: map[string]string{"U1": "Alice Smith"}}
 
-	emojiResult, err := served(handler.ListEmoji(context.Background(), peopleRequest(map[string]any{"limit": 10})))
+	emojiResult, err := served(handler.ListEmoji(context.Background(), toolRequest(map[string]any{"limit": 10})))
 	require.NoError(t, err)
 	assert.Nil(t, emojiResult.StructuredContent)
 	assert.Equal(t, "#next_cursor: 10\nName,URL,Alias\nwave,https://emoji/wave.png,\nhi,,wave\n", ResultText(emojiResult))
 
-	membersResult, err := served(handler.ListChannelMembers(context.Background(), peopleRequest(map[string]any{"channel_id": "C1", "limit": 10})))
+	membersResult, err := served(handler.ListChannelMembers(context.Background(), toolRequest(map[string]any{"channel_id": "C1", "limit": 10})))
 	require.NoError(t, err)
 	assert.Nil(t, membersResult.StructuredContent)
 	assert.Equal(t, "#next_cursor: next\nUserID,Name\nU1,Alice Smith\nU2,\n", ResultText(membersResult))
@@ -144,7 +139,7 @@ func TestPeopleHandlerEmojiAndMembersReturnCSVWithNextCursor(t *testing.T) {
 
 func TestPeopleHandlerMembersLastPageHasNoCursorLine(t *testing.T) {
 	service := &fakePeopleChannelsService{members: provider.ChannelMembersPage{ChannelID: "C1", UserIDs: []string{"U1"}}}
-	result, err := served(newPeopleHandler(service).ListChannelMembers(context.Background(), peopleRequest(map[string]any{"channel_id": "C1"})))
+	result, err := served(newPeopleHandler(service).ListChannelMembers(context.Background(), toolRequest(map[string]any{"channel_id": "C1"})))
 	require.NoError(t, err)
 	assert.Equal(t, "UserID,Name\nU1,\n", ResultText(result))
 }
@@ -153,12 +148,12 @@ func TestPeopleHandlerCreateAndInviteValidateBeforeOneMutation(t *testing.T) {
 	service := &fakePeopleChannelsService{channel: provider.ChannelState{ChannelID: "C1", Name: "new-room"}}
 	handler := newPeopleHandler(service)
 
-	created, err := served(handler.CreateChannel(context.Background(), peopleRequest(map[string]any{"name": "new-room"})))
+	created, err := served(handler.CreateChannel(context.Background(), toolRequest(map[string]any{"name": "new-room"})))
 	require.NoError(t, err)
 	assert.False(t, created.IsError)
 	assert.Equal(t, 1, service.createCalls)
 
-	invited, err := served(handler.InviteChannelMembers(context.Background(), peopleRequest(map[string]any{
+	invited, err := served(handler.InviteChannelMembers(context.Background(), toolRequest(map[string]any{
 		"channel_id": "C1", "user_ids": []any{"U2", "U1", "U2"},
 	})))
 	require.NoError(t, err)
@@ -166,7 +161,7 @@ func TestPeopleHandlerCreateAndInviteValidateBeforeOneMutation(t *testing.T) {
 	assert.Equal(t, 1, service.inviteCalls)
 	assert.Equal(t, []string{"U1", "U2"}, service.invited)
 
-	bad, err := served(handler.CreateChannel(context.Background(), peopleRequest(map[string]any{"name": "Bad Name"})))
+	bad, err := served(handler.CreateChannel(context.Background(), toolRequest(map[string]any{"name": "Bad Name"})))
 	require.NoError(t, err)
 	assert.True(t, bad.IsError)
 	assert.Equal(t, 1, service.createCalls)
