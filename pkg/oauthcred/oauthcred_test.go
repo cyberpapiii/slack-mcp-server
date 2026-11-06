@@ -18,6 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// noLock runs fn without the cross-process lock, for tests whose store no
+// other process shares.
+func noLock(_ context.Context, fn func() error) error { return fn() }
+
 type memoryStore struct {
 	mu     sync.Mutex
 	record Record
@@ -108,7 +112,7 @@ func TestUnitManagerRejectsExpiredCredentialWithoutRotation(t *testing.T) {
 	store := &memoryStore{record: Record{
 		Version: RecordVersion, AccessToken: "expired", ExpiresAt: now.Add(-time.Minute),
 	}}
-	manager := NewManager(store, nil, nil)
+	manager := NewManager(store, nil, noLock)
 	manager.now = func() time.Time { return now }
 
 	_, err := manager.Current(context.Background())
@@ -151,7 +155,7 @@ func TestUnitManagerPreservesOldRecordOnRefreshFailure(t *testing.T) {
 		Version: RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 7,
 	}}
-	manager := NewManager(store, failingRefresher{}, nil)
+	manager := NewManager(store, failingRefresher{}, noLock)
 	manager.now = func() time.Time { return now }
 
 	_, err := manager.Current(context.Background())
@@ -167,7 +171,7 @@ func TestUnitManagerPreservesRotationBeforeValidation(t *testing.T) {
 		Version: RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 2,
 	}}
-	manager := NewManager(store, &countingRefresher{now: now}, nil).WithValidator(
+	manager := NewManager(store, &countingRefresher{now: now}, noLock).WithValidator(
 		func(context.Context, Record) error { return errors.New("identity mismatch") },
 	)
 	manager.now = func() time.Time { return now }
@@ -190,7 +194,7 @@ func TestUnitManagerRejectsScopeLoss(t *testing.T) {
 		Version: RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 2, Scopes: []string{"channels:read", "chat:write"},
 	}}
-	manager := NewManager(store, &countingRefresher{now: now}, nil)
+	manager := NewManager(store, &countingRefresher{now: now}, noLock)
 	manager.now = func() time.Time { return now }
 
 	_, err := manager.Current(context.Background())
@@ -216,7 +220,7 @@ func TestUnitManagerRetriesPendingRotationAfterStoreFailure(t *testing.T) {
 	}}}
 	store.failSaves.Store(1)
 	refresher := &countingRefresher{now: now}
-	manager := NewManager(store, refresher, nil)
+	manager := NewManager(store, refresher, noLock)
 	manager.now = func() time.Time { return now }
 
 	_, err := manager.Current(context.Background())

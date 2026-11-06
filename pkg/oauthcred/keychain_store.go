@@ -122,8 +122,15 @@ func fileLock(path string) func(context.Context, func() error) error {
 
 // WithLock serializes login, logout, and runtime refresh across processes so
 // a newly rotated single-use refresh token is never overwritten.
+//
+// The server and slack-mcp-auth have to agree on the lock file, so a missing
+// user cache directory is an error rather than a lock in the working
+// directory, which differs between the two.
 func WithLock(ctx context.Context, fn func() error) error {
-	dir, _ := cachedir.Dir()
+	dir, err := cachedir.Dir()
+	if err != nil {
+		return fmt.Errorf("locate OAuth lock: %w", err)
+	}
 	return fileLock(filepath.Join(dir, "oauth-refresh.lock"))(ctx, fn)
 }
 

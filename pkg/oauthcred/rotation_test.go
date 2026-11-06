@@ -51,7 +51,7 @@ func TestUnitOAuthRotationIsPersistedEvenIfTheCallerStopsWaiting(t *testing.T) {
 	store := expiringStore(now)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	manager := NewManager(store, &hookRefresher{now: now, onRefresh: cancel}, nil)
+	manager := NewManager(store, &hookRefresher{now: now, onRefresh: cancel}, noLock)
 	manager.now = func() time.Time { return now }
 
 	_, _ = manager.Current(ctx)

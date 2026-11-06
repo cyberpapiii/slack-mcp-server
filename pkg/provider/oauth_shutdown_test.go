@@ -13,6 +13,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// noLock runs fn without the cross-process lock; these tests share no store.
+func noLock(_ context.Context, fn func() error) error { return fn() }
+
 // memoryStore is an in-memory oauthcred.Store.
 type memoryStore struct {
 	mu     sync.Mutex
@@ -74,7 +77,7 @@ func TestUnitCloseWaitsForAnInFlightOAuthRefresh(t *testing.T) {
 		close(entered)
 		<-release
 	}}
-	manager := oauthcred.NewManager(store, refresher, nil)
+	manager := oauthcred.NewManager(store, refresher, noLock)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), oauthManager: manager}, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
@@ -110,7 +113,7 @@ func TestUnitCloseDoesNotWaitForeverOnAStuckRefresh(t *testing.T) {
 	manager := oauthcred.NewManager(expiringStore(now), &hookRefresher{now: now, onRefresh: func() {
 		close(entered)
 		<-release
-	}}, nil)
+	}}, noLock)
 	ctx, cancel := context.WithCancel(context.Background())
 	ap := &ApiProvider{client: MCPSlackClient{logger: zap.NewNop(), oauthManager: manager, oauthShutdownGrace: 20 * time.Millisecond}, ctx: ctx, cancel: cancel, logger: zap.NewNop()}
 	client := &ap.client

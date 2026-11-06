@@ -66,7 +66,6 @@ func (r Record) expiring(now time.Time, earlyRefresh time.Duration) bool {
 type Store interface {
 	Load(context.Context) (Record, error)
 	SaveIfGeneration(context.Context, uint64, Record) error
-	Delete(context.Context) error
 }
 
 var ErrGenerationChanged = errors.New("OAuth credential generation changed")
@@ -157,10 +156,9 @@ func (m *Manager) WithValidator(validate func(context.Context, Record) error) *M
 // returns. It is independent of the caller's context; see Current.
 const oauthRotateTimeout = 30 * time.Second
 
+// NewManager builds a Manager. lock serializes refreshes across processes;
+// production passes WithLock.
 func NewManager(store Store, refresher Refresher, lock func(context.Context, func() error) error) *Manager {
-	if lock == nil {
-		lock = func(_ context.Context, fn func() error) error { return fn() }
-	}
 	return &Manager{
 		store: store, refresher: refresher, lock: lock,
 		now: time.Now, earlyRefresh: 5 * time.Minute,

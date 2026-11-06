@@ -148,7 +148,7 @@ func TestManagedOAuthRefreshReplacesRuntimeClient(t *testing.T) {
 		Version: oauthcred.RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 3,
 	}}
-	manager := oauthcred.NewManager(store, &hookRefresher{now: now}, nil)
+	manager := oauthcred.NewManager(store, &hookRefresher{now: now}, noLock)
 	c := &MCPSlackClient{slackClient: oldClient, oauthManager: manager, logger: zap.NewNop()}
 	c.oauthGeneration.Store(3)
 	c.managedClientFactory = func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error) {
