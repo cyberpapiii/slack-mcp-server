@@ -7,13 +7,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-var (
-	ErrChannelMutationGeneral = errors.New("general channel cannot be mutated")
-	ErrChannelMutationShared  = errors.New("shared channel cannot be mutated")
-	ErrChannelArchiveConflict = errors.New("channel changed after archive preparation")
-	ErrChannelAlreadyArchived = errors.New("channel is already archived")
-)
-
 var _ ChannelMutationClient = (*WebClient)(nil)
 
 type ChannelMutationClient interface {

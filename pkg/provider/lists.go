@@ -12,10 +12,6 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// ErrOutcomeUnknown marks a write whose result Slack did not report: it may
-// have been applied.
-var ErrOutcomeUnknown = errors.New("Slack may have applied the change")
-
 // ListsClient calls the Slack Lists API on slack.com (or the GovSlack host),
 // not the workspace host, with the current Web API token.
 type ListsClient struct {
@@ -63,6 +59,8 @@ type UnsupportedListFieldTypeError struct{ Type string }
 func (e *UnsupportedListFieldTypeError) Error() string {
 	return fmt.Sprintf("unsupported Slack List field type %q", e.Type)
 }
+
+func (e *UnsupportedListFieldTypeError) Unwrap() error { return ErrInvalidListInput }
 
 func validateColumns(columns []ListColumn) error {
 	for _, column := range columns {
@@ -295,13 +293,13 @@ func listsMethodMutates(method string) bool {
 func validateFieldInputs(fields []ListFieldValue, requireRowID bool) error {
 	for _, field := range fields {
 		if field.ColumnID == "" {
-			return errors.New("Slack List field column_id is required")
+			return listInputError("Slack List field column_id is required")
 		}
 		if requireRowID && field.RowID == "" {
-			return errors.New("Slack List update field row_id is required")
+			return listInputError("Slack List update field row_id is required")
 		}
 		if field.Key != "" || len(field.Value) != 0 || field.Text != "" {
-			return errors.New("Slack List response-only key, value, and text fields cannot be sent")
+			return listInputError("Slack List response-only key, value, and text fields cannot be sent")
 		}
 		count := 0
 		for _, present := range []bool{
@@ -314,8 +312,14 @@ func validateFieldInputs(fields []ListFieldValue, requireRowID bool) error {
 			}
 		}
 		if count != 1 {
-			return errors.New("Slack List field requires exactly one supported typed value")
+			return listInputError("Slack List field requires exactly one supported typed value")
 		}
 	}
 	return nil
 }
+
+// listInputError is a refused Slack List field; it is ErrInvalidListInput.
+type listInputError string
+
+func (e listInputError) Error() string        { return string(e) }
+func (e listInputError) Is(target error) bool { return target == ErrInvalidListInput }

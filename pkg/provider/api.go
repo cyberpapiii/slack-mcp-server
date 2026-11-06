@@ -16,9 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const usersNotReadyMsg = "users cache is not ready yet, sync process is still running... please wait"
-const channelsNotReadyMsg = "channels cache is not ready yet, sync process is still running... please wait"
-
 // Upper bound for one cache warm-up or background refresh, so an orphaned
 // goroutine cannot hold Slack rate-limit budget forever. Large workspaces need
 // most of it cold.
@@ -32,12 +29,6 @@ const (
 	MpIMChanType    = "mpim"
 	IMChanType      = "im"
 )
-
-var ErrUsersNotReady = errors.New(usersNotReadyMsg)
-var ErrChannelsNotReady = errors.New(channelsNotReadyMsg)
-var ErrRefreshRateLimited = errors.New("refresh skipped due to rate limiting")
-var ErrBrowserSessionUnavailable = errors.New("browser-session Slack auth is unavailable; refresh browser tokens to restore browser-only Slack tools")
-var ErrUserOAuthRequired = errors.New("this personal Slack action requires user OAuth")
 
 type ApiProvider struct {
 	// oauthLoadErr is why managed OAuth failed at startup when the server

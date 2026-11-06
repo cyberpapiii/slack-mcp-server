@@ -169,6 +169,11 @@ func TestUnitListsRejectUnsupportedFieldTypeBeforeHTTP(t *testing.T) {
 	var unsupported *UnsupportedListFieldTypeError
 	require.ErrorAs(t, err, &unsupported)
 	assert.Equal(t, "quantum", unsupported.Type)
+	assert.ErrorIs(t, err, ErrInvalidListInput)
+
+	_, err = client.CreateItem(context.Background(), CreateListItemRequest{ListID: "F1", InitialFields: []ListFieldValue{{}}})
+	assert.ErrorIs(t, err, ErrInvalidListInput)
+	assert.EqualError(t, err, "Slack List field column_id is required")
 }
 
 func TestUnitListsOfficialFixtureCompatibility(t *testing.T) {
