@@ -32,7 +32,9 @@ type fakeSlack struct {
 
 func coldDirectory() *provider.Directory { return (&provider.ApiProvider{}).Directory() }
 
-func (f *fakeSlack) pipeline() MessagePipeline { return NewMessagePipeline(f, zap.NewNop()) }
+func (f *fakeSlack) pipeline() MessagePipeline {
+	return NewMessagePipeline(f, Availability{}, zap.NewNop())
+}
 
 func (f *fakeSlack) Directory() *provider.Directory {
 	if f.dir == nil {
@@ -85,4 +87,4 @@ func (f *fakeSlack) SavedAdd(context.Context, provider.SavedAdd) (provider.Saved
 	panic("unexpected")
 }
 func (f *fakeSlack) SavedDelete(context.Context, provider.SavedRef) error { panic("unexpected") }
-func (f *fakeSlack) SavedClearCompleted(context.Context) error           { panic("unexpected") }
+func (f *fakeSlack) SavedClearCompleted(context.Context) error            { panic("unexpected") }

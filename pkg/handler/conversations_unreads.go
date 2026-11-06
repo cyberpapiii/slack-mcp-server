@@ -435,7 +435,7 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(request mcp.Call
 		}
 		u, err := ch.api.Directory().UserByRef(user)
 		if err != nil {
-			return nil, cacheMiss(user, err, userNotFound)
+			return nil, cacheMiss(user, err, ch.availability.userNotFound)
 		}
 		userIDs = append(userIDs, u.ID)
 	}

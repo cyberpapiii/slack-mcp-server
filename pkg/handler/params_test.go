@@ -3,6 +3,7 @@ package handler
 import (
 	"testing"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,7 +58,7 @@ func TestUnitSignpostFileParam(t *testing.T) {
 			req := mcp.CallToolRequest{}
 			req.Params.Arguments = tt.args
 
-			err := signpostFileParam(req)
+			err := signpostFileParam(req, servedTools(capability.FilesUpload))
 			if !tt.signposts {
 				assert.Nil(t, err)
 				return
@@ -66,6 +67,10 @@ func TestUnitSignpostFileParam(t *testing.T) {
 			assert.Equal(t, "invalid_arguments", err.Code)
 			assert.Contains(t, err.Message, "files_upload", "the error must name the tool, it is the only pointer a deferred-tool client gets")
 			assert.Contains(t, err.Message, "initial_comment")
+
+			unserved := signpostFileParam(req, servedTools())
+			require.NotNil(t, unserved)
+			assert.NotContains(t, unserved.Message, "files_upload", "a server without files_upload must not point at it")
 		})
 	}
 }

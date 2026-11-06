@@ -215,13 +215,13 @@ func (ch *ConversationsHandler) userFilter(ctx context.Context, raw string) (str
 		patched, err := ch.api.PatchUser(ctx, id)
 		if err != nil {
 			ch.logger.Debug("Targeted user fetch failed, user not found", zap.String("user_id", id), zap.Error(err))
-			return "", userNotFound(id)
+			return "", ch.availability.userNotFound(id)
 		}
 		return fmt.Sprintf("<@%s>", patched.ID), nil
 	}
 	u, err := ch.api.Directory().UserByRef(name)
 	if err != nil {
-		return "", cacheMiss(name, err, userNotFound)
+		return "", cacheMiss(name, err, ch.availability.userNotFound)
 	}
 	return fmt.Sprintf("<@%s>", u.ID), nil
 }
@@ -235,7 +235,7 @@ func (ch *ConversationsHandler) channelFilter(raw string) (string, error) {
 	if strings.HasPrefix(name, "#") || kind == provider.IDChannel || kind == provider.IDGroup {
 		c, err := ch.api.Directory().ChannelByRef(raw)
 		if err != nil {
-			return "", cacheMiss(raw, err, channelNotFound)
+			return "", cacheMiss(raw, err, ch.availability.channelNotFound)
 		}
 		return c.Name, nil
 	}

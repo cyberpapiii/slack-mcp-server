@@ -20,7 +20,7 @@ func (ch *ConversationsHandler) FilesGetHandler(ctx context.Context, request mcp
 
 	params, err := ch.parseParamsToolFilesGet(request)
 	if err != nil {
-		ch.logger.Debug("Failed to parse attachment_get_data params", zap.Error(err))
+		ch.logger.Debug("Failed to parse "+capability.AttachmentGetData+" params", zap.Error(err))
 		return nil, err
 	}
 
@@ -123,7 +123,7 @@ func (ch *ConversationsHandler) FilesListHandler(ctx context.Context, request mc
 
 	params, err := ch.parseParamsToolFilesList(ctx, request)
 	if err != nil {
-		ch.logger.Debug("Failed to parse files_list params", zap.Error(err))
+		ch.logger.Debug("Failed to parse "+capability.FilesList+" params", zap.Error(err))
 		return nil, err
 	}
 

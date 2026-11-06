@@ -31,7 +31,7 @@ var (
 
 func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, availability handler.Availability, settings handler.Settings) handlerSet {
 	source := slackSource{ApiProvider: api, WebClient: api.WebAPI(), SlackAPI: api.Slack()}
-	messages := handler.NewMessagePipeline(source, logger)
+	messages := handler.NewMessagePipeline(source, availability, logger)
 	conversations := handler.NewConversationsHandler(source, messages, logger, settings, availability)
 	channels := handler.NewChannelsHandler(source, logger)
 	set := handlerSet{conversations: conversations, channels: channels}

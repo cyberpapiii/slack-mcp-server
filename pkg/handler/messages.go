@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -51,12 +52,13 @@ type CompactMessage struct {
 // activity, saved) converts and renders through it, so a row reads the same
 // whichever tool produced it.
 type MessagePipeline struct {
-	source MessageSource
-	logger *zap.Logger
+	source       MessageSource
+	availability Availability
+	logger       *zap.Logger
 }
 
-func NewMessagePipeline(source MessageSource, logger *zap.Logger) MessagePipeline {
-	return MessagePipeline{source: source, logger: logger}
+func NewMessagePipeline(source MessageSource, availability Availability, logger *zap.Logger) MessagePipeline {
+	return MessagePipeline{source: source, availability: availability, logger: logger}
 }
 
 // rows converts Slack messages to CSV rows. channel is the conversation every
@@ -210,7 +212,7 @@ func (p MessagePipeline) channelID(ctx context.Context, ref string) (string, err
 		return ch.ID, nil
 	}
 	if !errors.Is(err, provider.ErrNotCached) {
-		return "", cacheMiss(name, err, channelNotFound)
+		return "", cacheMiss(name, err, p.availability.channelNotFound)
 	}
 
 	p.logger.Debug("Channel not found in cache, attempting refresh", zap.String("channel", name))
@@ -221,15 +223,16 @@ func (p MessagePipeline) channelID(ctx context.Context, ref string) (string, err
 	}
 	if refreshErr != nil {
 		p.logger.Warn("Failed to refresh channels cache", zap.String("channel", name), zap.Error(refreshErr))
-		return "", &ToolError{Code: codeNotFound, Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx) or look it up with channels_list", name), Cause: refreshErr}
+		return "", &ToolError{Code: codeNotFound, Message: fmt.Sprintf("channel %q not found and cache refresh failed; pass the channel ID (Cxxxxxxxxxx)%s", name, p.availability.toolHint(capability.ChannelsList, " or look it up with %s", "")), Cause: refreshErr}
 	}
 	if ch, err = p.source.Directory().ChannelByRef(name); err != nil {
-		return "", cacheMiss(name, err, channelNotFound)
+		return "", cacheMiss(name, err, p.availability.channelNotFound)
 	}
 	return ch.ID, nil
 }
 
 type renderOptions struct {
+	availability Availability
 	mode         text.OutputMode
 	workspaceURL string
 	channelName  func(channelID string) string
@@ -239,6 +242,7 @@ type renderOptions struct {
 
 func (p MessagePipeline) render(mode text.OutputMode, meta ResultMeta) renderOptions {
 	return renderOptions{
+		availability: p.availability,
 		mode:         mode,
 		workspaceURL: p.source.WorkspaceURL(),
 		channelName:  p.channelLabel,
@@ -307,10 +311,12 @@ func buildChannelsLegend(messages []Message, channelName func(string) string) st
 // buildAttachmentsLegend names the recovery route for rows carrying files, and
 // states up front which types come back readable, so a reader can skip the ones
 // that would only return bytes it cannot use.
-func buildAttachmentsLegend(messages []Message) string {
+func buildAttachmentsLegend(messages []Message, availability Availability) string {
 	for _, m := range messages {
 		if m.AttachmentIDs != "" {
-			return "#attachments: fetch a FileID with attachment_get_data; images and text return readable content, other types return base64, " + megabytes(maxFileSizeBytes) + " cap\n"
+			return "#attachments: " + availability.toolHint(capability.AttachmentGetData,
+				"fetch a FileID with %s; images and text return readable content, other types return base64, "+megabytes(maxFileSizeBytes)+" cap",
+				availability.toolHint(capability.FilesDownload, "save a FileID to disk with %s", "rows list files as FileID (name, kind, size); no tool on this server reads them")) + "\n"
 		}
 	}
 	return ""
@@ -325,7 +331,7 @@ func buildLegendHeader(messages []Message, opts renderOptions) string {
 	var sb strings.Builder
 	sb.WriteString(buildChannelsLegend(messages, opts.channelName))
 	if len(messages) < 3 {
-		sb.WriteString(buildAttachmentsLegend(messages))
+		sb.WriteString(buildAttachmentsLegend(messages, opts.availability))
 		return sb.String()
 	}
 
@@ -356,7 +362,7 @@ func buildLegendHeader(messages []Message, opts renderOptions) string {
 		}
 		sb.WriteString(fmt.Sprintf("#link_template: %sarchives/{Channel}/p{MsgID with \".\" removed}\n", base))
 	}
-	sb.WriteString(buildAttachmentsLegend(messages))
+	sb.WriteString(buildAttachmentsLegend(messages, opts.availability))
 
 	return sb.String()
 }

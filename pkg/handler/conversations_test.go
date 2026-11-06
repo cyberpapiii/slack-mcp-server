@@ -651,7 +651,7 @@ func TestUnitFullCSVCarriesCursorLine(t *testing.T) {
 
 func TestUnitCompactCSVLegendSkippedForSmallResults(t *testing.T) {
 	messages := compactCSVFixtureMessagesN(2)
-	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/"})
+	result, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard, workspaceURL: "https://loop.slack.com/", availability: servedTools(capability.AttachmentGetData)})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -661,6 +661,12 @@ func TestUnitCompactCSVLegendSkippedForSmallResults(t *testing.T) {
 	assert.NotContains(t, body, "#link_template:")
 	assert.True(t, strings.HasPrefix(body, "#attachments: "), "files still need their recovery route on a small result: %s", body)
 	assert.Contains(t, strings.SplitN(body, "\n", 2)[0], "attachment_get_data", "the legend names the tool that reads the files")
+
+	unserved, err := marshalMessagesToCSV(messages, renderOptions{mode: text.ModeStandard})
+	require.NoError(t, err)
+	legend := strings.SplitN(csvResultBody(t, unserved), "\n", 2)[0]
+	assert.True(t, strings.HasPrefix(legend, "#attachments: "), legend)
+	assert.NotContains(t, legend, "attachment_get_data", "a server without the tool must not point at it")
 
 	noFiles := compactCSVFixtureMessagesN(2)
 	for i := range noFiles {

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -36,6 +37,16 @@ func (a Availability) Served(tool capability.Tool) bool {
 func (a Availability) servesName(name string) bool {
 	tool, ok := capability.Lookup(name)
 	return ok && a.Served(tool)
+}
+
+// toolHint is hint with its %s set to tool when the server serves tool, and
+// fallback when it does not, so a hint never points at a tool the caller
+// cannot call.
+func (a Availability) toolHint(tool, hint, fallback string) string {
+	if a.servesName(tool) {
+		return fmt.Sprintf(hint, tool)
+	}
+	return fallback
 }
 
 // State says whether a tool can be called now and, if not, why.

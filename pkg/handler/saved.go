@@ -150,8 +150,8 @@ func (h *SavedHandler) listSaved(ctx context.Context, filter string, limit int, 
 	}
 	partialReason := ""
 	if stopErr != nil {
-		h.logger.Warn("saved_list stopped early; returning the items listed so far", zap.Int("items", len(allItems)), zap.Error(stopErr))
-		partialReason = "saved_list stopped before the walk finished"
+		h.logger.Warn(capability.SavedList+" stopped early; returning the items listed so far", zap.Int("items", len(allItems)), zap.Error(stopErr))
+		partialReason = capability.SavedList + " stopped before the walk finished"
 		if includeMessages {
 			partialReason += "; some rows have no message"
 		}

@@ -94,13 +94,13 @@ func (ch *ConversationsHandler) ConversationsDraftMessageHandler(ctx context.Con
 		"Send status: %s\n\n"+
 		"[Message text]\n"+
 		"%s\n\n"+
-		"[End of draft]\n"+
-		"To send this message, use conversations_add_message with the same parameters.",
+		"[End of draft]%s",
 		params.channel,
 		formatThreadTs(params.threadTs),
 		formatStatus,
 		sendability,
 		params.text,
+		ch.availability.toolHint(capability.ConversationsAddMessage, "\nTo send this message, use %s with the same parameters.", ""),
 	)
 
 	return mcp.NewToolResultText(preview), nil
@@ -233,7 +233,7 @@ func (ch *ConversationsHandler) messageBody(params *addMessageParams) messageBod
 // conversations_draft_message share: the destination, thread, text and
 // content type. tool picks the channel allowlist, if the tool has one.
 func (ch *ConversationsHandler) parseMessageParams(ctx context.Context, tool string, request mcp.CallToolRequest, text string) (*addMessageParams, error) {
-	if err := signpostFileParam(request); err != nil {
+	if err := signpostFileParam(request, ch.availability); err != nil {
 		return nil, err
 	}
 

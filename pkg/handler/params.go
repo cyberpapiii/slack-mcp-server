@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -22,17 +23,16 @@ var fileParamHints = []string{"file", "attach", "upload", "image", "photo", "scr
 // list to consult, so this error text is the only place it can learn that the
 // capability exists at all; without it the caller concludes Slack cannot attach
 // files and reaches for something outside the server entirely.
-func signpostFileParam(request mcp.CallToolRequest) *ToolError {
+func signpostFileParam(request mcp.CallToolRequest, availability Availability) *ToolError {
 	for key := range request.GetArguments() {
 		lower := strings.ToLower(key)
 		for _, hint := range fileParamHints {
 			if !strings.Contains(lower, hint) {
 				continue
 			}
-			return invalidArguments(fmt.Sprintf(
-				"%q is not a parameter of this tool, and this tool cannot attach files. To post a message with a file, call files_upload with channel_id and initial_comment: it uploads the file and posts the message together in one call.",
-				key,
-			))
+			return invalidArguments(fmt.Sprintf("%q is not a parameter of this tool, and this tool cannot attach files.", key) + availability.toolHint(capability.FilesUpload,
+				" To post a message with a file, call %s with channel_id and initial_comment: it uploads the file and posts the message together in one call.",
+				" No tool on this server uploads files."))
 		}
 	}
 	return nil
