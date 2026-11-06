@@ -83,7 +83,7 @@ Three write families additionally take a channel allow/block list (the catalog's
 | `SLACK_MCP_REACTION_TOOL` | `reactions_add`, `reactions_remove` | same shape |
 | `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | `channels_rename`, `channels_set_topic`, `channels_set_purpose`, `channels_archive` | same shape |
 
-A denied channel returns a `permission_denied` tool error that names the variable. While a list is set, the target must be a conversation ID (`C`, `G`, `D`): Slack also accepts channel names and user IDs, which the list cannot match, so those return `invalid_arguments`. Setting one of these to `false` does not disable the tool; it is read as a one-entry channel list and blocks every channel (startup warns). To turn a tool off, drop it from the enabled-tools list.
+A denied channel returns a `permission_denied` tool error that names the variable. While a list is set, the target must be a conversation ID (`C`, `G`, `D`): Slack also accepts channel names and user IDs, which the list cannot match, so those return `invalid_arguments`. Setting one of these to `false` does not disable the tool; it blocks every channel (startup warns). Every entry must be a conversation ID; a channel name or user ID in the list fails at startup. To turn a tool off, drop it from the enabled-tools list.
 
 - MCP resources (`slack://…/channels`, `slack://…/users`) always register after cache warm-up; they ignore `SLACK_MCP_ENABLED_TOOLS`.
 

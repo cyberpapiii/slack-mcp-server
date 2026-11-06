@@ -24,7 +24,7 @@ func TestChannelAllowlistGrammar(t *testing.T) {
 		{"true", []string{"C1", "C9"}, nil},
 		{" C1 , C2 ", []string{"C1", "C2"}, []string{"C9"}},
 		{"!C1,!C2", []string{"C9"}, []string{"C1", "C2"}},
-		// false is read as a one-entry list and blocks every channel; main warns.
+		// false allows no channel; startup warns.
 		{"false", nil, []string{"C1"}},
 	}
 	for _, tt := range tests {
@@ -103,4 +103,11 @@ func TestAListedToolRequiresAConversationID(t *testing.T) {
 	open, err := settingsWith(nil)
 	require.NoError(t, err)
 	assert.NoError(t, open.requireChannel(capability.ConversationsAddMessage, "general"), "no list, no restriction")
+}
+
+func TestAnAllowlistEntryMustBeAConversationID(t *testing.T) {
+	_, err := settingsWith(map[string]string{capability.AddMessageAllowlist: "#bots"})
+	assert.ErrorContains(t, err, "#bots")
+	_, err = settingsWith(map[string]string{capability.ReactionAllowlist: "!U123"})
+	assert.ErrorContains(t, err, "U123")
 }

@@ -94,25 +94,22 @@ func (s Settings) requireChannel(tool, channel string) error {
 	if spec.ChannelAllowlist == "" {
 		return nil
 	}
-	if s.allowlists[spec.ChannelAllowlist].channels != nil {
-		switch provider.ClassifyID(channel) {
-		case provider.IDChannel, provider.IDGroup, provider.IDDirectMessage:
-		default:
-			return invalidArguments(fmt.Sprintf("%s restricts %s to listed channels, so pass a channel ID (C…, G… or D…), not %q", spec.ChannelAllowlist, tool, channel))
-		}
+	list := s.allowlists[spec.ChannelAllowlist]
+	if list.channels != nil && !isConversationID(channel) {
+		return invalidArguments(fmt.Sprintf("%s restricts %s to listed channels, so pass a channel ID (C…, G… or D…), not %q", spec.ChannelAllowlist, tool, channel))
 	}
-	if s.channelAllowed(tool, channel) {
+	if list.allows(channel) {
 		return nil
 	}
 	return permissionDenied(fmt.Sprintf("%s is not allowed for channel %q by %s", tool, channel, spec.ChannelAllowlist))
 }
 
-func (s Settings) channelAllowed(tool, channel string) bool {
-	spec, _ := capability.Lookup(tool)
-	if spec.ChannelAllowlist == "" {
+func isConversationID(id string) bool {
+	switch provider.ClassifyID(id) {
+	case provider.IDChannel, provider.IDGroup, provider.IDDirectMessage:
 		return true
 	}
-	return s.allowlists[spec.ChannelAllowlist].allows(channel)
+	return false
 }
 
 // channelAllowlist is one allow/block list. Empty or truthy allows every
@@ -128,6 +125,10 @@ func parseChannelAllowlist(value string) (channelAllowlist, error) {
 		return channelAllowlist{}, nil
 	}
 	allowlist := channelAllowlist{channels: map[string]bool{}}
+	if envutil.IsFalsy(value) {
+		allowlist.allowOnly = true
+		return allowlist, nil
+	}
 	negated, positive := false, false
 	for _, item := range strings.Split(value, ",") {
 		item = strings.TrimSpace(item)
@@ -139,7 +140,11 @@ func parseChannelAllowlist(value string) (channelAllowlist, error) {
 		} else {
 			positive = true
 		}
-		allowlist.channels[strings.TrimPrefix(item, "!")] = true
+		id := strings.TrimPrefix(item, "!")
+		if !isConversationID(id) {
+			return channelAllowlist{}, fmt.Errorf("%q is not a channel ID (C…, G… or D…)", id)
+		}
+		allowlist.channels[id] = true
 	}
 	if negated && positive {
 		return channelAllowlist{}, fmt.Errorf("cannot mix allowed and disallowed (! prefixed) channels")

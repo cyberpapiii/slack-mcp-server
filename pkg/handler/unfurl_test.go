@@ -141,3 +141,14 @@ func TestUnitUnfurlOptionsRefuseHiddenLinks(t *testing.T) {
 	assert.Len(t, settings.unfurlOptions("<https://evil.com|click>", nil, zap.NewNop()), 2, "markup in text")
 	assert.Len(t, settings.unfurlOptions("<https://good.com/x|ok>", nil, zap.NewNop()), 1, "allowed markup in text")
 }
+
+func TestUnitUnfurlsNormalizeHostsTheSameWay(t *testing.T) {
+	settings := Settings{unfurling: parseUnfurling("www.example.com")}
+	for _, text := range []string{"https://example.com/a", "see https://example.com.", "www.example.com", "https://WWW.Example.com/x, then"} {
+		assert.True(t, settings.unfurls(text, zap.NewNop()), text)
+	}
+	for _, text := range []string{"see evil.github.io now", "evil.herokuapp.com", "x.vercel.app"} {
+		assert.False(t, settings.unfurls(text, zap.NewNop()), "a private suffix is still a domain: %s", text)
+	}
+	assert.True(t, settings.unfurls("open file.txt", zap.NewNop()), "not a domain")
+}

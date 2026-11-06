@@ -10,7 +10,7 @@ func (ch *ConversationsHandler) sendStatus(channel string) string {
 	if !ch.availability.servesName(capability.ConversationsAddMessage) {
 		return "not available"
 	}
-	if !ch.settings.channelAllowed(capability.ConversationsAddMessage, channel) {
+	if ch.settings.requireChannel(capability.ConversationsAddMessage, channel) != nil {
 		return "not available for this channel"
 	}
 	return "available"

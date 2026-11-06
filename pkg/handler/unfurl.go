@@ -36,8 +36,7 @@ func parseUnfurling(value string) unfurlPolicy {
 	}
 	policy.allowed = make(map[string]struct{})
 	for _, d := range strings.Split(value, ",") {
-		d = strings.ToLower(strings.TrimSpace(d))
-		if d != "" {
+		if d = normalizeHost(d); d != "" {
 			policy.allowed[d] = struct{}{}
 		}
 	}
@@ -106,11 +105,11 @@ func (s Settings) unfurls(text string, logger *zap.Logger) bool {
 	}
 
 	for _, rawURL := range unfurlURLRegex.FindAllString(text, -1) {
-		u, err := url.Parse(rawURL)
+		u, err := url.Parse(strings.TrimRight(rawURL, ".,;:!?'"))
 		if err != nil || u.Hostname() == "" {
 			return refuse(rawURL)
 		}
-		host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+		host := normalizeHost(u.Hostname())
 		if _, ok := allowed[host]; !ok {
 			return refuse(host)
 		}
@@ -118,8 +117,10 @@ func (s Settings) unfurls(text string, logger *zap.Logger) bool {
 
 	txtNoURLs := unfurlURLRegex.ReplaceAllString(text, " ")
 	for _, d := range unfurlDomainRegex.FindAllString(txtNoURLs, -1) {
-		d = strings.ToLower(d)
-		if _, icann := publicsuffix.PublicSuffix(d); !icann {
+		d = normalizeHost(d)
+		// A suffix outside the public list ("file.txt") is not a domain; a
+		// privately run one ("evil.github.io") is.
+		if suffix, icann := publicsuffix.PublicSuffix(d); !icann && !strings.Contains(suffix, ".") {
 			continue
 		}
 		if _, ok := allowed[d]; !ok {
@@ -128,4 +129,9 @@ func (s Settings) unfurls(text string, logger *zap.Logger) bool {
 	}
 
 	return true
+}
+
+// normalizeHost is how link hosts, bare domains and allowlist entries compare.
+func normalizeHost(host string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(host)), "www."), ".")
 }
