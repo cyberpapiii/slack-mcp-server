@@ -11,7 +11,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
-	"go.uber.org/zap"
 )
 
 const (
@@ -53,11 +52,10 @@ type ScheduledCancelResult = ToolResult[ScheduledCancelData]
 type ScheduledHandler struct {
 	service   ScheduledService
 	approvals approvalGate
-	logger    *zap.Logger
 }
 
-func NewScheduledHandler(service ScheduledService, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *ScheduledHandler {
-	return &ScheduledHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
+func NewScheduledHandler(service ScheduledService, approvals *approval.Store, identity func() provider.ProviderIdentity) *ScheduledHandler {
+	return &ScheduledHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}}
 }
 
 func (h *ScheduledHandler) List(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

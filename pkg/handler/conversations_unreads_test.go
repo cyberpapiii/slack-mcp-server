@@ -268,7 +268,7 @@ func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
 			},
 		}
 
-		res, err := marshalUnreadChannelsToCSV(channels, unreadsCoverage{}.meta())
+		res, err := csvResult("", unreadsCoverage{}.meta(), &channels)
 		require.NoError(t, err)
 		assert.Nil(t, res.StructuredContent)
 		assert.Equal(t, header+
@@ -280,7 +280,7 @@ func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
 
 	t.Run("empty and nil slices still emit the header row", func(t *testing.T) {
 		for _, channels := range [][]UnreadChannel{nil, {}} {
-			res, err := marshalUnreadChannelsToCSV(channels, unreadsCoverage{}.meta())
+			res, err := csvResult("", unreadsCoverage{}.meta(), &channels)
 			require.NoError(t, err)
 			assert.Equal(t, header, csvResultBody(t, res))
 		}
@@ -294,7 +294,7 @@ func TestUnitMarshalUnreadChannelsToCSV(t *testing.T) {
 			failed:           []string{"C_ERR"},
 			unbounded:        []string{"D_NEW"},
 		}
-		res, err := marshalUnreadChannelsToCSV(nil, coverage.meta())
+		res, err := csvResult("", coverage.meta(), &[]UnreadChannel{})
 		require.NoError(t, err)
 		assert.Equal(t,
 			"#partial: muted-channel preferences unavailable; "+

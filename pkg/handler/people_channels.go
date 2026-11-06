@@ -15,7 +15,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"go.uber.org/zap"
 )
 
 const (
@@ -63,12 +62,11 @@ type ChannelData struct {
 type PeopleChannelsHandler struct {
 	service  PeopleChannelsService
 	identity func() provider.ProviderIdentity
-	logger   *zap.Logger
 	labels   Labels
 }
 
-func NewPeopleChannelsHandler(service PeopleChannelsService, labels Labels, identity func() provider.ProviderIdentity, logger *zap.Logger) *PeopleChannelsHandler {
-	return &PeopleChannelsHandler{service: service, labels: labels, identity: identityFunc(identity), logger: logger}
+func NewPeopleChannelsHandler(service PeopleChannelsService, labels Labels, identity func() provider.ProviderIdentity) *PeopleChannelsHandler {
+	return &PeopleChannelsHandler{service: service, labels: labels, identity: identity}
 }
 
 func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -81,7 +79,7 @@ func (h *PeopleChannelsHandler) GetUserProfile(ctx context.Context, request mcp.
 	}
 	profile, err := h.service.GetProfile(ctx, userID, request.GetBool("include_labels", true))
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	data := ProfileData{Profile: profile}
 	return NewStructuredResult(data, SlackResultMeta("", false, ""), fallbackJSON(data)), nil
@@ -140,7 +138,7 @@ func (h *PeopleChannelsHandler) ListEmoji(ctx context.Context, request mcp.CallT
 	limit := pageLimit(request, 100, maxEmojiPageSize)
 	page, err := h.service.ListEmoji(ctx, strings.TrimSpace(request.GetString("query", "")), strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	rows := make([]EmojiRow, len(page.Emoji))
 	for i, e := range page.Emoji {
@@ -174,7 +172,7 @@ func (h *PeopleChannelsHandler) ListChannelMembers(ctx context.Context, request 
 	limit := pageLimit(request, 100, maxPeoplePageSize)
 	page, err := h.service.ListChannelMembers(ctx, channelID, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	rows := make([]ChannelMemberRow, len(page.UserIDs))
 	for i, id := range page.UserIDs {

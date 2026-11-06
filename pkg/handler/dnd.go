@@ -9,7 +9,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/slack-go/slack"
-	"go.uber.org/zap"
 )
 
 const maxSnoozeMinutes = 7 * 24 * 60
@@ -33,11 +32,10 @@ type DNDStateData struct {
 type DNDHandler struct {
 	api      DNDAPI
 	identity func() provider.ProviderIdentity
-	logger   *zap.Logger
 }
 
-func NewDNDHandler(api DNDAPI, identity func() provider.ProviderIdentity, logger *zap.Logger) *DNDHandler {
-	return &DNDHandler{api: api, identity: identityFunc(identity), logger: logger}
+func NewDNDHandler(api DNDAPI, identity func() provider.ProviderIdentity) *DNDHandler {
+	return &DNDHandler{api: api, identity: identity}
 }
 
 func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -47,7 +45,7 @@ func (h *DNDHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	}
 	status, err := h.api.GetDNDInfoContext(ctx, nil)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	return dndResult(identity.UserID, status)
 }

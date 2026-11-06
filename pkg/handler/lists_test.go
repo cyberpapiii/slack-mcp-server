@@ -11,11 +11,10 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 func newTestListsHandler(api ListsAPI) *ListsHandler {
-	return NewListsHandler(api, approval.NewStore(), userIdentity, zap.NewNop())
+	return NewListsHandler(api, approval.NewStore(), userIdentity)
 }
 
 type fakeListsAPI struct {
@@ -102,7 +101,7 @@ func TestUnitListsDeleteRejectsChangedOrExpiredStateWithoutMutation(t *testing.T
 	api := &fakeListsAPI{item: item}
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	clock := now
-	handler := NewListsHandler(api, approval.NewStoreWithClock(func() time.Time { return clock }), userIdentity, zap.NewNop())
+	handler := NewListsHandler(api, approval.NewStoreWithClock(func() time.Time { return clock }), userIdentity)
 
 	prepared, _ := handler.DeleteItem(context.Background(), listRequest(map[string]any{"action": "prepare", "list_id": "F1", "item_id": "Rec1"}))
 	token := prepared.StructuredContent.(ToolResult[ListItemDeleteData]).Data.ApprovalToken

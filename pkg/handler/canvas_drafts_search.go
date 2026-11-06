@@ -10,16 +10,14 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"go.uber.org/zap"
 )
 
 type CanvasHandler struct {
-	api    provider.CanvasAPI
-	logger *zap.Logger
+	api provider.CanvasAPI
 }
 
-func NewCanvasHandler(api provider.CanvasAPI, logger *zap.Logger) *CanvasHandler {
-	return &CanvasHandler{api: api, logger: logger}
+func NewCanvasHandler(api provider.CanvasAPI) *CanvasHandler {
+	return &CanvasHandler{api: api}
 }
 
 type CanvasMutationData struct {
@@ -61,7 +59,7 @@ func (h *CanvasHandler) Read(ctx context.Context, request mcp.CallToolRequest) (
 	}
 	document, err := h.api.ReadCanvas(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	return NewStructuredResult(document, SlackResultMeta("", document.Limitation != "", document.Limitation), fallbackJSON(document)), nil
 }
@@ -103,12 +101,11 @@ func (h *CanvasHandler) Update(ctx context.Context, request mcp.CallToolRequest)
 type DraftsHandler struct {
 	api       provider.DraftsAPI
 	approvals approvalGate
-	logger    *zap.Logger
 	labels    Labels
 }
 
-func NewDraftsHandler(api provider.DraftsAPI, labels Labels, approvals *approval.Store, identity func() provider.ProviderIdentity, logger *zap.Logger) *DraftsHandler {
-	return &DraftsHandler{api: api, labels: labels, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, logger: logger}
+func NewDraftsHandler(api provider.DraftsAPI, labels Labels, approvals *approval.Store, identity func() provider.ProviderIdentity) *DraftsHandler {
+	return &DraftsHandler{api: api, labels: labels, approvals: approvalGate{store: approvals, identity: identity}}
 }
 
 type DraftMutationData struct {
@@ -133,7 +130,7 @@ func (h *DraftsHandler) List(ctx context.Context, request mcp.CallToolRequest) (
 	limit := pageLimit(request, 50, 100)
 	page, err := h.api.ListDrafts(ctx, strings.TrimSpace(request.GetString("cursor", "")), limit)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	rows := make([]DraftRow, len(page.Drafts))
 	channelIDs := make([]string, len(page.Drafts))
@@ -151,7 +148,7 @@ func (h *DraftsHandler) Get(ctx context.Context, request mcp.CallToolRequest) (*
 	}
 	draft, err := h.api.GetDraft(ctx, id)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	return NewStructuredResult(draft, SlackResultMeta("", false, ""), fallbackJSON(draft)), nil
 }
@@ -232,12 +229,11 @@ func decodeDraft(request mcp.CallToolRequest, requireID bool) (provider.Draft, e
 
 type SemanticSearchHandler struct {
 	api    provider.SemanticSearchAPI
-	logger *zap.Logger
 	labels Labels
 }
 
-func NewSemanticSearchHandler(api provider.SemanticSearchAPI, labels Labels, logger *zap.Logger) *SemanticSearchHandler {
-	return &SemanticSearchHandler{api: api, labels: labels, logger: logger}
+func NewSemanticSearchHandler(api provider.SemanticSearchAPI, labels Labels) *SemanticSearchHandler {
+	return &SemanticSearchHandler{api: api, labels: labels}
 }
 
 // semanticMessageRow mirrors the history row shape so message hits read like
@@ -308,7 +304,7 @@ func (h *SemanticSearchHandler) Search(ctx context.Context, request mcp.CallTool
 	}
 	page, err := h.api.SearchSemantic(ctx, input)
 	if err != nil {
-		return nil, TypeError(err, false)
+		return nil, err
 	}
 	return semanticSearchResult(page, slices.Contains(input.ContentTypes, "files"), h.labels.ChannelLabel)
 }

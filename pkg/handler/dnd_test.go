@@ -9,7 +9,6 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 type fakeDNDAPI struct {
@@ -37,7 +36,7 @@ func userIdentity() provider.ProviderIdentity {
 
 func TestUnitDNDGetReturnsActorAndUTCState(t *testing.T) {
 	api := &fakeDNDAPI{status: &slack.DNDStatus{Enabled: true, NextStartTimestamp: 1786291200, SnoozeInfo: slack.SnoozeInfo{SnoozeEnabled: true, SnoozeEndTime: 1786294800, SnoozeRemaining: 60}}}
-	handler := NewDNDHandler(api, userIdentity, zap.NewNop())
+	handler := NewDNDHandler(api, userIdentity)
 	result, err := handler.Get(context.Background(), mcp.CallToolRequest{})
 	require.NoError(t, err)
 	structured := result.StructuredContent.(ToolResult[DNDStateData])
@@ -48,7 +47,7 @@ func TestUnitDNDGetReturnsActorAndUTCState(t *testing.T) {
 
 func TestUnitDNDSetValidatesDuration(t *testing.T) {
 	api := &fakeDNDAPI{status: &slack.DNDStatus{}}
-	handler := NewDNDHandler(api, userIdentity, zap.NewNop())
+	handler := NewDNDHandler(api, userIdentity)
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"minutes": 0}}}
 	_, err := handler.SetSnooze(context.Background(), request)
 	require.Error(t, err)
@@ -64,24 +63,26 @@ func TestUnitDNDMutationsRejectBotIdentity(t *testing.T) {
 	api := &fakeDNDAPI{status: &slack.DNDStatus{}}
 	handler := NewDNDHandler(api, func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "bot"}
-	}, zap.NewNop())
+	})
 	_, err := handler.EndSnooze(context.Background(), mcp.CallToolRequest{})
 	require.Error(t, err)
 	assert.False(t, api.ended)
 }
 
+// dnd_get is read-only, so its Slack error goes out raw and the server's
+// error middleware types it as a read.
 func TestUnitDNDErrorsAreTyped(t *testing.T) {
 	api := &fakeDNDAPI{status: &slack.DNDStatus{}, err: slack.SlackErrorResponse{Err: "missing_scope"}}
-	handler := NewDNDHandler(api, userIdentity, zap.NewNop())
+	handler := NewDNDHandler(api, userIdentity)
 	_, err := handler.Get(context.Background(), mcp.CallToolRequest{})
 	var typed *ToolError
-	require.ErrorAs(t, err, &typed)
+	require.ErrorAs(t, TypeError(err, false), &typed)
 	assert.Equal(t, "permission_denied", typed.Code)
 }
 
 func TestUnitDNDMutationTimeoutIsOutcomeUnknown(t *testing.T) {
 	api := &fakeDNDAPI{err: context.DeadlineExceeded}
-	handler := NewDNDHandler(api, userIdentity, zap.NewNop())
+	handler := NewDNDHandler(api, userIdentity)
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"minutes": 30}}}
 	_, err := handler.SetSnooze(context.Background(), request)
 	var typed *ToolError

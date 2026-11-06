@@ -9,16 +9,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// identityFunc lets constructors accept a nil identity callback so call sites
-// never guard; a nil callback reports the zero identity, which
-// requireUserActor rejects as user_oauth_required.
-func identityFunc(identity func() provider.ProviderIdentity) func() provider.ProviderIdentity {
-	if identity == nil {
-		return func() provider.ProviderIdentity { return provider.ProviderIdentity{} }
-	}
-	return identity
-}
-
 // requireUserActor accepts only a Slack user identity: personal actions and
 // approval tokens are bound to a team and user.
 func requireUserActor(identity provider.ProviderIdentity) (provider.ProviderIdentity, error) {

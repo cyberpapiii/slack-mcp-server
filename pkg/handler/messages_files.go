@@ -14,7 +14,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"go.uber.org/zap"
 )
 
 const (
@@ -62,15 +61,11 @@ type MessageFilesHandler struct {
 	service   MessageFilesService
 	approvals approvalGate
 	settings  Settings
-	logger    *zap.Logger
 	now       func() time.Time
 }
 
-func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings, logger *zap.Logger) *MessageFilesHandler {
-	if logger == nil {
-		logger = zap.NewNop()
-	}
-	return &MessageFilesHandler{service: service, approvals: approvalGate{store: approvals, identity: identityFunc(identity)}, settings: settings, logger: logger, now: time.Now}
+func NewMessageFilesHandler(service MessageFilesService, approvals *approval.Store, identity func() provider.ProviderIdentity, settings Settings) *MessageFilesHandler {
+	return &MessageFilesHandler{service: service, approvals: approvalGate{store: approvals, identity: identity}, settings: settings, now: time.Now}
 }
 
 func (h *MessageFilesHandler) FilesUpload(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

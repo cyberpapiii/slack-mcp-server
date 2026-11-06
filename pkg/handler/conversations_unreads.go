@@ -88,7 +88,8 @@ func (ch *ConversationsHandler) processClientCountsResponse(ctx context.Context,
 	coverage := unreadsCoverage{mutedUnavailable: params.mutedUnavailable, maxChannels: params.maxChannels, dropped: dropped}
 
 	if !params.includeMessages {
-		return marshalUnreadChannelsToCSV(unreadChannels, coverage.meta())
+		// Rows carry their own Name column, so no "#channels:" legend.
+		return csvResult("", coverage.meta(), &unreadChannels)
 	}
 
 	histories, errs := fetchUnreadHistories(ctx, ch.apiProvider.WebAPI(), unreadChannels, params.maxMessagesPerChannel,
@@ -425,13 +426,7 @@ func (ch *ConversationsHandler) sortChannelsByPriority(channels []UnreadChannel)
 	})
 }
 
-// marshalUnreadChannelsToCSV renders the include_messages=false summary. Rows
-// carry their own Name column, so no "#channels:" legend is needed.
-func marshalUnreadChannelsToCSV(channels []UnreadChannel, meta ResultMeta) (*mcp.CallToolResult, error) {
-	return csvResult("", meta, &channels)
-}
-
-func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Context, request mcp.CallToolRequest) ([]string, error) {
+func (ch *ConversationsHandler) parseParamsToolOpenConversation(request mcp.CallToolRequest) ([]string, error) {
 	usersStr := request.GetString("users", "")
 	if usersStr == "" {
 		return nil, invalidArguments("users must be a comma-separated string of user IDs or @usernames")
@@ -464,7 +459,7 @@ func (ch *ConversationsHandler) parseParamsToolOpenConversation(ctx context.Cont
 // ConversationsOpenHandler opens a new DM or MPIM
 func (ch *ConversationsHandler) ConversationsOpenHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
-	userIDs, err := ch.parseParamsToolOpenConversation(ctx, request)
+	userIDs, err := ch.parseParamsToolOpenConversation(request)
 	if err != nil {
 		ch.logger.Debug("Failed to parse open-conversation params", zap.Error(err))
 		return nil, err

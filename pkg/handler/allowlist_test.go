@@ -50,8 +50,8 @@ func TestUnitEveryAllowlistedToolRefusesADeniedChannel(t *testing.T) {
 			approvals := approval.NewStore()
 			var tools []ToolDef
 			tools = append(tools, NewConversationsHandler(&provider.ApiProvider{}, zap.NewNop(), settings, true).Tools()...)
-			tools = append(tools, NewMessageFilesHandler(messageFiles, approvals, userIdentity, settings, zap.NewNop()).Tools()...)
-			tools = append(tools, NewChannelMutationHandler(channelMutations, approvals, userIdentity, settings, zap.NewNop()).Tools()...)
+			tools = append(tools, NewMessageFilesHandler(messageFiles, approvals, userIdentity, settings).Tools()...)
+			tools = append(tools, NewChannelMutationHandler(channelMutations, approvals, userIdentity, settings).Tools()...)
 
 			var run *ToolDef
 			for i := range tools {

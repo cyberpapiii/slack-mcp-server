@@ -11,7 +11,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 type fakeMessageFilesService struct {
@@ -57,7 +56,7 @@ func messageFilesRequest(args map[string]any) mcp.CallToolRequest {
 func newTestMessageFilesHandler(service MessageFilesService) *MessageFilesHandler {
 	return NewMessageFilesHandler(service, approval.NewStore(), func() provider.ProviderIdentity {
 		return provider.ProviderIdentity{TeamID: "T1", UserID: "U1", ActorType: "user", TokenMode: "oauth"}
-	}, envSettings(), zap.NewNop())
+	}, envSettings())
 }
 
 func TestUnitFilesUploadRejectsMultipleSourcesWithoutMutation(t *testing.T) {

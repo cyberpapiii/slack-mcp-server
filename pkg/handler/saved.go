@@ -394,10 +394,6 @@ func (h *SavedHandler) Tools() []ToolDef {
 				mcp.Description("If true (default), fetches the actual saved message content. If false, returns metadata only."),
 				mcp.DefaultBool(true),
 			),
-			mcp.WithNumber("max_messages_per_item",
-				mcp.Description("Max messages to fetch per saved item (for thread replies). Default is 5."),
-				mcp.DefaultNumber(5),
-			),
 			detailOption(),
 		}},
 		{Name: capability.SavedAdd, Run: h.SavedAddHandler, Options: []mcp.ToolOption{
