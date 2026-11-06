@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestBuildAuthorizationURLUsesUserScopesAndPKCE(t *testing.T) {
-	authorization, err := provider.NewPKCEAuthorization(defaultRedirectURI)
+	authorization, err := oauthcred.NewPKCE(defaultRedirectURI)
 	require.NoError(t, err)
 
 	raw, err := buildAuthorizationURL("client-id", "T1", []string{"channels:read", "chat:write"}, authorization)

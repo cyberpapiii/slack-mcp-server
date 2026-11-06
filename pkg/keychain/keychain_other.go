@@ -1,6 +1,6 @@
 //go:build !darwin || !cgo
 
-package provider
+package keychain
 
 import (
 	"context"
@@ -13,7 +13,7 @@ var errKeychainUnavailable = errors.New("macOS Keychain requires Darwin with cgo
 // the credential stores still construct and fail at the first access.
 type unavailableKeychain struct{}
 
-func platformKeychain() keychainStore { return unavailableKeychain{} }
+func Platform() Store { return unavailableKeychain{} }
 
 func (unavailableKeychain) Read(context.Context, string, string) ([]byte, error) {
 	return nil, errKeychainUnavailable

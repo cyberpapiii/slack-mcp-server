@@ -2,16 +2,81 @@ package provider
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	transportpkg "github.com/korotovsky/slack-mcp-server/pkg/transport"
 	"github.com/slack-go/slack"
 	"go.uber.org/zap"
 )
 
+type OAuthCredentialStatus struct {
+	Source             string `json:"source"`
+	RotationConfigured bool   `json:"rotation_configured"`
+	Store              string `json:"store"`
+	State              string `json:"state"`
+	Reason             string `json:"reason,omitempty"`
+}
+
+func (c CredentialConfig) oauthStatus() OAuthCredentialStatus {
+	status := OAuthCredentialStatus{Source: "not_configured", Store: "not_configured", State: "unavailable"}
+	if c.OAuthKeychainAccount != "" {
+		status.Source = "keychain"
+		status.Store = "macos_keychain"
+		if c.OAuthClientID != "" {
+			status.RotationConfigured = true
+			status.State = "configured"
+		} else {
+			status.State = "foundation"
+			status.Reason = "OAuth client configuration is absent; authorization and rotation are unavailable"
+		}
+		return status
+	}
+	if c.XOXP != "" {
+		status.Source = "static_user_oauth"
+		status.Store = "environment"
+		status.State = "live"
+		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
+		return status
+	}
+	if c.XOXB != "" {
+		status.Source = "static_bot_oauth"
+		status.Store = "environment"
+		status.State = "live"
+		status.Reason = "static non-expiring OAuth compatibility mode; durable rotation is unavailable"
+		return status
+	}
+	return status
+}
+
+func loadManagedOAuth(ctx context.Context, creds CredentialConfig, logger *zap.Logger) (*oauthcred.Manager, oauthcred.Record, error) {
+	store, err := oauthcred.NewKeychainStore(creds.OAuthKeychainAccount)
+	if err != nil {
+		return nil, oauthcred.Record{}, err
+	}
+	httpClient, err := transportpkg.ProvideHTTPClient(nil, logger)
+	if err != nil {
+		return nil, oauthcred.Record{}, err
+	}
+	var refresher oauthcred.Refresher
+	if creds.OAuthClientID != "" {
+		refresher = &oauthcred.SlackRefresher{HTTPClient: httpClient, ClientID: creds.OAuthClientID, ClientSecret: creds.OAuthClientSecret}
+	}
+	manager := oauthcred.NewManager(store, refresher, oauthcred.WithLock)
+	expected, err := store.Load(ctx)
+	if err != nil {
+		return nil, oauthcred.Record{}, err
+	}
+	manager.WithValidator(expected.Identity().Validator(oauthcred.SlackAuthTest(httpClient)))
+	record, err := manager.Current(ctx)
+	if err != nil {
+		return nil, oauthcred.Record{}, err
+	}
+	return manager, record, nil
+}
+
 func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
-	status := OAuthStatusFromEnvironment()
+	status := ap.creds.oauthStatus()
 	if ap.oauthLoadErr != nil {
 		status.State = "unavailable"
 		status.Reason = "stored OAuth login failed to load (" + ap.oauthLoadErr.Error() + "); run slack-mcp-auth login --replace, then restart"
@@ -29,22 +94,16 @@ func (ap *ApiProvider) OAuthCredentialStatus() OAuthCredentialStatus {
 	return status
 }
 
-func (ap *ApiProvider) startManagedOAuth(manager *OAuthTokenManager, record OAuthTokenRecord) {
+func (ap *ApiProvider) startManagedOAuth(manager *oauthcred.Manager, record oauthcred.Record) {
 	client, ok := ap.client.(*MCPSlackClient)
 	if !ok || client == nil {
 		return
 	}
-	expected := client.AuthResponse()
-	manager.WithValidator(func(ctx context.Context, rotated OAuthTokenRecord) error {
-		_, identity, err := client.managedSlackClient(ctx, rotated.AccessToken)
-		if err != nil {
-			return err
-		}
-		if expected == nil || identity.TeamID != expected.TeamID || identity.UserID != expected.UserID {
-			return fmt.Errorf("rotated OAuth identity mismatch")
-		}
-		return nil
-	})
+	expected := oauthcred.IdentityOf(client.AuthResponse())
+	manager.WithValidator(expected.Validator(func(ctx context.Context, token string) (*slack.AuthTestResponse, error) {
+		_, identity, err := client.managedSlackClient(ctx, token)
+		return identity, err
+	}))
 	client.oauthManager = manager
 	client.oauthGeneration.Store(record.Generation)
 	client.oauthRuntimeState.Store("live")

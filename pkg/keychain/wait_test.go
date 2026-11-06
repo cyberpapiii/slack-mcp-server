@@ -1,4 +1,4 @@
-package provider
+package keychain
 
 import (
 	"testing"
@@ -13,7 +13,7 @@ import (
 func TestUnitWarnWhileWaitingLogsAStalledKeychainRead(t *testing.T) {
 	core, logs := observer.New(zapcore.WarnLevel)
 
-	stop := warnWhileWaiting(zap.New(core), 5*time.Millisecond, "oauth")
+	stop := WarnWhileWaiting(zap.New(core), 5*time.Millisecond, "oauth")
 	time.Sleep(100 * time.Millisecond)
 	stop()
 
@@ -28,7 +28,7 @@ func TestUnitWarnWhileWaitingLogsAStalledKeychainRead(t *testing.T) {
 func TestUnitWarnWhileWaitingStaysQuietForAFastRead(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 
-	stop := warnWhileWaiting(zap.New(core), 50*time.Millisecond, "oauth")
+	stop := WarnWhileWaiting(zap.New(core), 50*time.Millisecond, "oauth")
 	stop()
 	time.Sleep(100 * time.Millisecond)
 

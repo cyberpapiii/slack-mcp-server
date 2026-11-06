@@ -1,8 +1,7 @@
-package provider
+package oauthcred
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,72 +18,72 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type memoryCredentialStore struct {
+type memoryStore struct {
 	mu     sync.Mutex
-	record OAuthTokenRecord
+	record Record
 }
 
-type flakyCredentialStore struct {
-	memoryCredentialStore
+type flakyStore struct {
+	memoryStore
 	failSaves atomic.Int32
 }
 
-func (s *flakyCredentialStore) SaveIfGeneration(ctx context.Context, expected uint64, record OAuthTokenRecord) error {
+func (s *flakyStore) SaveIfGeneration(ctx context.Context, expected uint64, record Record) error {
 	if s.failSaves.Add(-1) >= 0 {
 		return errors.New("temporary Keychain failure")
 	}
-	return s.memoryCredentialStore.SaveIfGeneration(ctx, expected, record)
+	return s.memoryStore.SaveIfGeneration(ctx, expected, record)
 }
 
-func (s *memoryCredentialStore) Load(context.Context) (OAuthTokenRecord, error) {
+func (s *memoryStore) Load(context.Context) (Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.record, nil
 }
 
-func (s *memoryCredentialStore) SaveIfGeneration(_ context.Context, expected uint64, record OAuthTokenRecord) error {
+func (s *memoryStore) SaveIfGeneration(_ context.Context, expected uint64, record Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.record.Generation != expected {
-		return ErrCredentialGenerationChanged
+		return ErrGenerationChanged
 	}
 	s.record = record
 	return nil
 }
 
-func (s *memoryCredentialStore) Delete(context.Context) error { return nil }
+func (s *memoryStore) Delete(context.Context) error { return nil }
 
 type countingRefresher struct {
 	calls atomic.Int32
 	now   time.Time
 }
 
-func (r *countingRefresher) Refresh(context.Context, string) (OAuthRefreshResult, error) {
+func (r *countingRefresher) Refresh(context.Context, string) (RefreshResult, error) {
 	r.calls.Add(1)
-	return OAuthRefreshResult{
+	return RefreshResult{
 		AccessToken: "rotated-access", RefreshToken: "rotated-refresh",
 		ExpiresAt: r.now.Add(time.Hour), Scopes: []string{"channels:read"},
 	}, nil
 }
 
-func TestUnitOAuthTokenManagerRefreshesOnceForConcurrentCallers(t *testing.T) {
+func TestUnitManagerRefreshesOnceForConcurrentCallers(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	store := &memoryCredentialStore{record: OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "old-access", RefreshToken: "old-refresh",
+	store := &memoryStore{record: Record{
+		Version: RecordVersion, AccessToken: "old-access", RefreshToken: "old-refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 4,
 	}}
 	refresher := &countingRefresher{now: now}
-	sharedLock := withOAuthFileLock(t.TempDir() + "/oauth-refresh.lock")
-	managers := []*OAuthTokenManager{
-		NewOAuthTokenManager(store, refresher, sharedLock),
-		NewOAuthTokenManager(store, refresher, sharedLock),
+	sharedLock := fileLock(t.TempDir() + "/oauth-refresh.lock")
+	managers := []*Manager{
+		NewManager(store, refresher, sharedLock),
+		NewManager(store, refresher, sharedLock),
 	}
 	for _, manager := range managers {
 		manager.now = func() time.Time { return now }
 	}
 
 	var wg sync.WaitGroup
-	results := make(chan OAuthTokenRecord, 8)
+	results := make(chan Record, 8)
 	for i := range 8 {
 		wg.Add(1)
 		go func() {
@@ -104,20 +103,20 @@ func TestUnitOAuthTokenManagerRefreshesOnceForConcurrentCallers(t *testing.T) {
 	}
 }
 
-func TestUnitOAuthTokenManagerRejectsExpiredCredentialWithoutRotation(t *testing.T) {
+func TestUnitManagerRejectsExpiredCredentialWithoutRotation(t *testing.T) {
 	now := time.Now().UTC()
-	store := &memoryCredentialStore{record: OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "expired", ExpiresAt: now.Add(-time.Minute),
+	store := &memoryStore{record: Record{
+		Version: RecordVersion, AccessToken: "expired", ExpiresAt: now.Add(-time.Minute),
 	}}
-	manager := NewOAuthTokenManager(store, nil, nil)
+	manager := NewManager(store, nil, nil)
 	manager.now = func() time.Time { return now }
 
 	_, err := manager.Current(context.Background())
-	assert.ErrorIs(t, err, ErrOAuthRefreshUnavailable)
+	assert.ErrorIs(t, err, ErrRefreshUnavailable)
 }
 
 func TestUnitPKCECallbackIsExactAndOneUse(t *testing.T) {
-	authz, err := NewPKCEAuthorization("http://127.0.0.1:19453/oauth/callback")
+	authz, err := NewPKCE("http://127.0.0.1:19453/oauth/callback")
 	require.NoError(t, err)
 	assert.NotEmpty(t, authz.Verifier)
 	assert.NotEmpty(t, authz.Challenge)
@@ -125,12 +124,12 @@ func TestUnitPKCECallbackIsExactAndOneUse(t *testing.T) {
 	assert.Error(t, authz.ValidateCallback("wrong", authz.RedirectURI))
 	require.NoError(t, authz.ValidateCallback(authz.State, authz.RedirectURI))
 	assert.Error(t, authz.ValidateCallback(authz.State, authz.RedirectURI))
-	_, err = NewPKCEAuthorization("https://example.com/oauth/callback")
+	_, err = NewPKCE("https://example.com/oauth/callback")
 	assert.Error(t, err)
 }
 
 func TestUnitPKCECallbackExpires(t *testing.T) {
-	authz, err := NewPKCEAuthorization("http://127.0.0.1:19453/oauth/callback")
+	authz, err := NewPKCE("http://127.0.0.1:19453/oauth/callback")
 	require.NoError(t, err)
 	authz.now = func() time.Time { return authz.ExpiresAt }
 
@@ -139,37 +138,20 @@ func TestUnitPKCECallbackExpires(t *testing.T) {
 	assert.Contains(t, err.Error(), "expired")
 }
 
-func TestUnitOAuthCredentialStatusNeverContainsTokens(t *testing.T) {
-	original := getenv
-	t.Cleanup(func() { getenv = original })
-	getenv = func(key string) string {
-		if key == "SLACK_MCP_XOXP_TOKEN" {
-			return "sentinel-access-secret"
-		}
-		return ""
-	}
-	status := OAuthStatusFromEnvironment()
-	raw, err := json.Marshal(status)
-	require.NoError(t, err)
-	assert.NotContains(t, string(raw), "sentinel-access-secret")
-	assert.Equal(t, "static_user_oauth", status.Source)
-	assert.False(t, status.RotationConfigured)
-}
-
-func TestUnitOAuthTokenRecordStringIsRedacted(t *testing.T) {
-	record := OAuthTokenRecord{Version: oauthRecordVersion, AccessToken: "sentinel-access", RefreshToken: "sentinel-refresh"}
+func TestUnitRecordStringIsRedacted(t *testing.T) {
+	record := Record{Version: RecordVersion, AccessToken: "sentinel-access", RefreshToken: "sentinel-refresh"}
 	formatted := fmt.Sprintf("%v", record)
 	assert.NotContains(t, formatted, "sentinel")
 	assert.Contains(t, formatted, "REDACTED")
 }
 
-func TestUnitOAuthTokenManagerPreservesOldRecordOnRefreshFailure(t *testing.T) {
+func TestUnitManagerPreservesOldRecordOnRefreshFailure(t *testing.T) {
 	now := time.Now().UTC()
-	store := &memoryCredentialStore{record: OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "old", RefreshToken: "refresh",
+	store := &memoryStore{record: Record{
+		Version: RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 7,
 	}}
-	manager := NewOAuthTokenManager(store, failingRefresher{}, nil)
+	manager := NewManager(store, failingRefresher{}, nil)
 	manager.now = func() time.Time { return now }
 
 	_, err := manager.Current(context.Background())
@@ -179,14 +161,14 @@ func TestUnitOAuthTokenManagerPreservesOldRecordOnRefreshFailure(t *testing.T) {
 	assert.Equal(t, uint64(7), record.Generation)
 }
 
-func TestUnitOAuthTokenManagerPreservesRotationBeforeValidation(t *testing.T) {
+func TestUnitManagerPreservesRotationBeforeValidation(t *testing.T) {
 	now := time.Now().UTC()
-	store := &memoryCredentialStore{record: OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "old", RefreshToken: "refresh",
+	store := &memoryStore{record: Record{
+		Version: RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 2,
 	}}
-	manager := NewOAuthTokenManager(store, &countingRefresher{now: now}, nil).WithValidator(
-		func(context.Context, OAuthTokenRecord) error { return errors.New("identity mismatch") },
+	manager := NewManager(store, &countingRefresher{now: now}, nil).WithValidator(
+		func(context.Context, Record) error { return errors.New("identity mismatch") },
 	)
 	manager.now = func() time.Time { return now }
 
@@ -202,13 +184,13 @@ func TestUnitOAuthTokenManagerPreservesRotationBeforeValidation(t *testing.T) {
 	assert.Contains(t, err.Error(), "identity mismatch")
 }
 
-func TestUnitOAuthTokenManagerRejectsScopeLoss(t *testing.T) {
+func TestUnitManagerRejectsScopeLoss(t *testing.T) {
 	now := time.Now().UTC()
-	store := &memoryCredentialStore{record: OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "old", RefreshToken: "refresh",
+	store := &memoryStore{record: Record{
+		Version: RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 2, Scopes: []string{"channels:read", "chat:write"},
 	}}
-	manager := NewOAuthTokenManager(store, &countingRefresher{now: now}, nil)
+	manager := NewManager(store, &countingRefresher{now: now}, nil)
 	manager.now = func() time.Time { return now }
 
 	_, err := manager.Current(context.Background())
@@ -220,21 +202,21 @@ func TestUnitOAuthTokenManagerRejectsScopeLoss(t *testing.T) {
 	assert.Equal(t, uint64(3), record.Generation)
 }
 
-func TestUnitOAuthTokenManagerRejectsGenerationChange(t *testing.T) {
-	store := &memoryCredentialStore{record: OAuthTokenRecord{Version: oauthRecordVersion, AccessToken: "current", Generation: 9}}
-	err := store.SaveIfGeneration(context.Background(), 8, OAuthTokenRecord{Version: oauthRecordVersion, AccessToken: "new", Generation: 9})
-	assert.ErrorIs(t, err, ErrCredentialGenerationChanged)
+func TestUnitManagerRejectsGenerationChange(t *testing.T) {
+	store := &memoryStore{record: Record{Version: RecordVersion, AccessToken: "current", Generation: 9}}
+	err := store.SaveIfGeneration(context.Background(), 8, Record{Version: RecordVersion, AccessToken: "new", Generation: 9})
+	assert.ErrorIs(t, err, ErrGenerationChanged)
 }
 
-func TestUnitOAuthTokenManagerRetriesPendingRotationAfterStoreFailure(t *testing.T) {
+func TestUnitManagerRetriesPendingRotationAfterStoreFailure(t *testing.T) {
 	now := time.Now().UTC()
-	store := &flakyCredentialStore{memoryCredentialStore: memoryCredentialStore{record: OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "old", RefreshToken: "refresh",
+	store := &flakyStore{memoryStore: memoryStore{record: Record{
+		Version: RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 2, Scopes: []string{"channels:read"},
 	}}}
 	store.failSaves.Store(1)
 	refresher := &countingRefresher{now: now}
-	manager := NewOAuthTokenManager(store, refresher, nil)
+	manager := NewManager(store, refresher, nil)
 	manager.now = func() time.Time { return now }
 
 	_, err := manager.Current(context.Background())
@@ -252,29 +234,29 @@ func TestUnitOAuthTokenManagerRetriesPendingRotationAfterStoreFailure(t *testing
 
 func TestUnitAuthorizedOAuthCommitRequiresScopesAndIdentity(t *testing.T) {
 	now := time.Now().UTC()
-	store := &memoryCredentialStore{record: OAuthTokenRecord{Version: oauthRecordVersion, AccessToken: "old", Generation: 4}}
-	record := OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "new", RefreshToken: "refresh",
+	store := &memoryStore{record: Record{Version: RecordVersion, AccessToken: "old", Generation: 4}}
+	record := Record{
+		Version: RecordVersion, AccessToken: "new", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Hour), Generation: 5, Scopes: []string{"channels:read"},
 	}
-	err := CommitAuthorizedOAuthCredential(context.Background(), store, 4, record, []string{"channels:read", "chat:write"}, nil)
+	err := CommitAuthorized(context.Background(), store, 4, record, []string{"channels:read", "chat:write"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing required scopes")
 
 	record.Scopes = append(record.Scopes, "chat:write")
-	err = CommitAuthorizedOAuthCredential(context.Background(), store, 4, record, record.Scopes,
-		func(context.Context, OAuthTokenRecord) error { return errors.New("wrong user") })
+	err = CommitAuthorized(context.Background(), store, 4, record, record.Scopes,
+		func(context.Context, Record) error { return errors.New("wrong user") })
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "wrong user")
 
-	require.NoError(t, CommitAuthorizedOAuthCredential(context.Background(), store, 4, record, record.Scopes,
-		func(context.Context, OAuthTokenRecord) error { return nil }))
+	require.NoError(t, CommitAuthorized(context.Background(), store, 4, record, record.Scopes,
+		func(context.Context, Record) error { return nil }))
 	saved, _ := store.Load(context.Background())
 	assert.Equal(t, "new", saved.AccessToken)
 }
 
 func TestUnitOAuthCodeExchangeUsesPKCEAndFixedSlackEndpoint(t *testing.T) {
-	authorization, err := NewPKCEAuthorization("http://127.0.0.1:19453/oauth/callback")
+	authorization, err := NewPKCE("http://127.0.0.1:19453/oauth/callback")
 	require.NoError(t, err)
 	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		assert.Equal(t, "https://slack.com/api/oauth.v2.access", request.URL.String())
@@ -288,7 +270,7 @@ func TestUnitOAuthCodeExchangeUsesPKCEAndFixedSlackEndpoint(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}
 	now := time.Now().UTC()
-	record, err := ExchangeOAuthAuthorizationCode(
+	record, err := ExchangeCode(
 		context.Background(), client, "client-id", "client-secret", "code",
 		authorization.State, authorization.RedirectURI, authorization, now,
 	)
@@ -299,7 +281,7 @@ func TestUnitOAuthCodeExchangeUsesPKCEAndFixedSlackEndpoint(t *testing.T) {
 	assert.ElementsMatch(t, []string{"channels:read", "chat:write"}, record.Scopes)
 }
 
-func TestUnitSlackOAuthRefresherSupportsPKCEPublicClient(t *testing.T) {
+func TestUnitSlackRefresherSupportsPKCEPublicClient(t *testing.T) {
 	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		assert.Equal(t, "https://slack.com/api/oauth.v2.access", request.URL.String())
 		raw, err := io.ReadAll(request.Body)
@@ -314,7 +296,7 @@ func TestUnitSlackOAuthRefresherSupportsPKCEPublicClient(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	refresher := &SlackOAuthRefresher{HTTPClient: client, ClientID: "client-id", now: func() time.Time { return now }}
+	refresher := &SlackRefresher{HTTPClient: client, ClientID: "client-id", now: func() time.Time { return now }}
 
 	result, err := refresher.Refresh(context.Background(), "refresh-secret")
 	require.NoError(t, err)
@@ -324,7 +306,7 @@ func TestUnitSlackOAuthRefresherSupportsPKCEPublicClient(t *testing.T) {
 	assert.ElementsMatch(t, []string{"channels:read", "chat:write"}, result.Scopes)
 }
 
-func TestUnitSlackOAuthRefresherPreservesRetryAfter(t *testing.T) {
+func TestUnitSlackRefresherPreservesRetryAfter(t *testing.T) {
 	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusTooManyRequests,
@@ -332,7 +314,7 @@ func TestUnitSlackOAuthRefresherPreservesRetryAfter(t *testing.T) {
 			Header:     http.Header{"Retry-After": []string{"180"}},
 		}, nil
 	})}
-	refresher := &SlackOAuthRefresher{HTTPClient: client, ClientID: "client-id"}
+	refresher := &SlackRefresher{HTTPClient: client, ClientID: "client-id"}
 
 	_, err := refresher.Refresh(context.Background(), "refresh-secret")
 	var limited *slack.RateLimitedError
@@ -340,35 +322,49 @@ func TestUnitSlackOAuthRefresherPreservesRetryAfter(t *testing.T) {
 	assert.Equal(t, 3*time.Minute, limited.RetryAfter)
 }
 
-func TestUnitSlackOAuthRefresherRejectsMissingExpiry(t *testing.T) {
+func TestUnitSlackRefresherRejectsMissingExpiry(t *testing.T) {
 	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 		body := `{"ok":true,"authed_user":{"access_token":"xoxe.xoxp-new","refresh_token":"xoxe-refresh-new","scope":"channels:read"}}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}
-	refresher := &SlackOAuthRefresher{HTTPClient: client, ClientID: "client-id"}
+	refresher := &SlackRefresher{HTTPClient: client, ClientID: "client-id"}
 
 	_, err := refresher.Refresh(context.Background(), "refresh-secret")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "incomplete rotated credential")
 }
 
-func TestUnitOAuthCredentialStatusSupportsPKCEPublicClient(t *testing.T) {
-	original := getenv
-	t.Cleanup(func() { getenv = original })
-	getenv = func(key string) string {
-		switch key {
-		case "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT":
-			return "loop-user"
-		case "SLACK_MCP_OAUTH_CLIENT_ID":
-			return "client-id"
-		default:
-			return ""
-		}
-	}
+func TestUnitIdentityMatchRequiresTeamAndUser(t *testing.T) {
+	want := Identity{TeamID: "T1", UserID: "U1"}
+	require.NoError(t, want.Match(Identity{TeamID: "T1", UserID: "U1"}))
+	assert.ErrorContains(t, want.Match(Identity{TeamID: "T1", UserID: "U2"}), "identity mismatch")
+	assert.Error(t, Identity{}.Match(Identity{}), "an unknown expected identity matches nothing")
+	assert.Error(t, want.Match(IdentityOf(nil)))
+}
 
-	status := OAuthStatusFromEnvironment()
-	assert.Equal(t, "configured", status.State)
-	assert.True(t, status.RotationConfigured)
+func TestUnitIdentityValidatorAuthTestsTheRecordToken(t *testing.T) {
+	var sawToken string
+	validate := Identity{TeamID: "T1", UserID: "U1"}.Validator(func(_ context.Context, token string) (*slack.AuthTestResponse, error) {
+		sawToken = token
+		return &slack.AuthTestResponse{TeamID: "T1", UserID: "U2"}, nil
+	})
+
+	err := validate(context.Background(), Record{AccessToken: "candidate"})
+	assert.ErrorContains(t, err, "identity mismatch")
+	assert.Equal(t, "candidate", sawToken)
+}
+
+func TestUnitSlackAuthTestUsesTheGivenClientAndGovSlack(t *testing.T) {
+	t.Setenv("SLACK_MCP_GOVSLACK", "true")
+	client := &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		assert.Equal(t, "https://slack-gov.com/api/auth.test", request.URL.String())
+		body := `{"ok":true,"team_id":"T1","user_id":"U1"}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}
+
+	response, err := SlackAuthTest(client)(context.Background(), "token")
+	require.NoError(t, err)
+	assert.Equal(t, Identity{TeamID: "T1", UserID: "U1"}, IdentityOf(response))
 }
 
 type oauthRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -379,6 +375,6 @@ func (f oauthRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, er
 
 type failingRefresher struct{}
 
-func (failingRefresher) Refresh(context.Context, string) (OAuthRefreshResult, error) {
-	return OAuthRefreshResult{}, errors.New("revoked")
+func (failingRefresher) Refresh(context.Context, string) (RefreshResult, error) {
+	return RefreshResult{}, errors.New("revoked")
 }

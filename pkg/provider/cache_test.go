@@ -1,12 +1,10 @@
 package provider
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestGetCacheTTL(t *testing.T) {
@@ -58,17 +56,6 @@ func TestGetCacheTTL(t *testing.T) {
 			assert.Equal(t, tt.expected, getCacheTTL())
 		})
 	}
-}
-
-func TestGetCacheDir(t *testing.T) {
-	dir := getCacheDir()
-
-	assert.NotEmpty(t, dir, "cache dir should not be empty")
-	assert.Contains(t, dir, "slack-mcp-server", "cache dir should contain app name")
-
-	info, err := os.Stat(dir)
-	require.NoError(t, err, "cache directory should exist")
-	assert.True(t, info.IsDir(), "cache path should be a directory")
 }
 
 func TestGetMinRefreshInterval(t *testing.T) {

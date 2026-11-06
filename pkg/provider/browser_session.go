@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
@@ -148,12 +148,8 @@ func (c *MCPSlackClient) ConfiguredWithBrowserSession() bool {
 // attachBrowserSession adds browser-only Slack surfaces to an OAuth-primary
 // client. Standard Web API calls continue to use the OAuth client.
 func (c *MCPSlackClient) attachBrowserSession(browserAuth slackcreds.Value, browserIdentity *slack.AuthTestResponse, httpClient *http.Client) error {
-	if browserIdentity == nil || c.authResponse == nil {
-		return errors.New("cannot verify OAuth and browser provider identities")
-	}
-	if browserIdentity.TeamID != c.authResponse.TeamID || browserIdentity.UserID != c.authResponse.UserID {
-		return fmt.Errorf("browser provider identity mismatch: OAuth team/user %s/%s, browser team/user %s/%s",
-			c.authResponse.TeamID, c.authResponse.UserID, browserIdentity.TeamID, browserIdentity.UserID)
+	if err := oauthcred.IdentityOf(c.authResponse).Match(oauthcred.IdentityOf(browserIdentity)); err != nil {
+		return fmt.Errorf("browser provider %w", err)
 	}
 	browserEdge, err := edge.NewWithInfo(browserIdentity, browserAuth, edge.OptionHTTPClient(httpClient))
 	if err != nil {
@@ -193,8 +189,8 @@ func (c *MCPSlackClient) reprobeBrowser(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if identity == nil || c.authResponse == nil || identity.TeamID != c.authResponse.TeamID || identity.UserID != c.authResponse.UserID {
-		return errors.New("browser provider identity does not match the OAuth user")
+	if err := oauthcred.IdentityOf(c.authResponse).Match(oauthcred.IdentityOf(identity)); err != nil {
+		return fmt.Errorf("browser provider %w", err)
 	}
 	browserEdge, err := edge.NewWithInfo(identity, browserAuth, edge.OptionHTTPClient(httpClient))
 	if err != nil {
@@ -246,7 +242,7 @@ func (ap *ApiProvider) startBrowserReprobe(account, xoxc, xoxd string) {
 		if err != nil {
 			return slackcreds.Value{}, nil, nil, err
 		}
-		httpClient, identity, err := authTest(browserAuth, client.logger)
+		httpClient, identity, err := authTest(browserAuth, client.demo, client.logger)
 		return browserAuth, identity, httpClient, err
 	}
 	go client.runBrowserReprobe(ap.lifetime(), browserReprobeInterval)
@@ -294,7 +290,7 @@ func attachBrowserToOAuth(ap *ApiProvider, xoxcToken, xoxdToken string, logger *
 			httpClient      *http.Client
 			browserIdentity *slack.AuthTestResponse
 		)
-		httpClient, browserIdentity, err = authTest(browserAuth, logger)
+		httpClient, browserIdentity, err = authTest(browserAuth, client.demo, logger)
 		if err == nil {
 			err = client.attachBrowserSession(browserAuth, browserIdentity, httpClient)
 		}
@@ -430,11 +426,5 @@ func (ap *ApiProvider) BrowserDegradedReason() string {
 }
 
 func (ap *ApiProvider) BrowserCredentialSource() string {
-	if strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT")) != "" {
-		return "macos_keychain"
-	}
-	if os.Getenv("SLACK_MCP_XOXC_TOKEN") != "" && os.Getenv("SLACK_MCP_XOXD_TOKEN") != "" {
-		return "environment_compatibility"
-	}
-	return "not_configured"
+	return ap.creds.browserCredentialSource()
 }

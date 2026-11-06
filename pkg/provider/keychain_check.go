@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+
+	"github.com/korotovsky/slack-mcp-server/pkg/keychain"
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 )
 
-// CheckKeychainAccess reads every Keychain item the environment names
+// CheckKeychainAccess reads every Keychain item creds names
 // (SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT, SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT) and
 // discards the contents. It returns how many items it read.
 //
@@ -16,23 +18,22 @@ import (
 // --check-keychain first, so that prompt is answered before Plug starts the
 // binary under its 60s initialize timeout. The read blocks until someone
 // answers the prompt; ctx cannot interrupt the cgo call.
-func CheckKeychainAccess(ctx context.Context) (int, error) {
-	return checkKeychainAccess(ctx, platformKeychain())
+func CheckKeychainAccess(ctx context.Context, creds CredentialConfig) (int, error) {
+	return checkKeychainAccess(ctx, keychain.Platform(), creds)
 }
 
-func checkKeychainAccess(ctx context.Context, keychain keychainStore) (int, error) {
-	items := []struct{ label, service, envVar string }{
-		{"OAuth", defaultOAuthKeychainService, "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"},
-		{"browser", browserKeychainService, "SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"},
+func checkKeychainAccess(ctx context.Context, store keychain.Store, creds CredentialConfig) (int, error) {
+	items := []struct{ label, service, account, envVar string }{
+		{"OAuth", oauthcred.KeychainService, creds.OAuthKeychainAccount, "SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT"},
+		{"browser", browserKeychainService, creds.BrowserKeychainAccount, "SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"},
 	}
 	read := 0
 	for _, item := range items {
-		account := strings.TrimSpace(getenv(item.envVar))
-		if account == "" {
+		if item.account == "" {
 			continue
 		}
-		if _, err := keychain.Read(ctx, item.service, account); err != nil {
-			if errors.Is(err, ErrCredentialNotFound) {
+		if _, err := store.Read(ctx, item.service, item.account); err != nil {
+			if errors.Is(err, keychain.ErrNotFound) {
 				return read, fmt.Errorf("%s credential named by %s is not in the Keychain", item.label, item.envVar)
 			}
 			return read, fmt.Errorf("read %s credential named by %s: access denied or Keychain unavailable", item.label, item.envVar)

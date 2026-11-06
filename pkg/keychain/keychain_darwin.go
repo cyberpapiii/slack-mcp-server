@@ -1,6 +1,6 @@
 //go:build darwin && cgo
 
-package provider
+package keychain
 
 /*
 #cgo LDFLAGS: -framework Security -framework CoreFoundation
@@ -112,7 +112,7 @@ const keychainItemNotFound = C.OSStatus(-25300)
 // darwinKeychain talks to the login keychain through Security.framework.
 type darwinKeychain struct{}
 
-func platformKeychain() keychainStore { return darwinKeychain{} }
+func Platform() Store { return darwinKeychain{} }
 
 func (darwinKeychain) Read(ctx context.Context, service, account string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
@@ -124,7 +124,7 @@ func (darwinKeychain) Read(ctx context.Context, service, account string) ([]byte
 	var length C.CFIndex
 	status := C.oauthKeychainRead(serviceValue, accountValue, &raw, &length)
 	if status == keychainItemNotFound {
-		return nil, ErrCredentialNotFound
+		return nil, ErrNotFound
 	}
 	if status != 0 {
 		return nil, errors.New("Keychain read failed")

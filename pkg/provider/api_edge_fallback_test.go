@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"github.com/slack-go/slack"
@@ -146,12 +147,11 @@ func TestManagedOAuthRefreshReplacesRuntimeClient(t *testing.T) {
 	now := time.Now().UTC()
 	oldClient := slack.New("old")
 	newClient := slack.New("new")
-	store := &memoryCredentialStore{record: OAuthTokenRecord{
-		Version: oauthRecordVersion, AccessToken: "old", RefreshToken: "refresh",
+	store := &memoryStore{record: oauthcred.Record{
+		Version: oauthcred.RecordVersion, AccessToken: "old", RefreshToken: "refresh",
 		ExpiresAt: now.Add(time.Minute), Generation: 3,
 	}}
-	manager := NewOAuthTokenManager(store, &countingRefresher{now: now}, nil)
-	manager.now = func() time.Time { return now }
+	manager := oauthcred.NewManager(store, &hookRefresher{now: now}, nil)
 	c := &MCPSlackClient{slackClient: oldClient, oauthManager: manager, logger: zap.NewNop()}
 	c.oauthGeneration.Store(3)
 	c.managedClientFactory = func(context.Context, string) (*slack.Client, *slack.AuthTestResponse, error) {

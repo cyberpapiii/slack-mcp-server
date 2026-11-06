@@ -7,11 +7,13 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"net/url"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/korotovsky/slack-mcp-server/pkg/cachedir"
+	"github.com/korotovsky/slack-mcp-server/pkg/keychain"
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
 	"github.com/korotovsky/slack-mcp-server/pkg/slackcreds"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -44,6 +46,7 @@ type ApiProvider struct {
 	// continued on the browser session instead. OAuth-only tools are absent.
 	oauthLoadErr error
 
+	creds     CredentialConfig
 	transport string
 	client    SlackAPI
 	logger    *zap.Logger
@@ -90,19 +93,17 @@ type ProviderIdentity struct {
 // New resolves credentials from the environment and authenticates once.
 // Every failure is returned; the caller decides whether it is fatal.
 func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
-	xoxpToken := os.Getenv("SLACK_MCP_XOXP_TOKEN")
-	xoxbToken := os.Getenv("SLACK_MCP_XOXB_TOKEN")
-	xoxcToken := os.Getenv("SLACK_MCP_XOXC_TOKEN")
-	xoxdToken := os.Getenv("SLACK_MCP_XOXD_TOKEN")
-	browserAccount := strings.TrimSpace(os.Getenv("SLACK_MCP_BROWSER_KEYCHAIN_ACCOUNT"))
-	var managedManager *OAuthTokenManager
-	var managedRecord OAuthTokenRecord
+	creds := CredentialConfigFromEnv()
+	xoxpToken, xoxbToken, xoxcToken, xoxdToken := creds.XOXP, creds.XOXB, creds.XOXC, creds.XOXD
+	browserAccount := creds.BrowserKeychainAccount
+	var managedManager *oauthcred.Manager
+	var managedRecord oauthcred.Record
 	var oauthLoadErr error
-	if os.Getenv("SLACK_MCP_OAUTH_KEYCHAIN_ACCOUNT") != "" {
+	if creds.OAuthKeychainAccount != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		var managedErr error
-		stop := warnWhileWaiting(logger, keychainPromptAfter, "oauth")
-		managedManager, managedRecord, managedErr = loadManagedOAuth(ctx)
+		stop := keychain.WarnWhileWaiting(logger, keychain.PromptAfter, "oauth")
+		managedManager, managedRecord, managedErr = loadManagedOAuth(ctx, creds, logger)
 		stop()
 		cancel()
 		switch {
@@ -124,7 +125,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 			oauthFallbackToken = xoxbToken
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		stop := warnWhileWaiting(logger, keychainPromptAfter, "browser")
+		stop := keychain.WarnWhileWaiting(logger, keychain.PromptAfter, "browser")
 		browserCredentials, loadErr := resolveBrowserStartupCredentials(ctx, account, oauthFallbackToken, xoxcToken, xoxdToken)
 		stop()
 		cancel()
@@ -145,7 +146,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXP token: %w", err)
 		}
-		ap, err := newProvider(transport, authProvider, logger)
+		ap, err := newProvider(transport, authProvider, creds, logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -177,7 +178,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 			zap.String("token_type", "xoxb"),
 		)
 
-		ap, err := newProvider(transport, authProvider, logger)
+		ap, err := newProvider(transport, authProvider, creds, logger)
 		if err != nil {
 			return nil, authFailure("check your Slack tokens", err)
 		}
@@ -189,7 +190,7 @@ func New(transport string, logger *zap.Logger) (*ApiProvider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create auth provider with XOXC/XOXD tokens: %w", err)
 		}
-		ap, err := newProvider(transport, authProvider, logger)
+		ap, err := newProvider(transport, authProvider, creds, logger)
 		if err != nil {
 			if oauthLoadErr != nil {
 				err = errors.Join(err, oauthLoadErr)
@@ -220,19 +221,18 @@ func authFailure(rejected string, err error) error {
 	return fmt.Errorf("authentication failed: %s: %w", rejected, err)
 }
 
-func newProvider(transport string, authProvider slackcreds.Credentials, logger *zap.Logger) (*ApiProvider, error) {
-	client, err := newMCPSlackClient(authProvider, logger)
+func newProvider(transport string, authProvider slackcreds.Credentials, creds CredentialConfig, logger *zap.Logger) (*ApiProvider, error) {
+	client, err := newMCPSlackClient(authProvider, creds.Demo(), logger)
 	if err != nil {
 		return nil, err
 	}
 
 	teamID := client.AuthResponse().TeamID
-	if IsDemoCredentials() {
+	if creds.Demo() {
 		teamID = "demo"
 	}
-	cacheDir, err := userCacheDir()
+	cacheDir, err := cachedir.Dir()
 	if err != nil {
-		cacheDir = "."
 		logger.Warn("User cache directory unavailable; caching in the working directory", zap.Error(err))
 	}
 	usersCache := os.Getenv("SLACK_MCP_USERS_CACHE")
@@ -246,6 +246,7 @@ func newProvider(transport string, authProvider slackcreds.Credentials, logger *
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ap := &ApiProvider{
+		creds:     creds,
 		transport: transport,
 		client:    client,
 		logger:    logger,

@@ -18,8 +18,9 @@ import (
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
-	"github.com/slack-go/slack"
+	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
+	"github.com/korotovsky/slack-mcp-server/pkg/transport"
+	"go.uber.org/zap"
 )
 
 const (
@@ -103,7 +104,11 @@ func runLogin(args []string) error {
 		return errors.New("expected Slack team and user IDs are required; use --team and --user")
 	}
 
-	authorization, err := provider.NewPKCEAuthorization(options.redirectURI)
+	httpClient, err := transport.ProvideHTTPClient(nil, zap.NewNop())
+	if err != nil {
+		return err
+	}
+	authorization, err := oauthcred.NewPKCE(options.redirectURI)
 	if err != nil {
 		return err
 	}
@@ -153,12 +158,12 @@ func runLogin(args []string) error {
 			result.done <- err
 			return err
 		}
-		record, err := provider.ExchangeOAuthAuthorizationCode(
-			ctx, http.DefaultClient, options.clientID, options.clientSecret, result.code,
+		record, err := oauthcred.ExchangeCode(
+			ctx, httpClient, options.clientID, options.clientSecret, result.code,
 			result.state, options.redirectURI, authorization, time.Now().UTC(),
 		)
 		if err == nil {
-			err = saveAuthorizedCredential(ctx, options, scopes, record)
+			err = saveAuthorizedCredential(ctx, httpClient, options, scopes, record)
 		}
 		result.done <- err
 		if err != nil {
@@ -191,7 +196,7 @@ func parseLoginOptions(args []string) (loginOptions, error) {
 	return options, nil
 }
 
-func buildAuthorizationURL(clientID, teamID string, scopes []string, authorization *provider.PKCEAuthorization) (string, error) {
+func buildAuthorizationURL(clientID, teamID string, scopes []string, authorization *oauthcred.PKCE) (string, error) {
 	if authorization == nil {
 		return "", errors.New("PKCE authorization is required")
 	}
@@ -269,9 +274,11 @@ func callbackServer(results chan<- callbackResult, expectedState string) *http.S
 	return &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 }
 
-func saveAuthorizedCredential(ctx context.Context, options loginOptions, scopes []string, record provider.OAuthTokenRecord) error {
-	return provider.WithOAuthCredentialLock(ctx, func() error {
-		store, err := provider.NewKeychainCredentialStore(options.account)
+func saveAuthorizedCredential(ctx context.Context, httpClient *http.Client, options loginOptions, scopes []string, record oauthcred.Record) error {
+	want := oauthcred.Identity{TeamID: options.teamID, UserID: options.userID}
+	validateToken := want.Validator(oauthcred.SlackAuthTest(httpClient))
+	return oauthcred.WithLock(ctx, func() error {
+		store, err := oauthcred.NewKeychainStore(options.account)
 		if err != nil {
 			return err
 		}
@@ -282,21 +289,17 @@ func saveAuthorizedCredential(ctx context.Context, options loginOptions, scopes 
 				return errors.New("OAuth credential already exists; use --replace to reauthorize")
 			}
 			expectedGeneration = current.Generation
-		} else if !errors.Is(loadErr, provider.ErrCredentialNotFound) {
+		} else if !errors.Is(loadErr, oauthcred.ErrNotFound) {
 			return loadErr
 		}
 		record.Generation = expectedGeneration + 1
-		return provider.CommitAuthorizedOAuthCredential(ctx, store, expectedGeneration, record, scopes,
-			func(ctx context.Context, candidate provider.OAuthTokenRecord) error {
-				identity, err := slack.New(candidate.AccessToken).AuthTestContext(ctx)
-				if err != nil {
+		return oauthcred.CommitAuthorized(ctx, store, expectedGeneration, record, scopes,
+			func(ctx context.Context, candidate oauthcred.Record) error {
+				if err := validateToken(ctx, candidate); err != nil {
 					return err
 				}
-				if identity.TeamID != options.teamID || identity.UserID != options.userID {
-					return fmt.Errorf("expected team %s user %s; received team %s user %s", options.teamID, options.userID, identity.TeamID, identity.UserID)
-				}
-				if candidate.TeamID != identity.TeamID || candidate.UserID != identity.UserID {
-					return errors.New("OAuth response identity does not match auth.test")
+				if err := want.Match(candidate.Identity()); err != nil {
+					return fmt.Errorf("OAuth response does not match auth.test: %w", err)
 				}
 				return nil
 			})
@@ -309,7 +312,7 @@ func runStatus(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	store, err := provider.NewKeychainCredentialStore(*account)
+	store, err := oauthcred.NewKeychainStore(*account)
 	if err != nil {
 		return err
 	}
@@ -343,11 +346,11 @@ func runLogout(args []string) error {
 	if !*yes {
 		return errors.New("logout deletes the local OAuth credential; rerun with --yes")
 	}
-	store, err := provider.NewKeychainCredentialStore(*account)
+	store, err := oauthcred.NewKeychainStore(*account)
 	if err != nil {
 		return err
 	}
-	if err := provider.WithOAuthCredentialLock(context.Background(), func() error { return store.Delete(context.Background()) }); err != nil {
+	if err := oauthcred.WithLock(context.Background(), func() error { return store.Delete(context.Background()) }); err != nil {
 		return err
 	}
 	fmt.Println("Local OAuth credential deleted. Slack app authorization remains installed until revoked in Slack.")
