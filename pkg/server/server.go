@@ -53,13 +53,14 @@ func NewMCPServer(provider *provider.ApiProvider, transport string, logger *zap.
 	}
 
 	ms := &MCPServer{server: s, logger: logger}
-	families := buildHandlers(provider, logger, enabledTools, settings)
+	availability := handler.NewAvailability(enabledTools, provider)
+	families := buildHandlers(provider, logger, availability, settings, slices.Contains(enabledTools, capability.ConversationsAddMessage))
 	for _, def := range families.tools {
 		spec, ok := capability.Lookup(def.Name)
 		if !ok {
 			panic(fmt.Sprintf("tool %q is not in the capability table", def.Name))
 		}
-		if !slices.Contains(enabledTools, def.Name) || !provider.Satisfies(spec.Requires) {
+		if !availability.Served(spec) {
 			continue
 		}
 		tool := mcpTool(spec, def.Options)

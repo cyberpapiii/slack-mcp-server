@@ -1,10 +1,7 @@
 package server
 
 import (
-	"slices"
-
 	"github.com/korotovsky/slack-mcp-server/pkg/approval"
-	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/handler"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"go.uber.org/zap"
@@ -18,15 +15,15 @@ type handlerSet struct {
 
 // buildHandlers wires every handler family to the provider and collects the
 // tools they serve.
-func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, enabledTools []string, settings handler.Settings) handlerSet {
+func buildHandlers(api *provider.ApiProvider, logger *zap.Logger, availability handler.Availability, settings handler.Settings, sendEnabled bool) handlerSet {
 	approvals := approval.NewStore()
-	conversations := handler.NewConversationsHandler(api, logger, settings, slices.Contains(enabledTools, capability.ConversationsAddMessage))
+	conversations := handler.NewConversationsHandler(api, logger, settings, sendEnabled)
 	channels := handler.NewChannelsHandler(api, logger)
 	set := handlerSet{conversations: conversations, channels: channels}
 	for _, tools := range [][]handler.ToolDef{
 		conversations.Tools(),
 		channels.Tools(),
-		handler.NewAuthStatusHandler(api, enabledTools, logger).Tools(),
+		handler.NewAuthStatusHandler(api, availability).Tools(),
 		handler.NewUsergroupsHandler(api, logger).Tools(),
 		handler.NewSavedHandler(api, logger, settings).Tools(),
 		handler.NewActivityHandler(api, logger, settings).Tools(),
