@@ -1,6 +1,10 @@
 package provider
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/slack-go/slack"
+)
 
 // The sentinels a handler maps to a tool error code (handler.TypeError).
 // ErrNotCached lives with the lookups in lookup.go.
@@ -27,3 +31,14 @@ var (
 	ErrChannelArchiveConflict = errors.New("channel changed after archive preparation")
 	ErrChannelAlreadyArchived = errors.New("channel is already archived")
 )
+
+// errMessageNotFound is GetMessage's answer when Slack has no message at the
+// timestamp: Slack's own code, which handler.TypeError maps to not_found.
+var errMessageNotFound = slack.SlackErrorResponse{Err: "message_not_found"}
+
+// IsMessageNotFound reports whether err says there is no message at the
+// timestamp asked for.
+func IsMessageNotFound(err error) bool {
+	var slackErr slack.SlackErrorResponse
+	return errors.As(err, &slackErr) && slackErr.Err == errMessageNotFound.Err
+}

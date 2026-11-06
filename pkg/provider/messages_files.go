@@ -120,21 +120,14 @@ func (p *MessageFilesProvider) Delete(ctx context.Context, channelID, timestamp 
 }
 
 // GetMessage returns the message at channelID and timestamp, or
-// message_not_found when Slack has none there.
+// message_not_found (IsMessageNotFound) when Slack has none there.
 func (p *MessageFilesProvider) GetMessage(ctx context.Context, channelID, timestamp string) (slack.Message, error) {
-	message, err := fetchMessage(ctx, p.client, channelID, timestamp)
-	if err != nil {
-		return slack.Message{}, err
-	}
-	if message == nil {
-		return slack.Message{}, slack.SlackErrorResponse{Err: "message_not_found"}
-	}
-	return *message, nil
+	return fetchMessage(ctx, p.client, channelID, timestamp)
 }
 
-// GetMessage fetches one message by channel and timestamp; nil means Slack
-// has no message at that timestamp.
-func (c *WebClient) GetMessage(ctx context.Context, channelID, timestamp string) (*slack.Message, error) {
+// GetMessage returns the message at channelID and timestamp, or
+// message_not_found (IsMessageNotFound) when Slack has none there.
+func (c *WebClient) GetMessage(ctx context.Context, channelID, timestamp string) (slack.Message, error) {
 	return fetchMessage(ctx, c, channelID, timestamp)
 }
 
@@ -147,8 +140,8 @@ type repliesReader interface {
 // only channels:history. Slack can answer with a different message than the
 // one asked for (the thread parent, or the next message after a timestamp
 // that matches nothing), so the first message counts only when its timestamp
-// matches; otherwise the result is nil.
-func fetchMessage(ctx context.Context, client repliesReader, channelID, timestamp string) (*slack.Message, error) {
+// matches; otherwise the message is not found.
+func fetchMessage(ctx context.Context, client repliesReader, channelID, timestamp string) (slack.Message, error) {
 	msgs, _, _, err := client.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
 		ChannelID: channelID,
 		Timestamp: timestamp,
@@ -156,10 +149,10 @@ func fetchMessage(ctx context.Context, client repliesReader, channelID, timestam
 		Inclusive: true,
 	})
 	if err != nil {
-		return nil, err
+		return slack.Message{}, err
 	}
 	if len(msgs) == 0 || msgs[0].Timestamp != timestamp {
-		return nil, nil
+		return slack.Message{}, errMessageNotFound
 	}
-	return &msgs[0], nil
+	return msgs[0], nil
 }
