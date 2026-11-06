@@ -18,6 +18,8 @@ var allowlistedToolArgs = map[string]map[string]any{
 	capability.ConversationsAddMessage: {"channel_id": "C123", "text": "hi"},
 	capability.ReactionsAdd:            {"channel_id": "C123", "timestamp": "1712345678.000100", "emoji": "+1"},
 	capability.ReactionsRemove:         {"channel_id": "C123", "timestamp": "1712345678.000100", "emoji": "+1"},
+	capability.PinsAdd:                 {"channel_id": "C123", "timestamp": "1712345678.000100"},
+	capability.PinsRemove:              {"channel_id": "C123", "timestamp": "1712345678.000100"},
 	capability.FilesUpload:             {"channel_id": "C123", "filename": "a.txt", "content": "hello"},
 	capability.MessagesSchedule:        {"channel_id": "C123", "text": "hi", "post_at": strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)},
 	capability.MessagesUpdate:          {"channel_id": "C123", "text": "hi", "timestamp": "1712345678.000100"},

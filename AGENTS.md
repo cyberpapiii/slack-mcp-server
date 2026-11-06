@@ -47,7 +47,7 @@ The `sse` and `http` transports refuse to start unless `SLACK_MCP_API_KEY` is se
 
 ## Tool surface
 
-Canonical tool names: `capability.Names()` (`pkg/capability/catalog.go`), the one table every registered tool is built from (title, MCP hints, preset membership, credential requirement `Requires`, registration phase `CacheReady`, channel allowlist variable, OAuth scopes). Each handler family declares its tools' schemas and handlers next to the handlers (`Tools() []handler.ToolDef`); `pkg/server/handlers.go` builds the families and `pkg/server/server.go` registers what is served. There are **71** tools. The README "Tools" section lists them by family; `scripts/toolslist-snapshot.sh [preset] [out.json]` dumps the live `tools/list` for a preset. This fork is self-contained and does not use Slack's official MCP.
+Canonical tool names: `capability.Names()` (`pkg/capability/catalog.go`), the one table every registered tool is built from (title, MCP hints, preset membership, credential requirement `Requires`, registration phase `CacheReady`, channel allowlist variable, OAuth scopes). Each handler family declares its tools' schemas and handlers next to the handlers (`Tools() []handler.ToolDef`); `pkg/server/handlers.go` builds the families and `pkg/server/server.go` registers what is served. There are **73** tools. The README "Tools" section lists them by family; `scripts/toolslist-snapshot.sh [preset] [out.json]` dumps the live `tools/list` for a preset. This fork is self-contained and does not use Slack's official MCP.
 
 Browser-session tools (`capability.BrowserNames()`, rows with `Requires: BrowserSession`; registered only when xoxc/xoxd is configured, and wrapped in one session check, `pkg/server/browser_gate.go`, that answers `browser_session_required` while the session is degraded): `activity_mark_read`, `activity_unreads`, `conversations_unreads`, `drafts_*`, `saved_*`. Cache-dependent tools (`CacheReady`, registered after warm-up): `channels_list`, `channels_me`, `channels_starred`, `conversations_unreads`, `activity_unreads`, `activity_mark_read`.
 
@@ -79,7 +79,7 @@ Three write families additionally take a channel allow/block list (the catalog's
 
 | Env var | Scopes | Value |
 |---------|--------|-------|
-| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message`, `messages_schedule`, `messages_update`, `messages_delete` | empty or `true`/`1`/`yes` = every channel; `C1,C2` = only those; `!C1,!C2` = all except those |
+| `SLACK_MCP_ADD_MESSAGE_TOOL` | `conversations_add_message`, `messages_schedule`, `messages_update`, `messages_delete`, `pins_add`, `pins_remove` | empty or `true`/`1`/`yes` = every channel; `C1,C2` = only those; `!C1,!C2` = all except those |
 | `SLACK_MCP_REACTION_TOOL` | `reactions_add`, `reactions_remove` | same shape |
 | `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL` | `channels_rename`, `channels_set_topic`, `channels_set_purpose`, `channels_archive` | same shape |
 

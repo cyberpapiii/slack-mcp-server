@@ -120,6 +120,14 @@ func (c *WebClient) RemoveReactionContext(ctx context.Context, name string, item
 	return c.resolve().RemoveReactionContext(ctx, name, item)
 }
 
+func (c *WebClient) AddPinContext(ctx context.Context, channelID string, item slack.ItemRef) error {
+	return c.resolve().AddPinContext(ctx, channelID, item)
+}
+
+func (c *WebClient) RemovePinContext(ctx context.Context, channelID string, item slack.ItemRef) error {
+	return c.resolve().RemovePinContext(ctx, channelID, item)
+}
+
 type searchPage struct {
 	messages *slack.SearchMessages
 	files    *slack.SearchFiles

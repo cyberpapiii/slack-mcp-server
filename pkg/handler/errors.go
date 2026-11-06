@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
@@ -203,4 +204,10 @@ func TypeError(err error, mutationAttempted bool) error {
 
 func outcomeUnknown(err error) *ToolError {
 	return &ToolError{Code: codeOutcomeUnknown, Message: "Slack may have applied the change; read current Slack state before another attempt", Cause: err}
+}
+
+// isSlackError reports whether err is Slack answering with one of codes.
+func isSlackError(err error, codes ...string) bool {
+	var slackError slack.SlackErrorResponse
+	return errors.As(err, &slackError) && slices.Contains(codes, slackError.Err)
 }

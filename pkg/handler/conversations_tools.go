@@ -150,6 +150,16 @@ func (ch *ConversationsHandler) Tools() []ToolDef {
 				mcp.Description("Emoji name without colons, e.g. 'thumbsup', 'heart', 'rocket'."),
 			),
 		}},
+		{Name: capability.PinsAdd, Run: ch.PinsAddHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Pin a message to its channel. Pinning a message that is already pinned succeeds."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelID)),
+			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Timestamp of the message to pin, in format 1234567890.123456.")),
+		}},
+		{Name: capability.PinsRemove, Run: ch.PinsRemoveHandler, Options: []mcp.ToolOption{
+			mcp.WithDescription("Unpin a message from its channel. Unpinning a message that is not pinned succeeds."),
+			mcp.WithString("channel_id", mcp.Required(), mcp.Description(descChannelID)),
+			mcp.WithString("timestamp", mcp.Required(), mcp.Description("Timestamp of the message to unpin, in format 1234567890.123456.")),
+		}},
 		{Name: capability.AttachmentGetData, Run: ch.FilesGetHandler, Options: []mcp.ToolOption{
 			mcp.WithDescription("Download an attachment's content by file ID. Images come back as viewable image content, so use this to read a screenshot rather than guessing at it from the message text. Text files come back as readable text; other types come back as base64. Maximum file size is " + megabytes(maxFileSizeBytes) + "."),
 			mcp.WithString("file_id",

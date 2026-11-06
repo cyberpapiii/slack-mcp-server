@@ -162,6 +162,32 @@ func (ch *ConversationsHandler) ReactionsRemoveHandler(ctx context.Context, requ
 // ReactionsGetHandler returns detailed reaction data (including user IDs) for a specific message.
 // Uses conversations.replies which works for top-level messages, thread parents, and thread replies
 // alike. Requires only channels:history scope, no additional reactions:read permission needed.
+// pins.add and pins.remove take the channel as their own argument and read
+// only the timestamp from the item.
+func (ch *ConversationsHandler) PinsAddHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	channel, timestamp, err := ch.messageTarget(ctx, capability.PinsAdd, request)
+	if err != nil {
+		return nil, err
+	}
+	if err := ch.api.AddPinContext(ctx, channel, slack.ItemRef{Timestamp: timestamp}); err != nil && !isSlackError(err, "already_pinned") {
+		return nil, err
+	}
+	fallback := fmt.Sprintf("Pinned message %s in channel %s", timestamp, channel)
+	return NewStructuredResult(ActionData{Action: "pin", Status: "pinned", ChannelID: channel, MessageID: timestamp}, slackMeta(), fallback), nil
+}
+
+func (ch *ConversationsHandler) PinsRemoveHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	channel, timestamp, err := ch.messageTarget(ctx, capability.PinsRemove, request)
+	if err != nil {
+		return nil, err
+	}
+	if err := ch.api.RemovePinContext(ctx, channel, slack.ItemRef{Timestamp: timestamp}); err != nil && !isSlackError(err, "no_pin") {
+		return nil, err
+	}
+	fallback := fmt.Sprintf("Unpinned message %s in channel %s", timestamp, channel)
+	return NewStructuredResult(ActionData{Action: "unpin", Status: "unpinned", ChannelID: channel, MessageID: timestamp}, slackMeta(), fallback), nil
+}
+
 func (ch *ConversationsHandler) ReactionsGetHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 
 	rawChannel := request.GetString("channel_id", "")
@@ -301,32 +327,34 @@ func invalidBlocks(err error) error {
 }
 
 func (ch *ConversationsHandler) parseParamsToolReaction(ctx context.Context, tool string, request mcp.CallToolRequest) (*addReactionParams, error) {
-	channel := request.GetString("channel_id", "")
-	if channel == "" {
-		return nil, invalidArguments("channel_id is required")
-	}
-	channel, err := ch.messages.channelID(ctx, channel)
+	channel, timestamp, err := ch.messageTarget(ctx, tool, request)
 	if err != nil {
-		ch.logger.Debug("Channel not found", zap.String("channel", channel), zap.Error(err))
 		return nil, err
 	}
-	if err := ch.settings.requireChannel(tool, channel); err != nil {
-		return nil, err
-	}
-
-	timestamp := request.GetString("timestamp", "")
-	if timestamp == "" {
-		return nil, invalidArguments("timestamp is required")
-	}
-
 	emoji := strings.Trim(request.GetString("emoji", ""), ":")
 	if emoji == "" {
 		return nil, invalidArguments("emoji is required")
 	}
+	return &addReactionParams{channel: channel, timestamp: timestamp, emoji: emoji}, nil
+}
 
-	return &addReactionParams{
-		channel:   channel,
-		timestamp: timestamp,
-		emoji:     emoji,
-	}, nil
+// messageTarget reads the channel_id and timestamp of the message a write
+// acts on, resolving a channel name and checking the tool's allowlist.
+func (ch *ConversationsHandler) messageTarget(ctx context.Context, tool string, request mcp.CallToolRequest) (string, string, error) {
+	channel := request.GetString("channel_id", "")
+	if channel == "" {
+		return "", "", invalidArguments("channel_id is required")
+	}
+	channel, err := ch.messages.channelID(ctx, channel)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ch.settings.requireChannel(tool, channel); err != nil {
+		return "", "", err
+	}
+	timestamp := request.GetString("timestamp", "")
+	if timestamp == "" {
+		return "", "", invalidArguments("timestamp is required")
+	}
+	return channel, timestamp, nil
 }

@@ -62,6 +62,8 @@ const (
 	ReactionsAdd                = "reactions_add"
 	ReactionsGet                = "reactions_get"
 	ReactionsRemove             = "reactions_remove"
+	PinsAdd                     = "pins_add"
+	PinsRemove                  = "pins_remove"
 	SavedAdd                    = "saved_add"
 	SavedClearCompleted         = "saved_clear_completed"
 	SavedDelete                 = "saved_delete"
@@ -189,6 +191,9 @@ var Tools = []Tool{
 
 	{Name: ReactionsAdd, ChannelAllowlist: ReactionAllowlist, Title: "Add Reaction", Scopes: []string{"reactions:write"}},
 	{Name: ReactionsRemove, ChannelAllowlist: ReactionAllowlist, Title: "Remove Reaction", Destructive: true, Scopes: []string{"reactions:write"}},
+	// Pins are message-scoped writes, so they share the posting allowlist.
+	{Name: PinsAdd, ChannelAllowlist: AddMessageAllowlist, Title: "Pin Message", Idempotent: true, Scopes: []string{"pins:write"}},
+	{Name: PinsRemove, ChannelAllowlist: AddMessageAllowlist, Title: "Unpin Message", Destructive: true, Idempotent: true, Scopes: []string{"pins:write"}},
 	// reactions_get reads the message through conversations.replies.
 	{Name: ReactionsGet, Title: "Get Message Reactions", ReadOnly: true, Scopes: []string{"channels:history", "groups:history", "im:history", "mpim:history"}},
 

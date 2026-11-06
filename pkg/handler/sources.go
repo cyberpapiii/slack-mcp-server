@@ -41,6 +41,8 @@ type ConversationsAPI interface {
 	PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error)
 	AddReactionContext(ctx context.Context, name string, item slack.ItemRef) error
 	RemoveReactionContext(ctx context.Context, name string, item slack.ItemRef) error
+	AddPinContext(ctx context.Context, channelID string, item slack.ItemRef) error
+	RemovePinContext(ctx context.Context, channelID string, item slack.ItemRef) error
 	GetFilesContext(ctx context.Context, params slack.GetFilesParameters) ([]slack.File, *slack.Paging, error)
 	GetFileInfoContext(ctx context.Context, fileID string, count, page int) (*slack.File, []slack.Comment, *slack.Paging, error)
 	GetFileContext(ctx context.Context, downloadURL string, writer io.Writer) error

@@ -59,7 +59,7 @@ User,Channel,Text,Time,MsgID,ThreadTs,Reactions,AttachmentIDs,Files
 
 Which tools register is decided only by `SLACK_MCP_ENABLED_TOOLS` (or the `SLACK_MCP_TOOL_PRESET` fallback). Three write families also honor a per-call channel allow/block list (`AGENTS.md` "Tool surface"):
 
-- `SLACK_MCP_ADD_MESSAGE_TOOL`: posting and message lifecycle
+- `SLACK_MCP_ADD_MESSAGE_TOOL`: posting, message lifecycle and pins
 - `SLACK_MCP_REACTION_TOOL`: reactions
 - `SLACK_MCP_CHANNEL_MANAGEMENT_TOOL`: rename/topic/purpose/archive
 
@@ -91,7 +91,7 @@ same Slack team and user, and cancellation leaves Slack unchanged.
 
 ## Preset: legacy full
 
-Power-user preset with all 71 tools implemented by this custom server. It does
+Power-user preset with all 73 tools implemented by this custom server. It does
 not use Slack's official MCP.
 
 ```toml

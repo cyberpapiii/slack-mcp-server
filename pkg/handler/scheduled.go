@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/korotovsky/slack-mcp-server/pkg/capability"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/slack-go/slack"
 )
 
 const (
@@ -167,8 +165,7 @@ func excerpt(text string, limit int) string {
 // scheduledError reads a missing scheduled message as a conflict: the message
 // was pending when listed and has since posted or been cancelled.
 func scheduledError(err error, mutationAttempted bool) error {
-	var slackError slack.SlackErrorResponse
-	if errors.As(err, &slackError) && (slackError.Err == "invalid_scheduled_message_id" || slackError.Err == "message_not_found") {
+	if isSlackError(err, "invalid_scheduled_message_id", "message_not_found") {
 		return &ToolError{Code: codeConflict, Message: "scheduled message is no longer pending", Cause: err}
 	}
 	return TypeError(err, mutationAttempted)
