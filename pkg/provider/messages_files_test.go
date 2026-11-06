@@ -57,7 +57,7 @@ func (f *fakeMessageFilesClient) GetConversationRepliesContext(context.Context, 
 func TestUnitMessageFilesUploadRunsExternalPipelineOnce(t *testing.T) {
 	client := &fakeMessageFilesClient{}
 	result, err := NewMessageFilesProvider(client).Upload(context.Background(), FileUploadRequest{
-		Filename: "proof.png", Title: "Proof", ContentType: "image/png", Data: []byte("png"), ChannelID: "C1",
+		Filename: "proof.png", Title: "Proof", Data: []byte("png"), ChannelID: "C1",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"get", "bytes", "complete"}, client.calls)

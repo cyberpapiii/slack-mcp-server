@@ -20,7 +20,7 @@ func (t *Time) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	*t = Time(Int2Time(ts))
+	*t = Time(time.UnixMicro(ts))
 	return nil
 }
 
@@ -65,9 +65,4 @@ func Int2TS(ts int64) string {
 	lo := s[l-cut:]
 	hi := s[:l-cut]
 	return hi + "." + lo
-}
-
-// Int2Time converts an int64 to a time.Time.
-func Int2Time(ts int64) time.Time {
-	return time.UnixMicro(ts)
 }

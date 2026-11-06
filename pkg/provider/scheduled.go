@@ -10,7 +10,7 @@ import (
 
 // ScheduledClient is the narrow Slack API surface needed for scheduled-message
 // lifecycle operations. Neither method retries mutations.
-var _ ScheduledClient = (*slack.Client)(nil)
+var _ ScheduledClient = (*WebClient)(nil)
 
 type ScheduledClient interface {
 	GetScheduledMessagesContext(context.Context, *slack.GetScheduledMessagesParameters) ([]slack.ScheduledMessage, string, error)

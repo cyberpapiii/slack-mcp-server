@@ -101,28 +101,38 @@ func TestCanvasProviderUsesPublicCanvasAPIsTruthfully(t *testing.T) {
 	assert.Equal(t, "replace", fake.edit.Changes[0].Operation)
 }
 
-type fakeSemanticSlack struct {
-	params SemanticSearchRequest
-	result SemanticSearchPage
-	err    error
-}
+func TestUnitSearchSemanticCallsAssistantSearchContext(t *testing.T) {
+	var form url.Values
+	body := `{"ok":true,"results":{"messages":[{"channel_id":"C1","message_ts":"1.2","content":"launch plan"}],"files":[{"file_id":"F1","uploader_user_id":"U1","content":"launch brief"}]},"response_metadata":{"next_cursor":"next"}}`
+	client := &MCPSlackClient{
+		authResponse: slack.AuthTestResponse{URL: "https://example.slack.com/"},
+		httpClient: &http.Client{Transport: oauthRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+			assert.Equal(t, "https://example.slack.com/api/assistant.search.context", request.URL.String())
+			require.NoError(t, request.ParseForm())
+			form = request.PostForm
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		})},
+	}
+	client.token.Store("xoxp-test")
+	web := &WebClient{client: client}
 
-func (f *fakeSemanticSlack) SearchSemanticContext(_ context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
-	f.params = params
-	return f.result, f.err
-}
-
-func TestSemanticSearchProviderMapsAssistantContext(t *testing.T) {
-	response := SemanticSearchPage{Items: []SemanticSearchItem{{Kind: "message", ChannelID: "C1", MessageTS: "1.2", Content: "launch plan", Permalink: "https://example.slack.com/archives/C1/p12"}, {Kind: "file", FileID: "F1", Content: "launch brief"}}, NextCursor: "next"}
-	fake := &fakeSemanticSlack{result: response}
-	service := NewSemanticSearchProvider(fake)
-
-	page, err := service.SearchSemantic(context.Background(), SemanticSearchRequest{Query: "launch", ContentTypes: []string{"messages", "files"}, Limit: 10})
+	page, err := web.SearchSemantic(context.Background(), SemanticSearchRequest{Query: "launch", ContentTypes: []string{"messages", "files"}, Limit: 10})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"messages", "files"}, fake.params.ContentTypes)
+	assert.Equal(t, []string{"messages", "files"}, form["content_types"])
+	assert.Equal(t, "10", form.Get("limit"))
+	assert.Equal(t, "xoxp-test", form.Get("token"))
 	assert.Equal(t, "next", page.NextCursor)
+	require.Len(t, page.Items, 2)
 	assert.Equal(t, "launch plan", page.Items[0].Content)
 	assert.Equal(t, "F1", page.Items[1].FileID)
+	assert.Equal(t, "U1", page.Items[1].AuthorUserID, "a file's uploader stands in for a missing author")
+
+	body = `{"ok":false,"error":"missing_scope"}`
+	_, err = web.SearchSemantic(context.Background(), SemanticSearchRequest{Query: "launch"})
+	var slackErr slack.SlackErrorResponse
+	require.ErrorAs(t, err, &slackErr)
+	assert.Equal(t, "missing_scope", slackErr.Err)
+	assert.ErrorContains(t, err, "Slack semantic search failed")
 }
 
 func TestUnitGetCanvasContentCallsSlackAndReportsItsError(t *testing.T) {

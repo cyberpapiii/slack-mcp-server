@@ -357,29 +357,23 @@ type SemanticSearchAPI interface {
 	SearchSemantic(context.Context, SemanticSearchRequest) (SemanticSearchPage, error)
 }
 
-type semanticSlackAPI interface {
-	SearchSemanticContext(context.Context, SemanticSearchRequest) (SemanticSearchPage, error)
+var _ SemanticSearchAPI = (*WebClient)(nil)
+
+// SemanticSearch is the Web API client; handlers take it as SemanticSearchAPI.
+func (ap *ApiProvider) SemanticSearch() SemanticSearchAPI {
+	return ap.WebAPI()
 }
 
-type SemanticSearchProvider struct{ client semanticSlackAPI }
-
-func NewSemanticSearchProvider(client semanticSlackAPI) *SemanticSearchProvider {
-	return &SemanticSearchProvider{client: client}
-}
-
-func (ap *ApiProvider) SemanticSearch() *SemanticSearchProvider {
-	return NewSemanticSearchProvider(ap.WebAPI())
-}
-
-func (p *SemanticSearchProvider) SearchSemantic(ctx context.Context, request SemanticSearchRequest) (SemanticSearchPage, error) {
-	page, err := p.client.SearchSemanticContext(ctx, request)
+// SearchSemantic calls assistant.search.context, which slack-go does not wrap.
+func (c *WebClient) SearchSemantic(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
+	page, err := c.searchSemantic(ctx, params)
 	if err != nil {
 		return SemanticSearchPage{}, wrapSlack("semantic search", err)
 	}
 	return page, nil
 }
 
-func (c *WebClient) SearchSemanticContext(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
+func (c *WebClient) searchSemantic(ctx context.Context, params SemanticSearchRequest) (SemanticSearchPage, error) {
 	form := url.Values{"query": {params.Query}}
 	for _, value := range params.ChannelTypes {
 		form.Add("channel_types", value)

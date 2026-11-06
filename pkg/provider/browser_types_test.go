@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge"
 	"github.com/korotovsky/slack-mcp-server/pkg/provider/edge/fasttime"
@@ -16,7 +17,7 @@ func TestUnitUnreadCountsFromEdge(t *testing.T) {
 	require.NoError(t, err)
 	counts := unreadCountsFromEdge(edge.ClientCountsResponse{
 		Channels: []edge.ChannelSnapshot{
-			{ID: "C1", HasUnreads: true, MentionCount: 2, LastRead: fasttime.Time(fasttime.Int2Time(i))},
+			{ID: "C1", HasUnreads: true, MentionCount: 2, LastRead: fasttime.Time(time.UnixMicro(i))},
 			{ID: "C2", HasUnreads: true},
 		},
 	})

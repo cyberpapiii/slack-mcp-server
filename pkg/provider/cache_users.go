@@ -66,7 +66,7 @@ func (ap *ApiProvider) RefreshUsers(ctx context.Context) error {
 
 // PatchUser merges one users.info result into the in-memory snapshot (no disk write).
 func (ap *ApiProvider) PatchUser(ctx context.Context, userID string) (*slack.User, error) {
-	fetched, err := ap.fetchUsersInfo(userID)
+	fetched, err := ap.fetchUsersInfo(ctx, userID)
 	if err != nil {
 		ap.logger.Warn("Failed to fetch user for cache patch", zap.String("user_id", userID), zap.Error(err))
 		return nil, err
@@ -101,7 +101,7 @@ func (ap *ApiProvider) PatchUsers(ctx context.Context, userIDs []string) error {
 	var fetchErr error
 	for start := 0; start < len(userIDs); start += usersInfoBatch {
 		end := min(start+usersInfoBatch, len(userIDs))
-		fetched, err := ap.fetchUsersInfo(userIDs[start:end]...)
+		fetched, err := ap.fetchUsersInfo(ctx, userIDs[start:end]...)
 		if err != nil {
 			ap.logger.Debug("Failed to fetch users for cache patch",
 				zap.Strings("user_ids", userIDs[start:end]), zap.Error(err))
@@ -126,8 +126,8 @@ func (ap *ApiProvider) PatchUsers(ctx context.Context, userIDs []string) error {
 	return fetchErr
 }
 
-func (ap *ApiProvider) fetchUsersInfo(userIDs ...string) ([]slack.User, error) {
-	usersInfo, err := ap.api.GetUsersInfo(userIDs...)
+func (ap *ApiProvider) fetchUsersInfo(ctx context.Context, userIDs ...string) ([]slack.User, error) {
+	usersInfo, err := ap.api.GetUsersInfoContext(ctx, userIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +282,7 @@ func (ap *ApiProvider) slackConnectUsers(ctx context.Context, listed []slack.Use
 	}
 	var users []slack.User
 	for start := 0; start < len(missing); start += usersInfoBatch {
-		batch, err := ap.fetchUsersInfo(missing[start:min(start+usersInfoBatch, len(missing))]...)
+		batch, err := ap.fetchUsersInfo(ctx, missing[start:min(start+usersInfoBatch, len(missing))]...)
 		if err != nil {
 			return nil, fmt.Errorf("users.info for shared DMs: %w", err)
 		}
@@ -299,7 +299,7 @@ func (ap *ApiProvider) ProvideUsersMap() *UsersCache {
 // browser session when that is preferred, and the local cache on OAuth.
 func (ap *ApiProvider) SearchUsers(ctx context.Context, query string, limit int) ([]slack.User, error) {
 	if ClassifyID(query) == IDUser {
-		users, err := ap.api.GetUsersInfo(query)
+		users, err := ap.api.GetUsersInfoContext(ctx, query)
 		if err != nil {
 			return nil, err
 		}

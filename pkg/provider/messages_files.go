@@ -26,7 +26,6 @@ type MessageFilesClient interface {
 type FileUploadRequest struct {
 	Filename       string
 	Title          string
-	ContentType    string
 	Data           []byte
 	ChannelID      string
 	InitialComment string

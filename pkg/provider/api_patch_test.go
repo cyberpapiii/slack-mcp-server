@@ -22,7 +22,7 @@ type mockSlackClient struct {
 	usersInfoErr    error
 }
 
-func (m *mockSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
+func (m *mockSlackClient) GetUsersInfoContext(_ context.Context, users ...string) (*[]slack.User, error) {
 	return m.usersInfoResult, m.usersInfoErr
 }
 
@@ -32,7 +32,7 @@ type perUserSlackClient struct {
 	SlackAPI
 }
 
-func (m *perUserSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
+func (m *perUserSlackClient) GetUsersInfoContext(_ context.Context, users ...string) (*[]slack.User, error) {
 	id := users[0]
 	result := []slack.User{{ID: id, Name: "user_" + id}}
 	return &result, nil

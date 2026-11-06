@@ -20,7 +20,7 @@ import (
 type SlackAPI interface {
 	AuthTest() (*slack.AuthTestResponse, error)
 	GetUsersContext(ctx context.Context, options ...slack.GetUsersOption) ([]slack.User, error)
-	GetUsersInfo(users ...string) (*[]slack.User, error)
+	GetUsersInfoContext(ctx context.Context, users ...string) (*[]slack.User, error)
 	MarkConversationContext(ctx context.Context, channel, ts string) error
 	LeaveConversationContext(ctx context.Context, channelID string) (bool, error)
 	GetConversationsContext(ctx context.Context, params *slack.GetConversationsParameters) ([]slack.Channel, string, error)
@@ -163,8 +163,8 @@ func (c *MCPSlackClient) GetUsersContext(ctx context.Context, options ...slack.G
 	return c.standardSlackClient().GetUsersContext(ctx, options...)
 }
 
-func (c *MCPSlackClient) GetUsersInfo(users ...string) (*[]slack.User, error) {
-	return c.standardSlackClient().GetUsersInfo(users...)
+func (c *MCPSlackClient) GetUsersInfoContext(ctx context.Context, users ...string) (*[]slack.User, error) {
+	return c.standardSlackClient().GetUsersInfoContext(ctx, users...)
 }
 
 func (c *MCPSlackClient) MarkConversationContext(ctx context.Context, channel, ts string) error {

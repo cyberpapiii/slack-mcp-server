@@ -72,7 +72,7 @@ func (c *connectBootClient) ClientUserBoot(context.Context) (*edge.ClientUserBoo
 	return c.boot, nil
 }
 
-func (c *connectBootClient) GetUsersInfo(ids ...string) (*[]slack.User, error) {
+func (c *connectBootClient) GetUsersInfoContext(_ context.Context, ids ...string) (*[]slack.User, error) {
 	c.calls = append(c.calls, ids)
 	users := make([]slack.User, len(ids))
 	for i, id := range ids {

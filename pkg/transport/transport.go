@@ -75,13 +75,10 @@ func newUTLSTransport(tlsConfig *utls.Config, clientHelloID utls.ClientHelloID, 
 		},
 		tlsConfig:     tlsConfig,
 		clientHelloID: clientHelloID,
-		http2Transport: &http2.Transport{
-			AllowHTTP: false,
-			DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
-				return nil, fmt.Errorf("DialTLS should not be called")
-			},
-		},
-		logger: logger,
+		// RoundTrip dials with uTLS and hands the conn to NewClientConn, so
+		// this transport never dials.
+		http2Transport: &http2.Transport{},
+		logger:         logger,
 	}
 }
 
