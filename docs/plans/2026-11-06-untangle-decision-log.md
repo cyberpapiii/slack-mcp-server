@@ -163,3 +163,30 @@ Observable changes so far, besides the Q1–Q3 decisions:
   5xx or `fatal_error`/`internal_error` after any write is `outcome_unknown`.
 - Edge errors and logs: edge logs reach the server log (they went to `slog.Default()`); HTTP status errors use
   slack-go's `StatusCodeError` text; one 64 MiB response cap; any 429 is retryable, including `Retry-After: 0`.
+
+### Merged W3 and W4 (2026-11-06)
+Observable changes:
+- `slack_auth_status.capability_availability` lists every tool (`available`, `not_enabled`,
+  `user_token_required`, `user_oauth_required`, `browser_session_required`, `browser_session_degraded`,
+  `available_after_cache_warmup`); the old feature keys are gone; "restart Plug" only for a browser-only
+  session, which has no re-probe.
+- The browser-session gate runs before argument checks for browser tools.
+- Drafts recover after a browser re-probe (bug); a session degraded at startup answers
+  `browser_session_required` until it recovers.
+- Enterprise edge failures are logged at Debug before the Web API fallback, and can mark the session degraded.
+- Q2 schema: history/replies `limit` default is `"50"`.
+- Q3: `reactions_get` and `users_search` return a header-only CSV when empty. Search rows go through the
+  history converter, but slack-go's `SearchMessage` carries no files or reactions, so those columns stay empty
+  for search rows (would need our own `search.messages` decode).
+- One cursor codec: `files_list` `#next_cursor` is base64 `page:N`; old bare-number cursors are rejected.
+- One time format (RFC 3339 UTC): `files_list Created`, `usergroups_* DateCreate/DateUpdate` (were local time),
+  `saved_list DateCreated/DateDue` (were `2006-01-02 15:04`).
+- `saved_list` fetches each item's one message like `conversations_get_message`; `max_messages_per_item` has no
+  effect (the old window only ever held the saved message).
+- Lookups: `<@U123>`, `@U123` and cached emails resolve; a name like `Uwe` is no longer taken for a user ID;
+  `files_list` resolves `#name`; unreads name group DMs `@mpdm-…` (was `#@mpdm-…`); DMs are labelled by the
+  peer's current username.
+- Drafts render through `text.BlocksToText` (links `text (url)`, `:emoji:`, bullets, blocks joined by `\n`).
+- `SLACK_MCP_ADD_MESSAGE_UNFURLING` reads `off`/mixed-case booleans as booleans, not as a one-domain allowlist.
+- IDs with a lowercase body after `C`/`U` are rejected locally.
+- The channels/users resources no longer call auth.test per read.
