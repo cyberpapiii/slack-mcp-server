@@ -25,8 +25,9 @@ func TestIsBrowserSessionAuthError(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, false},
-		{"invalid_auth", errors.New("invalid_auth"), true},
-		{"not_authed", errors.New("not_authed"), true},
+		{"invalid_auth", slack.SlackErrorResponse{Err: "invalid_auth"}, true},
+		{"not_authed", slack.SlackErrorResponse{Err: "not_authed"}, true},
+		{"code as plain text", errors.New("invalid_auth"), false},
 		{"edge api error code", slack.SlackErrorResponse{Err: "token_revoked"}, true},
 		{"wrapped edge api error", fmt.Errorf("saved.list: %w: [ERROR] detail", slack.SlackErrorResponse{Err: "invalid_auth"}), true},
 		{"edge api non-auth code", slack.SlackErrorResponse{Err: "ratelimited"}, false},

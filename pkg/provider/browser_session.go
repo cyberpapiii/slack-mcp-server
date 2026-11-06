@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"strings"
+	"runtime"
 	"time"
 
 	"github.com/korotovsky/slack-mcp-server/pkg/oauthcred"
@@ -38,14 +38,20 @@ end run`
 	return []string{"-e", script, reason}
 }
 
+// notifyBrowserDegradation posts a macOS notification; osascript exists
+// nowhere else.
 func notifyBrowserDegradation(reason string, logger *zap.Logger) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
 	if err := exec.Command("osascript", osascriptNotificationArgs(reason)...).Run(); err != nil {
 		logger.Debug("Failed to emit browser degradation notification", zap.Error(err))
 	}
 }
 
 // browserAuthErrorCodes are the Slack error codes that mean the xoxc/xoxd
-// session itself is dead, as opposed to a per-call failure.
+// session itself is dead, as opposed to a per-call failure. The edge client
+// reports them as slack.SlackErrorResponse.
 var browserAuthErrorCodes = map[string]bool{
 	"invalid_auth":     true,
 	"not_authed":       true,
@@ -66,7 +72,7 @@ func isBrowserSessionAuthError(err error) bool {
 	if errors.As(err, &slackErr) {
 		return browserAuthErrorCodes[slackErr.Err]
 	}
-	return browserAuthErrorCodes[strings.TrimSpace(err.Error())]
+	return false
 }
 
 // browserCall runs one browser-session (edge) request. It refuses when the
