@@ -19,6 +19,10 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// defaultPreset is the tool preset when neither an enabled-tools list nor
+// SLACK_MCP_TOOL_PRESET names one.
+const defaultPreset = "daily-power"
+
 var defaultSseHost = "127.0.0.1"
 var defaultSsePort = 13080
 
@@ -176,7 +180,7 @@ func resolveEnabledTools(explicit, preset string) ([]string, error) {
 		return tools, nil
 	}
 	if preset == "" {
-		preset = "daily-power"
+		preset = defaultPreset
 	}
 	return capability.Preset(preset)
 }
