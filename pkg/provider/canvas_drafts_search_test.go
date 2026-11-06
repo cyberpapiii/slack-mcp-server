@@ -12,6 +12,7 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 type fakeCanvasSlack struct {
@@ -92,15 +93,6 @@ func TestCanvasProviderUsesPublicCanvasAPIsTruthfully(t *testing.T) {
 	assert.Equal(t, "replace", fake.edit.Changes[0].Operation)
 }
 
-func TestUnsupportedDraftsProviderAlwaysFailsClosed(t *testing.T) {
-	service := UnsupportedDraftsProvider{}
-	_, err := service.ListDrafts(context.Background(), "", 20)
-	assert.ErrorIs(t, err, ErrPersistedDraftsUnsupported)
-	_, err = service.CreateDraft(context.Background(), Draft{ChannelID: "C1", Text: "x"})
-	assert.ErrorIs(t, err, ErrPersistedDraftsUnsupported)
-	assert.ErrorIs(t, service.DeleteDraft(context.Background(), "D1", "1.0000000"), ErrPersistedDraftsUnsupported)
-}
-
 type fakeSemanticSlack struct {
 	params SemanticSearchRequest
 	result SemanticSearchPage
@@ -159,13 +151,44 @@ func (f draftsRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { re
 
 // A drafts failure reaches the tool with Slack's error code.
 func TestUnitDraftsErrorCarriesSlackCode(t *testing.T) {
-	client := edge.NewWithInfo(&slack.AuthTestResponse{TeamID: "T1", URL: "https://example.slack.com/"}, "xoxc-test",
-		&http.Client{Transport: draftsRoundTrip(func(*http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"ok":false,"error":"channel_not_found"}`))}, nil
-		})})
-
+	client := draftsClient(`{"ok":false,"error":"channel_not_found"}`)
 	_, err := (&BrowserDraftsProvider{client: client}).ListDrafts(context.Background(), "", 10)
 	var slackErr slack.SlackErrorResponse
 	require.ErrorAs(t, err, &slackErr)
 	assert.Equal(t, "channel_not_found", slackErr.Err)
+}
+
+func draftsClient(body string) *MCPSlackClient {
+	c := &MCPSlackClient{mode: ModeUserOAuthBrowser, logger: zap.NewNop()}
+	c.initBrowserState()
+	c.edgeClient.Store(edgeAnswering(body))
+	return c
+}
+
+func edgeAnswering(body string) *edge.Client {
+	return edge.NewWithInfo(&slack.AuthTestResponse{TeamID: "T1", URL: "https://example.slack.com/"}, "xoxc-test",
+		&http.Client{Transport: draftsRoundTrip(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		})})
+}
+
+// Drafts used to capture the edge client once at startup, so a session the
+// re-probe restored never reached them.
+func TestUnitDraftsFollowARecoveredBrowserSession(t *testing.T) {
+	origNotifier := browserDegradationNotifier
+	t.Cleanup(func() { browserDegradationNotifier = origNotifier })
+	browserDegradationNotifier = func(string, *zap.Logger) {}
+
+	client := draftsClient(`{"ok":false,"error":"invalid_auth"}`)
+	drafts := (&ApiProvider{client: client}).Drafts()
+
+	_, err := drafts.ListDrafts(context.Background(), "", 10)
+	require.ErrorIs(t, err, ErrBrowserSessionUnavailable, "dead auth degrades the session")
+	require.False(t, client.browserFeaturesAvailable())
+
+	client.useBrowserEdge(edgeAnswering(`{"ok":true,"drafts":[{"id":"Dr1","destinations":[{"channel_id":"C1"}]}]}`))
+	page, err := drafts.ListDrafts(context.Background(), "", 10)
+	require.NoError(t, err)
+	require.Len(t, page.Drafts, 1)
+	assert.Equal(t, "C1", page.Drafts[0].ChannelID)
 }

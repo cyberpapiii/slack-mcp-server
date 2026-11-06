@@ -1,16 +1,13 @@
 package handler
 
 import (
-	"context"
 	"strings"
 	"testing"
 
-	"github.com/korotovsky/slack-mcp-server/pkg/provider"
 	"github.com/korotovsky/slack-mcp-server/pkg/text"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 const activityItemsHeader = "Type,Channel,MsgID,ThreadTs,UnreadCount,FeedTs,Key"
@@ -100,27 +97,6 @@ func TestUnitActivityMessagesTrailer(t *testing.T) {
 	assert.Equal(t, "#activity_items:", lines[4])
 	assert.Equal(t, activityItemsHeader, lines[5])
 	assert.Len(t, lines, 9, "trailer rows follow the section header; body ends with a newline")
-}
-
-func TestActivityHandlersFailFastWhenBrowserUnavailable(t *testing.T) {
-	h := NewActivityHandler(&provider.ApiProvider{}, zap.NewNop(), nil)
-	ctx := context.Background()
-
-	req := mcp.CallToolRequest{}
-	req.Params.Arguments = map[string]any{"limit": 10}
-	_, err := h.ActivityUnreadsHandler(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
-
-	req = mcp.CallToolRequest{}
-	req.Params.Arguments = map[string]any{
-		"key":     "thread_v2-C1-1.0",
-		"feed_ts": "1.0",
-		"type":    "thread_v2",
-	}
-	_, err = h.ActivityMarkReadHandler(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "browser session (xoxc/xoxd)")
 }
 
 func TestUnitActivityLimitStaysWithinWhatSlackAccepts(t *testing.T) {

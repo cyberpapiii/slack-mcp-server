@@ -55,10 +55,6 @@ func renderActivityItems(items []ActivityItem, channelName func(string) string, 
 }
 
 func (h *ActivityHandler) ActivityUnreadsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if !h.apiProvider.BrowserFeaturesAvailable() {
-		return nil, browserSessionRequired("activity_unreads", h.apiProvider.BrowserDegradedReason())
-	}
-
 	includeMessages := request.GetBool("include_messages", true)
 	maxMsgsPerThread := request.GetInt("max_messages_per_thread", 10)
 	if maxMsgsPerThread <= 0 {
@@ -213,10 +209,6 @@ func csvSection(name string, rows any) (string, error) {
 }
 
 func (h *ActivityHandler) ActivityMarkReadHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if !h.apiProvider.BrowserFeaturesAvailable() {
-		return nil, browserSessionRequired("activity_mark_read", h.apiProvider.BrowserDegradedReason())
-	}
-
 	key := request.GetString("key", "")
 	feedTs := request.GetString("feed_ts", "")
 	itemType := request.GetString("type", "")

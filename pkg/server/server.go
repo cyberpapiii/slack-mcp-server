@@ -82,11 +82,15 @@ func NewMCPServer(provider *provider.ApiProvider, logger *zap.Logger, enabledToo
 			continue
 		}
 		tool := mcpTool(spec, def.Options)
+		run := def.Run
+		if spec.Requires == capability.BrowserSession {
+			run = requireBrowserSession(provider, spec.Name, run)
+		}
 		if spec.CacheReady {
-			ms.cacheTools = append(ms.cacheTools, server.ServerTool{Tool: tool, Handler: def.Run})
+			ms.cacheTools = append(ms.cacheTools, server.ServerTool{Tool: tool, Handler: run})
 			continue
 		}
-		s.AddTool(tool, def.Run)
+		s.AddTool(tool, run)
 	}
 	ms.resources = []server.ServerResource{
 		{Resource: mcp.NewResource(
